@@ -1,0 +1,362 @@
+import {
+  createServer,
+  type IncomingMessage,
+  type RequestListener,
+  type Server,
+  type ServerResponse,
+} from "node:http";
+import { afterEach, describe, expect, it } from "vitest";
+import { createProcessingApplication } from "../src/application.js";
+import {
+  HttpContentProcessingCapability,
+  type ContentProcessingCapability,
+} from "../src/content-processing.js";
+
+type RunningServer = {
+  url: string;
+  close: () => Promise<void>;
+};
+
+const runningServers: RunningServer[] = [];
+const unusedContentProcessing: ContentProcessingCapability = {
+  process: async () => {
+    throw new Error("Content processing should not run for this request");
+  },
+};
+
+afterEach(async () => {
+  await Promise.all(runningServers.splice(0).map((server) => server.close()));
+});
+
+describe("business process execution", () => {
+  it("returns validated content from the direct business API process", async () => {
+    const businessApi = await startServer(async (request, response) => {
+      if (request.method !== "POST" || request.url !== "/process") {
+        response.writeHead(404).end();
+        return;
+      }
+
+      const requestBody = await readJson(request);
+      const expectedBody = { content: "launch offer" };
+      if (JSON.stringify(requestBody) !== JSON.stringify(expectedBody)) {
+        response.writeHead(422).end();
+        return;
+      }
+
+      writeJson(response, 200, { content: "  Refined campaign copy  " });
+    });
+    const processingService = await startHttpBackedService(businessApi.url);
+
+    const response = await executeProcess(processingService.url, {
+      process: "content-processing",
+      version: "v1",
+      input: { content: "  launch   offer  " },
+    });
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      runId: expect.stringMatching(/^[0-9a-f-]{36}$/),
+      process: "content-processing",
+      version: "v1",
+      status: "succeeded",
+      output: { content: "Refined campaign copy" },
+    });
+  });
+
+  it("rejects invalid business input with a stable error", async () => {
+    const processingService = await startProcessingService({
+      contentProcessing: unusedContentProcessing,
+    });
+
+    const response = await executeProcess(processingService.url, {
+      process: "content-processing",
+      version: "v1",
+      input: { content: "   \n  " },
+    });
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({
+      runId: expect.stringMatching(/^[0-9a-f-]{36}$/),
+      process: "content-processing",
+      version: "v1",
+      status: "failed",
+      error: {
+        code: "INVALID_INPUT",
+        message: "The process input is invalid",
+      },
+    });
+  });
+
+  it("treats malformed JSON as invalid input", async () => {
+    const processingService = await startProcessingService({
+      contentProcessing: unusedContentProcessing,
+    });
+
+    const response = await postExecution(processingService.url, "{");
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({
+      runId: expect.stringMatching(/^[0-9a-f-]{36}$/),
+      status: "failed",
+      error: {
+        code: "INVALID_INPUT",
+        message: "The process input is invalid",
+      },
+    });
+  });
+
+  it("rejects caller-supplied process mechanics", async () => {
+    const processingService = await startProcessingService({
+      contentProcessing: unusedContentProcessing,
+    });
+
+    const response = await executeProcess(processingService.url, {
+      process: "content-processing",
+      version: "v1",
+      input: { content: "launch offer" },
+      steps: [{ type: "api", url: "https://untrusted.example/process" }],
+    });
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({
+      runId: expect.stringMatching(/^[0-9a-f-]{36}$/),
+      process: "content-processing",
+      version: "v1",
+      status: "failed",
+      error: {
+        code: "INVALID_INPUT",
+        message: "The process input is invalid",
+      },
+    });
+  });
+
+  it("rejects an unknown process version without choosing a fallback", async () => {
+    const processingService = await startProcessingService({
+      contentProcessing: unusedContentProcessing,
+    });
+
+    const response = await executeProcess(processingService.url, {
+      process: "content-processing",
+      version: "v2",
+      input: { content: "launch offer" },
+    });
+
+    expect(response.status).toBe(404);
+    expect(await response.json()).toEqual({
+      runId: expect.stringMatching(/^[0-9a-f-]{36}$/),
+      process: "content-processing",
+      version: "v2",
+      status: "failed",
+      error: {
+        code: "PROCESS_NOT_FOUND",
+        message: "The requested process version is not registered",
+      },
+    });
+  });
+
+  it("maps a remote business API failure to a safe dependency error", async () => {
+    const businessApi = await startServer((_request, response) => {
+      writeJson(response, 503, {
+        internalMessage: "database credentials were rejected",
+      });
+    });
+    const processingService = await startHttpBackedService(businessApi.url);
+
+    const response = await executeProcess(processingService.url, {
+      process: "content-processing",
+      version: "v1",
+      input: { content: "launch offer" },
+    });
+
+    expect(response.status).toBe(502);
+    expect(await response.json()).toEqual({
+      runId: expect.stringMatching(/^[0-9a-f-]{36}$/),
+      process: "content-processing",
+      version: "v1",
+      status: "failed",
+      error: {
+        code: "DEPENDENCY_FAILURE",
+        message: "A required business service is unavailable",
+      },
+    });
+  });
+
+  it("maps an invalid business API response to a dependency error", async () => {
+    const businessApi = await startServer((_request, response) => {
+      writeJson(response, 200, { unexpected: "internal response" });
+    });
+    const processingService = await startHttpBackedService(businessApi.url);
+
+    const response = await executeProcess(processingService.url, {
+      process: "content-processing",
+      version: "v1",
+      input: { content: "launch offer" },
+    });
+
+    expect(response.status).toBe(502);
+    expect(await response.json()).toEqual({
+      runId: expect.stringMatching(/^[0-9a-f-]{36}$/),
+      process: "content-processing",
+      version: "v1",
+      status: "failed",
+      error: {
+        code: "DEPENDENCY_FAILURE",
+        message: "A required business service is unavailable",
+      },
+    });
+  });
+
+  it("times out a stalled business API dependency", async () => {
+    const businessApi = await startServer((request, response) => {
+      request.once("close", () => response.destroy());
+    });
+    const processingService = await startHttpBackedService(businessApi.url, {
+      businessApiTimeoutMs: 20,
+    });
+
+    const response = await executeProcess(
+      processingService.url,
+      {
+        process: "content-processing",
+        version: "v1",
+        input: { content: "launch offer" },
+      },
+      AbortSignal.timeout(1_000),
+    );
+
+    expect(response.status).toBe(502);
+    expect(await response.json()).toEqual({
+      runId: expect.stringMatching(/^[0-9a-f-]{36}$/),
+      process: "content-processing",
+      version: "v1",
+      status: "failed",
+      error: {
+        code: "DEPENDENCY_FAILURE",
+        message: "A required business service is unavailable",
+      },
+    });
+  });
+
+  it("enforces the total process time limit", async () => {
+    const neverCompletes: ContentProcessingCapability = {
+      process: () => new Promise(() => {}),
+    };
+    const processingService = await startProcessingService({
+      contentProcessing: neverCompletes,
+      processTimeoutMs: 20,
+    });
+
+    const response = await executeProcess(
+      processingService.url,
+      {
+        process: "content-processing",
+        version: "v1",
+        input: { content: "launch offer" },
+      },
+      AbortSignal.timeout(1_000),
+    );
+
+    expect(response.status).toBe(504);
+    expect(await response.json()).toEqual({
+      runId: expect.stringMatching(/^[0-9a-f-]{36}$/),
+      process: "content-processing",
+      version: "v1",
+      status: "failed",
+      error: {
+        code: "PROCESS_TIMEOUT",
+        message: "The process exceeded its time limit",
+      },
+    });
+  });
+});
+
+async function startHttpBackedService(
+  businessApiBaseUrl: string,
+  options: { businessApiTimeoutMs?: number; processTimeoutMs?: number } = {},
+): Promise<RunningServer> {
+  return startProcessingService({
+    contentProcessing: new HttpContentProcessingCapability({
+      baseUrl: businessApiBaseUrl,
+      timeoutMs: options.businessApiTimeoutMs,
+    }),
+    processTimeoutMs: options.processTimeoutMs,
+  });
+}
+
+async function startProcessingService(options: {
+  contentProcessing: ContentProcessingCapability;
+  processTimeoutMs?: number;
+}): Promise<RunningServer> {
+  const application = createProcessingApplication(options);
+  const service = await application.listen();
+  const runningService = { url: service.url, close: application.close };
+  runningServers.push(runningService);
+  return runningService;
+}
+
+async function executeProcess(
+  serviceUrl: string,
+  request: unknown,
+  signal?: AbortSignal,
+): Promise<Response> {
+  return postExecution(serviceUrl, JSON.stringify(request), signal);
+}
+
+async function postExecution(
+  serviceUrl: string,
+  body: string,
+  signal?: AbortSignal,
+): Promise<Response> {
+  return fetch(`${serviceUrl}/execute`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body,
+    signal,
+  });
+}
+
+async function startServer(handler: RequestListener): Promise<RunningServer> {
+  const server = createServer(handler);
+  const url = await listen(server);
+  const runningServer = { url, close: () => close(server) };
+  runningServers.push(runningServer);
+  return runningServer;
+}
+
+async function listen(server: Server): Promise<string> {
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", () => {
+      server.off("error", reject);
+      resolve();
+    });
+  });
+
+  const address = server.address();
+  if (!address || typeof address === "string") {
+    throw new Error("Expected an IP address for test server");
+  }
+  return `http://127.0.0.1:${address.port}`;
+}
+
+async function close(server: Server): Promise<void> {
+  if (!server.listening) return;
+  await new Promise<void>((resolve, reject) => {
+    server.close((error) => (error ? reject(error) : resolve()));
+  });
+}
+
+async function readJson(request: IncomingMessage): Promise<unknown> {
+  let body = "";
+  for await (const chunk of request) body += chunk;
+  return JSON.parse(body);
+}
+
+function writeJson(
+  response: ServerResponse,
+  status: number,
+  body: unknown,
+): void {
+  response.writeHead(status, { "content-type": "application/json" });
+  response.end(JSON.stringify(body));
+}
