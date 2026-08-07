@@ -1,4 +1,5 @@
 node_modules/
 dist/
 .env
+artifacts/skill-ab/
 .DS_Store

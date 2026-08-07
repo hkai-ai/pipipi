@@ -1,5 +1,8 @@
 import { createProcessingApplication } from "../src/application.js";
-import { PiContentOptimizationAgentRuntime } from "../src/agent-runtime.js";
+import {
+  parseOpenAIApiMode,
+  PiContentOptimizationAgentRuntime,
+} from "../src/agent-runtime.js";
 import { HttpContentProcessingCapability } from "../src/content-processing.js";
 
 const businessApiBaseUrl = process.env.BUSINESS_API_BASE_URL;
@@ -14,6 +17,8 @@ const application = createProcessingApplication({
   agentRuntime: new PiContentOptimizationAgentRuntime({
     provider: process.env.PI_PROVIDER,
     model: process.env.PI_MODEL,
+    openAIBaseUrl: process.env.OPENAI_BASE_URL,
+    openAIApiMode: parseOpenAIApiMode(process.env.OPENAI_API_MODE),
     agentDir: process.env.PI_AGENT_DIR,
     skillDirectory: process.env.PI_SKILL_DIRECTORY,
   }),

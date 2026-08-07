@@ -30,8 +30,12 @@ export type PiContentOptimizationAgentRuntimeOptions = {
   skillDirectory?: string;
   provider?: string;
   model?: string;
+  openAIBaseUrl?: string;
+  openAIApiMode?: OpenAIApiMode;
   modelRuntime?: ModelRuntime;
 };
+
+export type OpenAIApiMode = "responses" | "chat-completions";
 
 /**
  * The production Agent adapter. Conversation state is deliberately request-local;
@@ -45,6 +49,8 @@ export class PiContentOptimizationAgentRuntime
   readonly #skillDirectory: string;
   readonly #provider: string | undefined;
   readonly #model: string | undefined;
+  readonly #openAIBaseUrl: string | undefined;
+  readonly #openAIApiMode: OpenAIApiMode;
   readonly #providedModelRuntime: ModelRuntime | undefined;
   #modelRuntimePromise: Promise<ModelRuntime> | undefined;
 
@@ -61,6 +67,19 @@ export class PiContentOptimizationAgentRuntime
     );
     this.#provider = options.provider;
     this.#model = options.model;
+    this.#openAIBaseUrl = options.openAIBaseUrl?.trim() || undefined;
+    this.#openAIApiMode =
+      options.openAIApiMode ??
+      (this.#openAIBaseUrl ? "chat-completions" : "responses");
+    if (
+      this.#openAIBaseUrl &&
+      this.#openAIApiMode === "chat-completions" &&
+      (this.#provider !== "openai" || !this.#model)
+    ) {
+      throw new Error(
+        "OpenAI Chat Completions mode requires PI_PROVIDER=openai and PI_MODEL",
+      );
+    }
     this.#providedModelRuntime = options.modelRuntime;
   }
 
@@ -132,6 +151,9 @@ export class PiContentOptimizationAgentRuntime
       agentDir: this.#agentDir,
       modelRuntime,
       ...(selectedModel ? { model: selectedModel } : {}),
+      ...(selectedModel?.api === "openai-completions"
+        ? { thinkingLevel: "off" as const }
+        : {}),
       resourceLoader,
       sessionManager: SessionManager.inMemory(this.#cwd),
       customTools: [businessContentTool],
@@ -157,12 +179,74 @@ export class PiContentOptimizationAgentRuntime
   }
 
   #getModelRuntime(): Promise<ModelRuntime> {
-    if (this.#providedModelRuntime) {
-      return Promise.resolve(this.#providedModelRuntime);
-    }
-    this.#modelRuntimePromise ??= ModelRuntime.create();
+    this.#modelRuntimePromise ??= (
+      this.#providedModelRuntime
+        ? Promise.resolve(this.#providedModelRuntime)
+        : ModelRuntime.create()
+    ).then((runtime) => {
+      if (this.#openAIBaseUrl) {
+        configureOpenAIProvider(runtime, {
+          baseUrl: this.#openAIBaseUrl,
+          apiMode: this.#openAIApiMode,
+          modelId: this.#model,
+        });
+      }
+      return runtime;
+    });
     return this.#modelRuntimePromise;
   }
+}
+
+export function parseOpenAIApiMode(value: string | undefined): OpenAIApiMode {
+  if (value === undefined || value === "chat-completions") {
+    return "chat-completions";
+  }
+  if (value === "responses") return "responses";
+  throw new Error(
+    "OPENAI_API_MODE must be responses or chat-completions",
+  );
+}
+
+export function configureOpenAIProvider(
+  runtime: ModelRuntime,
+  options: {
+    baseUrl: string;
+    apiMode: OpenAIApiMode;
+    modelId: string | undefined;
+  },
+): void {
+  if (options.apiMode === "responses") {
+    runtime.registerProvider("openai", { baseUrl: options.baseUrl });
+    return;
+  }
+
+  const sourceModel = options.modelId
+    ? runtime.getModel("openai", options.modelId)
+    : undefined;
+  if (!sourceModel) {
+    throw new Error("The configured OpenAI model is unavailable");
+  }
+
+  runtime.registerProvider("openai", {
+    baseUrl: options.baseUrl,
+    api: "openai-completions",
+    models: [
+      {
+        id: sourceModel.id,
+        name: sourceModel.name,
+        api: "openai-completions",
+        reasoning: sourceModel.reasoning,
+        thinkingLevelMap: {
+          ...sourceModel.thinkingLevelMap,
+          off: "none",
+        },
+        input: [...sourceModel.input],
+        cost: sourceModel.cost,
+        contextWindow: sourceModel.contextWindow,
+        maxTokens: sourceModel.maxTokens,
+      },
+    ],
+  });
 }
 
 function parseLastAssistantJson(messages: readonly unknown[]): unknown {
@@ -172,7 +256,11 @@ function parseLastAssistantJson(messages: readonly unknown[]): unknown {
     message.stopReason === "error" ||
     message.stopReason === "aborted"
   ) {
-    throw new Error("The Agent did not produce a successful response");
+    throw new Error("The Agent did not produce a successful response", {
+      ...(message?.errorMessage
+        ? { cause: new Error(message.errorMessage) }
+        : {}),
+    });
   }
 
   const text = message.content
@@ -188,6 +276,7 @@ function isAssistantMessage(value: unknown): value is {
   role: "assistant";
   content: unknown[];
   stopReason?: string;
+  errorMessage?: string;
 } {
   return (
     typeof value === "object" &&

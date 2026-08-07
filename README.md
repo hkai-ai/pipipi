@@ -19,6 +19,14 @@
 npm install
 ```
 
+复制环境变量模板；`.env` 已被 Git 忽略：
+
+```bash
+cp .env.example .env
+```
+
+直接路径不需要模型凭证。使用 Agent 或运行 Skill A/B 实验前，在本地 `.env` 中填写 `OPENAI_API_KEY`，不要把真实 Key 提交到仓库。`npm run dev`、`npm start`、`npm run smoke:agent` 和 `npm run test:skill-ab` 会自动读取该文件。
+
 终端一启动演示业务 API：
 
 ```bash
@@ -81,7 +89,7 @@ npm run dev
 
 Pi Agent 每次请求创建独立的内存会话，显式加载 `.pi/skills/content-optimization/SKILL.md`，并且只允许调用 `process_business_content` 这一个参数受校验的 Tool。该 Tool 包装已有的 Business Capability；Shell、文件读写、代码编辑等 Coding Tools 不会暴露给 Agent。
 
-默认使用 Pi 已配置的模型和认证。需要固定模型时同时设置 `PI_PROVIDER` 和 `PI_MODEL`；也可以通过 `PI_AGENT_DIR` 指定 Pi 配置目录。只设置其中一个模型字段会在启动时被拒绝。
+默认使用 Pi 已配置的模型和认证。需要固定模型时同时设置 `PI_PROVIDER` 和 `PI_MODEL`；OpenAI 兼容网关通过 `OPENAI_BASE_URL` 配置。`OPENAI_API_MODE` 默认为兼容性更广的 `chat-completions`，实现了 `/v1/responses` 的网关可以改为 `responses`。也可以通过 `PI_AGENT_DIR` 指定 Pi 配置目录。只设置其中一个模型字段会在启动时被拒绝。
 
 真实模型冒烟验证不会进入默认测试套件。先运行演示业务 API，再执行：
 
@@ -90,6 +98,34 @@ BUSINESS_API_BASE_URL=http://127.0.0.1:4000 npm run smoke:agent
 ```
 
 该命令会临时启动 Agent 模式服务、完成一次真实 `/execute` 请求后退出，因此需要可用的 Pi 模型凭证，并可能产生模型费用。
+
+### Skill A/B 对比实验
+
+项目安装了 `obra/the-elements-of-style` 的 `writing-clearly-and-concisely` Skill，并提供三组可观测实验：确定性直接路径、使用透传控制 Skill 的 Agent、使用候选写作 Skill 的 Agent。三组使用相同输入和 Business API；实验会记录 API 实际收到的 Tool 入参，并检查候选 Skill 专属 canary、目标冗余短语、文本长度、Tool 调用次数和最终输出来源。
+
+不调用模型的实验预检：
+
+```bash
+SKILL_AB_DRY_RUN=1 npm run test:skill-ab
+```
+
+使用 OpenAI 运行完整实验：
+
+```bash
+npm run test:skill-ab
+```
+
+该命令从本地 `.env` 读取 `OPENAI_API_KEY`、`OPENAI_BASE_URL` 和 `OPENAI_API_MODE`。默认模型为 `openai/gpt-5.6-terra`；需要覆盖时，修改 `.env` 中的 `PI_PROVIDER` 和 `PI_MODEL`，或只为一次运行设置：
+
+```bash
+PI_PROVIDER=openai \
+PI_MODEL=gpt-5.6-terra \
+npm run test:skill-ab
+```
+
+不要把 API Key 写入仓库、Skill 或测试输入。实验只在临时目录生成两个 Skill 适配文件，结束后自动删除；第三方 Skill 原文件保持不变。输出中的 `passed: true` 表示所有结构和行为判据同时成立。
+
+每次真实实验都会把完整证据保存到 `artifacts/skill-ab/latest.json` 和便于阅读的 `artifacts/skill-ab/latest.md`。报告包含三组 Business API 实际入参、最终输出和逐项判据，但不包含 API Key 或 Base URL。dry-run 不会覆盖真实实验报告。
 
 ## 增加业务流程
 
