@@ -25,7 +25,7 @@ npm install
 cp .env.example .env
 ```
 
-直接路径不需要模型凭证。使用 Agent 或运行 Skill A/B 实验前，在本地 `.env` 中填写 `OPENAI_API_KEY`，不要把真实 Key 提交到仓库。`npm run dev`、`npm start`、`npm run smoke:agent` 和 `npm run test:skill-ab` 会自动读取该文件。
+直接路径不需要模型凭证。使用 Agent、运行 Skill A/B 实验或生成测试图片前，在本地 `.env` 中填写 `OPENAI_API_KEY`，不要把真实 Key 提交到仓库。`npm run dev`、`npm start`、`npm run smoke:agent`、`npm run test:skill-ab` 和 `npm run test:gpt-image-2` 会自动读取该文件。
 
 终端一启动演示业务 API：
 
@@ -127,6 +127,26 @@ npm run test:skill-ab
 
 每次真实实验都会把完整证据保存到 `artifacts/skill-ab/latest.json` 和便于阅读的 `artifacts/skill-ab/latest.md`。报告包含三组 Business API 实际入参、最终输出和逐项判据，但不包含 API Key 或 Base URL。dry-run 不会覆盖真实实验报告。
 
+### GPT Image 2 + 海报 Skill 测试
+
+项目安装了 [`LiamGvchi/gc-minimal-zine-poster`](https://github.com/LiamGvchi/gc-minimal-zine-poster) Skill。测试按固定流程执行：Pi Agent 读取 Skill 并把业务主题编译成四段图片 Prompt，代码随后直接调用 `POST /v1/images/generations`，最后保存图片和证据报告。业务输入不选择 Skill 或 API；测试流程在服务端绑定这些实现。
+
+运行真实测试：
+
+```bash
+npm run test:gpt-image-2
+```
+
+默认使用 `PI_PROVIDER` 和 `PI_MODEL` 完成 Prompt 编译，再用 `gpt-image-2` 生成一张低质量 1024×1696 PNG。`OPENAI_BASE_URL` 必须提供 Images API；`OPENAI_API_MODE` 只控制 Agent 阶段。图片生成可能产生费用，并可能运行两分钟。可在 `.env` 中覆盖 `GPT_IMAGE_THEME`、`GPT_IMAGE_SIZE`、`GPT_IMAGE_QUALITY`、`GPT_IMAGE_OUTPUT_FORMAT` 和两个超时值。
+
+测试检查 Skill 文件哈希、Prompt 来源、四段结构、六轴 recipe、3:5 画幅、留白、纸张与印刷细节、颜色锚点、实际 raster bytes 和图片尺寸。结果保存在：
+
+- `artifacts/gpt-image-2/latest.png`
+- `artifacts/gpt-image-2/latest.json`
+- `artifacts/gpt-image-2/latest.md`
+
+报告不会记录 API Key 或 Base URL。如果 Agent 阶段失败，测试仍会用代码内的基准 Prompt 调用 Images API，以便区分 Skill/Agent 故障和图片接口故障；这种情况的最终结果仍为 `FAIL`。
+
 ## 增加业务流程
 
 流程结构保持在 TypeScript 代码中，不使用 JSON 工作流语言：
@@ -147,6 +167,18 @@ npm run test:skill-ab
 - 超过流程总时限时返回 `PROCESS_TIMEOUT`。
 - Agent 执行或结构化输出失败时返回 `AGENT_FAILURE`，不会透传模型或认证错误。
 - 当前版本是同步最小实现，不包含鉴权、幂等、队列、持久化执行记录或通用编排器。
+
+## 部署与 Skill 边界
+
+当前服务是标准 Node.js 24 HTTP 进程，监听 `0.0.0.0:$PORT`，请求会话保存在内存中。最省事的部署方式是 Linux 容器：Cloud Run、Render、Railway、Fly.io、ECS/Fargate、Kubernetes 和普通 Docker 主机都适合。仓库还没有 Dockerfile；部署时需要执行 `npm run build`，再用 `npm start` 启动，并把 API Key 作为平台 Secret 注入。
+
+Cloud Run 最贴合当前形态，因为它直接提供 `PORT`、请求超时和自动伸缩。图片生成可能接近两分钟，应让平台请求超时高于 `PROCESS_TIMEOUT_MS` 和 `GPT_IMAGE_TIMEOUT_MS`。本地文件只适合测试；多实例或无状态平台应把图片与报告写入 R2、S3 或 GCS。
+
+Vercel Functions、Netlify Functions 和 Cloudflare Workers 不能直接运行当前入口。它使用 `node:http` 主动监听端口，并依赖本地 Skill 文件；部署到这些运行时需要改成平台 Handler，并重新处理文件资源和长请求。
+
+当前生产 Agent 只加载一个指令型 Skill，并只暴露 `process_business_content`。它适合单文件规则、分类、抽取、改写、Prompt 编译和一到数个受控 API Tool。海报测试证明约 13 KB、包含多组规则和选择轴的 Skill 可以稳定完成 Prompt 编译。
+
+以下能力还未进入生产 Agent：自动读取 Skill 的附加参考文件、运行 Skill 脚本、任意 Shell 或文件操作、MCP、持久记忆，以及看图后自动重试。完整执行海报 Skill 的视觉质量门，需要再增加受限的图片生成 Tool、视觉检查能力、最多一次重试和对象存储。不要为了兼容复杂 Skill 直接开放 Coding Tools；按业务流程逐个增加窄 Capability 更安全，也更容易测试。
 
 ## 验证
 

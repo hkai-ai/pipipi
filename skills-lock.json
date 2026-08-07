@@ -1,6 +1,12 @@
 {
   "version": 1,
   "skills": {
+    "gc-minimal-zine-poster-v0-1": {
+      "source": "LiamGvchi/gc-minimal-zine-poster",
+      "sourceType": "github",
+      "skillPath": "SKILL.md",
+      "computedHash": "d4e1199623ee4d98e948189308eedc601f83ab0ae923568c6e9240f89c783b8b"
+    },
     "writing-clearly-and-concisely": {
       "source": "obra/the-elements-of-style",
       "sourceType": "github",

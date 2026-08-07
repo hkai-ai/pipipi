@@ -2,4 +2,5 @@ node_modules/
 dist/
 .env
 artifacts/skill-ab/
+artifacts/gpt-image-2/
 .DS_Store
