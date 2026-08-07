@@ -4,12 +4,16 @@
 
 **Blocked by:** 01 — 跑通一个直接调用 API 的业务流程.
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] 第二个 Business Process 拥有独立的流程标识、明确版本、输入 Schema 和输出 Schema。
-- [ ] 第二个流程复用至少一个现有 Business Capability，同时保留自己的业务阶段和结果契约。
-- [ ] 同一执行接口可以正确路由到两个流程，且调用方不需要了解它们内部使用的 Adapter 或处理方式。
-- [ ] 两个流程的服务端配置相互隔离，一方的配置变化不会意外改变另一方行为。
-- [ ] 请求不存在的流程版本会返回结构化错误，不会自动漂移到所谓的最新版本。
-- [ ] 最高层执行测试分别验证两个流程的成功结果、Schema 差异、能力复用和版本路由，并确认第一张票的行为没有回归。
-- [ ] 项目说明展示如何按既有模式注册一个新的代码定义流程，但不引入 JSON 工作流语言或可视化编排器。
+- [x] 第二个 Business Process 拥有独立的流程标识、明确版本、输入 Schema 和输出 Schema。
+- [x] 第二个流程复用至少一个现有 Business Capability，同时保留自己的业务阶段和结果契约。
+- [x] 同一执行接口可以正确路由到两个流程，且调用方不需要了解它们内部使用的 Adapter 或处理方式。
+- [x] 两个流程的服务端配置相互隔离，一方的配置变化不会意外改变另一方行为。
+- [x] 请求不存在的流程版本会返回结构化错误，不会自动漂移到所谓的最新版本。
+- [x] 最高层执行测试分别验证两个流程的成功结果、Schema 差异、能力复用和版本路由，并确认第一张票的行为没有回归。
+- [x] 项目说明展示如何按既有模式注册一个新的代码定义流程，但不引入 JSON 工作流语言或可视化编排器。
+
+## Answer
+
+Implemented in commits `0a57b3d` and `2fd61ca`. The service now registers `titled-content-processing` / `v1` beside the original process. It has its own title/body input Schema, title/content output Schema, whitespace preparation, combination policy, and result assembly while reusing the same injected `ContentProcessingCapability`. Both processes route through `/execute`; external tests verify distinct contracts, configuration isolation, capability reuse, explicit version routing, and the original process regression suite. The README documents the code-defined registration pattern without adding a workflow DSL or visual editor.
