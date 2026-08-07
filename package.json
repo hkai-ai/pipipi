@@ -9,6 +9,7 @@
     "build": "tsc -p tsconfig.build.json",
     "start": "node --env-file-if-exists=.env dist/main.js",
     "smoke:agent": "node --env-file-if-exists=.env --import tsx examples/agent-smoke.ts",
+    "smoke:staging": "node --env-file-if-exists=.env --import tsx examples/staging-smoke.ts",
     "smoke:oss": "node --env-file-if-exists=.env --import tsx examples/aliyun-oss-smoke.ts",
     "test:skill-ab": "node --env-file-if-exists=.env --import tsx examples/skill-ab-experiment.ts",
     "test:gpt-image-2": "node --env-file-if-exists=.env --import tsx examples/gpt-image-2-skill-smoke.ts",

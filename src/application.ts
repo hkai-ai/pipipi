@@ -1,8 +1,6 @@
 import {
   createServer,
-  type IncomingMessage,
   type Server,
-  type ServerResponse,
 } from "node:http";
 import {
   createContentProcessingProcess,
@@ -14,9 +12,11 @@ import type { ContentProcessingCapability } from "./business-capabilities.js";
 import {
   ProcessRegistry,
   ProcessRunner,
-  type ProcessErrorCode,
-  type ProcessRunResult,
 } from "./process-runtime.js";
+import {
+  createProcessingRequestListener,
+  type ProcessingHttpOptions,
+} from "./http-adapter.js";
 import {
   createTitledContentProcessingProcess,
   type TitledContentProcessingConfig,
@@ -34,6 +34,7 @@ export type ProcessingApplicationOptions = {
   contentProcessing: ContentProcessingCapability;
   agentRuntime?: ContentOptimizationAgentRuntime;
   processTimeoutMs?: number;
+  http?: ProcessingHttpOptions;
   processes?: {
     contentProcessing?: ContentProcessingProcessConfig;
     titledContentProcessing?: TitledContentProcessingConfig;
@@ -62,9 +63,9 @@ export function createProcessingApplication(
     },
     processTimeoutMs: options.processTimeoutMs,
   });
-  const server = createServer((request, response) => {
-    void handleRequest(request, response, runner);
-  });
+  const server = createServer(
+    createProcessingRequestListener(runner, options.http),
+  );
 
   return {
     listen: async (listenOptions) => ({
@@ -72,57 +73,6 @@ export function createProcessingApplication(
     }),
     close: async () => close(server),
   };
-}
-
-async function handleRequest(
-  request: IncomingMessage,
-  response: ServerResponse,
-  runner: ProcessRunner<ContentProcessCapabilities>,
-): Promise<void> {
-  if (request.method !== "POST" || request.url !== "/execute") {
-    writeJson(response, 404, {
-      status: "failed",
-      error: { code: "ROUTE_NOT_FOUND", message: "Route not found" },
-    });
-    return;
-  }
-
-  const result = await runner.execute(await readRequestBody(request));
-  writeJson(response, statusFor(result), result);
-}
-
-async function readRequestBody(request: IncomingMessage): Promise<unknown> {
-  try {
-    let body = "";
-    for await (const chunk of request) body += chunk;
-    return JSON.parse(body);
-  } catch {
-    return undefined;
-  }
-}
-
-function statusFor(result: ProcessRunResult): number {
-  if (result.status === "succeeded") return 200;
-
-  const statuses: Record<ProcessErrorCode, number> = {
-    AGENT_FAILURE: 502,
-    DEPENDENCY_FAILURE: 502,
-    INTERNAL_ERROR: 500,
-    INVALID_INPUT: 400,
-    INVALID_OUTPUT: 500,
-    PROCESS_NOT_FOUND: 404,
-    PROCESS_TIMEOUT: 504,
-  };
-  return statuses[result.error.code];
-}
-
-function writeJson(
-  response: ServerResponse,
-  status: number,
-  body: unknown,
-): void {
-  response.writeHead(status, { "content-type": "application/json" });
-  response.end(JSON.stringify(body));
 }
 
 async function listen(

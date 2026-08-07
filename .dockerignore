@@ -1,0 +1,12 @@
+**
+!Dockerfile
+!package.json
+!package-lock.json
+!tsconfig.json
+!tsconfig.build.json
+!src/
+!src/**
+!.pi/
+!.pi/skills/
+!.pi/skills/content-optimization/
+!.pi/skills/content-optimization/**

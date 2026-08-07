@@ -4,13 +4,15 @@ import {
   PiContentOptimizationAgentRuntime,
 } from "./agent-runtime.js";
 import { HttpContentProcessingCapability } from "./content-processing.js";
+import { loadHttpConfiguration } from "./http-config.js";
+import { parseBusinessApiBaseUrl } from "./service-config.js";
 
-const businessApiBaseUrl = process.env.BUSINESS_API_BASE_URL;
-if (!businessApiBaseUrl) {
-  throw new Error("BUSINESS_API_BASE_URL is required");
-}
+const businessApiBaseUrl = parseBusinessApiBaseUrl(
+  process.env.BUSINESS_API_BASE_URL,
+);
 
 const port = parsePort(process.env.PORT);
+const http = loadHttpConfiguration(process.env);
 const contentProcessingMode = parseContentProcessingMode(
   process.env.CONTENT_PROCESSING_MODE,
 );
@@ -31,6 +33,7 @@ const application = createProcessingApplication({
     timeoutMs: parseTimeout(process.env.BUSINESS_API_TIMEOUT_MS, 10_000),
   }),
   agentRuntime,
+  http,
   processTimeoutMs: parseTimeout(process.env.PROCESS_TIMEOUT_MS, 30_000),
   processes: {
     contentProcessing: { mode: contentProcessingMode },
@@ -41,7 +44,13 @@ const application = createProcessingApplication({
 });
 const { url } = await application.listen({ host: "0.0.0.0", port });
 
-console.log(`Business processing service listening at ${url}`);
+console.log(
+  JSON.stringify({
+    event: "service_started",
+    timestamp: new Date().toISOString(),
+    url,
+  }),
+);
 
 for (const signal of ["SIGINT", "SIGTERM"] as const) {
   process.once(signal, () => {

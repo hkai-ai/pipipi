@@ -3,17 +3,28 @@ import {
   parseOpenAIApiMode,
   PiContentOptimizationAgentRuntime,
 } from "../src/agent-runtime.js";
-import { HttpContentProcessingCapability } from "../src/content-processing.js";
+import {
+  HttpContentProcessingCapability,
+  type ContentProcessingCapability,
+} from "../src/content-processing.js";
+import { parseBusinessApiBaseUrl } from "../src/service-config.js";
 
-const businessApiBaseUrl = process.env.BUSINESS_API_BASE_URL;
-if (!businessApiBaseUrl) {
-  throw new Error("BUSINESS_API_BASE_URL is required for the Agent smoke test");
-}
+const businessApiBaseUrl = parseBusinessApiBaseUrl(
+  process.env.BUSINESS_API_BASE_URL,
+);
+const remoteContentProcessing = new HttpContentProcessingCapability({
+  baseUrl: businessApiBaseUrl,
+});
+const capabilityCalls: string[] = [];
+const trackedContentProcessing: ContentProcessingCapability = {
+  process: async (input, options) => {
+    capabilityCalls.push(input.content);
+    return remoteContentProcessing.process(input, options);
+  },
+};
 
 const application = createProcessingApplication({
-  contentProcessing: new HttpContentProcessingCapability({
-    baseUrl: businessApiBaseUrl,
-  }),
+  contentProcessing: trackedContentProcessing,
   agentRuntime: new PiContentOptimizationAgentRuntime({
     provider: process.env.PI_PROVIDER,
     model: process.env.PI_MODEL,
@@ -34,12 +45,65 @@ try {
     body: JSON.stringify({
       process: "content-processing",
       version: "v1",
-      input: { content: "Make this launch message clear and concise" },
+      input: {
+        content:
+          process.env.AGENT_SMOKE_CONTENT ??
+          "Make this controlled release message clear and concise",
+      },
     }),
   });
   const result: unknown = await response.json();
-  console.log(JSON.stringify(result, null, 2));
-  if (!response.ok) process.exitCode = 1;
+  if (!response.ok || !isSuccessfulExecution(result)) {
+    throw new Error(
+      `Agent smoke execution failed with HTTP ${response.status} (${safeErrorCode(result)})`,
+    );
+  }
+  if (capabilityCalls.length === 0) {
+    throw new Error(
+      "Agent smoke completed without calling the Business Capability",
+    );
+  }
+  console.log(
+    JSON.stringify({
+      event: "agent_smoke_completed",
+      runId: result.runId,
+      process: result.process,
+      version: result.version,
+      status: result.status,
+      businessCapabilityCalls: capabilityCalls.length,
+    }),
+  );
 } finally {
   await application.close();
+}
+
+function isSuccessfulExecution(value: unknown): value is {
+  runId: string;
+  process: "content-processing";
+  version: "v1";
+  status: "succeeded";
+  output: { content: string };
+} {
+  return (
+    isRecord(value) &&
+    typeof value.runId === "string" &&
+    value.process === "content-processing" &&
+    value.version === "v1" &&
+    value.status === "succeeded" &&
+    isRecord(value.output) &&
+    typeof value.output.content === "string" &&
+    value.output.content.trim().length > 0
+  );
+}
+
+function safeErrorCode(value: unknown): string {
+  return isRecord(value) &&
+    isRecord(value.error) &&
+    typeof value.error.code === "string"
+    ? value.error.code
+    : "UNKNOWN";
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
 }

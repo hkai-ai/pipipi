@@ -97,7 +97,7 @@ Pi Agent 每次请求创建独立的内存会话，显式加载 `.pi/skills/cont
 BUSINESS_API_BASE_URL=http://127.0.0.1:4000 npm run smoke:agent
 ```
 
-该命令会临时启动 Agent 模式服务、完成一次真实 `/execute` 请求后退出，因此需要可用的 Pi 模型凭证，并可能产生模型费用。
+该命令会临时启动 Agent 模式服务、完成一次真实 `/execute` 请求，并确认 Agent 实际调用了配置的 Business Capability。命令需要可用的 Pi 模型凭证，可能产生模型费用，但不会输出业务内容或 Tool 输入。
 
 ### Skill A/B 对比实验
 
@@ -194,11 +194,24 @@ npm run smoke:oss
 - 远程 Business Capability 不可用时返回 `DEPENDENCY_FAILURE`，不会透传远端错误内容。
 - 超过流程总时限时返回 `PROCESS_TIMEOUT`。
 - Agent 执行或结构化输出失败时返回 `AGENT_FAILURE`，不会透传模型或认证错误。
-- 当前版本是同步最小实现，不包含鉴权、幂等、队列、持久化执行记录或通用编排器。
+- 非 JSON 请求返回 `UNSUPPORTED_MEDIA_TYPE`；超过字节上限的请求返回 `REQUEST_TOO_LARGE`。
+- 实例容量已满时返回 `SERVICE_BUSY` 和 `Retry-After`，不会在进程内排队。
+- `GET /healthz` 只检查进程是否已初始化，不访问模型或 Business Capability。
+- 当前版本是受控同步 MVP，不包含应用鉴权、幂等、队列、持久化执行记录或通用编排器。
 
 ## 部署与 Skill 边界
 
-当前服务是标准 Node.js 24 HTTP 进程，监听 `0.0.0.0:$PORT`，请求会话保存在内存中。国内最省事的起点是阿里云 ECS 上的 Linux 容器；不想维护主机时可把同一容器镜像部署到 SAE，已有 Kubernetes 基础设施时可使用 ACK。Cloud Run、Render、Railway、Fly.io、ECS/Fargate、Kubernetes 和普通 Docker 主机也都适合。仓库还没有 Dockerfile；部署时需要执行 `npm run build`，再用 `npm start` 启动，并把 API Key 和 OSS 凭证作为平台 Secret 注入。
+当前服务是标准 Node.js 24 HTTP 进程，监听 `0.0.0.0:$PORT`。仓库中的多阶段 Dockerfile 只把生产依赖、编译产物和审核后的内容优化 Skill 放入运行镜像，并以非 root 用户启动。ECS、SAE、ACK、Cloud Run、ECS/Fargate、Kubernetes 和普通 Docker 主机可以运行同一镜像。
+
+部署平台必须提供 TLS、私有入口和调用方认证，并阻止外部客户端绕过入口访问容器端口。浏览器通过现有后端或 BFF 调用；服务不启用 CORS。每个请求保留独立 Agent 会话，实例之间不共享业务状态，因此平台可以水平扩容。应用用 `MAX_CONCURRENT_EXECUTIONS` 限制单实例并发；平台还必须限制最大实例数。
+
+构建镜像：
+
+```bash
+docker build -t pi-business-processing-service:local .
+```
+
+完整的配置、容量档位、私有入口验收、真实 Agent 冒烟和回滚步骤见 [`docs/mvp-release-runbook.md`](docs/mvp-release-runbook.md)。
 
 图片生成可能接近两分钟，应让平台请求超时高于 `PROCESS_TIMEOUT_MS` 和 `GPT_IMAGE_TIMEOUT_MS`。本地文件只适合单机测试；国内多实例或无状态部署应设置 `OBJECT_STORAGE_PROVIDER=aliyun-oss`，让生成图片进入 OSS。证据报告目前仍写本地文件，生产化时应再接入持久化日志或对象存储。
 
@@ -214,4 +227,13 @@ Vercel Functions、Netlify Functions 和 Cloudflare Workers 不能直接运行�
 npm run typecheck
 npm test
 npm run build
+docker build -t pi-business-processing-service:local .
+```
+
+对已部署的受控环境执行真实集成门禁：
+
+```bash
+STAGING_SERVICE_BASE_URL=https://private-agent.example.internal \
+STAGING_AUTHORIZATION='Bearer replace-with-short-lived-token' \
+npm run smoke:staging
 ```
