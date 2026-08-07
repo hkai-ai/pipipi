@@ -8,9 +8,9 @@ import {
   createContentProcessingProcess,
   type ContentProcessCapabilities,
   type ContentProcessingProcessConfig,
-  type ContentProcessingCapability,
 } from "./content-processing.js";
-import type { AgentRuntime } from "./agent-runtime.js";
+import type { ContentOptimizationAgentRuntime } from "./agent-runtime.js";
+import type { ContentProcessingCapability } from "./business-capabilities.js";
 import {
   ProcessRegistry,
   ProcessRunner,
@@ -32,7 +32,7 @@ export type ProcessingApplication = {
 
 export type ProcessingApplicationOptions = {
   contentProcessing: ContentProcessingCapability;
-  agentRuntime?: AgentRuntime;
+  agentRuntime?: ContentOptimizationAgentRuntime;
   processTimeoutMs?: number;
   processes?: {
     contentProcessing?: ContentProcessingProcessConfig;

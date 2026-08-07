@@ -1,5 +1,6 @@
 import { z } from "zod";
-import type { AgentRuntime } from "./agent-runtime.js";
+import type { ContentOptimizationAgentRuntime } from "./agent-runtime.js";
+import type { ContentProcessingCapability } from "./business-capabilities.js";
 import {
   defineProcess,
   ProcessFailure,
@@ -21,16 +22,11 @@ const businessApiResponseSchema = z.strictObject({
 type ContentProcessInput = z.infer<typeof contentProcessInputSchema>;
 type ContentProcessOutput = z.infer<typeof contentProcessOutputSchema>;
 
-export type ContentProcessingCapability = {
-  process: (
-    input: { content: string },
-    options: { signal: AbortSignal },
-  ) => Promise<{ content: string }>;
-};
+export type { ContentProcessingCapability } from "./business-capabilities.js";
 
 export type ContentProcessCapabilities = {
   contentProcessing: ContentProcessingCapability;
-  agentRuntime?: AgentRuntime;
+  agentRuntime?: ContentOptimizationAgentRuntime;
 };
 
 export type ContentProcessingProcessConfig = {
@@ -64,11 +60,7 @@ export function createContentProcessingProcess(
         const rawOutput = await context.capabilities.agentRuntime?.optimize({
           content: preparedContent,
           signal: context.signal,
-          processContent: (toolInput, toolOptions) =>
-            context.capabilities.contentProcessing.process(
-              toolInput,
-              toolOptions,
-            ),
+          contentProcessing: context.capabilities.contentProcessing,
         });
         const output = contentProcessOutputSchema.safeParse(rawOutput);
         if (!output.success) throw agentFailure();

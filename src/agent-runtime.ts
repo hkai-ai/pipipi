@@ -9,24 +9,22 @@ import {
   SessionManager,
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
+import type { ContentProcessingCapability } from "./business-capabilities.js";
 
 const businessContentToolName = "process_business_content";
 const contentOptimizationSkillName = "content-optimization";
 
-export type AgentOptimizationRequest = {
+export type ContentOptimizationAgentRequest = {
   content: string;
   signal: AbortSignal;
-  processContent: (
-    input: { content: string },
-    options: { signal: AbortSignal },
-  ) => Promise<{ content: string }>;
+  contentProcessing: ContentProcessingCapability;
 };
 
-export type AgentRuntime = {
-  optimize: (request: AgentOptimizationRequest) => Promise<unknown>;
+export type ContentOptimizationAgentRuntime = {
+  optimize: (request: ContentOptimizationAgentRequest) => Promise<unknown>;
 };
 
-export type PiCodingAgentRuntimeOptions = {
+export type PiContentOptimizationAgentRuntimeOptions = {
   cwd?: string;
   agentDir?: string;
   skillDirectory?: string;
@@ -39,7 +37,9 @@ export type PiCodingAgentRuntimeOptions = {
  * The production Agent adapter. Conversation state is deliberately request-local;
  * the model/auth runtime may be shared because it carries no business messages.
  */
-export class PiCodingAgentRuntime implements AgentRuntime {
+export class PiContentOptimizationAgentRuntime
+  implements ContentOptimizationAgentRuntime
+{
   readonly #cwd: string;
   readonly #agentDir: string;
   readonly #skillDirectory: string;
@@ -48,7 +48,7 @@ export class PiCodingAgentRuntime implements AgentRuntime {
   readonly #providedModelRuntime: ModelRuntime | undefined;
   #modelRuntimePromise: Promise<ModelRuntime> | undefined;
 
-  constructor(options: PiCodingAgentRuntimeOptions = {}) {
+  constructor(options: PiContentOptimizationAgentRuntimeOptions = {}) {
     if ((options.provider === undefined) !== (options.model === undefined)) {
       throw new Error("Pi provider and model must be configured together");
     }
@@ -64,7 +64,7 @@ export class PiCodingAgentRuntime implements AgentRuntime {
     this.#providedModelRuntime = options.modelRuntime;
   }
 
-  async optimize(request: AgentOptimizationRequest): Promise<unknown> {
+  async optimize(request: ContentOptimizationAgentRequest): Promise<unknown> {
     const loadedSkills = loadSkillsFromDir({
       dir: this.#skillDirectory,
       source: "business-processing-service",
@@ -107,7 +107,9 @@ export class PiCodingAgentRuntime implements AgentRuntime {
         const signal = toolSignal
           ? AbortSignal.any([request.signal, toolSignal])
           : request.signal;
-        const result = await request.processContent(input, { signal });
+        const result = await request.contentProcessing.process(input, {
+          signal,
+        });
         return {
           content: [{ type: "text" as const, text: JSON.stringify(result) }],
           details: {},

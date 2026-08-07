@@ -6,7 +6,7 @@ import {
   type ServerResponse,
 } from "node:http";
 import { afterEach, describe, expect, it } from "vitest";
-import type { AgentRuntime } from "../src/agent-runtime.js";
+import type { ContentOptimizationAgentRuntime } from "../src/agent-runtime.js";
 import {
   createProcessingApplication,
   type ProcessingApplicationOptions,
@@ -275,7 +275,7 @@ describe("business process execution", () => {
 
   it("can enable Agent optimization without changing the product contract", async () => {
     const requests: string[] = [];
-    const agentRuntime: AgentRuntime = {
+    const agentRuntime: ContentOptimizationAgentRuntime = {
       optimize: async (request) => {
         requests.push(request.content);
         return { content: "  Agent-refined campaign copy  " };
@@ -312,9 +312,9 @@ describe("business process execution", () => {
         return { content: `Business result: ${input.content}` };
       },
     };
-    const agentRuntime: AgentRuntime = {
+    const agentRuntime: ContentOptimizationAgentRuntime = {
       optimize: async (request) =>
-        request.processContent(
+        request.contentProcessing.process(
           { content: `Optimize ${request.content}` },
           { signal: request.signal },
         ),
@@ -339,7 +339,7 @@ describe("business process execution", () => {
   });
 
   it("maps invalid structured Agent output to a stable processing error", async () => {
-    const agentRuntime: AgentRuntime = {
+    const agentRuntime: ContentOptimizationAgentRuntime = {
       optimize: async () => ({ unexpected: "not business content" }),
     };
     const processingService = await startProcessingService({
@@ -368,7 +368,7 @@ describe("business process execution", () => {
   });
 
   it("maps Agent execution failures without leaking internal details", async () => {
-    const agentRuntime: AgentRuntime = {
+    const agentRuntime: ContentOptimizationAgentRuntime = {
       optimize: async () => {
         throw new Error("provider key abc-secret was rejected");
       },
@@ -436,7 +436,7 @@ describe("business process execution", () => {
   it("keeps each process configuration isolated", async () => {
     const agentInputs: string[] = [];
     const capabilityInputs: string[] = [];
-    const agentRuntime: AgentRuntime = {
+    const agentRuntime: ContentOptimizationAgentRuntime = {
       optimize: async (request) => {
         agentInputs.push(request.content);
         return { content: `Agent: ${request.content}` };

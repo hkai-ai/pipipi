@@ -1,5 +1,5 @@
 import { createProcessingApplication } from "./application.js";
-import { PiCodingAgentRuntime } from "./agent-runtime.js";
+import { PiContentOptimizationAgentRuntime } from "./agent-runtime.js";
 import { HttpContentProcessingCapability } from "./content-processing.js";
 
 const businessApiBaseUrl = process.env.BUSINESS_API_BASE_URL;
@@ -13,7 +13,7 @@ const contentProcessingMode = parseContentProcessingMode(
 );
 const agentRuntime =
   contentProcessingMode === "agent"
-    ? new PiCodingAgentRuntime({
+    ? new PiContentOptimizationAgentRuntime({
         provider: process.env.PI_PROVIDER,
         model: process.env.PI_MODEL,
         agentDir: process.env.PI_AGENT_DIR,

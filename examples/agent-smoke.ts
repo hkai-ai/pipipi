@@ -1,5 +1,5 @@
 import { createProcessingApplication } from "../src/application.js";
-import { PiCodingAgentRuntime } from "../src/agent-runtime.js";
+import { PiContentOptimizationAgentRuntime } from "../src/agent-runtime.js";
 import { HttpContentProcessingCapability } from "../src/content-processing.js";
 
 const businessApiBaseUrl = process.env.BUSINESS_API_BASE_URL;
@@ -11,7 +11,7 @@ const application = createProcessingApplication({
   contentProcessing: new HttpContentProcessingCapability({
     baseUrl: businessApiBaseUrl,
   }),
-  agentRuntime: new PiCodingAgentRuntime({
+  agentRuntime: new PiContentOptimizationAgentRuntime({
     provider: process.env.PI_PROVIDER,
     model: process.env.PI_MODEL,
     agentDir: process.env.PI_AGENT_DIR,
