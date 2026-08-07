@@ -4,13 +4,17 @@
 
 **Blocked by:** None — can start immediately.
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] 服务可以通过一条清晰的本地命令启动，并接受同步的 JSON 处理请求。
-- [ ] 调用方提交已注册的流程标识、明确版本和有效输入后，会收到包含运行标识和已验证业务输出的成功响应。
-- [ ] 示例流程在代码中依次完成有业务含义的输入整理、直接 Business Capability 调用和输出整理，并且不会启动 Agent。
-- [ ] 远程 Business Capability 通过可替换 Adapter 调用；自动化测试可以使用受控的测试 Adapter，而不依赖真实外部业务系统。
-- [ ] 无效输入、未知流程或版本、远程依赖失败会返回稳定且不泄漏内部细节的结构化错误。
-- [ ] 调用方不能在请求中上传步骤图、任意 URL、脚本，或指定某个阶段必须使用哪种实现方式。
-- [ ] 从产品调用方的最高层执行 seam 覆盖成功、输入校验失败、未知流程或版本、远程依赖失败四类行为。
-- [ ] 项目说明包含启动服务和调用示例流程的最短可复现步骤。
+- [x] 服务可以通过一条清晰的本地命令启动，并接受同步的 JSON 处理请求。
+- [x] 调用方提交已注册的流程标识、明确版本和有效输入后，会收到包含运行标识和已验证业务输出的成功响应。
+- [x] 示例流程在代码中依次完成有业务含义的输入整理、直接 Business Capability 调用和输出整理，并且不会启动 Agent。
+- [x] 远程 Business Capability 通过可替换 Adapter 调用；自动化测试可以使用受控的测试 Adapter，而不依赖真实外部业务系统。
+- [x] 无效输入、未知流程或版本、远程依赖失败会返回稳定且不泄漏内部细节的结构化错误。
+- [x] 调用方不能在请求中上传步骤图、任意 URL、脚本，或指定某个阶段必须使用哪种实现方式。
+- [x] 从产品调用方的最高层执行 seam 覆盖成功、输入校验失败、未知流程或版本、远程依赖失败四类行为。
+- [x] 项目说明包含启动服务和调用示例流程的最短可复现步骤。
+
+## Answer
+
+Implemented in commit `a3d8a53`. The service now exposes a synchronous JSON execution interface, runs the registered `content-processing` / `v1` Process Definition, injects a replaceable Business Capability Adapter, and maps validation, routing, dependency, and timeout failures to safe structured responses. The highest execution seam is covered by nine passing tests, and the documented demo was verified against a live local business API.
