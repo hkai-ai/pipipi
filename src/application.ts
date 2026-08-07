@@ -7,14 +7,20 @@ import {
 import {
   createContentProcessingProcess,
   type ContentProcessCapabilities,
+  type ContentProcessingProcessConfig,
   type ContentProcessingCapability,
 } from "./content-processing.js";
+import type { AgentRuntime } from "./agent-runtime.js";
 import {
   ProcessRegistry,
   ProcessRunner,
   type ProcessErrorCode,
   type ProcessRunResult,
 } from "./process-runtime.js";
+import {
+  createTitledContentProcessingProcess,
+  type TitledContentProcessingConfig,
+} from "./titled-content-processing.js";
 
 export type ProcessingApplication = {
   listen: (options?: {
@@ -24,16 +30,36 @@ export type ProcessingApplication = {
   close: () => Promise<void>;
 };
 
-export function createProcessingApplication(options: {
+export type ProcessingApplicationOptions = {
   contentProcessing: ContentProcessingCapability;
+  agentRuntime?: AgentRuntime;
   processTimeoutMs?: number;
-}): ProcessingApplication {
+  processes?: {
+    contentProcessing?: ContentProcessingProcessConfig;
+    titledContentProcessing?: TitledContentProcessingConfig;
+  };
+};
+
+export function createProcessingApplication(
+  options: ProcessingApplicationOptions,
+): ProcessingApplication {
+  const contentProcessingConfig = options.processes?.contentProcessing;
+  if (contentProcessingConfig?.mode === "agent" && !options.agentRuntime) {
+    throw new Error("Agent Runtime is required when Agent mode is enabled");
+  }
+
   const registry = new ProcessRegistry<ContentProcessCapabilities>([
-    createContentProcessingProcess(),
+    createContentProcessingProcess(contentProcessingConfig),
+    createTitledContentProcessingProcess(
+      options.processes?.titledContentProcessing,
+    ),
   ]);
-  const runner = new ProcessRunner({
+  const runner = new ProcessRunner<ContentProcessCapabilities>({
     registry,
-    capabilities: { contentProcessing: options.contentProcessing },
+    capabilities: {
+      contentProcessing: options.contentProcessing,
+      agentRuntime: options.agentRuntime,
+    },
     processTimeoutMs: options.processTimeoutMs,
   });
   const server = createServer((request, response) => {
@@ -79,6 +105,7 @@ function statusFor(result: ProcessRunResult): number {
   if (result.status === "succeeded") return 200;
 
   const statuses: Record<ProcessErrorCode, number> = {
+    AGENT_FAILURE: 502,
     DEPENDENCY_FAILURE: 502,
     INTERNAL_ERROR: 500,
     INVALID_INPUT: 400,

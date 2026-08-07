@@ -13,6 +13,7 @@ const requestIdentitySchema = z.object({
 });
 
 export type ProcessErrorCode =
+  | "AGENT_FAILURE"
   | "DEPENDENCY_FAILURE"
   | "INTERNAL_ERROR"
   | "INVALID_INPUT"

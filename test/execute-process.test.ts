@@ -6,7 +6,11 @@ import {
   type ServerResponse,
 } from "node:http";
 import { afterEach, describe, expect, it } from "vitest";
-import { createProcessingApplication } from "../src/application.js";
+import type { AgentRuntime } from "../src/agent-runtime.js";
+import {
+  createProcessingApplication,
+  type ProcessingApplicationOptions,
+} from "../src/application.js";
 import {
   HttpContentProcessingCapability,
   type ContentProcessingCapability,
@@ -268,6 +272,248 @@ describe("business process execution", () => {
       },
     });
   });
+
+  it("can enable Agent optimization without changing the product contract", async () => {
+    const requests: string[] = [];
+    const agentRuntime: AgentRuntime = {
+      optimize: async (request) => {
+        requests.push(request.content);
+        return { content: "  Agent-refined campaign copy  " };
+      },
+    };
+    const processingService = await startProcessingService({
+      contentProcessing: unusedContentProcessing,
+      agentRuntime,
+      processes: { contentProcessing: { mode: "agent" } },
+    });
+
+    const response = await executeProcess(processingService.url, {
+      process: "content-processing",
+      version: "v1",
+      input: { content: "  launch   offer  " },
+    });
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      runId: expect.stringMatching(/^[0-9a-f-]{36}$/),
+      process: "content-processing",
+      version: "v1",
+      status: "succeeded",
+      output: { content: "Agent-refined campaign copy" },
+    });
+    expect(requests).toEqual(["launch offer"]);
+  });
+
+  it("lets the Agent path call the existing business capability as its Tool", async () => {
+    const capabilityInputs: string[] = [];
+    const contentProcessing: ContentProcessingCapability = {
+      process: async (input) => {
+        capabilityInputs.push(input.content);
+        return { content: `Business result: ${input.content}` };
+      },
+    };
+    const agentRuntime: AgentRuntime = {
+      optimize: async (request) =>
+        request.processContent(
+          { content: `Optimize ${request.content}` },
+          { signal: request.signal },
+        ),
+    };
+    const processingService = await startProcessingService({
+      contentProcessing,
+      agentRuntime,
+      processes: { contentProcessing: { mode: "agent" } },
+    });
+
+    const response = await executeProcess(processingService.url, {
+      process: "content-processing",
+      version: "v1",
+      input: { content: "launch offer" },
+    });
+
+    expect(response.status).toBe(200);
+    expect((await response.json()).output).toEqual({
+      content: "Business result: Optimize launch offer",
+    });
+    expect(capabilityInputs).toEqual(["Optimize launch offer"]);
+  });
+
+  it("maps invalid structured Agent output to a stable processing error", async () => {
+    const agentRuntime: AgentRuntime = {
+      optimize: async () => ({ unexpected: "not business content" }),
+    };
+    const processingService = await startProcessingService({
+      contentProcessing: unusedContentProcessing,
+      agentRuntime,
+      processes: { contentProcessing: { mode: "agent" } },
+    });
+
+    const response = await executeProcess(processingService.url, {
+      process: "content-processing",
+      version: "v1",
+      input: { content: "launch offer" },
+    });
+
+    expect(response.status).toBe(502);
+    expect(await response.json()).toEqual({
+      runId: expect.stringMatching(/^[0-9a-f-]{36}$/),
+      process: "content-processing",
+      version: "v1",
+      status: "failed",
+      error: {
+        code: "AGENT_FAILURE",
+        message: "The content optimization agent could not complete the request",
+      },
+    });
+  });
+
+  it("maps Agent execution failures without leaking internal details", async () => {
+    const agentRuntime: AgentRuntime = {
+      optimize: async () => {
+        throw new Error("provider key abc-secret was rejected");
+      },
+    };
+    const processingService = await startProcessingService({
+      contentProcessing: unusedContentProcessing,
+      agentRuntime,
+      processes: { contentProcessing: { mode: "agent" } },
+    });
+
+    const response = await executeProcess(processingService.url, {
+      process: "content-processing",
+      version: "v1",
+      input: { content: "launch offer" },
+    });
+
+    expect(response.status).toBe(502);
+    expect(await response.json()).toEqual({
+      runId: expect.stringMatching(/^[0-9a-f-]{36}$/),
+      process: "content-processing",
+      version: "v1",
+      status: "failed",
+      error: {
+        code: "AGENT_FAILURE",
+        message: "The content optimization agent could not complete the request",
+      },
+    });
+  });
+
+  it("routes a second process with its own schemas through the shared capability", async () => {
+    const capabilityInputs: string[] = [];
+    const contentProcessing: ContentProcessingCapability = {
+      process: async (input) => {
+        capabilityInputs.push(input.content);
+        return { content: `Published: ${input.content}` };
+      },
+    };
+    const processingService = await startProcessingService({
+      contentProcessing,
+      processes: {
+        titledContentProcessing: { separator: " — " },
+      },
+    });
+
+    const response = await executeProcess(processingService.url, {
+      process: "titled-content-processing",
+      version: "v1",
+      input: { title: "  Launch  ", body: "  body   copy  " },
+    });
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      runId: expect.stringMatching(/^[0-9a-f-]{36}$/),
+      process: "titled-content-processing",
+      version: "v1",
+      status: "succeeded",
+      output: {
+        title: "Launch",
+        content: "Published: Launch — body copy",
+      },
+    });
+    expect(capabilityInputs).toEqual(["Launch — body copy"]);
+  });
+
+  it("keeps each process configuration isolated", async () => {
+    const agentInputs: string[] = [];
+    const capabilityInputs: string[] = [];
+    const agentRuntime: AgentRuntime = {
+      optimize: async (request) => {
+        agentInputs.push(request.content);
+        return { content: `Agent: ${request.content}` };
+      },
+    };
+    const contentProcessing: ContentProcessingCapability = {
+      process: async (input) => {
+        capabilityInputs.push(input.content);
+        return { content: `Direct: ${input.content}` };
+      },
+    };
+    const processingService = await startProcessingService({
+      contentProcessing,
+      agentRuntime,
+      processes: {
+        contentProcessing: { mode: "agent" },
+        titledContentProcessing: { separator: ": " },
+      },
+    });
+
+    const firstResponse = await executeProcess(processingService.url, {
+      process: "content-processing",
+      version: "v1",
+      input: { content: "first" },
+    });
+    const secondResponse = await executeProcess(processingService.url, {
+      process: "titled-content-processing",
+      version: "v1",
+      input: { title: "Second", body: "process" },
+    });
+
+    expect((await firstResponse.json()).output).toEqual({
+      content: "Agent: first",
+    });
+    expect((await secondResponse.json()).output).toEqual({
+      title: "Second",
+      content: "Direct: Second: process",
+    });
+    expect(agentInputs).toEqual(["first"]);
+    expect(capabilityInputs).toEqual(["Second: process"]);
+  });
+
+  it("enforces the second process input schema independently", async () => {
+    const processingService = await startProcessingService({
+      contentProcessing: unusedContentProcessing,
+    });
+
+    const response = await executeProcess(processingService.url, {
+      process: "titled-content-processing",
+      version: "v1",
+      input: { content: "valid only for the first process" },
+    });
+
+    expect(response.status).toBe(400);
+    expect((await response.json()).error).toEqual({
+      code: "INVALID_INPUT",
+      message: "The process input is invalid",
+    });
+  });
+
+  it("rejects an unknown second-process version without version drift", async () => {
+    const processingService = await startProcessingService({
+      contentProcessing: unusedContentProcessing,
+    });
+
+    const response = await executeProcess(processingService.url, {
+      process: "titled-content-processing",
+      version: "v2",
+      input: { title: "Launch", body: "body copy" },
+    });
+
+    expect(response.status).toBe(404);
+    expect((await response.json()).error).toEqual({
+      code: "PROCESS_NOT_FOUND",
+      message: "The requested process version is not registered",
+    });
+  });
 });
 
 async function startHttpBackedService(
@@ -283,10 +529,9 @@ async function startHttpBackedService(
   });
 }
 
-async function startProcessingService(options: {
-  contentProcessing: ContentProcessingCapability;
-  processTimeoutMs?: number;
-}): Promise<RunningServer> {
+async function startProcessingService(
+  options: ProcessingApplicationOptions,
+): Promise<RunningServer> {
   const application = createProcessingApplication(options);
   const service = await application.listen();
   const runningService = { url: service.url, close: application.close };

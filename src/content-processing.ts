@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { AgentRuntime } from "./agent-runtime.js";
 import {
   defineProcess,
   ProcessFailure,
@@ -29,9 +30,18 @@ export type ContentProcessingCapability = {
 
 export type ContentProcessCapabilities = {
   contentProcessing: ContentProcessingCapability;
+  agentRuntime?: AgentRuntime;
 };
 
-export function createContentProcessingProcess(): ProcessDefinition<ContentProcessCapabilities> {
+export type ContentProcessingProcessConfig = {
+  mode?: "direct" | "agent";
+};
+
+export function createContentProcessingProcess(
+  config: ContentProcessingProcessConfig = {},
+): ProcessDefinition<ContentProcessCapabilities> {
+  const mode = config.mode ?? "direct";
+
   return defineProcess<
     ContentProcessInput,
     ContentProcessOutput,
@@ -43,12 +53,39 @@ export function createContentProcessingProcess(): ProcessDefinition<ContentProce
     outputSchema: contentProcessOutputSchema,
     execute: async (input, context) => {
       const preparedContent = input.content.replace(/\s+/g, " ");
-      return context.capabilities.contentProcessing.process(
-        { content: preparedContent },
-        { signal: context.signal },
-      );
+      if (mode === "direct") {
+        return context.capabilities.contentProcessing.process(
+          { content: preparedContent },
+          { signal: context.signal },
+        );
+      }
+
+      try {
+        const rawOutput = await context.capabilities.agentRuntime?.optimize({
+          content: preparedContent,
+          signal: context.signal,
+          processContent: (toolInput, toolOptions) =>
+            context.capabilities.contentProcessing.process(
+              toolInput,
+              toolOptions,
+            ),
+        });
+        const output = contentProcessOutputSchema.safeParse(rawOutput);
+        if (!output.success) throw agentFailure();
+        return output.data;
+      } catch (error) {
+        if (error instanceof ProcessFailure) throw error;
+        throw agentFailure();
+      }
     },
   });
+}
+
+function agentFailure(): ProcessFailure {
+  return new ProcessFailure(
+    "AGENT_FAILURE",
+    "The content optimization agent could not complete the request",
+  );
 }
 
 export class HttpContentProcessingCapability
