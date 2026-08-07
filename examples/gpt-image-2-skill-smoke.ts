@@ -21,6 +21,8 @@ import {
   type GptImageOutputFormat,
   type GptImageQuality,
 } from "../src/openai-image-generation.js";
+import { createObjectStorageFromEnvironment } from "../src/object-storage-config.js";
+import type { StoredObject } from "../src/object-storage.js";
 
 const posterSkillName = "gc-minimal-zine-poster-v0-1";
 const posterSkillDirectory = resolve(
@@ -54,6 +56,9 @@ const agentTimeoutMs = parsePositiveInteger(
   "GPT_IMAGE_AGENT_TIMEOUT_MS",
 );
 const openAIApiMode = parseOpenAIApiMode(process.env.OPENAI_API_MODE);
+const imageObjectPrefix =
+  process.env.GPT_IMAGE_OBJECT_PREFIX?.trim() || "gpt-image-2";
+const objectStorage = createObjectStorageFromEnvironment(process.env);
 
 const compiledPosterSchema = z
   .object({
@@ -107,6 +112,18 @@ type SmokeReport = {
     height?: number;
     requestId?: string;
     usage?: GeneratedImage["usage"];
+    error?: string;
+  };
+  storage?: {
+    provider: string;
+    durationMs?: number;
+    bucket?: string;
+    objectKey?: string;
+    url?: string;
+    urlAccess?: StoredObject["urlAccess"];
+    urlExpiresAt?: string;
+    etag?: string;
+    requestId?: string;
     error?: string;
   };
   checks: SmokeCheck[];
@@ -174,12 +191,39 @@ try {
   imageError = formatErrorChain(error);
 }
 
+let storedObject: StoredObject | undefined;
+let storageObjectKey: string | undefined;
+let storageDurationMs: number | undefined;
+let storageError: string | undefined;
+if (objectStorage) {
+  if (image) {
+    storageObjectKey = `${imageObjectPrefix}/${sha256(image.bytes)}.${image.outputFormat}`;
+    const storageStartedAt = performance.now();
+    try {
+      storedObject = await objectStorage.upload({
+        objectKey: storageObjectKey,
+        bytes: image.bytes,
+        contentType: image.mimeType,
+      });
+    } catch (error) {
+      storageError = formatErrorChain(error);
+    } finally {
+      storageDurationMs = Math.round(performance.now() - storageStartedAt);
+    }
+  } else {
+    storageError = "No generated image was available to upload";
+  }
+}
+
 const checks = evaluateSmoke({
   compiled,
   compiledSource,
   requiredText,
   image,
   imageError,
+  storageExpected: objectStorage !== undefined,
+  storedObject,
+  storageError,
 });
 const report: SmokeReport = {
   generatedAt: new Date().toISOString(),
@@ -222,6 +266,33 @@ const report: SmokeReport = {
       : {}),
     ...(imageError ? { error: imageError } : {}),
   },
+  ...(objectStorage
+    ? {
+        storage: {
+          provider: objectStorage.provider,
+          ...(storageDurationMs === undefined
+            ? {}
+            : { durationMs: storageDurationMs }),
+          ...(storageObjectKey ? { objectKey: storageObjectKey } : {}),
+          ...(storedObject
+            ? {
+                bucket: storedObject.bucket,
+                objectKey: storedObject.objectKey,
+                url: storedObject.url,
+                urlAccess: storedObject.urlAccess,
+                ...(storedObject.urlExpiresAt
+                  ? { urlExpiresAt: storedObject.urlExpiresAt }
+                  : {}),
+                ...(storedObject.etag ? { etag: storedObject.etag } : {}),
+                ...(storedObject.requestId
+                  ? { requestId: storedObject.requestId }
+                  : {}),
+              }
+            : {}),
+          ...(storageError ? { error: storageError } : {}),
+        },
+      }
+    : {}),
   checks,
 };
 const reportFiles = await writeSmokeReport(report);
@@ -243,6 +314,7 @@ console.log(
         requestId: report.image.requestId,
         error: report.image.error,
       },
+      storage: report.storage,
       checks: report.checks,
       reportFiles,
     },
@@ -348,6 +420,9 @@ function evaluateSmoke(options: {
   requiredText: string;
   image: GeneratedImage | undefined;
   imageError: string | undefined;
+  storageExpected: boolean;
+  storedObject: StoredObject | undefined;
+  storageError: string | undefined;
 }): SmokeCheck[] {
   const prompt = options.compiled.prompt;
   const paragraphCount = prompt
@@ -359,7 +434,7 @@ function evaluateSmoke(options: {
       ? options.image.width / options.image.height
       : undefined;
 
-  return [
+  const checks: SmokeCheck[] = [
     {
       criterion: "Pi Agent compiled the prompt from the installed Skill",
       passed: options.compiledSource === "skill-agent",
@@ -414,6 +489,16 @@ function evaluateSmoke(options: {
       passed: ratio !== undefined && Math.abs(ratio - 3 / 5) < 0.03,
     },
   ];
+  if (options.storageExpected) {
+    checks.push({
+      criterion: "configured object storage returned an HTTPS object URL",
+      passed:
+        !options.storageError &&
+        options.storedObject !== undefined &&
+        options.storedObject.url.startsWith("https://"),
+    });
+  }
+  return checks;
 }
 
 async function writeSmokeReport(report: SmokeReport): Promise<{
@@ -443,7 +528,9 @@ function renderSmokeReport(report: SmokeReport): string {
     "",
     "## Flow",
     "",
-    "The code-defined test loads the poster Skill, asks Pi Agent to compile the business brief, calls the Images API directly, saves the raster image, and checks observable evidence from each stage.",
+    report.storage
+      ? "The code-defined test loads the poster Skill, asks Pi Agent to compile the business brief, calls the Images API directly, saves the raster image, uploads it through the configured object-storage capability, and checks observable evidence from each stage."
+      : "The code-defined test loads the poster Skill, asks Pi Agent to compile the business brief, calls the Images API directly, saves the raster image, and checks observable evidence from each stage.",
     "",
     "## Business brief",
     "",
@@ -477,6 +564,29 @@ function renderSmokeReport(report: SmokeReport): string {
   }
   if (report.image.error) {
     lines.push("## Image API error", "", fencedText(report.image.error), "");
+  }
+  if (report.storage) {
+    lines.push(
+      "## Object storage evidence",
+      "",
+      `- Provider: \`${report.storage.provider}\``,
+      `- Bucket: \`${report.storage.bucket ?? "upload failed"}\``,
+      `- Object key: \`${report.storage.objectKey ?? "upload failed"}\``,
+      `- URL access: \`${report.storage.urlAccess ?? "upload failed"}\``,
+      `- URL expires at: \`${report.storage.urlExpiresAt ?? "does not expire"}\``,
+      `- ETag: \`${report.storage.etag ?? "not returned"}\``,
+      `- Request ID: \`${report.storage.requestId ?? "not returned"}\``,
+      `- URL: ${report.storage.url ?? "upload failed"}`,
+      "",
+    );
+  }
+  if (report.storage?.error) {
+    lines.push(
+      "## Object storage error",
+      "",
+      fencedText(report.storage.error),
+      "",
+    );
   }
   lines.push("## Checks", "");
   for (const check of report.checks) {

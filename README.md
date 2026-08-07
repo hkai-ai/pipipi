@@ -129,7 +129,7 @@ npm run test:skill-ab
 
 ### GPT Image 2 + 海报 Skill 测试
 
-项目安装了 [`LiamGvchi/gc-minimal-zine-poster`](https://github.com/LiamGvchi/gc-minimal-zine-poster) Skill。测试按固定流程执行：Pi Agent 读取 Skill 并把业务主题编译成四段图片 Prompt，代码随后直接调用 `POST /v1/images/generations`，最后保存图片和证据报告。业务输入不选择 Skill 或 API；测试流程在服务端绑定这些实现。
+项目安装了 [`LiamGvchi/gc-minimal-zine-poster`](https://github.com/LiamGvchi/gc-minimal-zine-poster) Skill。测试按固定流程执行：Pi Agent 读取 Skill 并把业务主题编译成四段图片 Prompt，代码随后直接调用 `POST /v1/images/generations`，最后保存图片和证据报告。启用对象存储后，流程还会通过通用 `ObjectStorageCapability` 上传图片并返回 URL。业务输入不选择 Skill、API 或存储厂商；测试流程在服务端绑定这些实现。
 
 运行真实测试：
 
@@ -146,6 +146,34 @@ npm run test:gpt-image-2
 - `artifacts/gpt-image-2/latest.md`
 
 报告不会记录 API Key 或 Base URL。如果 Agent 阶段失败，测试仍会用代码内的基准 Prompt 调用 Images API，以便区分 Skill/Agent 故障和图片接口故障；这种情况的最终结果仍为 `FAIL`。
+
+### 阿里云 OSS 图片上传
+
+对象存储默认关闭，图片仍只写入本地 `artifacts/`。在 `.env` 中启用 OSS 后，同一个图片测试会上传生成结果，并在终端、JSON 报告和 Markdown 报告中返回 `bucket`、`objectKey`、`url`、URL 访问方式、过期时间、ETag 和 OSS Request ID：
+
+```dotenv
+OBJECT_STORAGE_PROVIDER=aliyun-oss
+OSS_REGION=oss-cn-hangzhou
+OSS_BUCKET=your-private-bucket
+OSS_ACCESS_KEY_ID=your-ram-or-sts-access-key-id
+OSS_ACCESS_KEY_SECRET=your-ram-or-sts-access-key-secret
+OSS_URL_ACCESS=signed
+OSS_SIGNED_URL_TTL_SECONDS=3600
+```
+
+默认使用私有桶和 Signature V4，返回一小时有效的 GET 签名 URL。签名 URL 是临时 bearer credential；报告目录已被 Git 忽略，但仍不应公开。使用 STS 临时凭证时再设置 `OSS_STS_TOKEN`。生产环境应给 RAM 身份最小的 `oss:PutObject` 和 `oss:GetObject` 权限，并由部署平台注入凭证；不要把长期 AccessKey 写入仓库。
+
+自 2025 年 3 月 20 日起，中国大陆地域的新 OSS 用户需要用已绑定的自定义域名访问数据 API，并同时设置 `OSS_ENDPOINT=https://oss-upload.example.com` 和 `OSS_CNAME=true`。如果图片本来就是公共资源或通过 CDN 分发，改用 `OSS_URL_ACCESS=public` 和 `OSS_PUBLIC_BASE_URL=https://assets.example.com`；代码只拼接稳定 URL，不会替你修改桶 ACL 或 CDN 权限。对象键使用图片内容哈希，重复上传同一图片会落到同一个地址；可用 `GPT_IMAGE_OBJECT_PREFIX` 修改前缀。
+
+`ObjectStorageCapability` 只暴露一个内存字节上传方法。`AliyunOssStorage` 隐藏 SDK、V4 签名、超时、URL 生成和安全错误转换，因此以后增加 R2 或 S3 Adapter 时不需要改图片流程。当前 HTTP 服务没有开放任意文件上传接口；如果以后需要浏览器直传，应单独增加受鉴权的签名 PUT 流程和对象键策略。
+
+只验证 OSS、不重新调用模型时，先确认 `artifacts/gpt-image-2/latest.png` 存在，再运行：
+
+```bash
+npm run smoke:oss
+```
+
+该命令上传现有图片，并通过返回 URL 请求第一个字节。终端会直接打印结果，完整证据保存在 `artifacts/object-storage/latest.json`。可用 `OSS_SMOKE_FILE` 换成本地其他文件；此命令会产生一次 OSS PUT 和一次少量 GET 请求。
 
 ## 增加业务流程
 
@@ -170,9 +198,9 @@ npm run test:gpt-image-2
 
 ## 部署与 Skill 边界
 
-当前服务是标准 Node.js 24 HTTP 进程，监听 `0.0.0.0:$PORT`，请求会话保存在内存中。最省事的部署方式是 Linux 容器：Cloud Run、Render、Railway、Fly.io、ECS/Fargate、Kubernetes 和普通 Docker 主机都适合。仓库还没有 Dockerfile；部署时需要执行 `npm run build`，再用 `npm start` 启动，并把 API Key 作为平台 Secret 注入。
+当前服务是标准 Node.js 24 HTTP 进程，监听 `0.0.0.0:$PORT`，请求会话保存在内存中。国内最省事的起点是阿里云 ECS 上的 Linux 容器；不想维护主机时可把同一容器镜像部署到 SAE，已有 Kubernetes 基础设施时可使用 ACK。Cloud Run、Render、Railway、Fly.io、ECS/Fargate、Kubernetes 和普通 Docker 主机也都适合。仓库还没有 Dockerfile；部署时需要执行 `npm run build`，再用 `npm start` 启动，并把 API Key 和 OSS 凭证作为平台 Secret 注入。
 
-Cloud Run 最贴合当前形态，因为它直接提供 `PORT`、请求超时和自动伸缩。图片生成可能接近两分钟，应让平台请求超时高于 `PROCESS_TIMEOUT_MS` 和 `GPT_IMAGE_TIMEOUT_MS`。本地文件只适合测试；多实例或无状态平台应把图片与报告写入 R2、S3 或 GCS。
+图片生成可能接近两分钟，应让平台请求超时高于 `PROCESS_TIMEOUT_MS` 和 `GPT_IMAGE_TIMEOUT_MS`。本地文件只适合单机测试；国内多实例或无状态部署应设置 `OBJECT_STORAGE_PROVIDER=aliyun-oss`，让生成图片进入 OSS。证据报告目前仍写本地文件，生产化时应再接入持久化日志或对象存储。
 
 Vercel Functions、Netlify Functions 和 Cloudflare Workers 不能直接运行当前入口。它使用 `node:http` 主动监听端口，并依赖本地 Skill 文件；部署到这些运行时需要改成平台 Handler，并重新处理文件资源和长请求。
 

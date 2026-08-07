@@ -3,4 +3,5 @@ dist/
 .env
 artifacts/skill-ab/
 artifacts/gpt-image-2/
+artifacts/object-storage/
 .DS_Store
