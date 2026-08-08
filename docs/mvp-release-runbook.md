@@ -40,6 +40,20 @@
 
 若 Business Capability 需要认证，优先使用私网身份、工作负载身份或服务网格。当前 HTTP Adapter 不发送调用方提供的任意认证头。
 
+## Run Record 策略
+
+当前 `src/main.ts` 没有注入 Run Record 存储。MVP 依靠部署平台收集单行 JSON 完成日志，并按 `runId`、Process、状态和错误码检索。`runId` 是运行排障索引，不是聊天会话 ID；聊天历史应由产品数据库单独保存。
+
+仓库提供的内存 Run Record Adapter 只用于开发或单实例测试。它有容量上限，但重启即丢失，也不在实例之间共享。不要把容器内存或容器磁盘当作生产记录存储。
+
+以后接入 Postgres 或可观测平台时，应实现 `ProcessRunRecordAdapter`，并保持以下边界：
+
+1. 默认只保存运行元数据，不保存输入和输出。
+2. 保存业务内容前，先确定授权、租户隔离、加密、脱敏和保留期限。
+3. 不保存系统 Prompt、Tool 过程、模型消息、隐藏推理、无效请求内容或内部错误详情。
+4. Adapter 写入失败不得改变 Process Run 的返回结果。
+5. 对外查询记录前，另行增加受鉴权的查询接口；本次发布不包含该接口。
+
 ## 构建并检查镜像
 
 从干净的发布提交构建镜像，并记录生成的镜像摘要：
@@ -93,6 +107,7 @@ docker build -t pi-business-processing-service:rc .
 4. 平台实例并发不得高于应用并发闸门；平台必须设置最大实例数。
 5. 日志系统必须收到单行 JSON，并能按 `runId`、`process`、`status` 和 `errorCode` 检索。
 6. `BUSINESS_API_BASE_URL` 必须连接真实 Business Capability。
+7. 若候选版本注入了 Run Record Adapter，必须验证成功和失败记录可按 `runId` 查询，并验证存储故障不影响 `/execute` 结果。
 
 Agent 模式启用后，先在受控发布 runner 中连接真实模型和 Business Capability。该命令强制使用 Agent 模式；若 Agent 没有实际调用 Business Capability，命令会失败。它可能产生模型费用：
 
@@ -119,4 +134,4 @@ npm run smoke:staging
 
 ## 本次不发布
 
-本次 MVP 不增加应用用户系统、RBAC、多租户、数据库、执行历史、通用幂等、队列、自动重试、CORS、图片生成、OSS 生产链路或全量基础设施即代码。未来流程一旦产生发布、扣费、发送或其他副作用，必须先补幂等决策。
+本次 MVP 不增加应用用户系统、RBAC、多租户、数据库、持久化或跨实例执行历史、Run Record 查询接口、通用幂等、队列、自动重试、CORS、图片生成、OSS 生产链路或全量基础设施即代码。未来流程一旦产生发布、扣费、发送或其他副作用，必须先补幂等决策。

@@ -1,5 +1,9 @@
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
+import {
+  disabledProcessRunRecords,
+  type ProcessRunRecords,
+} from "./process-run-records.js";
 
 const executeRequestSchema = z.strictObject({
   process: z.string().min(1),
@@ -121,15 +125,18 @@ export class ProcessRunner<Capabilities> {
   readonly #registry: ProcessRegistry<Capabilities>;
   readonly #capabilities: Capabilities;
   readonly #processTimeoutMs: number;
+  readonly #runRecords: ProcessRunRecords;
 
   constructor(options: {
     registry: ProcessRegistry<Capabilities>;
     capabilities: Capabilities;
     processTimeoutMs?: number;
+    runRecords?: ProcessRunRecords;
   }) {
     this.#registry = options.registry;
     this.#capabilities = options.capabilities;
     this.#processTimeoutMs = options.processTimeoutMs ?? 30_000;
+    this.#runRecords = options.runRecords ?? disabledProcessRunRecords;
   }
 
   async execute(rawRequest: unknown): Promise<ProcessRunResult> {
@@ -137,9 +144,11 @@ export class ProcessRunner<Capabilities> {
     const requestResult = executeRequestSchema.safeParse(rawRequest);
     if (!requestResult.success) {
       const identity = requestIdentitySchema.safeParse(rawRequest);
-      return failure(runId, "INVALID_INPUT", "The process input is invalid", {
-        ...(identity.success ? identity.data : {}),
-      });
+      return this.#complete(
+        failure(runId, "INVALID_INPUT", "The process input is invalid", {
+          ...(identity.success ? identity.data : {}),
+        }),
+      );
     }
 
     const request = requestResult.data;
@@ -149,22 +158,45 @@ export class ProcessRunner<Capabilities> {
     };
     const process = this.#registry.find(request.process, request.version);
     if (!process) {
-      return failure(
-        runId,
-        "PROCESS_NOT_FOUND",
-        "The requested process version is not registered",
-        identity,
+      return this.#complete(
+        failure(
+          runId,
+          "PROCESS_NOT_FOUND",
+          "The requested process version is not registered",
+          identity,
+        ),
       );
     }
 
     if (!process.acceptsInput(request.input)) {
-      return failure(
-        runId,
-        "INVALID_INPUT",
-        "The process input is invalid",
-        identity,
+      return this.#complete(
+        failure(
+          runId,
+          "INVALID_INPUT",
+          "The process input is invalid",
+          identity,
+        ),
       );
     }
+
+    const result = await this.#executeAcceptedRequest({
+      runId,
+      request,
+      process,
+    });
+    return this.#complete(result, { input: request.input });
+  }
+
+  async #executeAcceptedRequest(options: {
+    runId: string;
+    request: { process: string; version: string; input: unknown };
+    process: ProcessDefinition<Capabilities>;
+  }): Promise<ProcessRunResult> {
+    const { runId, request, process } = options;
+    const identity = {
+      process: request.process,
+      version: request.version,
+    };
 
     const controller = new AbortController();
     let timeout: NodeJS.Timeout | undefined;
@@ -221,6 +253,22 @@ export class ProcessRunner<Capabilities> {
     } finally {
       if (timeout) clearTimeout(timeout);
     }
+  }
+
+  #complete(
+    result: ProcessRunResult,
+    acceptedRequest?: { input: unknown },
+  ): ProcessRunResult {
+    try {
+      const recording = this.#runRecords.record({
+        result,
+        ...(acceptedRequest ? { acceptedRequest } : {}),
+      });
+      if (recording) void recording.catch(() => {});
+    } catch {
+      // Run recording is best-effort and cannot change the process result.
+    }
+    return result;
   }
 }
 

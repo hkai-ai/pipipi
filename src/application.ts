@@ -13,6 +13,7 @@ import {
   ProcessRegistry,
   ProcessRunner,
 } from "./process-runtime.js";
+import type { ProcessRunRecords } from "./process-run-records.js";
 import {
   createProcessingRequestListener,
   type ProcessingHttpOptions,
@@ -34,6 +35,7 @@ export type ProcessingApplicationOptions = {
   contentProcessing: ContentProcessingCapability;
   agentRuntime?: ContentOptimizationAgentRuntime;
   processTimeoutMs?: number;
+  runRecords?: ProcessRunRecords;
   http?: ProcessingHttpOptions;
   processes?: {
     contentProcessing?: ContentProcessingProcessConfig;
@@ -62,6 +64,7 @@ export function createProcessingApplication(
       agentRuntime: options.agentRuntime,
     },
     processTimeoutMs: options.processTimeoutMs,
+    runRecords: options.runRecords,
   });
   const server = createServer(
     createProcessingRequestListener(runner, options.http),

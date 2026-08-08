@@ -199,6 +199,31 @@ npm run smoke:oss
 - `GET /healthz` 只检查进程是否已初始化，不访问模型或 Business Capability。
 - 当前版本是受控同步 MVP，不包含应用鉴权、幂等、队列、持久化执行记录或通用编排器。
 
+## Run Record 与聊天历史
+
+`POST /execute` 每次返回一个 `runId`。应用可以注入 `ProcessRunRecords`，用这个 ID 查询一次 Process Run 的结果元数据。默认实现关闭记录；`src/main.ts` 也没有启用存储，因此当前生产入口仍只输出可按 `runId` 检索的结构化完成日志。
+
+Run Record 默认只包含 schema 版本、记录时间、`runId`、Process、版本、状态和错误码。它不接收系统 Prompt、Tool 过程、模型消息或隐藏推理，也不是用户聊天记录。若产品需要聊天历史，应在业务数据库中按用户和会话保存消息，并把相关 `runId` 作为排障关联键。
+
+开发或单实例测试可以注入有容量上限的内存实现：
+
+```ts
+import { createProcessingApplication } from "./src/application.js";
+import { createInMemoryProcessRunRecords } from "./src/process-run-records.js";
+
+const runRecords = createInMemoryProcessRunRecords({ maxRecords: 100 });
+const application = createProcessingApplication({
+  contentProcessing,
+  runRecords,
+});
+
+const record = await runRecords.find(runId);
+```
+
+内存记录按写入顺序淘汰，重启即丢失，并且不在实例间共享，不能作为生产历史。只有经过明确的数据保留和访问控制评审后，才应设置 `content: "accepted-input-and-output"`；该选项仅保存已通过 Process Definition 校验的输入和成功输出，不保存无效请求或内部错误内容。
+
+生产持久化应实现 `ProcessRunRecordAdapter`，再通过 `createProcessRunRecords({ adapter })` 接入 Postgres 或可观测平台。存储失败不会改变业务执行结果。当前服务没有公开 Run Record 查询接口；若以后开放，必须先增加调用方认证、租户隔离、内容脱敏和保留期限。
+
 ## 部署与 Skill 边界
 
 当前服务是标准 Node.js 24 HTTP 进程，监听 `0.0.0.0:$PORT`。仓库中的多阶段 Dockerfile 只把生产依赖、编译产物和审核后的内容优化 Skill 放入运行镜像，并以非 root 用户启动。ECS、SAE、ACK、Cloud Run、ECS/Fargate、Kubernetes 和普通 Docker 主机可以运行同一镜像。
