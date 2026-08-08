@@ -1,6 +1,7 @@
 # 受控文本 MVP 发布手册
 
-本手册发布现有同步文本处理服务。它不发布图片、OSS、异步作业或公网匿名接口。
+本手册面向发布与运维人员，用于发布现有同步文本处理服务。它不发布图片、OSS、异步作业或公网匿名接口。项目范围以
+[`CONTEXT.md`](../CONTEXT.md) 为准；文档维护要求见 [`docs/README.md`](README.md)。
 
 ## 发布边界
 
@@ -41,6 +42,12 @@
 若 Business Capability 需要认证，优先使用私网身份、工作负载身份或服务网格。当前 HTTP Adapter 不发送调用方提供的任意认证头。
 
 `PROCESS_TIMEOUT_MS=120000` 是本手册的受控发布覆盖值，不改变代码的 30 秒默认值。候选镜像、部署平台和回滚配置都必须显式保留该覆盖值。
+
+## 运行时兼容性
+
+当前入口是主动监听 `0.0.0.0:$PORT` 的 Node.js 24 HTTP 进程，并在运行时读取镜像内的 Skill 文件。普通 Docker 主机、Kubernetes 和支持长运行容器的平台可以运行同一镜像。
+
+Vercel Functions、Netlify Functions 和 Cloudflare Workers 不能直接运行当前入口。迁移到函数或边缘运行时前，必须把主动监听改成平台 Handler，并重新设计文件资源、长请求、取消和超时。
 
 ## Run Record 策略
 

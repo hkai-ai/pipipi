@@ -1,7 +1,8 @@
 # Process Runtime 设计
 
-本文记录 Business Processing 的当前 Module 设计。领域词汇以
-[`CONTEXT.md`](../CONTEXT.md) 为准；代码与本文冲突时，以代码和测试为准。
+本文面向修改 Process Runtime 的开发者，记录 Business Processing 的当前 Module 设计。领域词汇以
+[`CONTEXT.md`](../CONTEXT.md) 为准；文档分类与维护要求见
+[`docs/README.md`](README.md)。代码与本文冲突时，以代码和测试为准，并在同一改动中修正文档。
 
 ## 设计目标
 

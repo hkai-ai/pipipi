@@ -1,29 +1,100 @@
-# Business Processing
+# Business Processing 项目上下文
 
-This context defines versioned business processing behavior that product callers can execute without selecting its implementation mechanism.
+本文记录项目长期稳定的业务背景、范围和共同语言。它帮助产品、开发者和自动化工具在修改代码前建立同一套理解；安装命令、实现细节和发布步骤分别放在对应专题文档中。
 
-## Language
+## 项目目的
 
-**Business Process**:
-A versioned business use case exposed to product callers.
-_Avoid_: Workflow, pipeline
+Business Processing Service 让产品调用方通过一个稳定的 HTTP Interface 执行版本化的业务处理。调用方只需选择明确的 Business Process 版本并提交业务输入，不需要知道流程内部使用本地逻辑、远程 Business Capability，还是受限 Agent。
 
-**Process Definition**:
-The code-owned expression of one Business Process version's business behavior and contracts.
-_Avoid_: Workflow definition, process configuration
+项目要解决的核心问题是：让实现方式可以演进，同时让产品契约保持明确。服务端集中拥有 Process Definition、输入输出 Schema、获准依赖和运行策略，避免这些知识散落到每个调用方。
 
-**Process Registration**:
-A validated, executable registration of one Business Process version. It associates that version with its Process Definition, authorized dependencies, and server-owned policy.
-_Avoid_: Registry entry, raw Process Definition
+## 产品契约
 
-**Process Registry**:
-The immutable catalog of accepted Process Registrations, addressed by Business Process identifier and version. It resolves exact versions and never chooses a default or fallback.
-_Avoid_: Process map, process list
+调用方必须知道：
 
-**Process Runner**:
-The runtime that governs one execution of a resolved Process Registration. It applies shared execution rules without knowing a Business Process's policy or dependency shape.
-_Avoid_: Workflow engine, Process Registry
+- Business Process 的标识和准确版本；
+- 该版本的输入、输出和公开错误；
+- 同步请求可能超时，容量已满时应按 `Retry-After` 重试。
 
-**Execution Context**:
-The request-scoped execution metadata supplied by the Process Runner after a Process Registration accepts input. Authorized dependencies and stable policy belong to the Process Registration instead.
-_Avoid_: Global capability bag, dependency bag
+服务端负责决定：
+
+- Process Definition 及其执行顺序；
+- Schema、Business Capability、Agent、Skill 和 Tool；
+- 超时、并发、记录和错误净化策略；
+- 哪些 Process Registration 进入生产 Process Registry。
+
+产品调用方不能上传步骤、脚本、模型、Skill、Tool、远程地址或运行配置。
+
+## 当前能力
+
+生产 catalog 当前注册两个精确版本：
+
+| Business Process | 输入 | 输出 | 实现选择 |
+| --- | --- | --- | --- |
+| `content-processing/v1` | `{ content: string }` | `{ content: string }` | 服务端可选择 Direct 或 Agent 路径 |
+| `titled-content-processing/v1` | `{ title: string, body: string }` | `{ title: string, content: string }` | 复用 Content Processing Capability |
+
+HTTP 入口只公开 `GET /healthz` 和 `POST /execute`。每次执行生成独立 `runId`。默认生产构造不持久化 Run Record；结构化完成日志只保留运行元数据，不保存 Prompt、Tool 过程、模型消息或隐藏推理。
+
+图片生成、海报 Skill、对象存储和 Skill A/B 对比目前属于开发实验与集成验证，不属于 `/execute` 的生产 catalog。
+
+## 运行与信任模型
+
+当前版本是无状态、受控、同步的 Node.js HTTP 服务。实例之间不共享会话；每个 Agent 请求创建独立的内存会话。部署平台负责 TLS、私有入口、调用方认证、实例上限和 Secret 注入。
+
+Agent 只获得 Process Registration 明确授权的窄 Tool。生产内容处理 Agent 只能调用 `process_business_content`，不能使用 Shell、文件读写、代码编辑或任意远程工具。
+
+## 当前不做
+
+项目当前不提供：
+
+- 动态 Process Definition、运行时注册、自动发现、默认版本或版本回退；
+- 通用工作流编排、队列、跨请求 Agent 记忆或自动重试；
+- 应用内用户系统、RBAC、多租户、CORS 或公网匿名调用；
+- 生产 Run Record 查询、聊天历史、持久化执行历史或通用幂等；
+- 允许 Agent 使用 Coding Tools 的通用 Skill 执行环境。
+
+未来若流程产生发布、扣费、发送等副作用，必须先明确幂等、审计和补偿策略。
+
+## Module 模型
+
+项目把复杂行为放在少量稳定 Interface 后面：
+
+| Module | 外部 Interface | 隐藏的 Implementation |
+| --- | --- | --- |
+| Startup Construction | `constructProcessingService(environment)` | 配置翻译、校验、Adapter 选择和完整生产组装 |
+| Processing Application | `listen`、`close` | Node HTTP 生命周期 |
+| Process Executor | `execute(request)` | 查找、超时、取消、错误转换和 Run Record |
+| Process Registration | `identity`、`start(input, context)` | Schema、Process Definition、依赖、策略和输出验证 |
+| Business Capability | 窄业务方法 | 远程协议、认证、超时和供应商细节 |
+
+Startup Construction 是生产组装 Seam；Process Executor 是传输与 Process Runtime 之间的主 Seam；Process Registration 是编写一个 Business Process 版本的 Seam。Adapter 只有在 Seam 上存在真实替换需求时才引入。
+
+详细 invariant、错误归属和测试面见 [`docs/process-runtime-design.md`](docs/process-runtime-design.md)。
+
+## 共同语言
+
+- **Business Process**：产品调用方可执行的版本化业务用例。避免使用：Workflow、pipeline。
+- **Process Definition**：由代码拥有的某个 Business Process 版本的业务行为与契约。避免使用：Workflow definition、process configuration。
+- **Process Registration**：经过校验、可执行的单个 Business Process 版本。它把 Process Definition、获准依赖和服务端策略绑定在一起。避免使用：registry entry、raw Process Definition。
+- **Process Registry**：不可变的 Process Registration catalog，以 Business Process 标识和版本寻址。它只做精确查找，不选择默认或回退版本。避免使用：process map、process list。
+- **Process Runner**：治理一次已解析 Process Registration 执行的 Runtime。它统一处理运行规则，但不知道具体流程的策略或依赖形状。避免使用：workflow engine、Process Registry。
+- **Execution Context**：Process Runner 在输入被接受后提供的请求级元数据。它只包含 `runId`、`AbortSignal` 等运行信息；获准依赖和稳定策略属于 Process Registration。避免使用：global capability bag、dependency bag。
+- **Business Capability**：Process Definition 获准调用的窄业务能力。远程协议或供应商 SDK 留在 Adapter 的 Implementation 内。
+- **Run Record**：一次 Process Run 的结果元数据。它不是聊天记录，也不应默认保存业务内容或 Agent 内部过程。
+
+设计讨论统一使用 **Module**、**Interface**、**Implementation**、**Seam** 和 **Adapter**。Interface 包含调用方必须知道的全部约束，不只包含 TypeScript 类型。
+
+## 事实来源
+
+| 问题 | 主要来源 |
+| --- | --- |
+| 项目为何存在、范围和术语 | 本文 |
+| 项目是什么、如何完成最短体验 | [`README.md`](README.md) |
+| 精确运行行为和公开错误 | `src/` 与 `test/` |
+| Module、Interface、invariant 和测试面 | [`docs/process-runtime-design.md`](docs/process-runtime-design.md) |
+| 本地开发与改动流程 | [`docs/development.md`](docs/development.md) |
+| 部署、验收和回滚 | [`docs/mvp-release-runbook.md`](docs/mvp-release-runbook.md) |
+| 配置键与示例值 | [`.env.example`](.env.example) 与配置解析测试 |
+
+若文档与代码行为冲突，先按测试确认当前事实，再在同一改动中更新受影响的文档。项目目的、范围或共同语言发生变化时，必须同时更新本文。
