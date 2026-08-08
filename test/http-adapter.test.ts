@@ -5,12 +5,16 @@ import {
   type Server,
 } from "node:http";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { createProcessingApplication } from "../src/application.js";
+import { ContentProcessingUnavailable } from "../src/business-capabilities.js";
 import {
-  createProcessingApplication,
-  type ProcessingApplicationOptions,
-} from "../src/application.js";
-import { createProcessingRequestListener } from "../src/http-adapter.js";
-import { ProcessFailure } from "../src/process-runtime.js";
+  createBusinessProcessExecutor,
+  type BusinessProcessExecutorOptions,
+} from "../src/business-process-executor.js";
+import {
+  createProcessingRequestListener,
+  type ProcessingHttpOptions,
+} from "../src/http-adapter.js";
 
 type RunningService = {
   url: string;
@@ -493,10 +497,7 @@ describe("controlled MVP HTTP boundary", () => {
       contentProcessing: {
         process: async (input) => {
           if (input.content === "dependency-failure") {
-            throw new ProcessFailure(
-              "DEPENDENCY_FAILURE",
-              "A required business service is unavailable",
-            );
+            throw new ContentProcessingUnavailable();
           }
           if (input.content === "timeout") return new Promise(() => {});
           return { content: `Processed: ${input.content}` };
@@ -650,9 +651,13 @@ describe("controlled MVP HTTP boundary", () => {
 });
 
 async function startProcessingService(
-  options: ProcessingApplicationOptions,
+  options: BusinessProcessExecutorOptions & { http?: ProcessingHttpOptions },
 ): Promise<RunningService> {
-  const application = createProcessingApplication(options);
+  const { http, ...executorOptions } = options;
+  const application = createProcessingApplication({
+    executor: createBusinessProcessExecutor(executorOptions),
+    http,
+  });
   const { url } = await application.listen();
   const service = { url, close: application.close };
   runningServices.push(service);

@@ -5,16 +5,13 @@ import type {
 } from "node:http";
 import type {
   ProcessErrorCode,
+  ProcessExecutor,
   ProcessRunResult,
 } from "./process-runtime.js";
 import {
   defaultHttpMaxRequestBodyBytes,
   defaultMaxConcurrentExecutions,
 } from "./http-config.js";
-
-export type ProcessExecutor = {
-  execute: (request: unknown) => Promise<ProcessRunResult>;
-};
 
 export type ProcessingHttpOptions = {
   maxRequestBodyBytes?: number;

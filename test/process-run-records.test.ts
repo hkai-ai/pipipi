@@ -3,6 +3,7 @@ import {
   createProcessingApplication,
   type ProcessingApplication,
 } from "../src/application.js";
+import { createBusinessProcessExecutor } from "../src/business-process-executor.js";
 import {
   createInMemoryProcessRunRecords,
   createProcessRunRecords,
@@ -74,7 +75,7 @@ describe("Process Run Records", () => {
     });
   });
 
-  it("never retains an input rejected by a Process Definition", async () => {
+  it("never retains an input rejected by a Process Registration", async () => {
     const records = createInMemoryProcessRunRecords({
       content: "accepted-input-and-output",
       clock: () => "2026-08-08T01:00:00.000Z",
@@ -180,10 +181,12 @@ async function startApplication(
   runRecords: ProcessRunRecords,
 ): Promise<{ url: string }> {
   const application = createProcessingApplication({
-    contentProcessing: {
-      process: async (input) => ({ content: `Processed: ${input.content}` }),
-    },
-    runRecords,
+    executor: createBusinessProcessExecutor({
+      contentProcessing: {
+        process: async (input) => ({ content: `Processed: ${input.content}` }),
+      },
+      runRecords,
+    }),
   });
   runningApplications.push(application);
   return application.listen();

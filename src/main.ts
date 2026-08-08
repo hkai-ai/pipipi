@@ -1,4 +1,5 @@
 import { createProcessingApplication } from "./application.js";
+import { createBusinessProcessExecutor } from "./business-process-executor.js";
 import {
   parseOpenAIApiMode,
   PiContentOptimizationAgentRuntime,
@@ -27,13 +28,12 @@ const agentRuntime =
         skillDirectory: process.env.PI_SKILL_DIRECTORY,
       })
     : undefined;
-const application = createProcessingApplication({
+const executor = createBusinessProcessExecutor({
   contentProcessing: new HttpContentProcessingCapability({
     baseUrl: businessApiBaseUrl,
     timeoutMs: parseTimeout(process.env.BUSINESS_API_TIMEOUT_MS, 10_000),
   }),
   agentRuntime,
-  http,
   processTimeoutMs: parseTimeout(process.env.PROCESS_TIMEOUT_MS, 30_000),
   processes: {
     contentProcessing: { mode: contentProcessingMode },
@@ -42,6 +42,7 @@ const application = createProcessingApplication({
     },
   },
 });
+const application = createProcessingApplication({ executor, http });
 const { url } = await application.listen({ host: "0.0.0.0", port });
 
 console.log(

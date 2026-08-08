@@ -3,25 +3,10 @@ import {
   type Server,
 } from "node:http";
 import {
-  createContentProcessingProcess,
-  type ContentProcessCapabilities,
-  type ContentProcessingProcessConfig,
-} from "./content-processing.js";
-import type { ContentOptimizationAgentRuntime } from "./agent-runtime.js";
-import type { ContentProcessingCapability } from "./business-capabilities.js";
-import {
-  ProcessRegistry,
-  ProcessRunner,
-} from "./process-runtime.js";
-import type { ProcessRunRecords } from "./process-run-records.js";
-import {
   createProcessingRequestListener,
   type ProcessingHttpOptions,
 } from "./http-adapter.js";
-import {
-  createTitledContentProcessingProcess,
-  type TitledContentProcessingConfig,
-} from "./titled-content-processing.js";
+import type { ProcessExecutor } from "./process-runtime.js";
 
 export type ProcessingApplication = {
   listen: (options?: {
@@ -32,42 +17,15 @@ export type ProcessingApplication = {
 };
 
 export type ProcessingApplicationOptions = {
-  contentProcessing: ContentProcessingCapability;
-  agentRuntime?: ContentOptimizationAgentRuntime;
-  processTimeoutMs?: number;
-  runRecords?: ProcessRunRecords;
+  executor: ProcessExecutor;
   http?: ProcessingHttpOptions;
-  processes?: {
-    contentProcessing?: ContentProcessingProcessConfig;
-    titledContentProcessing?: TitledContentProcessingConfig;
-  };
 };
 
 export function createProcessingApplication(
   options: ProcessingApplicationOptions,
 ): ProcessingApplication {
-  const contentProcessingConfig = options.processes?.contentProcessing;
-  if (contentProcessingConfig?.mode === "agent" && !options.agentRuntime) {
-    throw new Error("Agent Runtime is required when Agent mode is enabled");
-  }
-
-  const registry = new ProcessRegistry<ContentProcessCapabilities>([
-    createContentProcessingProcess(contentProcessingConfig),
-    createTitledContentProcessingProcess(
-      options.processes?.titledContentProcessing,
-    ),
-  ]);
-  const runner = new ProcessRunner<ContentProcessCapabilities>({
-    registry,
-    capabilities: {
-      contentProcessing: options.contentProcessing,
-      agentRuntime: options.agentRuntime,
-    },
-    processTimeoutMs: options.processTimeoutMs,
-    runRecords: options.runRecords,
-  });
   const server = createServer(
-    createProcessingRequestListener(runner, options.http),
+    createProcessingRequestListener(options.executor, options.http),
   );
 
   return {

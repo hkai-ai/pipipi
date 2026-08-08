@@ -44,239 +44,350 @@ export type ProcessRunResult =
       };
     };
 
-export type ProcessExecutionContext<Capabilities> = {
-  capabilities: Capabilities;
+export type ProcessIdentity = Readonly<{
+  id: string;
+  version: string;
+}>;
+
+export type ProcessExecutionContext = Readonly<{
+  runId: string;
   signal: AbortSignal;
-};
+}>;
 
-export type ProcessDefinition<Capabilities> = {
-  id: string;
-  version: string;
-  acceptsInput: (input: unknown) => boolean;
-  execute: (
+export type ExpectedProcessErrorCode =
+  | "AGENT_FAILURE"
+  | "DEPENDENCY_FAILURE";
+
+const expectedProcessFailureBrand: unique symbol = Symbol(
+  "ExpectedProcessFailure",
+);
+
+export type ExpectedProcessFailure = Readonly<{
+  code: ExpectedProcessErrorCode;
+  publicMessage: string;
+  [expectedProcessFailureBrand]: true;
+}>;
+
+export function failProcess(
+  code: ExpectedProcessErrorCode,
+  publicMessage: string,
+): ExpectedProcessFailure {
+  return Object.freeze({
+    code,
+    publicMessage,
+    [expectedProcessFailureBrand]: true as const,
+  });
+}
+
+export type ProcessRegistrationCompletion =
+  | Readonly<{ status: "succeeded"; output: unknown }>
+  | Readonly<{
+      status: "failed";
+      error:
+        | ExpectedProcessFailure
+        | Readonly<{
+            code: "INVALID_OUTPUT";
+            publicMessage: string;
+          }>;
+    }>;
+
+export type ProcessRegistrationStart =
+  | Readonly<{ accepted: false }>
+  | Readonly<{
+      accepted: true;
+      completion: Promise<ProcessRegistrationCompletion>;
+    }>;
+
+const processRegistrationBrand: unique symbol = Symbol("ProcessRegistration");
+
+export type ProcessRegistration = Readonly<{
+  identity: ProcessIdentity;
+  start: (
     input: unknown,
-    context: ProcessExecutionContext<Capabilities>,
-  ) => Promise<unknown>;
-  parseOutput: (output: unknown) => ParseResult;
-};
+    context: ProcessExecutionContext,
+  ) => ProcessRegistrationStart;
+  [processRegistrationBrand]: true;
+}>;
 
-type ParseResult =
-  | { success: true; data: unknown }
-  | { success: false };
-
-export function defineProcess<Input, Output, Capabilities>(definition: {
+export function defineProcessRegistration<
+  InputSchema extends z.ZodType,
+  OutputSchema extends z.ZodType,
+>(definition: {
   id: string;
   version: string;
-  inputSchema: z.ZodType<Input>;
-  outputSchema: z.ZodType<Output>;
+  inputSchema: InputSchema;
+  outputSchema: OutputSchema;
   execute: (
-    input: Input,
-    context: ProcessExecutionContext<Capabilities>,
-  ) => Promise<Output>;
-}): ProcessDefinition<Capabilities> {
-  return {
+    input: z.output<InputSchema>,
+    context: ProcessExecutionContext,
+  ) => Promise<z.input<OutputSchema> | ExpectedProcessFailure>;
+}): ProcessRegistration {
+  assertProcessIdentity({ id: definition.id, version: definition.version });
+  const inputSchema = definition.inputSchema;
+  const outputSchema = definition.outputSchema;
+  const execute = definition.execute;
+
+  const identity = Object.freeze({
     id: definition.id,
     version: definition.version,
-    acceptsInput: (input) => definition.inputSchema.safeParse(input).success,
-    execute: async (input, context) =>
-      definition.execute(definition.inputSchema.parse(input), context),
-    parseOutput: (output) => {
-      const result = definition.outputSchema.safeParse(output);
-      return result.success
-        ? { success: true, data: result.data }
-        : { success: false };
+  });
+
+  return Object.freeze({
+    identity,
+    start: (input, context) => {
+      const acceptedInput = inputSchema.safeParse(input);
+      if (!acceptedInput.success) return Object.freeze({ accepted: false });
+
+      const completion = Promise.resolve()
+        .then(() => execute(acceptedInput.data, context))
+        .then((rawOutput): ProcessRegistrationCompletion => {
+          if (isExpectedProcessFailure(rawOutput)) {
+            return { status: "failed", error: rawOutput };
+          }
+          const output = outputSchema.safeParse(rawOutput);
+          if (!output.success) {
+            return {
+              status: "failed",
+              error: {
+                code: "INVALID_OUTPUT",
+                publicMessage: "The process produced an invalid output",
+              },
+            };
+          }
+          return { status: "succeeded", output: output.data };
+        });
+
+      return Object.freeze({ accepted: true, completion });
     },
-  };
+    [processRegistrationBrand]: true as const,
+  });
 }
 
-export class ProcessRegistry<Capabilities> {
-  readonly #processes = new Map<string, ProcessDefinition<Capabilities>>();
+function isExpectedProcessFailure(
+  value: unknown,
+): value is ExpectedProcessFailure {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    expectedProcessFailureBrand in value &&
+    value[expectedProcessFailureBrand] === true
+  );
+}
 
-  constructor(processes: readonly ProcessDefinition<Capabilities>[] = []) {
-    for (const process of processes) this.register(process);
+function assertProcessIdentity(identity: ProcessIdentity): void {
+  if (identity.id.trim().length === 0) {
+    throw new Error("Business Process id must be non-empty");
   }
+  if (identity.version.trim().length === 0) {
+    throw new Error("Business Process version must be non-empty");
+  }
+}
 
-  register(process: ProcessDefinition<Capabilities>): void {
-    const key = processKey(process.id, process.version);
-    if (this.#processes.has(key)) {
+const processRegistryBrand: unique symbol = Symbol("ProcessRegistry");
+
+export type ProcessRegistry = Readonly<{
+  find: (identity: ProcessIdentity) => ProcessRegistration | undefined;
+  [processRegistryBrand]: true;
+}>;
+
+export function createProcessRegistry(
+  registrations: readonly ProcessRegistration[],
+): ProcessRegistry {
+  const registrationsById = new Map<
+    string,
+    Map<string, ProcessRegistration>
+  >();
+
+  for (const registration of registrations) {
+    if (
+      typeof registration !== "object" ||
+      registration === null ||
+      registration[processRegistrationBrand] !== true
+    ) {
+      throw new Error("Process Registry accepts only Process Registrations");
+    }
+    assertProcessIdentity(registration.identity);
+    let versions = registrationsById.get(registration.identity.id);
+    if (!versions) {
+      versions = new Map();
+      registrationsById.set(registration.identity.id, versions);
+    }
+    if (versions.has(registration.identity.version)) {
       throw new Error(
-        `Process ${process.id}/${process.version} is already registered`,
+        `Process ${registration.identity.id}/${registration.identity.version} is registered more than once`,
       );
     }
-    this.#processes.set(key, process);
+    versions.set(registration.identity.version, registration);
   }
 
-  find(id: string, version: string): ProcessDefinition<Capabilities> | undefined {
-    return this.#processes.get(processKey(id, version));
-  }
+  return Object.freeze({
+    find: (identity: ProcessIdentity) =>
+      registrationsById.get(identity.id)?.get(identity.version),
+    [processRegistryBrand]: true as const,
+  });
 }
 
-export class ProcessFailure extends Error {
-  constructor(
-    readonly code: ProcessErrorCode,
-    readonly publicMessage: string,
+export type ProcessExecutor = Readonly<{
+  execute: (request: unknown) => Promise<ProcessRunResult>;
+}>;
+
+export function createProcessRunner(options: {
+  registry: ProcessRegistry;
+  processTimeoutMs?: number;
+  runRecords?: ProcessRunRecords;
+}): ProcessExecutor {
+  const registry = options.registry;
+  if (
+    typeof registry !== "object" ||
+    registry === null ||
+    registry[processRegistryBrand] !== true
   ) {
-    super(publicMessage);
-    this.name = "ProcessFailure";
+    throw new Error("Process Runner requires a Process Registry");
   }
-}
-
-export class ProcessRunner<Capabilities> {
-  readonly #registry: ProcessRegistry<Capabilities>;
-  readonly #capabilities: Capabilities;
-  readonly #processTimeoutMs: number;
-  readonly #runRecords: ProcessRunRecords;
-
-  constructor(options: {
-    registry: ProcessRegistry<Capabilities>;
-    capabilities: Capabilities;
-    processTimeoutMs?: number;
-    runRecords?: ProcessRunRecords;
-  }) {
-    this.#registry = options.registry;
-    this.#capabilities = options.capabilities;
-    this.#processTimeoutMs = options.processTimeoutMs ?? 30_000;
-    this.#runRecords = options.runRecords ?? disabledProcessRunRecords;
+  const runRecords = options.runRecords ?? disabledProcessRunRecords;
+  const processTimeoutMs = options.processTimeoutMs ?? 30_000;
+  if (!Number.isInteger(processTimeoutMs) || processTimeoutMs < 1) {
+    throw new Error("Process timeout must be a positive integer");
   }
 
-  async execute(rawRequest: unknown): Promise<ProcessRunResult> {
-    const runId = randomUUID();
-    const requestResult = executeRequestSchema.safeParse(rawRequest);
-    if (!requestResult.success) {
-      const identity = requestIdentitySchema.safeParse(rawRequest);
-      return this.#complete(
-        failure(runId, "INVALID_INPUT", "The process input is invalid", {
-          ...(identity.success ? identity.data : {}),
-        }),
-      );
-    }
-
-    const request = requestResult.data;
-    const identity = {
-      process: request.process,
-      version: request.version,
-    };
-    const process = this.#registry.find(request.process, request.version);
-    if (!process) {
-      return this.#complete(
-        failure(
-          runId,
-          "PROCESS_NOT_FOUND",
-          "The requested process version is not registered",
-          identity,
-        ),
-      );
-    }
-
-    if (!process.acceptsInput(request.input)) {
-      return this.#complete(
-        failure(
-          runId,
-          "INVALID_INPUT",
-          "The process input is invalid",
-          identity,
-        ),
-      );
-    }
-
-    const result = await this.#executeAcceptedRequest({
-      runId,
-      request,
-      process,
-    });
-    return this.#complete(result, { input: request.input });
-  }
-
-  async #executeAcceptedRequest(options: {
-    runId: string;
-    request: { process: string; version: string; input: unknown };
-    process: ProcessDefinition<Capabilities>;
-  }): Promise<ProcessRunResult> {
-    const { runId, request, process } = options;
-    const identity = {
-      process: request.process,
-      version: request.version,
-    };
-
-    const controller = new AbortController();
-    let timeout: NodeJS.Timeout | undefined;
-    const timeoutFailure = new Promise<never>((_resolve, reject) => {
-      timeout = setTimeout(() => {
-        controller.abort();
-        reject(new ProcessTimeoutFailure());
-      }, this.#processTimeoutMs);
-    });
-
-    try {
-      const rawOutput = await Promise.race([
-        process.execute(request.input, {
-          capabilities: this.#capabilities,
-          signal: controller.signal,
-        }),
-        timeoutFailure,
-      ]);
-      const output = process.parseOutput(rawOutput);
-      if (!output.success) {
-        return failure(
-          runId,
-          "INVALID_OUTPUT",
-          "The process produced an invalid output",
-          identity,
+  return Object.freeze({
+    execute: async (rawRequest: unknown): Promise<ProcessRunResult> => {
+      const runId = randomUUID();
+      const requestResult = executeRequestSchema.safeParse(rawRequest);
+      if (!requestResult.success) {
+        const identity = requestIdentitySchema.safeParse(rawRequest);
+        return completeProcessRun(
+          runRecords,
+          failure(runId, "INVALID_INPUT", "The process input is invalid", {
+            ...(identity.success ? identity.data : {}),
+          }),
         );
       }
 
-      return {
-        runId,
+      const request = requestResult.data;
+      const identity = {
         process: request.process,
         version: request.version,
-        status: "succeeded",
-        output: output.data,
       };
-    } catch (error) {
-      if (controller.signal.aborted || error instanceof ProcessTimeoutFailure) {
-        return failure(
-          runId,
-          "PROCESS_TIMEOUT",
-          "The process exceeded its time limit",
-          identity,
+      const registration = registry.find({
+        id: request.process,
+        version: request.version,
+      });
+      if (!registration) {
+        return completeProcessRun(
+          runRecords,
+          failure(
+            runId,
+            "PROCESS_NOT_FOUND",
+            "The requested process version is not registered",
+            identity,
+          ),
         );
       }
-      if (error instanceof ProcessFailure) {
-        return failure(runId, error.code, error.publicMessage, identity);
-      }
-      return failure(
-        runId,
-        "INTERNAL_ERROR",
-        "The process could not be completed",
-        identity,
-      );
-    } finally {
-      if (timeout) clearTimeout(timeout);
-    }
-  }
 
-  #complete(
-    result: ProcessRunResult,
-    acceptedRequest?: { input: unknown },
-  ): ProcessRunResult {
-    try {
-      const recording = this.#runRecords.record({
-        result,
-        ...(acceptedRequest ? { acceptedRequest } : {}),
+      const controller = new AbortController();
+      let started: ProcessRegistrationStart;
+      try {
+        started = registration.start(request.input, {
+          runId,
+          signal: controller.signal,
+        });
+      } catch {
+        return completeProcessRun(
+          runRecords,
+          failure(
+            runId,
+            "INTERNAL_ERROR",
+            "The process could not be completed",
+            identity,
+          ),
+        );
+      }
+
+      if (!started.accepted) {
+        return completeProcessRun(
+          runRecords,
+          failure(
+            runId,
+            "INVALID_INPUT",
+            "The process input is invalid",
+            identity,
+          ),
+        );
+      }
+
+      let result: ProcessRunResult;
+      let timeout: NodeJS.Timeout | undefined;
+      const timeoutFailure = new Promise<never>((_resolve, reject) => {
+        timeout = setTimeout(() => {
+          controller.abort();
+          reject(new ProcessTimeoutFailure());
+        }, processTimeoutMs);
       });
-      if (recording) void recording.catch(() => {});
-    } catch {
-      // Run recording is best-effort and cannot change the process result.
-    }
-    return result;
+      try {
+        const completion = await Promise.race([
+          started.completion,
+          timeoutFailure,
+        ]);
+        result =
+          completion.status === "succeeded"
+            ? {
+                runId,
+                process: request.process,
+                version: request.version,
+                status: "succeeded",
+                output: completion.output,
+              }
+            : failure(
+                runId,
+                completion.error.code,
+                completion.error.publicMessage,
+                identity,
+              );
+      } catch (error) {
+        result =
+          controller.signal.aborted || error instanceof ProcessTimeoutFailure
+            ? failure(
+                runId,
+                "PROCESS_TIMEOUT",
+                "The process exceeded its time limit",
+                identity,
+              )
+            : failure(
+                runId,
+                "INTERNAL_ERROR",
+                "The process could not be completed",
+                identity,
+              );
+      } finally {
+        if (timeout) clearTimeout(timeout);
+      }
+
+      return completeProcessRun(runRecords, result, {
+        input: request.input,
+      });
+    },
+  });
+}
+
+function completeProcessRun(
+  runRecords: ProcessRunRecords,
+  result: ProcessRunResult,
+  acceptedRequest?: { input: unknown },
+): ProcessRunResult {
+  try {
+    const recording = runRecords.record({
+      result,
+      ...(acceptedRequest ? { acceptedRequest } : {}),
+    });
+    if (recording) void recording.catch(() => {});
+  } catch {
+    // Run recording is best-effort and cannot change the process result.
   }
+  return result;
 }
 
 class ProcessTimeoutFailure extends Error {}
-
-function processKey(id: string, version: string): string {
-  return `${id}\0${version}`;
-}
 
 function failure(
   runId: string,

@@ -15,6 +15,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { createProcessingApplication } from "../src/application.js";
+import { createBusinessProcessExecutor } from "../src/business-process-executor.js";
 import {
   parseOpenAIApiMode,
   PiContentOptimizationAgentRuntime,
@@ -241,7 +242,7 @@ async function runArm(options: {
           modelRuntime: options.modelRuntime,
         })
       : undefined;
-  const application = createProcessingApplication({
+  const executor = createBusinessProcessExecutor({
     contentProcessing: new HttpContentProcessingCapability({
       baseUrl: options.businessApi.url,
     }),
@@ -264,6 +265,7 @@ async function runArm(options: {
       contentProcessing: { mode: agentMode ? "agent" : "direct" },
     },
   });
+  const application = createProcessingApplication({ executor });
   const { url } = await application.listen();
 
   try {

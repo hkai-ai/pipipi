@@ -1,4 +1,5 @@
 import { createProcessingApplication } from "../src/application.js";
+import { createBusinessProcessExecutor } from "../src/business-process-executor.js";
 import {
   parseOpenAIApiMode,
   PiContentOptimizationAgentRuntime,
@@ -23,7 +24,7 @@ const trackedContentProcessing: ContentProcessingCapability = {
   },
 };
 
-const application = createProcessingApplication({
+const executor = createBusinessProcessExecutor({
   contentProcessing: trackedContentProcessing,
   agentRuntime: new PiContentOptimizationAgentRuntime({
     provider: process.env.PI_PROVIDER,
@@ -36,6 +37,7 @@ const application = createProcessingApplication({
   processTimeoutMs: 120_000,
   processes: { contentProcessing: { mode: "agent" } },
 });
+const application = createProcessingApplication({ executor });
 
 const { url } = await application.listen();
 try {

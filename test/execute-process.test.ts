@@ -7,10 +7,12 @@ import {
 } from "node:http";
 import { afterEach, describe, expect, it } from "vitest";
 import type { ContentOptimizationAgentRuntime } from "../src/agent-runtime.js";
+import { createProcessingApplication } from "../src/application.js";
+import { ContentProcessingUnavailable } from "../src/business-capabilities.js";
 import {
-  createProcessingApplication,
-  type ProcessingApplicationOptions,
-} from "../src/application.js";
+  createBusinessProcessExecutor,
+  type BusinessProcessExecutorOptions,
+} from "../src/business-process-executor.js";
 import {
   HttpContentProcessingCapability,
   type ContentProcessingCapability,
@@ -33,6 +35,36 @@ afterEach(async () => {
 });
 
 describe("business process execution", () => {
+  it("rejects incomplete Process Registration composition at startup", () => {
+    expect(() =>
+      createBusinessProcessExecutor({
+        contentProcessing: undefined as unknown as ContentProcessingCapability,
+      }),
+    ).toThrow("Content Processing Capability is required");
+    expect(() =>
+      createBusinessProcessExecutor({
+        contentProcessing: unusedContentProcessing,
+        processes: {
+          contentProcessing: {
+            mode: "unsupported" as "direct",
+          },
+        },
+      }),
+    ).toThrow("Content processing mode must be direct or agent");
+    expect(() =>
+      createBusinessProcessExecutor({
+        contentProcessing: unusedContentProcessing,
+        processes: { contentProcessing: { mode: "agent" } },
+      }),
+    ).toThrow("Agent Runtime is required when Agent mode is enabled");
+    expect(() =>
+      createBusinessProcessExecutor({
+        contentProcessing: unusedContentProcessing,
+        processes: { titledContentProcessing: { separator: "" } },
+      }),
+    ).toThrow("The titled content separator cannot be empty");
+  });
+
   it("returns validated content from the direct business API process", async () => {
     const businessApi = await startServer(async (request, response) => {
       if (request.method !== "POST" || request.url !== "/process") {
@@ -64,6 +96,32 @@ describe("business process execution", () => {
       version: "v1",
       status: "succeeded",
       output: { content: "Refined campaign copy" },
+    });
+  });
+
+  it("maps invalid Process Definition output to a stable error", async () => {
+    const processingService = await startProcessingService({
+      contentProcessing: {
+        process: async () => ({ content: "   " }),
+      },
+    });
+
+    const response = await executeProcess(processingService.url, {
+      process: "content-processing",
+      version: "v1",
+      input: { content: "launch offer" },
+    });
+
+    expect(response.status).toBe(500);
+    expect(await response.json()).toEqual({
+      runId: expect.stringMatching(/^[0-9a-f-]{36}$/),
+      process: "content-processing",
+      version: "v1",
+      status: "failed",
+      error: {
+        code: "INVALID_OUTPUT",
+        message: "The process produced an invalid output",
+      },
     });
   });
 
@@ -338,6 +396,41 @@ describe("business process execution", () => {
     expect(capabilityInputs).toEqual(["Optimize launch offer"]);
   });
 
+  it("preserves a Business Capability failure from the Agent Tool path", async () => {
+    const contentProcessing: ContentProcessingCapability = {
+      process: async () => {
+        throw new ContentProcessingUnavailable();
+      },
+    };
+    const agentRuntime: ContentOptimizationAgentRuntime = {
+      optimize: async (request) =>
+        request.contentProcessing.process(
+          { content: request.content },
+          { signal: request.signal },
+        ),
+    };
+    const processingService = await startProcessingService({
+      contentProcessing,
+      agentRuntime,
+      processes: { contentProcessing: { mode: "agent" } },
+    });
+
+    const response = await executeProcess(processingService.url, {
+      process: "content-processing",
+      version: "v1",
+      input: { content: "launch offer" },
+    });
+
+    expect(response.status).toBe(502);
+    expect(await response.json()).toMatchObject({
+      status: "failed",
+      error: {
+        code: "DEPENDENCY_FAILURE",
+        message: "A required business service is unavailable",
+      },
+    });
+  });
+
   it("maps invalid structured Agent output to a stable processing error", async () => {
     const agentRuntime: ContentOptimizationAgentRuntime = {
       optimize: async () => ({ unexpected: "not business content" }),
@@ -530,9 +623,11 @@ async function startHttpBackedService(
 }
 
 async function startProcessingService(
-  options: ProcessingApplicationOptions,
+  options: BusinessProcessExecutorOptions,
 ): Promise<RunningServer> {
-  const application = createProcessingApplication(options);
+  const application = createProcessingApplication({
+    executor: createBusinessProcessExecutor(options),
+  });
   const service = await application.listen();
   const runningService = { url: service.url, close: application.close };
   runningServers.push(runningService);

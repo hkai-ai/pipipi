@@ -1,6 +1,13 @@
 import { z } from "zod";
-import type { ContentProcessCapabilities } from "./content-processing.js";
-import { defineProcess, type ProcessDefinition } from "./process-runtime.js";
+import {
+  ContentProcessingUnavailable,
+  type ContentProcessingCapability,
+} from "./business-capabilities.js";
+import {
+  defineProcessRegistration,
+  failProcess,
+  type ProcessRegistration,
+} from "./process-runtime.js";
 
 const titledContentInputSchema = z.strictObject({
   title: z.string().trim().min(1),
@@ -12,26 +19,32 @@ const titledContentOutputSchema = z.strictObject({
   content: z.string().trim().min(1),
 });
 
-type TitledContentInput = z.infer<typeof titledContentInputSchema>;
-type TitledContentOutput = z.infer<typeof titledContentOutputSchema>;
-
 export type TitledContentProcessingConfig = {
   separator?: string;
 };
 
-export function createTitledContentProcessingProcess(
-  config: TitledContentProcessingConfig = {},
-): ProcessDefinition<ContentProcessCapabilities> {
-  const separator = config.separator ?? "\n\n";
+export type TitledContentProcessingRegistrationOptions =
+  TitledContentProcessingConfig & {
+    contentProcessing: ContentProcessingCapability;
+  };
+
+export function createTitledContentProcessingRegistration(
+  options: TitledContentProcessingRegistrationOptions,
+): ProcessRegistration {
+  if (
+    typeof options.contentProcessing !== "object" ||
+    options.contentProcessing === null ||
+    typeof options.contentProcessing.process !== "function"
+  ) {
+    throw new Error("Content Processing Capability is required");
+  }
+  const separator = options.separator ?? "\n\n";
+  const contentProcessing = options.contentProcessing;
   if (separator.length === 0) {
     throw new Error("The titled content separator cannot be empty");
   }
 
-  return defineProcess<
-    TitledContentInput,
-    TitledContentOutput,
-    ContentProcessCapabilities
-  >({
+  return defineProcessRegistration({
     id: "titled-content-processing",
     version: "v1",
     inputSchema: titledContentInputSchema,
@@ -39,11 +52,21 @@ export function createTitledContentProcessingProcess(
     execute: async (input, context) => {
       const title = normalizeWhitespace(input.title);
       const body = normalizeWhitespace(input.body);
-      const processed = await context.capabilities.contentProcessing.process(
-        { content: `${title}${separator}${body}` },
-        { signal: context.signal },
-      );
-      return { title, content: processed.content };
+      try {
+        const processed = await contentProcessing.process(
+          { content: `${title}${separator}${body}` },
+          { signal: context.signal },
+        );
+        return { title, content: processed.content };
+      } catch (error) {
+        if (error instanceof ContentProcessingUnavailable) {
+          return failProcess(
+            "DEPENDENCY_FAILURE",
+            "A required business service is unavailable",
+          );
+        }
+        throw error;
+      }
     },
   });
 }

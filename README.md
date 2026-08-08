@@ -7,7 +7,7 @@
 - `content-processing` / `v1`：输入和输出均为 `{ "content": string }`，服务端可配置为直接调用能力或通过 Pi Agent 优化。
 - `titled-content-processing` / `v1`：输入为 `{ "title": string, "body": string }`，输出为 `{ "title": string, "content": string }`，复用同一个内容处理能力，但拥有独立的整理阶段和配置。
 
-流程由 Process Registry 注册，通过 Process Runner 执行。远程业务调用实现为可替换的 Business Capability Adapter，因此多个流程可以复用同一能力，测试也可以注入受控 Adapter。
+每个明确版本先由 Registration factory 绑定业务定义、Schema、获准依赖和稳定策略，再进入不可变的 Process Registry，并由 Process Runner 执行。远程业务调用实现为可替换的 Business Capability Adapter，因此多个流程可以复用同一能力，测试也可以注入受控 Adapter。
 
 ## 本地运行
 
@@ -179,12 +179,15 @@ npm run smoke:oss
 
 流程结构保持在 TypeScript 代码中，不使用 JSON 工作流语言：
 
-1. 新建一个工厂函数，通过 `defineProcess` 声明固定的 `id`、`version`、输入 Schema、输出 Schema 和 `execute` 阶段。
-2. 在 `createProcessingApplication` 的 Process Registry 中注册这个工厂函数。
-3. 通过 `context.capabilities` 复用已有能力，或增加一个窄接口 Adapter；不要让产品请求携带步骤、URL 或实现选择。
-4. 为新流程增加独立的服务端配置和 `/execute` 外部行为测试。
+1. 新建 `create…Registration` 工厂，通过 `defineProcessRegistration` 声明固定的 `id`、`version`、输入 Schema、输出 Schema 和 Process Definition。输入与输出类型直接从 Schema 推断。
+2. 把流程获准使用的窄 Business Capability 和稳定策略传给工厂，由闭包绑定。Execution Context 只提供 `runId` 和 `AbortSignal` 等请求级元数据。
+3. 在 `createBusinessProcessExecutor` 的显式 production catalog 中加入工厂结果。每个 Registration 只代表一个明确的 `(id, version)`。
+4. 用 `failProcess` 返回预期的依赖或 Agent 失败；让意外异常交给 Process Runner 转换为安全的内部错误。
+5. 为新流程增加 Registration seam 测试和 `/execute` 外部行为测试，覆盖 Schema、版本、策略和错误契约。
 
 `src/titled-content-processing.ts` 是最小可复制示例。只有稳定的运行开关、超时和分隔符等策略使用环境配置；流程拓扑和业务语义仍由代码与测试约束。
+
+Runtime registration、版本回退、自动发现和动态 Process Definition 均不受支持。新版本必须拥有新的 Registration，并显式加入 production catalog；调用方必须请求准确版本。
 
 ## 接口约束
 
@@ -209,18 +212,20 @@ Run Record 默认只包含 schema 版本、记录时间、`runId`、Process、�
 
 ```ts
 import { createProcessingApplication } from "./src/application.js";
+import { createBusinessProcessExecutor } from "./src/business-process-executor.js";
 import { createInMemoryProcessRunRecords } from "./src/process-run-records.js";
 
 const runRecords = createInMemoryProcessRunRecords({ maxRecords: 100 });
-const application = createProcessingApplication({
+const executor = createBusinessProcessExecutor({
   contentProcessing,
   runRecords,
 });
+const application = createProcessingApplication({ executor });
 
 const record = await runRecords.find(runId);
 ```
 
-内存记录按写入顺序淘汰，重启即丢失，并且不在实例间共享，不能作为生产历史。只有经过明确的数据保留和访问控制评审后，才应设置 `content: "accepted-input-and-output"`；该选项仅保存已通过 Process Definition 校验的输入和成功输出，不保存无效请求或内部错误内容。
+内存记录按写入顺序淘汰，重启即丢失，并且不在实例间共享，不能作为生产历史。只有经过明确的数据保留和访问控制评审后，才应设置 `content: "accepted-input-and-output"`；该选项仅保存已被 Process Registration 接受的输入和成功输出，不保存无效请求或内部错误内容。
 
 生产持久化应实现 `ProcessRunRecordAdapter`，再通过 `createProcessRunRecords({ adapter })` 接入 Postgres 或可观测平台。存储失败不会改变业务执行结果。当前服务没有公开 Run Record 查询接口；若以后开放，必须先增加调用方认证、租户隔离、内容脱敏和保留期限。
 

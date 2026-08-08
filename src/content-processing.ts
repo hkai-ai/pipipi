@@ -1,10 +1,14 @@
 import { z } from "zod";
 import type { ContentOptimizationAgentRuntime } from "./agent-runtime.js";
-import type { ContentProcessingCapability } from "./business-capabilities.js";
 import {
-  defineProcess,
-  ProcessFailure,
-  type ProcessDefinition,
+  ContentProcessingUnavailable,
+  type ContentProcessingCapability,
+} from "./business-capabilities.js";
+import {
+  defineProcessRegistration,
+  failProcess,
+  type ExpectedProcessFailure,
+  type ProcessRegistration,
 } from "./process-runtime.js";
 
 const contentProcessInputSchema = z.strictObject({
@@ -19,30 +23,44 @@ const businessApiResponseSchema = z.strictObject({
   content: z.string().trim().min(1),
 });
 
-type ContentProcessInput = z.infer<typeof contentProcessInputSchema>;
-type ContentProcessOutput = z.infer<typeof contentProcessOutputSchema>;
-
 export type { ContentProcessingCapability } from "./business-capabilities.js";
 
-export type ContentProcessCapabilities = {
+export type ContentProcessingRegistrationOptions = {
   contentProcessing: ContentProcessingCapability;
   agentRuntime?: ContentOptimizationAgentRuntime;
+  mode?: "direct" | "agent";
 };
 
 export type ContentProcessingProcessConfig = {
   mode?: "direct" | "agent";
 };
 
-export function createContentProcessingProcess(
-  config: ContentProcessingProcessConfig = {},
-): ProcessDefinition<ContentProcessCapabilities> {
-  const mode = config.mode ?? "direct";
+export function createContentProcessingRegistration(
+  options: ContentProcessingRegistrationOptions,
+): ProcessRegistration {
+  if (
+    typeof options.contentProcessing !== "object" ||
+    options.contentProcessing === null ||
+    typeof options.contentProcessing.process !== "function"
+  ) {
+    throw new Error("Content Processing Capability is required");
+  }
+  const mode = options.mode ?? "direct";
+  if (mode !== "direct" && mode !== "agent") {
+    throw new Error("Content processing mode must be direct or agent");
+  }
+  const contentProcessing = options.contentProcessing;
+  const agentRuntime = options.agentRuntime;
+  if (
+    mode === "agent" &&
+    (typeof agentRuntime !== "object" ||
+      agentRuntime === null ||
+      typeof agentRuntime.optimize !== "function")
+  ) {
+    throw new Error("Agent Runtime is required when Agent mode is enabled");
+  }
 
-  return defineProcess<
-    ContentProcessInput,
-    ContentProcessOutput,
-    ContentProcessCapabilities
-  >({
+  return defineProcessRegistration({
     id: "content-processing",
     version: "v1",
     inputSchema: contentProcessInputSchema,
@@ -50,33 +68,50 @@ export function createContentProcessingProcess(
     execute: async (input, context) => {
       const preparedContent = input.content.replace(/\s+/g, " ");
       if (mode === "direct") {
-        return context.capabilities.contentProcessing.process(
-          { content: preparedContent },
-          { signal: context.signal },
-        );
+        try {
+          return await contentProcessing.process(
+            { content: preparedContent },
+            { signal: context.signal },
+          );
+        } catch (error) {
+          if (error instanceof ContentProcessingUnavailable) {
+            return dependencyFailure();
+          }
+          throw error;
+        }
       }
 
+      if (!agentRuntime) throw new Error("Agent Runtime is unavailable");
       try {
-        const rawOutput = await context.capabilities.agentRuntime?.optimize({
+        const rawOutput = await agentRuntime.optimize({
           content: preparedContent,
           signal: context.signal,
-          contentProcessing: context.capabilities.contentProcessing,
+          contentProcessing,
         });
         const output = contentProcessOutputSchema.safeParse(rawOutput);
-        if (!output.success) throw agentFailure();
+        if (!output.success) return agentFailure();
         return output.data;
       } catch (error) {
-        if (error instanceof ProcessFailure) throw error;
-        throw agentFailure();
+        if (error instanceof ContentProcessingUnavailable) {
+          return dependencyFailure();
+        }
+        return agentFailure();
       }
     },
   });
 }
 
-function agentFailure(): ProcessFailure {
-  return new ProcessFailure(
+function agentFailure(): ExpectedProcessFailure {
+  return failProcess(
     "AGENT_FAILURE",
     "The content optimization agent could not complete the request",
+  );
+}
+
+function dependencyFailure(): ExpectedProcessFailure {
+  return failProcess(
+    "DEPENDENCY_FAILURE",
+    "A required business service is unavailable",
   );
 }
 
@@ -110,11 +145,8 @@ export class HttpContentProcessingCapability
       const result = businessApiResponseSchema.safeParse(await response.json());
       if (!result.success) throw new Error("Business API returned invalid data");
       return result.data;
-    } catch {
-      throw new ProcessFailure(
-        "DEPENDENCY_FAILURE",
-        "A required business service is unavailable",
-      );
+    } catch (error) {
+      throw new ContentProcessingUnavailable({ cause: error });
     }
   }
 }
