@@ -9,6 +9,9 @@
 
 每个明确版本先由 Registration factory 绑定业务定义、Schema、获准依赖和稳定策略，再进入不可变的 Process Registry，并由 Process Runner 执行。远程业务调用实现为可替换的 Business Capability Adapter，因此多个流程可以复用同一能力，测试也可以注入受控 Adapter。
 
+Module 职责、执行 invariant、错误归属和测试面见
+[`docs/process-runtime-design.md`](docs/process-runtime-design.md)。
+
 ## 本地运行
 
 要求 Node.js 24 或更高版本。
