@@ -44,6 +44,8 @@ BUSINESS_API_BASE_URL=http://127.0.0.1:4000 npm run dev
 
 默认使用不启动 Agent 的确定性直接路径。单次流程超时为 30 秒，单次业务 API 调用超时为 10 秒，可以分别通过 `PROCESS_TIMEOUT_MS` 和 `BUSINESS_API_TIMEOUT_MS` 调整。
 
+启动配置只经过 `constructProcessingService`：它接收只读环境变量映射，统一校验配置并组装 ready Application。无效配置会在监听端口前失败；`src/main.ts` 只负责监听、启动日志、关闭信号和退出状态。
+
 调用流程：
 
 ```bash

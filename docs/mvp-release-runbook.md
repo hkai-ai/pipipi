@@ -16,7 +16,7 @@
 | 最大实例数 | 2–5 | 在平台设置硬上限，形成模型费用上限 |
 | 请求体 | 262144 字节 | 用 `HTTP_MAX_REQUEST_BODY_BYTES` 调整 |
 | Business Capability 超时 | 10 秒 | `BUSINESS_API_TIMEOUT_MS=10000` |
-| Process Run 超时 | 120 秒 | `PROCESS_TIMEOUT_MS=120000` |
+| Process Run 超时 | 120 秒 | 本发布显式设置 `PROCESS_TIMEOUT_MS=120000`；代码默认 30 秒 |
 | 平台请求超时 | 150–180 秒 | 必须长于 Process Run 超时 |
 
 服务在上限以内并发执行请求。每个 Agent 请求建立独立内存会话；实例之间不共享业务会话，因此平台可以水平扩容。提升并发或实例数前，先检查实例内存、P95 延迟、Business Capability 容量、模型配额和单次运行成本。
@@ -32,17 +32,19 @@
 | `CONTENT_PROCESSING_MODE` | `direct` 或 `agent`；默认 `direct` |
 | `HTTP_MAX_REQUEST_BODY_BYTES` | 正整数；默认 `262144` |
 | `MAX_CONCURRENT_EXECUTIONS` | 正整数；默认 `4` |
-| `BUSINESS_API_TIMEOUT_MS` | 正整数；初始值 `10000` |
-| `PROCESS_TIMEOUT_MS` | 正整数；初始值 `120000` |
+| `BUSINESS_API_TIMEOUT_MS` | 正整数；代码默认 `10000`，本发布显式设置 `10000` |
+| `PROCESS_TIMEOUT_MS` | 正整数；代码默认 `30000`，本发布必须显式设置 `120000` |
 | `PI_PROVIDER`、`PI_MODEL` | Agent 模式下按组设置 |
 | `OPENAI_BASE_URL`、`OPENAI_API_MODE` | 使用 OpenAI 或兼容网关时设置 |
 | `OPENAI_API_KEY` | 仅通过平台 Secret 注入；禁止写入镜像、仓库或普通配置 |
 
 若 Business Capability 需要认证，优先使用私网身份、工作负载身份或服务网格。当前 HTTP Adapter 不发送调用方提供的任意认证头。
 
+`PROCESS_TIMEOUT_MS=120000` 是本手册的受控发布覆盖值，不改变代码的 30 秒默认值。候选镜像、部署平台和回滚配置都必须显式保留该覆盖值。
+
 ## Run Record 策略
 
-当前 `src/main.ts` 没有注入 Run Record 存储。MVP 依靠部署平台收集单行 JSON 完成日志，并按 `runId`、Process、状态和错误码检索。`runId` 是运行排障索引，不是聊天会话 ID；聊天历史应由产品数据库单独保存。
+当前生产启动构造没有注入 Run Record 存储。MVP 依靠部署平台收集单行 JSON 完成日志，并按 `runId`、Process、状态和错误码检索。`runId` 是运行排障索引，不是聊天会话 ID；聊天历史应由产品数据库单独保存。
 
 仓库提供的内存 Run Record Adapter 只用于开发或单实例测试。它有容量上限，但重启即丢失，也不在实例之间共享。不要把容器内存或容器磁盘当作生产记录存储。
 

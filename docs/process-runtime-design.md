@@ -12,13 +12,19 @@ Process Runtime 在不暴露具体 Business Process 依赖和策略的前提下�
 - Process author 在一个 Registration factory 中绑定 Schema、Process Definition、获准依赖和稳定策略。
 - Process Registry 在启动时形成不可变 catalog，只做精确版本查找。
 - Process Runner 统一生成 `runId`，管理超时与取消，构造公共结果，并写入 best-effort Run Records。
+- Startup Construction 从只读环境变量映射生成 ready Application 和端口，并隐藏配置翻译、默认值、跨字段校验和生产组装。
 - Application 只管理 HTTP 生命周期，不知道具体 Business Process。
+- `main.ts` 只监听端口、记录启动、处理关闭信号和设置退出状态。
 
 ## Module 地图
 
 ```mermaid
 flowchart LR
+    Env["Readonly environment"] --> Startup["Startup Construction<br/>constructProcessingService(environment)"]
+    Startup --> Application["Processing Application<br/>HTTP lifecycle"]
+    Startup --> Executor
     Caller["HTTP caller"] --> Http["HTTP Adapter<br/>transport validation"]
+    Application --> Http
     Http --> Executor["Process Executor Interface<br/>execute(request)"]
     Executor --> Runner["Process Runner<br/>run governance"]
     Runner --> Registry["Process Registry<br/>exact lookup"]
@@ -27,6 +33,10 @@ flowchart LR
     Definition --> Capability["Business Capability Adapter"]
     Runner --> Records["Process Run Records<br/>best-effort recording"]
 ```
+
+`constructProcessingService` 是生产启动的唯一 Construction Seam。调用方只提供环境变量映射，
+并收到 ready `ProcessingApplication` 和端口；调用方无需知道具体 Adapter、Agent Runtime、
+Process catalog 或 HTTP 限制。
 
 `ProcessExecutor` 是 HTTP Adapter 与 Process Runtime 之间的主 Seam。Process Runner 的
 Implementation 位于该 Seam 之后，因此 HTTP Adapter 无需了解 Registry、Registration、
@@ -43,6 +53,7 @@ Schema、依赖或策略。
 
 | Module | Interface | 隐藏的 Implementation |
 | --- | --- | --- |
+| Startup Construction | `constructProcessingService(environment)` | 环境变量翻译、默认值、跨字段校验、Adapter 选择、Executor 与 Application 组装 |
 | Processing Application | `createProcessingApplication({ executor, http })` | Node HTTP server 的创建、监听和关闭 |
 | Process Executor | `execute(request): Promise<ProcessRunResult>` | envelope 校验、查找、超时、取消、失败映射和记录 |
 | Process Registration | `identity` 与原子 `start(input, context)` | 输入解析、Process Definition、依赖、策略和输出验证 |
@@ -112,6 +123,15 @@ Process Definition 抛出的异常属于意外失败。Process Runner 将其转�
 
 ## Composition 与依赖
 
+[`constructProcessingService`](../src/startup-construction.ts) 拥有完整的生产 Composition Root。
+它先校验通用配置，再选择 `direct` 或 `agent` 路径。Direct 路径忽略 Agent 专用配置；Agent
+路径校验成组的 provider/model 和 OpenAI API mode，再构造 Pi Agent Runtime。任何配置错误
+都会在 Application 监听端口前抛出。
+
+[`main.ts`](../src/main.ts) 只把 `process.env` 传给 Construction Seam，然后监听端口、写启动
+日志并处理 `SIGINT` 和 `SIGTERM`。它不翻译配置，也不直接组装 Adapter、Executor 或
+Application。
+
 Production catalog 由
 [`createBusinessProcessExecutor`](../src/business-process-executor.ts)
 定义，也是唯一知道全部具体 Business Process 的位置。它创建两个 Registration、不可变
@@ -140,11 +160,14 @@ Registry 和 Process Runner，再向 Application 返回 ready `ProcessExecutor`�
 
 Interface 就是测试面：
 
+- Startup Construction 测试传入显式只读环境变量映射，并通过本地 HTTP 边界验证默认值、
+  配置覆盖、Direct/Agent 组装、跨字段拒绝和 Agent 专用配置在 Direct 模式下保持惰性。
 - 大部分产品行为通过真实本地 HTTP 的 `POST /execute` 测试。
 - Process Runtime 测试只跨 Registration、Registry 和 Process Executor 的公开 Seam，覆盖
   启动 invariant、单次解析、自动开始、精确版本、失败、超时和记录语义。
 - Application 测试注入 fake ready Process Executor，证明 Application 不依赖具体流程。
 - 远程依赖测试使用受控 Adapter 或 mock Adapter，不访问真实凭证与远端系统。
+- 确定性测试不调用真实模型；真实 Agent 冒烟和 Skill A/B 组合仍由独立命令执行。
 
 测试不读取私有 Map，不断言 key 编码，也不依赖内部 helper 的调用顺序。Implementation
 重构只要保持 Interface，就不应迫使这些测试重写。

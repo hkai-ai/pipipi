@@ -8,10 +8,9 @@ import type {
   ProcessExecutor,
   ProcessRunResult,
 } from "./process-runtime.js";
-import {
-  defaultHttpMaxRequestBodyBytes,
-  defaultMaxConcurrentExecutions,
-} from "./http-config.js";
+
+export const defaultHttpMaxRequestBodyBytes = 262_144;
+export const defaultMaxConcurrentExecutions = 4;
 
 export type ProcessingHttpOptions = {
   maxRequestBodyBytes?: number;
