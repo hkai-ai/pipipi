@@ -1,11 +1,29 @@
 {
   "version": 1,
   "skills": {
+    "commit": {
+      "source": "techidsk/skills",
+      "sourceType": "github",
+      "skillPath": "skills/engineering/commit/SKILL.md",
+      "computedHash": "eafdc1b4c3ecf7392b1a8a3d086d03e25c7966ed2845f8951aeb5ac97a03de1e"
+    },
     "gc-minimal-zine-poster-v0-1": {
       "source": "LiamGvchi/gc-minimal-zine-poster",
       "sourceType": "github",
       "skillPath": "SKILL.md",
       "computedHash": "d4e1199623ee4d98e948189308eedc601f83ab0ae923568c6e9240f89c783b8b"
+    },
+    "maintain-test-plan": {
+      "source": "techidsk/skills",
+      "sourceType": "github",
+      "skillPath": "skills/engineering/maintain-test-plan/SKILL.md",
+      "computedHash": "658fdf791d74bbbffb44a0a9e8ec7df6876e97184ce9f4bebbff01db4c9cd801"
+    },
+    "release": {
+      "source": "techidsk/skills",
+      "sourceType": "github",
+      "skillPath": "skills/engineering/release/SKILL.md",
+      "computedHash": "f1ba1a0b5db7b176c7a1b25578129dcbb791b7f660c039d0d6cb6aaf40915aad"
     },
     "writing-clearly-and-concisely": {
       "source": "obra/the-elements-of-style",

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Release"
+  short_description: "安全编排跨生态版本发布、发布测试与 Webhook 通知"
+  default_prompt: "使用 $release 检查当前仓库发布工具链和 Webhook 是否就绪，并准备下一个版本。"

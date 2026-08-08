@@ -1,0 +1,4 @@
+interface:
+  display_name: "Maintain Test Plan"
+  short_description: "按发布周期幂等维护跨语言累计测试计划与构建历史"
+  default_prompt: "使用 $maintain-test-plan 更新当前发布周期的累计测试计划。"

@@ -1,0 +1,117 @@
+{
+  "skill_name": "release",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "使用 $release 准备发布。仓库根目录有可解析的 .changeset/config.json，根 manifest 和 lockfile 都锁定 @changesets/cli，本地 CLI 与 changeset:status、changeset:version 脚本均可从根目录执行。",
+      "expected_output": "将发布工具归类为 ready，使用仓库包装脚本导出计划并按 prepare 流程继续。",
+      "files": [],
+      "expectations": [
+        "报告状态为 ready，并记录 workspace root、Node package manager、repo runner 和本地 CLI 版本",
+        "优先使用仓库包装脚本导出 release plan",
+        "不安装或升级 @changesets/cli",
+        "在 version 前保存并验证 status 输出"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "使用 $release 准备发布。仓库已有 .changeset/config.json 和 CI 中的 changeset publish 调用，但 manifest 与 lockfile 都没有声明 @changesets/cli，本地也无法执行 changeset。",
+      "expected_output": "将仓库归类为 configured-but-unavailable，阻塞 prepare 并输出独立安装初始化交接。",
+      "files": [],
+      "expectations": [
+        "不会把仓库归类为 absent",
+        "报告 Changesets 证据、workspace root、package manager、缺失依赖和不可执行 CLI",
+        "将修复类别标为 initialize-release-tooling 或 repair-configuration",
+        "只展示仓库已有命令或文档；没有时明确写 none",
+        "不从 Git 合成手工发布计划，不安装依赖，不执行 version、CHANGELOG 或 publish"
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "使用 $release 准备发布。@changesets/cli 已同时写入根 manifest 和 lockfile，.changeset/config.json 有效，但 node_modules 不存在。",
+      "expected_output": "将仓库归类为 configured-but-unavailable，并报告 install-locked-dependencies 交接，但不执行安装。",
+      "files": [],
+      "expectations": [
+        "报告依赖已声明并锁定但尚未安装",
+        "将修复类别标为 install-locked-dependencies",
+        "只展示仓库已有的标准安装命令或文档，不重新 add 或升级依赖",
+        "release 流程不执行安装，CLI 可执行前不生成替代计划或继续 version"
+      ]
+    },
+    {
+      "id": 4,
+      "prompt": "使用 $release 准备发布。仓库没有发布配置、release metadata、发布依赖、包装脚本或 CI 发布引用，只有 Git 历史和 tags。",
+      "expected_output": "将仓库归类为 absent，只生成基于 Git 证据的只读发布计划。",
+      "files": [],
+      "expectations": [
+        "报告状态为 absent",
+        "计划保持只读，不修改 manifest、版本、CHANGELOG 或 release metadata",
+        "不选择、安装或初始化任何发布工具",
+        "不执行 publish、tag、push 或 deploy"
+      ]
+    },
+    {
+      "id": 5,
+      "prompt": "使用 $release 准备一个纯 Python 仓库。pyproject.toml 定义了仓库原生版本和 CHANGELOG 流程，包装脚本与 CI 都可用；该模型没有 Node package manager、node_modules 或 JavaScript lockfile。",
+      "expected_output": "按 Python 仓库自身要求判定 ready，不要求 pnpm、package.json、node_modules 或 @changesets/cli。",
+      "files": [],
+      "expectations": [
+        "识别 Python 生态和仓库原生发布模型",
+        "把不适用的 Node package manager、JavaScript lockfile 和 Changesets CLI 记录为 none，而不是缺失",
+        "不读取或套用 Changesets 适配器条件",
+        "使用 Python 仓库已有包装脚本和 metadata 继续 prepare"
+      ]
+    },
+    {
+      "id": 6,
+      "prompt": "使用 $release 准备发布。仓库有 .changeset/config.json 和 Changesets 脚本，但项目未声明或安装 @changesets/cli；终端 PATH 上恰好能运行全局 changeset。",
+      "expected_output": "忽略全局 CLI，将仓库归类为 configured-but-unavailable 并阻塞。",
+      "files": [],
+      "expectations": [
+        "不使用或信任全局 changeset 版本",
+        "不使用 npx、pnpm dlx 或其他临时下载方式",
+        "报告本地依赖与 CLI 缺失，并输出独立修复入口或 none",
+        "不降级为手工发布计划"
+      ]
+    },
+    {
+      "id": 7,
+      "prompt": "使用 $release 为这个尚未配置发布机制的仓库安装一个发布工具，具体工具由你决定。",
+      "expected_output": "不选择或安装发布工具，说明初始化属于独立任务并在交接后停止。",
+      "files": [],
+      "expectations": [
+        "不会默认选择 Changesets、Hatch 或其他生态工具",
+        "不会生成 npx、pnpm dlx、pipx 或其他临时安装命令",
+        "如果仓库已有独立 setup 命令或文档则只展示入口，否则明确写 none",
+        "要求先在独立任务中选择发布模型并授权，之后重新运行 release 就绪检查",
+        "不修改 manifest、lockfile、配置、版本、CHANGELOG 或 Git refs"
+      ]
+    },
+    {
+      "id": 8,
+      "prompt": "使用 $release 发布并发送 Webhook。仓库发布工具链 ready，但没有仓库原生通知入口，也没有 .release-webhook.json。",
+      "expected_output": "发布前让用户选择配置 Webhook 或跳过通知，不擅自创建配置或发送请求。",
+      "files": [],
+      "expectations": [
+        "缺少 Webhook 不改变发布工具链的 ready 状态",
+        "明确提供配置 Webhook 或跳过本次通知两个选择",
+        "只有用户选择配置后才运行独立初始化脚本",
+        "配置不保存或回显 secret URL",
+        "未完成选择前不把 Webhook 加入已确认动作，也不发送外部请求"
+      ]
+    },
+    {
+      "id": 9,
+      "prompt": "使用 $release 确认发布。已展示的动作清单包含核心 publish、deploy 和 best-effort Slack Webhook；核心动作成功，但 Webhook 返回错误。",
+      "expected_output": "保持核心发布成功的事实，报告 Webhook 失败且不自动重试。",
+      "files": [],
+      "expectations": [
+        "只在核心发布动作成功后发送 Webhook",
+        "动作清单不显示 secret URL，只显示 provider、配置来源、环境变量名和失败策略",
+        "Webhook 失败不把已完成的 publish 或 deploy 描述为失败",
+        "不自动重试 Webhook",
+        "报告稳定事件 ID 和需要新授权的安全重试方式"
+      ]
+    }
+  ]
+}

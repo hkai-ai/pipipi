@@ -1,0 +1,4 @@
+interface:
+  display_name: "Commit"
+  short_description: "提交当前 Session，并为可发布改动自动生成 Changeset"
+  default_prompt: "使用 $commit 为当前 Session 生成发布片段并安全提交。"
