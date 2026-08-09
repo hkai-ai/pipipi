@@ -5,10 +5,16 @@ import { createAsyncProcessRuns } from "../src/runs/service.js";
 import type { CallerIdentityResolver } from "../src/api/identity.js";
 import { createInMemoryProcessRunStore } from "../src/runs/store.js";
 import {
+  createProcessAttemptRunner,
   createProcessRegistry,
   defineProcessRegistration,
+  failProcess,
 } from "../src/processes/runtime.js";
 import { createInMemoryProcessWorkQueue } from "../src/runs/queue.js";
+import {
+  createProcessWorker,
+  createProcessWorkerDrain,
+} from "../src/runs/worker.js";
 
 const runningApplications: Array<{ close: () => Promise<void> }> = [];
 
@@ -54,7 +60,7 @@ describe("Async Process Runs HTTP Interface", () => {
     expect(await sync.json()).toMatchObject({ status: "succeeded" });
   });
 
-  it("accepts and queries an authenticated queued Process Run", async () => {
+  it("uses runId as the only public Process Run identifier", async () => {
     const fixture = await startFixture();
 
     const submission = await submit(fixture.url, {
@@ -66,13 +72,16 @@ describe("Async Process Runs HTTP Interface", () => {
     expect(submission.headers.get("location")).toBe(`/process-runs/${RUN_ID}`);
     expect(submission.headers.get("retry-after")).toBe("2");
     expect(submission.headers.get("cache-control")).toBe("no-store");
-    expect(await submission.json()).toEqual({
+    const accepted = await submission.json();
+    expect(accepted).toEqual({
       runId: RUN_ID,
       process: "test-processing",
       version: "v1",
       status: "queued",
       createdAt: "2026-08-09T10:00:00.000Z",
     });
+    expect(accepted).not.toHaveProperty("taskId");
+    expect(accepted).not.toHaveProperty("jobId");
 
     const query = await find(fixture.url, RUN_ID, "caller-a");
     expect(query.status).toBe(200);
@@ -207,31 +216,71 @@ describe("Async Process Runs HTTP Interface", () => {
     await expect(fixture.queue.take()).resolves.toBeUndefined();
   });
 
-  it("returns terminal content without asking the caller to keep polling", async () => {
+  it("returns a runId that resolves to the completed Business Process result", async () => {
     const fixture = await startFixture();
-    await submit(fixture.url, {
+    const submission = await submit(fixture.url, {
       callerId: "caller-a",
       idempotencyKey: "request-1",
     });
-    const claim = await fixture.store.claim({
-      runId: RUN_ID,
-      claimToken: CLAIM_TOKEN,
-      claimedAt: "2026-08-09T10:00:01.000Z",
-    });
-    if (!claim) throw new Error("Expected Process Run claim");
-    await fixture.store.complete({
-      runId: RUN_ID,
-      claimToken: CLAIM_TOKEN,
-      completedAt: "2026-08-09T10:00:02.000Z",
-      completion: { status: "succeeded", output: { value: "complete" } },
+    const accepted = (await submission.json()) as { runId: string };
+    const queued = await find(fixture.url, accepted.runId, "caller-a");
+    expect(await queued.json()).toMatchObject({
+      runId: accepted.runId,
+      status: "queued",
     });
 
-    const response = await find(fixture.url, RUN_ID, "caller-a");
+    await expect(fixture.drain.drainOne()).resolves.toBe("processed");
+
+    const response = await find(fixture.url, accepted.runId, "caller-a");
     expect(response.status).toBe(200);
     expect(response.headers.get("retry-after")).toBeNull();
-    expect(await response.json()).toMatchObject({
+    expect(await response.json()).toEqual({
+      runId: accepted.runId,
+      process: "test-processing",
+      version: "v1",
       status: "succeeded",
-      output: { value: "complete" },
+      createdAt: "2026-08-09T10:00:00.000Z",
+      startedAt: "2026-08-09T10:00:01.000Z",
+      finishedAt: "2026-08-09T10:00:02.000Z",
+      output: { value: "processed:request" },
+    });
+  });
+
+  it("returns a stable public error for a failed Process Run", async () => {
+    const fixture = await startFixture();
+    const submission = await submit(fixture.url, {
+      callerId: "caller-a",
+      idempotencyKey: "request-1",
+      request: {
+        process: "test-processing",
+        version: "v1",
+        input: { value: "fail-dependency" },
+      },
+    });
+    const accepted = (await submission.json()) as { runId: string };
+    const queued = await find(fixture.url, accepted.runId, "caller-a");
+    expect(await queued.json()).toMatchObject({
+      runId: accepted.runId,
+      status: "queued",
+    });
+
+    await expect(fixture.drain.drainOne()).resolves.toBe("processed");
+
+    const response = await find(fixture.url, accepted.runId, "caller-a");
+    expect(response.status).toBe(200);
+    expect(response.headers.get("retry-after")).toBeNull();
+    expect(await response.json()).toEqual({
+      runId: accepted.runId,
+      process: "test-processing",
+      version: "v1",
+      status: "failed",
+      createdAt: "2026-08-09T10:00:00.000Z",
+      startedAt: "2026-08-09T10:00:01.000Z",
+      finishedAt: "2026-08-09T10:00:02.000Z",
+      error: {
+        code: "DEPENDENCY_FAILURE",
+        message: "A required business service is unavailable",
+      },
     });
   });
 
@@ -408,16 +457,38 @@ async function startFixture(
     version: "v1",
     inputSchema: z.strictObject({ value: z.string() }),
     outputSchema: z.strictObject({ value: z.string() }),
-    execute: async (input) => input,
+    execute: async (input) =>
+      input.value === "fail-dependency"
+        ? failProcess(
+            "DEPENDENCY_FAILURE",
+            "A required business service is unavailable",
+          )
+        : { value: `processed:${input.value}` },
   });
   const store = createInMemoryProcessRunStore({ maxRuns: 10 });
   const queue = createInMemoryProcessWorkQueue({ maxJobs: 10 });
+  const registry = createProcessRegistry([registration]);
   const runs = createAsyncProcessRuns({
-    registry: createProcessRegistry([registration]),
+    registry,
     store,
     queue,
     clock: () => "2026-08-09T10:00:00.000Z",
     createRunId: () => RUN_ID,
+  });
+  const workerTimes = [
+    "2026-08-09T10:00:01.000Z",
+    "2026-08-09T10:00:02.000Z",
+  ];
+  const worker = createProcessWorker({
+    registry,
+    store,
+    attemptRunner: createProcessAttemptRunner(),
+    clock: () => {
+      const time = workerTimes.shift();
+      if (!time) throw new Error("Fixture clock exhausted");
+      return time;
+    },
+    createClaimToken: () => CLAIM_TOKEN,
   });
   const application = createProcessingApplication({
     executor: unusedExecutor(),
@@ -432,7 +503,12 @@ async function startFixture(
   });
   runningApplications.push(application);
   const { url } = await application.listen();
-  return { url, store, queue };
+  return {
+    url,
+    store,
+    queue,
+    drain: createProcessWorkerDrain({ source: queue, worker }),
+  };
 }
 
 function submit(
