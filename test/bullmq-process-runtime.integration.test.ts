@@ -1,5 +1,10 @@
 import path from "node:path";
-import { createServer } from "node:net";
+import {
+  createServer as createHttpServer,
+  type IncomingMessage,
+  type Server,
+} from "node:http";
+import { createServer as createTcpServer } from "node:net";
 import { Queue } from "bullmq";
 import { Redis } from "ioredis";
 import { runner } from "node-pg-migrate";
@@ -7,11 +12,19 @@ import { Pool } from "pg";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { createAsyncProcessRuns, type ProcessRunView } from "../src/async-process-runs.js";
 import {
+  constructProcessDispatcherService,
+  constructProcessWorkerService,
+} from "../src/async-runtime-construction.js";
+import {
   createBullMqProcessWorker,
   createBullMqProcessWorkQueue,
   defaultProcessWorkQueueName,
   defaultProcessWorkQueuePrefix,
 } from "../src/bullmq-process-work-queue.js";
+import {
+  callerIdentityHeader,
+  gatewayAuthenticationHeader,
+} from "../src/caller-identity.js";
 import { createOutboxDispatcher } from "../src/outbox-dispatcher.js";
 import { createPostgresProcessOutbox } from "../src/postgres-process-outbox.js";
 import { createPostgresProcessRunStore } from "../src/postgres-process-run-store.js";
@@ -25,6 +38,7 @@ import {
 import { createProcessWorker } from "../src/process-worker.js";
 import type { ProcessWorker } from "../src/process-worker.js";
 import type { ProcessWorkJob } from "../src/process-work-queue.js";
+import { constructProcessingService } from "../src/startup-construction.js";
 import { z } from "zod";
 
 const databaseUrl = process.env.POSTGRES_TEST_DATABASE_URL;
@@ -430,6 +444,148 @@ integrationDescribe("BullMQ Process Runtime", () => {
       await Promise.allSettled([worker.close(), queue.close()]);
     }
   }, 20_000);
+
+  it("runs the authenticated async HTTP path through independent API, Dispatcher, and Worker roles", async () => {
+    const businessApi = await startBusinessApi();
+    const gatewaySecret = "integration-gateway-secret-at-least-32-bytes";
+    const sharedEnvironment = {
+      DATABASE_URL: databaseUrl,
+      REDIS_URL: redisUrl,
+      PROCESS_QUEUE_PREFIX: "pipipi-role-integration",
+      PROCESS_RUN_ACCEPTED_INPUT_RETENTION_MS: "86400000",
+      PROCESS_RUN_RESULT_RETENTION_MS: "604800000",
+      PROCESS_RUN_METADATA_RETENTION_MS: "2592000000",
+      PROCESS_TIMEOUT_MS: "2000",
+      PROCESS_RUN_CLAIM_LEASE_MS: "5000",
+      ASYNC_POSTGRES_CONNECTION_TIMEOUT_MS: "500",
+      ASYNC_REDIS_CONNECTION_TIMEOUT_MS: "500",
+      RUNTIME_ROLE_READINESS_TIMEOUT_MS: "1000",
+    } as const;
+    const api = constructProcessingService({
+      ...sharedEnvironment,
+      BUSINESS_API_BASE_URL: businessApi.url,
+      ASYNC_PROCESS_RUNS_ENABLED: "true",
+      ASYNC_GATEWAY_SHARED_SECRET: gatewaySecret,
+    });
+    const dispatcher = constructProcessDispatcherService({
+      DATABASE_URL: databaseUrl,
+      REDIS_URL: redisUrl,
+      PROCESS_QUEUE_PREFIX: sharedEnvironment.PROCESS_QUEUE_PREFIX,
+      ASYNC_POSTGRES_CONNECTION_TIMEOUT_MS: "500",
+      ASYNC_REDIS_CONNECTION_TIMEOUT_MS: "500",
+      RUNTIME_ROLE_READINESS_TIMEOUT_MS: "1000",
+      OUTBOX_DISPATCH_INTERVAL_MS: "10",
+      PROCESS_RUN_RECONCILE_INTERVAL_MS: "20",
+      PROCESS_RUN_RECONCILE_QUEUED_AGE_MS: "20",
+    });
+    const worker = constructProcessWorkerService({
+      ...sharedEnvironment,
+      BUSINESS_API_BASE_URL: businessApi.url,
+      BUSINESS_API_TIMEOUT_MS: "500",
+      PROCESS_WORKER_CONCURRENCY: "2",
+      PROCESS_WORKER_SHUTDOWN_GRACE_MS: "1000",
+    });
+    const applications = [
+      api.application,
+      dispatcher.application,
+      worker.application,
+    ];
+
+    try {
+      const [apiListening, dispatcherListening, workerListening] =
+        await Promise.all(applications.map((application) => application.listen()));
+      if (!apiListening || !dispatcherListening || !workerListening) {
+        throw new Error("Expected all runtime roles to listen");
+      }
+      for (const url of [
+        apiListening.url,
+        dispatcherListening.url,
+        workerListening.url,
+      ]) {
+        await expect(waitForHttpStatus(`${url}/healthz`, 200)).resolves.toBe(200);
+        await expect(waitForHttpStatus(`${url}/readyz`, 200)).resolves.toBe(200);
+      }
+
+      const callerHeaders = {
+        "content-type": "application/json",
+        [callerIdentityHeader]: "service:role-integration",
+        [gatewayAuthenticationHeader]: gatewaySecret,
+      };
+      const successResponse = await fetch(`${apiListening.url}/process-runs`, {
+        method: "POST",
+        headers: { ...callerHeaders, "idempotency-key": "role-success" },
+        body: JSON.stringify({
+          process: "content-processing",
+          version: "v1",
+          input: { content: "role success" },
+        }),
+      });
+      const failureResponse = await fetch(`${apiListening.url}/process-runs`, {
+        method: "POST",
+        headers: { ...callerHeaders, "idempotency-key": "role-failure" },
+        body: JSON.stringify({
+          process: "content-processing",
+          version: "v1",
+          input: { content: "fail-dependency" },
+        }),
+      });
+      const success = (await successResponse.json()) as { runId: string };
+      const failure = (await failureResponse.json()) as { runId: string };
+      expect(successResponse.status).toBe(202);
+      expect(failureResponse.status).toBe(202);
+
+      await expect(
+        waitForHttpRun(apiListening.url, success.runId, {
+          [callerIdentityHeader]: "service:role-integration",
+          [gatewayAuthenticationHeader]: gatewaySecret,
+        }),
+      ).resolves.toMatchObject({
+        status: "succeeded",
+        output: { content: "Processed: role success" },
+      });
+      await expect(
+        waitForHttpRun(apiListening.url, failure.runId, {
+          [callerIdentityHeader]: "service:role-integration",
+          [gatewayAuthenticationHeader]: gatewaySecret,
+        }),
+      ).resolves.toMatchObject({
+        status: "failed",
+        error: {
+          code: "DEPENDENCY_FAILURE",
+          message: "A required business service is unavailable",
+        },
+      });
+
+      const isolated = await fetch(
+        `${apiListening.url}/process-runs/${success.runId}`,
+        {
+          headers: {
+            [callerIdentityHeader]: "service:other-caller",
+            [gatewayAuthenticationHeader]: gatewaySecret,
+          },
+        },
+      );
+      expect(isolated.status).toBe(404);
+
+      const synchronous = await fetch(`${apiListening.url}/execute`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          process: "content-processing",
+          version: "v1",
+          input: { content: "sync remains enabled" },
+        }),
+      });
+      expect(synchronous.status).toBe(200);
+      expect(await synchronous.json()).toMatchObject({
+        status: "succeeded",
+        output: { content: "Processed: sync remains enabled" },
+      });
+    } finally {
+      await Promise.allSettled(applications.map((application) => application.close()));
+      await businessApi.close();
+    }
+  }, 20_000);
 });
 
 const ignoredWorker: ProcessWorker = {
@@ -506,7 +662,7 @@ async function waitForJobState(
 }
 
 async function unusedRedisUrl(): Promise<string> {
-  const server = createServer();
+  const server = createTcpServer();
   await new Promise<void>((resolve, reject) => {
     server.once("error", reject);
     server.listen(0, "127.0.0.1", () => resolve());
@@ -519,6 +675,89 @@ async function unusedRedisUrl(): Promise<string> {
     server.close((error) => (error ? reject(error) : resolve())),
   );
   return `redis://127.0.0.1:${address.port}/15`;
+}
+
+async function startBusinessApi(): Promise<{
+  url: string;
+  close: () => Promise<void>;
+}> {
+  const server = createHttpServer((request, response) => {
+    void handleBusinessRequest(request, response);
+  });
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", () => {
+      server.off("error", reject);
+      resolve();
+    });
+  });
+  const address = server.address();
+  if (!address || typeof address === "string") {
+    throw new Error("Expected the Business API to listen on an IP address");
+  }
+  return {
+    url: `http://127.0.0.1:${address.port}`,
+    close: () => closeHttpServer(server),
+  };
+}
+
+async function handleBusinessRequest(
+  request: IncomingMessage,
+  response: import("node:http").ServerResponse,
+): Promise<void> {
+  if (request.method !== "POST" || request.url !== "/process") {
+    response.writeHead(404).end();
+    return;
+  }
+  const chunks: Buffer[] = [];
+  for await (const chunk of request) {
+    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+  }
+  const body = JSON.parse(Buffer.concat(chunks).toString("utf8")) as {
+    content: string;
+  };
+  if (body.content === "fail-dependency") {
+    response.writeHead(503).end();
+    return;
+  }
+  response.writeHead(200, { "content-type": "application/json" });
+  response.end(JSON.stringify({ content: `Processed: ${body.content}` }));
+}
+
+async function closeHttpServer(server: Server): Promise<void> {
+  if (!server.listening) return;
+  await new Promise<void>((resolve, reject) =>
+    server.close((error) => (error ? reject(error) : resolve())),
+  );
+}
+
+async function waitForHttpStatus(url: string, status: number): Promise<number> {
+  const deadline = Date.now() + 5_000;
+  while (Date.now() < deadline) {
+    const response = await fetch(url);
+    if (response.status === status) return response.status;
+    await delay(20);
+  }
+  throw new Error(`${url} did not return ${status}`);
+}
+
+async function waitForHttpRun(
+  baseUrl: string,
+  runIdValue: string,
+  headers: Record<string, string>,
+): Promise<Record<string, unknown>> {
+  const deadline = Date.now() + 5_000;
+  while (Date.now() < deadline) {
+    const response = await fetch(`${baseUrl}/process-runs/${runIdValue}`, {
+      headers,
+    });
+    if (response.status === 200) {
+      const body = (await response.json()) as Record<string, unknown>;
+      if (body.status === "succeeded" || body.status === "failed") return body;
+    }
+    await delay(20);
+  }
+  throw new Error(`Process Run ${runIdValue} did not reach a terminal state`);
 }
 
 function delay(milliseconds: number): Promise<void> {

@@ -9,6 +9,7 @@ import type {
   ProcessRunStore,
   StoredProcessRun,
 } from "./process-run-store.js";
+import type { ProcessRunRecoverySource } from "./process-run-reconciler.js";
 
 export type PostgresProcessRunStoreRetention = Readonly<{
   acceptedInputMs: number;
@@ -35,6 +36,7 @@ export function createPostgresProcessRunStore(options: {
   );
   const createEventId = options.createEventId ?? randomUUID;
   const createOutboxMessageId = options.createOutboxMessageId ?? randomUUID;
+  const recovery = createPostgresProcessRunRecoverySource({ pool: options.pool });
 
   return Object.freeze({
     accept: async (candidate) => {
@@ -406,6 +408,23 @@ export function createPostgresProcessRunStore(options: {
       });
     },
 
+    findRecoverable: recovery.findRecoverable,
+
+    ready: async () => {
+      const result = await options.pool.query<{ process_runs: string | null }>(
+        "SELECT to_regclass('public.process_runs')::text AS process_runs",
+      );
+      if (result.rows[0]?.process_runs !== "process_runs") {
+        throw new Error("Process Run database migration is not ready");
+      }
+    },
+  });
+}
+
+export function createPostgresProcessRunRecoverySource(options: {
+  pool: Pool;
+}): ProcessRunRecoverySource {
+  return Object.freeze({
     findRecoverable: async (request) => {
       const limit = recoveryLimit(request.limit);
       timestampMilliseconds(request.asOf);
@@ -428,15 +447,6 @@ export function createPostgresProcessRunStore(options: {
         [request.queuedBefore, request.asOf, limit],
       );
       return result.rows.map((row) => Object.freeze({ runId: row.run_id }));
-    },
-
-    ready: async () => {
-      const result = await options.pool.query<{ process_runs: string | null }>(
-        "SELECT to_regclass('public.process_runs')::text AS process_runs",
-      );
-      if (result.rows[0]?.process_runs !== "process_runs") {
-        throw new Error("Process Run database migration is not ready");
-      }
     },
   });
 }

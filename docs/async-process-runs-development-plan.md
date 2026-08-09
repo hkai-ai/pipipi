@@ -1,6 +1,6 @@
 # 异步 Process Run 开发计划
 
-状态：实施中。M1 Runtime Seam 已由 Issue #10 和 commit `58d29f6` 完成；其余里程碑尚未进入生产 Interface。
+状态：实施中。M1–M3 已完成；M4 已完成执行、恢复与内部角色组装，待 Issue #22 补齐观测门槛。异步 Interface 默认关闭，尚未进入外部生产发布。
 
 追踪规格：[GitHub Issue #9](https://github.com/techidsk/pipipi/issues/9)。
 
@@ -210,20 +210,20 @@ type AsyncProcessRuns = Readonly<{
 
 目标是让所有 Business Process 通过一个内部 Queue 可靠执行，并让 Redis 故障不会丢失已接受 Run。
 
-实现进度：Issue #14 已完成 Outbox claim/ack、统一 BullMQ Queue、最小 Job envelope、基础 Worker 生命周期和有界 Job retention。Issue #15 已完成过期租约接管、旧 token fencing、Reconciler、Redis/Dispatcher 故障恢复，以及有期限的优雅停机。真实 PostgreSQL/Redis 集成测试覆盖成功、业务失败和上述故障窗口；Issue #16 再把 API、Dispatcher、Worker 组装成独立生产角色。
+实现进度：Issue #14 已完成 Outbox claim/ack、统一 BullMQ Queue、最小 Job envelope、基础 Worker 生命周期和有界 Job retention。Issue #15 已完成过期租约接管、旧 token fencing、Reconciler、Redis/Dispatcher 故障恢复，以及有期限的优雅停机。Issue #16 已把 API、Dispatcher、Worker 组装成独立角色，并用真实 HTTP/PostgreSQL/Redis 验证成功、业务失败和 caller 隔离。Issue #22 继续补齐 M4 所需指标和告警，因此本里程碑保持“进行中”。
 
 ### 实现任务
 
 - 固定 BullMQ 版本，增加独立 Redis 连接配置和 `process-runs` Queue Adapter。
 - Queue Job 使用固定 schema：`{ schemaVersion: 1, runId }`，并把 `runId` 作为自定义 Job ID 的辅助防重。
 - 实现 Outbox Dispatcher：claim 未发布 message、`queue.add()`、成功后确认；发布后确认前崩溃允许重复发布。
-- 实现 Process Worker Application 和独立入口。初期同一进程运行 Dispatcher 与 Worker，但各自拥有 `start/close` 生命周期。
+- 实现独立的 Dispatcher 与 Process Worker Application/入口，各自拥有 `start/close` 生命周期和角色专属依赖。
 - Worker 从 PostgreSQL读取 Run，创建带 claim token 的 Process Attempt，并通过 M1 的 Attempt Runner 执行。
 - 初始 Job `attempts=1`。只有 M0 retry matrix 和下游幂等完成后，才按 Registration policy 开启自动重试与 backoff。
 - 把可重试 Attempt 转换为 BullMQ processor 抛错；最终业务失败正常确认 Queue Job。BullMQ Job 状态不进入 Process Run 响应。
 - 实现 queued Run reconciliation、重复 Job 短路、stale claim fencing 和有界 Job retention。
 - 实现 Worker graceful shutdown、Redis error listener、liveness/readiness 和结构化日志。
-- 同一 Docker image 增加 API 与 Process Worker 两种明确启动命令；API 进程不消费 Job。
+- 同一 Docker image 增加 API、Dispatcher 与 Process Worker 三种明确启动命令；API 进程不消费 Job。
 
 ### 测试
 

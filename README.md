@@ -74,7 +74,7 @@ curl http://127.0.0.1:3000/healthz
 
 仓库已提供资源式的 `POST /process-runs` 和 `GET /process-runs/{runId}`。它要求网关验证身份、注入固定 caller 头与共享凭证，并要求每次提交携带 `Idempotency-Key`。成功提交返回 `202`、`Location`、`Retry-After` 和 queued Run；查询只向 owner 返回 queued、running、succeeded 或 failed。
 
-该 Interface 由 `ASYNC_PROCESS_RUNS_ENABLED=true` 显式启用，默认关闭。仓库已经实现 transactional Outbox Dispatcher、统一 BullMQ Queue、租约恢复和有期限停机，并通过真实 PostgreSQL/Redis 验证准确版本执行与故障恢复；生产角色组装和运维门禁完成前仍不得向生产调用方开放。完整契约和配置见 [`docs/async-process-runs-design.md`](docs/async-process-runs-design.md) 与 [`docs/development.md`](docs/development.md)。
+该 Interface 由 `ASYNC_PROCESS_RUNS_ENABLED=true` 显式启用，默认关闭。仓库已经实现 transactional Outbox Dispatcher、统一 BullMQ Queue、租约恢复和有期限停机，并把 API、Dispatcher、Worker 组装成三个独立角色。真实 PostgreSQL/Redis 测试已覆盖 HTTP 提交、准确版本执行、查询、业务失败与调用方隔离；生产观测和发布门禁完成前仍不得向外部调用方开放。完整契约和配置见 [`docs/async-process-runs-design.md`](docs/async-process-runs-design.md) 与 [`docs/development.md`](docs/development.md)。
 
 ## Interface 约束
 
@@ -87,9 +87,9 @@ curl http://127.0.0.1:3000/healthz
 
 ## 当前边界
 
-这是一个受控、同步、无状态的 MVP。部署平台必须提供 TLS、私有入口、调用方认证、Secret 注入和实例上限。当前生产服务不提供应用用户系统、RBAC、多租户、CORS、Queue、通用幂等、跨实例执行历史或动态流程注册。
+默认发布仍是受控、同步、无状态的 MVP。部署平台必须提供 TLS、私有入口、调用方认证、Secret 注入和实例上限。异步角色只供完成 migration、身份、Redis 和运维门禁的内部环境使用；当前发布不提供应用用户系统、RBAC、多租户、CORS、通用幂等或动态流程注册。
 
-仓库内已有 Async Process Runs Module、有界内存 Store/Queue、确定性 Worker、事务化 PostgreSQL Store、Outbox Dispatcher，以及固定版本的 BullMQ Queue/Worker Adapter。异步 HTTP 与可信 caller identity 已受 feature flag 保护；BullMQ 组件尚未组装进生产启动角色，自动重试、监控和 Webhook 仍按开发计划推进。
+仓库内已有 Async Process Runs Module、有界内存 Store/Queue、确定性 Worker、事务化 PostgreSQL Store、Outbox Dispatcher，以及固定版本的 BullMQ Queue/Worker Adapter。`npm run start:api`、`npm run start:dispatcher` 和 `npm run start:worker` 从同一构建产物启动独立角色；自动重试、完整观测和 Webhook 仍按开发计划推进。
 
 图片生成、海报 Skill、对象存储和 Skill A/B 对比属于开发实验与集成验证，尚未进入 `/execute` 的生产 catalog。
 

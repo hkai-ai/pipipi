@@ -182,7 +182,6 @@ export function createBullMqProcessWorker(options: {
           if (!closed) reportError(toError(error));
         });
       }
-      await worker.waitUntilReady();
     },
     ready: () => worker.waitUntilReady(),
     close: async () => {

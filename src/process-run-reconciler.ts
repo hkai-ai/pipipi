@@ -1,5 +1,12 @@
-import type { ProcessRunStore } from "./process-run-store.js";
 import type { ProcessWorkQueue } from "./process-work-queue.js";
+
+export type ProcessRunRecoverySource = Readonly<{
+  findRecoverable: (request: {
+    asOf: string;
+    queuedBefore: string;
+    limit: number;
+  }) => Promise<readonly Readonly<{ runId: string }>[]>;
+}>;
 
 export type ProcessRunReconciliationResult = Readonly<{
   found: number;
@@ -13,7 +20,7 @@ export type ProcessRunReconciler = Readonly<{
 }>;
 
 export function createProcessRunReconciler(options: {
-  store: ProcessRunStore;
+  store: ProcessRunRecoverySource;
   queue: ProcessWorkQueue;
   queuedAgeMs?: number;
   batchSize?: number;

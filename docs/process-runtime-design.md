@@ -144,11 +144,14 @@ Process Definition 抛出的异常属于意外失败。Process Attempt Runner �
 Async Process Runs 默认关闭。显式启用时，Construction Root 复用同一个 production Registry，
 组装 PostgreSQL Store、`submit/find` Module、可信 caller identity Resolver 和 readiness，并由
 Application 在关闭 HTTP server 后释放 Pool。数据库 migration 由部署步骤完成，启动过程不会
-隐式修改 schema；BullMQ Worker 接入前异步 feature flag 不能用于生产流量。
+隐式修改 schema。独立的 Async Role Construction 分别组装 Dispatcher 与 Worker：Dispatcher
+只连接 PostgreSQL/Redis，Worker 复用同一 production Registry 并连接执行所需 Business
+Capability。三个角色的 liveness 不访问下游，readiness 只检查本角色依赖；生产观测和发布门禁
+完成前，异步 feature flag 只用于受控内部环境。
 
-[`main.ts`](../src/main.ts) 只把 `process.env` 传给 Construction Seam，然后监听端口、写启动
-日志并处理 `SIGINT` 和 `SIGTERM`。它不翻译配置，也不直接组装 Adapter、Executor 或
-Application。
+`main.ts`、`process-dispatcher-main.ts` 和 `process-worker-main.ts` 只把 `process.env` 传给各自
+Construction Seam，然后监听端口、写启动日志并处理 `SIGINT` 和 `SIGTERM`。入口不翻译配置，
+也不直接组装 Adapter、Executor 或 Application。
 
 Production catalog 由
 [`createBusinessProcessExecutor`](../src/business-process-executor.ts)

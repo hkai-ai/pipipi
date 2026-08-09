@@ -8,7 +8,10 @@ import {
   PiContentOptimizationAgentRuntime,
 } from "./agent-runtime.js";
 import { createAsyncProcessRuns } from "./async-process-runs.js";
-import { createBusinessProcessRuntime } from "./business-process-executor.js";
+import {
+  createBusinessProcessRuntime,
+  type BusinessProcessRuntime,
+} from "./business-process-executor.js";
 import { createGatewayCallerIdentityResolver } from "./caller-identity.js";
 import { HttpContentProcessingCapability } from "./content-processing.js";
 import {
@@ -34,6 +37,32 @@ export function constructProcessingService(
 ): ConstructedProcessingService {
   const port = parsePort(environment.PORT);
   const httpConfiguration = loadHttpConfiguration(environment);
+  const runtime = constructBusinessProcessRuntime(environment);
+  const asyncProcessRuns = constructAsyncProcessRuns(
+    environment,
+    runtime.registry,
+  );
+
+  return {
+    application: createProcessingApplication({
+      executor: runtime.executor,
+      http: {
+        ...httpConfiguration,
+        ...(asyncProcessRuns
+          ? { asyncProcessRuns: asyncProcessRuns.http }
+          : {}),
+      },
+      ...(asyncProcessRuns
+        ? { closeResources: asyncProcessRuns.close }
+        : {}),
+    }),
+    port,
+  };
+}
+
+export function constructBusinessProcessRuntime(
+  environment: StartupEnvironment,
+): BusinessProcessRuntime {
   const contentProcessingMode = parseContentProcessingMode(
     environment.CONTENT_PROCESSING_MODE,
   );
@@ -56,7 +85,7 @@ export function constructProcessingService(
           skillDirectory: environment.PI_SKILL_DIRECTORY,
         })
       : undefined;
-  const runtime = createBusinessProcessRuntime({
+  return createBusinessProcessRuntime({
     contentProcessing,
     agentRuntime,
     processTimeoutMs: parsePositiveInteger(
@@ -71,26 +100,6 @@ export function constructProcessingService(
       },
     },
   });
-  const asyncProcessRuns = constructAsyncProcessRuns(
-    environment,
-    runtime.registry,
-  );
-
-  return {
-    application: createProcessingApplication({
-      executor: runtime.executor,
-      http: {
-        ...httpConfiguration,
-        ...(asyncProcessRuns
-          ? { asyncProcessRuns: asyncProcessRuns.http }
-          : {}),
-      },
-      ...(asyncProcessRuns
-        ? { closeResources: asyncProcessRuns.close }
-        : {}),
-    }),
-    port,
-  };
 }
 
 function constructAsyncProcessRuns(

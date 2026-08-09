@@ -37,9 +37,9 @@ Business Processing Service 让产品调用方通过一个稳定的 HTTP Interfa
 | `content-processing/v1` | `{ content: string }` | `{ content: string }` | 服务端可选择 Direct 或 Agent 路径 |
 | `titled-content-processing/v1` | `{ title: string, body: string }` | `{ title: string, content: string }` | 复用 Content Processing Capability |
 
-默认 HTTP 入口公开 `GET /healthz`、`GET /readyz` 和 `POST /execute`。每次执行生成独立 `runId`。显式启用并完整配置 Async Process Runs 后，入口还提供 `POST /process-runs` 和 `GET /process-runs/{runId}`；该功能默认关闭，在异步角色组装和生产门禁完成前不得向生产调用方开放。默认同步生产构造不持久化 Run Record；结构化完成日志只保留运行元数据，不保存 Prompt、Tool 过程、模型消息或隐藏推理。
+默认 HTTP 入口公开 `GET /healthz`、`GET /readyz` 和 `POST /execute`。每次执行生成独立 `runId`。显式启用并完整配置 Async Process Runs 后，API 还提供 `POST /process-runs` 和 `GET /process-runs/{runId}`；该功能默认关闭，在生产观测和发布门禁完成前不得向外部调用方开放。默认同步生产构造不持久化 Run Record；结构化完成日志只保留运行元数据，不保存 Prompt、Tool 过程、模型消息或隐藏推理。
 
-仓库已实现 Async Process Runs Module。它以 `submit/find` 固定公共状态、owner 隔离和 caller-scoped idempotency；PostgreSQL Adapter 以事务持久化 Run、初始 Event 和 Outbox。Outbox Dispatcher 通过统一的 BullMQ `process-runs` Queue 只发布 `{ schemaVersion, runId }`，Worker 再从 PostgreSQL 读取准确 Registration 与 accepted input。Store 以 claim token 隔离 Attempt；过期租约可被接管，Reconciler 会重投长期 queued 或过期 running Run，停机超时则释放当前 claim。真实 PostgreSQL/Redis 集成测试已覆盖成功、业务失败、Redis 断线、重复 Job、租约接管和有期限停机；BullMQ 组件仍未组装进生产 Startup Construction。
+仓库已实现 Async Process Runs Module。它以 `submit/find` 固定公共状态、owner 隔离和 caller-scoped idempotency；PostgreSQL Adapter 以事务持久化 Run、初始 Event 和 Outbox。Outbox Dispatcher 通过统一的 BullMQ `process-runs` Queue 只发布 `{ schemaVersion, runId }`，Worker 再从 PostgreSQL 读取准确 Registration 与 accepted input。Store 以 claim token 隔离 Attempt；过期租约可被接管，Reconciler 会重投长期 queued 或过期 running Run，停机超时则释放当前 claim。API、Dispatcher 和 Worker 已有独立 Construction Root、入口、配置与健康检查；真实 PostgreSQL/Redis 集成测试覆盖成功、业务失败、Redis 断线、重复 Job、租约接管、有期限停机和 caller 隔离。
 
 图片生成、海报 Skill、对象存储和 Skill A/B 对比目前属于开发实验与集成验证，不属于 `/execute` 的生产 catalog。
 
@@ -61,7 +61,7 @@ Agent 只获得 Process Registration 明确授权的窄 Tool。生产内容处�
 
 未来若流程产生发布、扣费、发送等副作用，必须先明确幂等、审计和补偿策略。
 
-异步 Process Run 的持久化提交、owner 查询、HTTP Interface、Outbox 调度、BullMQ Worker 和基础故障恢复已完成，但功能默认关闭；生产角色组装、重试和 Webhook 仍按开发计划推进。该设计保留现有 Business Process 模型：外部调用方仍只选择准确 Process 和版本；Queue Job、重试与 Worker 配置由服务端拥有。详见 [`docs/async-process-runs-design.md`](docs/async-process-runs-design.md) 和 [`docs/async-process-runs-development-plan.md`](docs/async-process-runs-development-plan.md)。
+异步 Process Run 的持久化提交、owner 查询、HTTP Interface、Outbox 调度、BullMQ Worker、基础故障恢复和独立运行角色已完成，但功能默认关闭；重试、完整观测和 Webhook 仍按开发计划推进。该设计保留现有 Business Process 模型：外部调用方仍只选择准确 Process 和版本；Queue Job、重试与 Worker 配置由服务端拥有。详见 [`docs/async-process-runs-design.md`](docs/async-process-runs-design.md) 和 [`docs/async-process-runs-development-plan.md`](docs/async-process-runs-development-plan.md)。
 
 ## Module 模型
 
@@ -70,6 +70,7 @@ Agent 只获得 Process Registration 明确授权的窄 Tool。生产内容处�
 | Module | 外部 Interface | 隐藏的 Implementation |
 | --- | --- | --- |
 | Startup Construction | `constructProcessingService(environment)` | 配置翻译、校验、Adapter 选择和完整生产组装 |
+| Async Role Construction | `constructProcessDispatcherService`、`constructProcessWorkerService` | 角色专属配置、依赖和生命周期组装 |
 | Processing Application | `listen`、`close` | Node HTTP 生命周期 |
 | Process Executor | `execute(request)` | 查找、超时、取消、错误转换和 Run Record |
 | Process Registration | `identity`、`accept(input)`、`run(acceptedInput, context)` | Schema、JSON-safe accepted input、Process Definition、依赖、策略和输出验证 |
@@ -80,6 +81,7 @@ Agent 只获得 Process Registration 明确授权的窄 Tool。生产内容处�
 | Outbox Dispatcher | `dispatchOnce()` | PostgreSQL claim、BullMQ publish、ack 与失败 release |
 | Process Run Reconciler | `reconcileOnce()` | 长期 queued 与过期 running Run 扫描、最小 Job 重投 |
 | Process Worker | `process(job)` | exact Registration 查找、Attempt 执行和受控状态转换 |
+| Runtime Role Application | `listen`、`close` | Dispatcher/Worker liveness、readiness 和 HTTP 生命周期 |
 | Business Capability | 窄业务方法 | 远程协议、认证、超时和供应商细节 |
 
 Startup Construction 是生产组装 Seam；Process Executor 是同步传输与 Process Runtime 之间的主 Seam；Async Process Runs 是计划中异步 HTTP 与权威 Store 之间的主 Seam；Process Registration 是编写一个 Business Process 版本的 Seam；Process Attempt Runner 让同步入口和异步 Worker 复用同一执行治理。Adapter 只有在 Seam 上存在真实替换需求时才引入。
