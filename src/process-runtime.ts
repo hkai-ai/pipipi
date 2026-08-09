@@ -5,6 +5,14 @@ import {
   type ProcessRunRecords,
 } from "./process-run-records.js";
 
+const acceptedProcessInputPayloadMaxBytes = 262_144;
+const acceptedProcessInputMetadataMaxBytes = 4_096;
+const acceptedProcessInputEnvelopeOverheadBytes = 27;
+const acceptedProcessInputMaxBytes =
+  acceptedProcessInputPayloadMaxBytes +
+  acceptedProcessInputMetadataMaxBytes +
+  acceptedProcessInputEnvelopeOverheadBytes;
+
 const executeRequestSchema = z.strictObject({
   process: z.string().min(1),
   version: z.string().min(1),
@@ -91,21 +99,37 @@ export type ProcessRegistrationCompletion =
           }>;
     }>;
 
-export type ProcessRegistrationStart =
+export type JsonValue =
+  | null
+  | boolean
+  | number
+  | string
+  | readonly JsonValue[]
+  | Readonly<{ [key: string]: JsonValue }>;
+
+export type AcceptedProcessInput = Readonly<{
+  schemaVersion: 1;
+  process: string;
+  version: string;
+  input: JsonValue;
+}>;
+
+export type ProcessRegistrationAcceptance =
   | Readonly<{ accepted: false }>
   | Readonly<{
       accepted: true;
-      completion: Promise<ProcessRegistrationCompletion>;
+      acceptedInput: AcceptedProcessInput;
     }>;
 
 const processRegistrationBrand: unique symbol = Symbol("ProcessRegistration");
 
 export type ProcessRegistration = Readonly<{
   identity: ProcessIdentity;
-  start: (
-    input: unknown,
+  accept: (input: unknown) => ProcessRegistrationAcceptance;
+  run: (
+    acceptedInput: AcceptedProcessInput,
     context: ProcessExecutionContext,
-  ) => ProcessRegistrationStart;
+  ) => Promise<ProcessRegistrationCompletion>;
   [processRegistrationBrand]: true;
 }>;
 
@@ -132,33 +156,81 @@ export function defineProcessRegistration<
     version: definition.version,
   });
 
+  const accept = (input: unknown): ProcessRegistrationAcceptance => {
+    const acceptedInput = inputSchema.safeParse(input);
+    if (!acceptedInput.success) return Object.freeze({ accepted: false });
+
+    const inputSnapshot = createJsonSnapshot(
+      acceptedInput.data,
+      acceptedProcessInputPayloadMaxBytes,
+    );
+    if (!inputSnapshot.success) {
+      return Object.freeze({ accepted: false });
+    }
+    const snapshot = createJsonSnapshot(
+      {
+        schemaVersion: 1,
+        process: identity.id,
+        version: identity.version,
+        input: inputSnapshot.value,
+      },
+      acceptedProcessInputMaxBytes,
+    );
+    if (!snapshot.success) {
+      return Object.freeze({ accepted: false });
+    }
+    const acceptedSnapshot = parseAcceptedProcessInput(
+      snapshot.value,
+      identity,
+    );
+    if (!acceptedSnapshot) return Object.freeze({ accepted: false });
+
+    return Object.freeze({
+      accepted: true,
+      acceptedInput: acceptedSnapshot,
+    });
+  };
+
+  const run = (
+    acceptedInput: AcceptedProcessInput,
+    context: ProcessExecutionContext,
+  ): Promise<ProcessRegistrationCompletion> =>
+    Promise.resolve()
+      .then(() => {
+        const snapshot = createJsonSnapshot(
+          acceptedInput,
+          acceptedProcessInputMaxBytes,
+        );
+        const acceptedSnapshot = snapshot.success
+          ? parseAcceptedProcessInput(snapshot.value, identity)
+          : undefined;
+        if (!acceptedSnapshot) {
+          throw new Error("Accepted Process input is invalid");
+        }
+        const executionInput = acceptedSnapshot.input as z.output<InputSchema>;
+        return execute(executionInput, context);
+      })
+      .then((rawOutput): ProcessRegistrationCompletion => {
+        if (isExpectedProcessFailure(rawOutput)) {
+          return { status: "failed", error: rawOutput };
+        }
+        const output = outputSchema.safeParse(rawOutput);
+        if (!output.success) {
+          return {
+            status: "failed",
+            error: {
+              code: "INVALID_OUTPUT",
+              publicMessage: "The process produced an invalid output",
+            },
+          };
+        }
+        return { status: "succeeded", output: output.data };
+      });
+
   return Object.freeze({
     identity,
-    start: (input, context) => {
-      const acceptedInput = inputSchema.safeParse(input);
-      if (!acceptedInput.success) return Object.freeze({ accepted: false });
-
-      const completion = Promise.resolve()
-        .then(() => execute(acceptedInput.data, context))
-        .then((rawOutput): ProcessRegistrationCompletion => {
-          if (isExpectedProcessFailure(rawOutput)) {
-            return { status: "failed", error: rawOutput };
-          }
-          const output = outputSchema.safeParse(rawOutput);
-          if (!output.success) {
-            return {
-              status: "failed",
-              error: {
-                code: "INVALID_OUTPUT",
-                publicMessage: "The process produced an invalid output",
-              },
-            };
-          }
-          return { status: "succeeded", output: output.data };
-        });
-
-      return Object.freeze({ accepted: true, completion });
-    },
+    accept,
+    run,
     [processRegistrationBrand]: true as const,
   });
 }
@@ -174,12 +246,153 @@ function isExpectedProcessFailure(
   );
 }
 
+type JsonSnapshot =
+  | Readonly<{ success: true; value: JsonValue }>
+  | Readonly<{ success: false }>;
+
+function createJsonSnapshot(value: unknown, maxBytes?: number): JsonSnapshot {
+  if (!isJsonValue(value, new WeakSet<object>())) {
+    return { success: false };
+  }
+
+  const serialized = JSON.stringify(value);
+  if (
+    maxBytes !== undefined &&
+    Buffer.byteLength(serialized, "utf8") > maxBytes
+  ) {
+    return { success: false };
+  }
+
+  return {
+    success: true,
+    value: deepFreeze(JSON.parse(serialized) as JsonValue),
+  };
+}
+
+function isJsonValue(
+  value: unknown,
+  seen: WeakSet<object>,
+): value is JsonValue {
+  if (
+    value === null ||
+    typeof value === "boolean" ||
+    typeof value === "string"
+  ) {
+    return true;
+  }
+  if (typeof value === "number") {
+    return Number.isFinite(value) && !Object.is(value, -0);
+  }
+  if (typeof value !== "object" || seen.has(value)) return false;
+  seen.add(value);
+  try {
+    if (Array.isArray(value)) {
+      if (Object.getPrototypeOf(value) !== Array.prototype) return false;
+      const propertyNames = Object.getOwnPropertyNames(value);
+      if (propertyNames.length !== value.length + 1) return false;
+      if (Object.getOwnPropertySymbols(value).length > 0) return false;
+      for (let index = 0; index < value.length; index += 1) {
+        const descriptor = Object.getOwnPropertyDescriptor(
+          value,
+          String(index),
+        );
+        if (
+          !descriptor ||
+          !("value" in descriptor) ||
+          !descriptor.enumerable ||
+          !isJsonValue(descriptor.value, seen)
+        ) {
+          return false;
+        }
+      }
+      return true;
+    }
+
+    const prototype = Object.getPrototypeOf(value);
+    if (prototype !== Object.prototype && prototype !== null) return false;
+    if (Object.getOwnPropertySymbols(value).length > 0) return false;
+    for (const propertyName of Object.getOwnPropertyNames(value)) {
+      const descriptor = Object.getOwnPropertyDescriptor(value, propertyName);
+      if (
+        !descriptor ||
+        !("value" in descriptor) ||
+        !descriptor.enumerable ||
+        !isJsonValue(descriptor.value, seen)
+      ) {
+        return false;
+      }
+    }
+    return true;
+  } finally {
+    seen.delete(value);
+  }
+}
+
+function parseAcceptedProcessInput(
+  value: JsonValue,
+  identity: ProcessIdentity,
+): AcceptedProcessInput | undefined {
+  if (!isJsonObject(value)) return undefined;
+  const properties = Object.keys(value);
+  if (
+    properties.length !== 4 ||
+    !properties.includes("schemaVersion") ||
+    !properties.includes("process") ||
+    !properties.includes("version") ||
+    !properties.includes("input") ||
+    value.schemaVersion !== 1 ||
+    value.process !== identity.id ||
+    value.version !== identity.version
+  ) {
+    return undefined;
+  }
+  const inputSnapshot = createJsonSnapshot(
+    value.input,
+    acceptedProcessInputPayloadMaxBytes,
+  );
+  if (!inputSnapshot.success) return undefined;
+  return value as AcceptedProcessInput;
+}
+
+function isJsonObject(
+  value: JsonValue,
+): value is Readonly<{ [key: string]: JsonValue }> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function deepFreeze<Value>(value: Value, seen = new WeakSet<object>()): Value {
+  if (typeof value !== "object" || value === null || seen.has(value)) {
+    return value;
+  }
+
+  seen.add(value);
+  for (const key of Reflect.ownKeys(value)) {
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    if (descriptor && "value" in descriptor) {
+      deepFreeze(descriptor.value, seen);
+    }
+  }
+  return Object.freeze(value);
+}
+
 function assertProcessIdentity(identity: ProcessIdentity): void {
   if (identity.id.trim().length === 0) {
     throw new Error("Business Process id must be non-empty");
   }
   if (identity.version.trim().length === 0) {
     throw new Error("Business Process version must be non-empty");
+  }
+  const serializedIdentity = JSON.stringify({
+    process: identity.id,
+    version: identity.version,
+  });
+  if (
+    Buffer.byteLength(serializedIdentity, "utf8") >
+    acceptedProcessInputMetadataMaxBytes
+  ) {
+    throw new Error(
+      "Business Process identity must not exceed 4096 UTF-8 bytes",
+    );
   }
 }
 
@@ -227,6 +440,82 @@ export function createProcessRegistry(
   });
 }
 
+export type ProcessAttemptRequest = Readonly<{
+  runId: string;
+  registration: ProcessRegistration;
+  acceptedInput: AcceptedProcessInput;
+}>;
+
+export type ProcessAttemptRunner = Readonly<{
+  run: (attempt: ProcessAttemptRequest) => Promise<ProcessRunResult>;
+}>;
+
+export function createProcessAttemptRunner(
+  options: { processTimeoutMs?: number } = {},
+): ProcessAttemptRunner {
+  const processTimeoutMs = options.processTimeoutMs ?? 30_000;
+  if (!Number.isInteger(processTimeoutMs) || processTimeoutMs < 1) {
+    throw new Error("Process timeout must be a positive integer");
+  }
+
+  return Object.freeze({
+    run: async (attempt): Promise<ProcessRunResult> => {
+      const identity = {
+        process: attempt.registration.identity.id,
+        version: attempt.registration.identity.version,
+      };
+      const controller = new AbortController();
+      let timeout: NodeJS.Timeout | undefined;
+      const timeoutFailure = new Promise<never>((_resolve, reject) => {
+        timeout = setTimeout(() => {
+          controller.abort();
+          reject(new ProcessTimeoutFailure());
+        }, processTimeoutMs);
+      });
+
+      try {
+        const completion = await Promise.race([
+          attempt.registration.run(attempt.acceptedInput, {
+            runId: attempt.runId,
+            signal: controller.signal,
+          }),
+          timeoutFailure,
+        ]);
+        return completion.status === "succeeded"
+          ? {
+              runId: attempt.runId,
+              ...identity,
+              status: "succeeded",
+              output: completion.output,
+            }
+          : failure(
+              attempt.runId,
+              completion.error.code,
+              completion.error.publicMessage,
+              identity,
+            );
+      } catch (error) {
+        return controller.signal.aborted ||
+          error instanceof ProcessTimeoutFailure
+          ? failure(
+              attempt.runId,
+              "PROCESS_TIMEOUT",
+              "The process exceeded its time limit",
+              identity,
+            )
+          : failure(
+              attempt.runId,
+              "INTERNAL_ERROR",
+              "The process could not be completed",
+              identity,
+            );
+      } finally {
+        if (timeout) clearTimeout(timeout);
+      }
+    },
+  });
+}
+
 export type ProcessExecutor = Readonly<{
   execute: (request: unknown) => Promise<ProcessRunResult>;
 }>;
@@ -245,10 +534,9 @@ export function createProcessRunner(options: {
     throw new Error("Process Runner requires a Process Registry");
   }
   const runRecords = options.runRecords ?? disabledProcessRunRecords;
-  const processTimeoutMs = options.processTimeoutMs ?? 30_000;
-  if (!Number.isInteger(processTimeoutMs) || processTimeoutMs < 1) {
-    throw new Error("Process timeout must be a positive integer");
-  }
+  const attemptRunner = createProcessAttemptRunner({
+    processTimeoutMs: options.processTimeoutMs,
+  });
 
   return Object.freeze({
     execute: async (rawRequest: unknown): Promise<ProcessRunResult> => {
@@ -285,13 +573,9 @@ export function createProcessRunner(options: {
         );
       }
 
-      const controller = new AbortController();
-      let started: ProcessRegistrationStart;
+      let acceptance: ProcessRegistrationAcceptance;
       try {
-        started = registration.start(request.input, {
-          runId,
-          signal: controller.signal,
-        });
+        acceptance = registration.accept(request.input);
       } catch {
         return completeProcessRun(
           runRecords,
@@ -304,7 +588,7 @@ export function createProcessRunner(options: {
         );
       }
 
-      if (!started.accepted) {
+      if (!acceptance.accepted) {
         return completeProcessRun(
           runRecords,
           failure(
@@ -316,52 +600,11 @@ export function createProcessRunner(options: {
         );
       }
 
-      let result: ProcessRunResult;
-      let timeout: NodeJS.Timeout | undefined;
-      const timeoutFailure = new Promise<never>((_resolve, reject) => {
-        timeout = setTimeout(() => {
-          controller.abort();
-          reject(new ProcessTimeoutFailure());
-        }, processTimeoutMs);
+      const result = await attemptRunner.run({
+        runId,
+        registration,
+        acceptedInput: acceptance.acceptedInput,
       });
-      try {
-        const completion = await Promise.race([
-          started.completion,
-          timeoutFailure,
-        ]);
-        result =
-          completion.status === "succeeded"
-            ? {
-                runId,
-                process: request.process,
-                version: request.version,
-                status: "succeeded",
-                output: completion.output,
-              }
-            : failure(
-                runId,
-                completion.error.code,
-                completion.error.publicMessage,
-                identity,
-              );
-      } catch (error) {
-        result =
-          controller.signal.aborted || error instanceof ProcessTimeoutFailure
-            ? failure(
-                runId,
-                "PROCESS_TIMEOUT",
-                "The process exceeded its time limit",
-                identity,
-              )
-            : failure(
-                runId,
-                "INTERNAL_ERROR",
-                "The process could not be completed",
-                identity,
-              );
-      } finally {
-        if (timeout) clearTimeout(timeout);
-      }
 
       return completeProcessRun(runRecords, result, {
         input: request.input,

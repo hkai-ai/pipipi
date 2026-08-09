@@ -2,11 +2,14 @@ import { describe, expect, expectTypeOf, it } from "vitest";
 import { z } from "zod";
 import type { CompletedProcessRun } from "../src/process-run-records.js";
 import {
+  createProcessAttemptRunner,
   createProcessRegistry,
   createProcessRunner,
   defineProcessRegistration,
   failProcess,
+  type AcceptedProcessInput,
   type ProcessExecutionContext,
+  type ProcessRegistration,
   type ProcessRegistry,
 } from "../src/process-runtime.js";
 
@@ -121,6 +124,9 @@ describe("Process Runtime", () => {
     expect(() => createProcessRegistry([registration(" ")])).toThrow(
       "Business Process version must be non-empty",
     );
+    expect(() => registration("v1", "界".repeat(4_096))).toThrow(
+      "Business Process identity must not exceed 4096 UTF-8 bytes",
+    );
   });
 
   it("rejects duplicate Business Process versions at startup", () => {
@@ -154,17 +160,13 @@ describe("Process Runtime", () => {
         ),
     });
 
-    const started = process.start(
-      { value: "request" },
-      {
+    const acceptedInput = acceptOrThrow(process, { value: "request" });
+    expect(
+      await process.run(acceptedInput, {
         runId: "00000000-0000-4000-8000-000000000001",
         signal: new AbortController().signal,
-      },
-    );
-
-    expect(started.accepted).toBe(true);
-    if (!started.accepted) throw new Error("Expected accepted input");
-    expect(await started.completion).toMatchObject({
+      }),
+    ).toMatchObject({
       status: "failed",
       error: {
         code: "DEPENDENCY_FAILURE",
@@ -173,7 +175,7 @@ describe("Process Runtime", () => {
     });
   });
 
-  it("starts accepted work without waiting for the completion promise", async () => {
+  it("accepts input without starting work and runs it later", async () => {
     let executionCalls = 0;
     const process = defineProcessRegistration({
       id: "test-processing",
@@ -187,22 +189,272 @@ describe("Process Runtime", () => {
       },
     });
 
-    const started = process.start(
-      { value: "request" },
-      {
-        runId: "00000000-0000-4000-8000-000000000001",
-        signal: new AbortController().signal,
-      },
-    );
+    const acceptance = process.accept({ value: "request" });
 
-    expect(started.accepted).toBe(true);
+    expect(acceptance.accepted).toBe(true);
+    await Promise.resolve();
+    expect(executionCalls).toBe(0);
+    if (!acceptance.accepted) throw new Error("Expected accepted input");
+
+    const completion = process.run(acceptance.acceptedInput, {
+      runId: "00000000-0000-4000-8000-000000000001",
+      signal: new AbortController().signal,
+    });
+
     await Promise.resolve();
     expect(executionCalls).toBe(1);
-    if (!started.accepted) throw new Error("Expected accepted input");
-    await expect(started.completion).resolves.toEqual({
+    await expect(completion).resolves.toEqual({
       status: "succeeded",
       output: { value: "request" },
     });
+  });
+
+  it("preserves an immutable transformed input across a JSON round trip", async () => {
+    let inputParses = 0;
+    const process = defineProcessRegistration({
+      id: "test-processing",
+      version: "v1",
+      inputSchema: z
+        .strictObject({ value: z.string() })
+        .transform((input) => {
+          inputParses += 1;
+          return { value: input.value.trim() };
+        }),
+      outputSchema: z.strictObject({ value: z.string() }),
+      execute: async (input) => {
+        expect(Object.isFrozen(input)).toBe(true);
+        return { value: input.value.toUpperCase() };
+      },
+    });
+
+    const acceptance = process.accept({ value: " request " });
+
+    expect(acceptance.accepted).toBe(true);
+    if (!acceptance.accepted) throw new Error("Expected accepted input");
+    expect(acceptance.acceptedInput).toEqual({
+      schemaVersion: 1,
+      process: "test-processing",
+      version: "v1",
+      input: { value: "request" },
+    });
+    expect(Object.isFrozen(acceptance.acceptedInput.input)).toBe(true);
+
+    const persistedInput = JSON.parse(
+      JSON.stringify(acceptance.acceptedInput),
+    ) as AcceptedProcessInput;
+    const completion = await process.run(persistedInput, {
+      runId: "00000000-0000-4000-8000-000000000001",
+      signal: new AbortController().signal,
+    });
+
+    expect(completion).toEqual({
+      status: "succeeded",
+      output: { value: "REQUEST" },
+    });
+    expect(inputParses).toBe(1);
+  });
+
+  it("normalizes shared references into a JSON-safe accepted input", async () => {
+    const process = defineProcessRegistration({
+      id: "test-processing",
+      version: "v1",
+      inputSchema: z
+        .strictObject({ value: z.string() })
+        .transform((input) => {
+          const shared = { value: input.value };
+          return { first: shared, second: shared };
+        }),
+      outputSchema: z.strictObject({ value: z.string() }),
+      execute: async (input) => ({
+        value: `${input.first.value}:${input.second.value}`,
+      }),
+    });
+
+    const acceptance = process.accept({ value: "request" });
+
+    expect(acceptance.accepted).toBe(true);
+    if (!acceptance.accepted) throw new Error("Expected accepted input");
+    expect(acceptance.acceptedInput.input).toEqual({
+      first: { value: "request" },
+      second: { value: "request" },
+    });
+    await expect(
+      process.run(acceptance.acceptedInput, {
+        runId: "00000000-0000-4000-8000-000000000001",
+        signal: new AbortController().signal,
+      }),
+    ).resolves.toEqual({
+      status: "succeeded",
+      output: { value: "request:request" },
+    });
+  });
+
+  it("rejects transformed input that is not JSON-safe", () => {
+    let executionCalls = 0;
+    const process = defineProcessRegistration({
+      id: "test-processing",
+      version: "v1",
+      inputSchema: z
+        .strictObject({ at: z.iso.datetime() })
+        .transform((input) => ({ at: new Date(input.at) })),
+      outputSchema: z.strictObject({ value: z.string() }),
+      execute: async (input) => {
+        executionCalls += 1;
+        return { value: input.at.toISOString() };
+      },
+    });
+
+    expect(process.accept({ at: "2026-08-09T00:00:00.000Z" })).toEqual({
+      accepted: false,
+    });
+    expect(executionCalls).toBe(0);
+  });
+
+  it("rejects an accepted input payload larger than 262144 UTF-8 bytes", () => {
+    let executionCalls = 0;
+    const process = defineProcessRegistration({
+      id: "test-processing",
+      version: "v1",
+      inputSchema: z.strictObject({ value: z.string() }),
+      outputSchema: z.strictObject({ value: z.string() }),
+      execute: async (input) => {
+        executionCalls += 1;
+        return input;
+      },
+    });
+
+    expect(process.accept({ value: "界".repeat(262_144) })).toEqual({
+      accepted: false,
+    });
+    expect(executionCalls).toBe(0);
+  });
+
+  it("runs accepted input with a preallocated runId", async () => {
+    let executionRunId: string | undefined;
+    const process = defineProcessRegistration({
+      id: "test-processing",
+      version: "v1",
+      inputSchema: z.strictObject({ value: z.string() }),
+      outputSchema: z.strictObject({ value: z.string() }),
+      execute: async (input, context) => {
+        executionRunId = context.runId;
+        return { value: input.value.toUpperCase() };
+      },
+    });
+    const acceptedInput = acceptOrThrow(process, { value: "request" });
+    const persistedInput = JSON.parse(
+      JSON.stringify(acceptedInput),
+    ) as AcceptedProcessInput;
+    const attemptRunner = createProcessAttemptRunner();
+    const runId = "00000000-0000-4000-8000-000000000042";
+
+    const result = await attemptRunner.run({
+      runId,
+      registration: process,
+      acceptedInput: persistedInput,
+    });
+
+    expect(result).toEqual({
+      runId,
+      process: "test-processing",
+      version: "v1",
+      status: "succeeded",
+      output: { value: "REQUEST" },
+    });
+    expect(executionRunId).toBe(runId);
+  });
+
+  it("sanitizes accepted input with a mismatched identity or schema version", async () => {
+    let executionCalls = 0;
+    const v1 = defineProcessRegistration({
+      id: "test-processing",
+      version: "v1",
+      inputSchema: z.strictObject({ value: z.string() }),
+      outputSchema: z.strictObject({ value: z.string() }),
+      execute: async (input) => {
+        executionCalls += 1;
+        return input;
+      },
+    });
+    const v2 = defineProcessRegistration({
+      id: "test-processing",
+      version: "v2",
+      inputSchema: z.strictObject({ value: z.string() }),
+      outputSchema: z.strictObject({ value: z.string() }),
+      execute: async (input) => {
+        executionCalls += 1;
+        return input;
+      },
+    });
+    const acceptedInput = acceptOrThrow(v1, { value: "request" });
+    const wrongSchemaVersion = {
+      ...acceptedInput,
+      schemaVersion: 2,
+    } as unknown as AcceptedProcessInput;
+    const attemptRunner = createProcessAttemptRunner();
+
+    const wrongRegistration = await attemptRunner.run({
+      runId: "00000000-0000-4000-8000-000000000044",
+      registration: v2,
+      acceptedInput,
+    });
+    const wrongSchema = await attemptRunner.run({
+      runId: "00000000-0000-4000-8000-000000000045",
+      registration: v1,
+      acceptedInput: wrongSchemaVersion,
+    });
+
+    expect(wrongRegistration).toMatchObject({
+      process: "test-processing",
+      version: "v2",
+      status: "failed",
+      error: { code: "INTERNAL_ERROR" },
+    });
+    expect(wrongSchema).toMatchObject({
+      process: "test-processing",
+      version: "v1",
+      status: "failed",
+      error: { code: "INTERNAL_ERROR" },
+    });
+    expect(executionCalls).toBe(0);
+  });
+
+  it("aborts an accepted Process Attempt when its time limit expires", async () => {
+    let executionWasAborted = false;
+    const process = defineProcessRegistration({
+      id: "test-processing",
+      version: "v1",
+      inputSchema: z.strictObject({ value: z.string() }),
+      outputSchema: z.strictObject({ value: z.string() }),
+      execute: async (_input, context) =>
+        new Promise((resolve) => {
+          context.signal.addEventListener("abort", () => {
+            executionWasAborted = true;
+          });
+          setTimeout(() => resolve({ value: "late" }), 50);
+        }),
+    });
+    const acceptedInput = acceptOrThrow(process, { value: "request" });
+    const attemptRunner = createProcessAttemptRunner({ processTimeoutMs: 5 });
+    const runId = "00000000-0000-4000-8000-000000000043";
+
+    const result = await attemptRunner.run({
+      runId,
+      registration: process,
+      acceptedInput,
+    });
+
+    expect(result).toEqual({
+      runId,
+      process: "test-processing",
+      version: "v1",
+      status: "failed",
+      error: {
+        code: "PROCESS_TIMEOUT",
+        message: "The process exceeded its time limit",
+      },
+    });
+    expect(executionWasAborted).toBe(true);
   });
 
   it("binds a narrow dependency and stable policy in the Registration factory", async () => {
@@ -522,6 +774,15 @@ function recordsInto(completions: CompletedProcessRun[]) {
     },
     find: async () => undefined,
   };
+}
+
+function acceptOrThrow(
+  registration: ProcessRegistration,
+  input: unknown,
+): AcceptedProcessInput {
+  const acceptance = registration.accept(input);
+  if (!acceptance.accepted) throw new Error("Expected accepted input");
+  return acceptance.acceptedInput;
 }
 
 function createTestProcessingRegistration(options: {

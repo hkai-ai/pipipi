@@ -74,7 +74,7 @@ curl --fail -X POST http://127.0.0.1:3000/execute \
 | `src/startup-construction.ts` | 配置翻译、校验、Adapter 选择和生产组装 |
 | `src/application.ts` | HTTP server 的 `listen` 与 `close` 生命周期 |
 | `src/http-adapter.ts` | 路由、传输校验、请求体上限、并发准入、状态码和结构化日志 |
-| `src/process-runtime.ts` | Registration、Registry、Runner、公共结果和错误治理 |
+| `src/process-runtime.ts` | Registration accept/run、Registry、同步 Runner、Attempt Runner、公共结果和错误治理 |
 | `src/business-process-executor.ts` | 显式 production catalog 和 Process Runtime 组装 |
 | `src/content-processing.ts` | `content-processing/v1` Registration 与 HTTP Capability Adapter |
 | `src/titled-content-processing.ts` | `titled-content-processing/v1` Registration |
@@ -103,6 +103,13 @@ curl --fail -X POST http://127.0.0.1:3000/execute \
 
 Interface 是测试面。测试应覆盖公开结果、invariant、错误和副作用，不读取私有 Map，不断言内部 helper 顺序，也不因等价 Implementation 重构而重写。
 
+Process Registration 的 `accept` 解析外部输入一次，返回绑定准确 Process/version 的不可变
+JSON-safe snapshot。业务 input payload 默认上限为 262144 UTF-8 bytes，序列化 Process identity
+上限为 4096 bytes，完整 snapshot 上限为 266267 bytes。`run` 只执行 accepted input，不重新运行
+输入 Schema。同步 Process Runner 连续调用两步；需要延迟执行的内部调用方把 accepted input
+持久化后，通过 Process Attempt Runner 传入预先分配的 `runId`。产品调用方不能直接提交或
+修改 accepted input。
+
 ## 新增 Business Process
 
 流程拓扑和业务语义保留在 TypeScript 中，不使用 JSON 工作流语言。维护者可以把自然语言需求直接交给 Codex；需求输入、判断规则和完整完成标准见 [`authoring-business-processes.md`](authoring-business-processes.md)。
@@ -111,7 +118,7 @@ Interface 是测试面。测试应覆盖公开结果、invariant、错误和副�
 2. 把该流程获准使用的窄 Business Capability 和稳定策略传给 factory，并由闭包捕获。Execution Context 只携带 `runId` 和 `AbortSignal` 等请求级信息。
 3. 用 `failProcess` 返回预期的 `AGENT_FAILURE` 或 `DEPENDENCY_FAILURE`。让意外异常继续抛出，由 Process Runner 转换为安全的 `INTERNAL_ERROR`。
 4. 在 `createBusinessProcessExecutor` 的显式 production catalog 中加入 Registration。每项只代表一个准确 `(id, version)`。
-5. 通过 Registration Seam 测试 Schema、单次解析、策略和输出；通过真实本地 `/execute` 测试产品行为和 HTTP 映射。
+5. 通过 Registration Seam 测试接受、JSON 往返、单次解析、策略和输出；通过 Process Attempt Runner 测试预分配 `runId`、超时与错误净化；通过真实本地 `/execute` 测试产品行为和 HTTP 映射。
 6. 更新 README 的当前能力、`CONTEXT.md` 的产品契约，以及受影响的设计或发布文档。
 
 [`src/titled-content-processing.ts`](../src/titled-content-processing.ts) 是最小示例。新版本必须新建 Registration 并显式加入 catalog；不要加入 `latest`、默认版本、自动发现或回退。
@@ -178,7 +185,7 @@ Run Record 是运行排障数据，不是聊天历史。产品聊天记录应由
 测试职责保持清晰：
 
 - Startup Construction 测试配置解析、跨字段拒绝和完整生产组装。
-- Process Runtime 测试 Registration、Registry 和 Runner 的 Interface invariant。
+- Process Runtime 测试 Registration、Registry、Process Attempt Runner 和同步 Runner 的 Interface invariant。
 - HTTP Adapter 测试传输错误、容量、状态码和结构化日志。
 - Application 测试 server 生命周期，不了解具体 Business Process。
 - Process Registration 测试流程 Schema、获准依赖、策略和错误契约。

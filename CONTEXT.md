@@ -67,10 +67,11 @@ Agent 只获得 Process Registration 明确授权的窄 Tool。生产内容处�
 | Startup Construction | `constructProcessingService(environment)` | 配置翻译、校验、Adapter 选择和完整生产组装 |
 | Processing Application | `listen`、`close` | Node HTTP 生命周期 |
 | Process Executor | `execute(request)` | 查找、超时、取消、错误转换和 Run Record |
-| Process Registration | `identity`、`start(input, context)` | Schema、Process Definition、依赖、策略和输出验证 |
+| Process Registration | `identity`、`accept(input)`、`run(acceptedInput, context)` | Schema、JSON-safe accepted input、Process Definition、依赖、策略和输出验证 |
+| Process Attempt Runner | `run({ runId, registration, acceptedInput })` | 预分配 runId、超时、取消和公开错误净化 |
 | Business Capability | 窄业务方法 | 远程协议、认证、超时和供应商细节 |
 
-Startup Construction 是生产组装 Seam；Process Executor 是传输与 Process Runtime 之间的主 Seam；Process Registration 是编写一个 Business Process 版本的 Seam。Adapter 只有在 Seam 上存在真实替换需求时才引入。
+Startup Construction 是生产组装 Seam；Process Executor 是传输与 Process Runtime 之间的主 Seam；Process Registration 是编写一个 Business Process 版本的 Seam；Process Attempt Runner 让同步入口和计划中的异步 Worker 复用同一执行治理。Adapter 只有在 Seam 上存在真实替换需求时才引入。
 
 详细 invariant、错误归属和测试面见 [`docs/process-runtime-design.md`](docs/process-runtime-design.md)。
 
