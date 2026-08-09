@@ -213,7 +213,7 @@ Webhook 重试状态以 PostgreSQL 为准，不依赖 BullMQ 的 Job attempts。
 | `src/api/` | HTTP Application、路由和 caller identity；不组装业务与基础设施 |
 | `src/processes/` | Process Runtime、production catalog，以及按 `content/`、`titled-content/` 分组的具体 Business Process |
 | `src/process-runs/` | Async Process Runs，以及按 `store/`、`queue/`、`outbox/`、`worker/`、`recovery/`、`retention/` 和 `ops/` 分组的内部 Module |
-| `src/webhooks/` | Webhook Delivery、Store、Queue、签名、目标策略和 Worker Runtime |
+| `src/webhooks/` | Webhook Delivery，以及按 `delivery/`、`store/`、`queue/`、`outbox/` 分组的内部 Module |
 | `examples/support/` | 只供实验使用的图片生成和对象存储实现；不进入生产 `dist/` |
 | `migrations/` | 受版本和 advisory lock 管理的 PostgreSQL schema 变化 |
 | `test/` | 跨公开 Seam 的确定性行为验证 |
@@ -234,7 +234,9 @@ Webhook 重试状态以 PostgreSQL 为准，不依赖 BullMQ 的 Job attempts。
 | `src/process-runs/store/index.ts`、`src/process-runs/store/postgres.ts` | 权威状态转换，以及内存和 PostgreSQL Adapter |
 | `src/process-runs/queue/index.ts`、`src/process-runs/queue/bullmq.ts` | 最小 Job Interface，以及内存和 BullMQ Adapter |
 | `src/process-runs/recovery/index.ts` | 周期 reconciliation 与人工 Queue Recovery |
-| `src/webhooks/delivery.ts`、`src/webhooks/postgres-store.ts` | Webhook 投递行为和 PostgreSQL Adapter |
+| `src/webhooks/delivery/` | Delivery Worker、HTTP Adapter、Standard Webhooks 签名和目标策略 |
+| `src/webhooks/store/postgres.ts` | Endpoint、Delivery、Attempt 和 replay 的 PostgreSQL Adapter |
+| `src/webhooks/queue/`、`src/webhooks/outbox/` | Webhook Job 调度和事务 Outbox 发布 |
 
 依赖方向固定为 `bin → app → api/processes/process-runs/webhooks`。领域与业务 Module 不反向引用
 `app/` 或 `bin/`；Composition Root 负责把它们连接起来。

@@ -1,15 +1,15 @@
 import { randomUUID } from "node:crypto";
 import type { Pool, PoolClient, QueryResultRow } from "pg";
-import {
-    assertStandardWebhookSecret,
-    type ClaimedWebhookDelivery,
-    type WebhookDeliveryStore,
-} from "./delivery.js";
-import type { WebhookSecretCipher } from "./secret-cipher.js";
+import { assertStandardWebhookSecret } from "../delivery/signing.js";
 import {
     isWebhookTargetPolicyError,
     type WebhookTargetPolicy,
-} from "./target-policy.js";
+} from "../delivery/target-policy.js";
+import type {
+    ClaimedWebhookDelivery,
+    WebhookDeliveryStore,
+} from "../delivery/worker.js";
+import type { WebhookSecretCipher } from "./secret-cipher.js";
 
 export type WebhookEndpointView = Readonly<{
     endpointId: string;

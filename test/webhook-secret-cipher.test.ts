@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createWebhookSecretCipher } from "../src/webhooks/secret-cipher.js";
+import { createWebhookSecretCipher } from "../src/webhooks/store/secret-cipher.js";
 
 const endpointId = "20000000-0000-4000-8000-000000000020";
 const secret = `whsec_${Buffer.alloc(32, 20).toString("base64")}`;

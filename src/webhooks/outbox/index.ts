@@ -1,4 +1,4 @@
-import type { WebhookDeliveryJob } from "./delivery.js";
+import type { WebhookDeliveryJob } from "../delivery/job.js";
 
 export type ClaimedWebhookOutboxMessage = Readonly<{
     messageId: string;

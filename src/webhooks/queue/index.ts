@@ -1,7 +1,7 @@
 import {
     parseWebhookDeliveryJob,
     type WebhookDeliveryJob,
-} from "./delivery.js";
+} from "../delivery/job.js";
 
 export type WebhookWorkEnqueueResult = "enqueued" | "duplicate";
 

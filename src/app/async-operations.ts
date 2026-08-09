@@ -11,7 +11,7 @@ import type { BullMqQueueSnapshot } from "../process-runs/queue/observability.js
 import {
     type BullMqWebhookWorkQueue,
     createBullMqWebhookWorkQueue,
-} from "../webhooks/bullmq-queue.js";
+} from "../webhooks/queue/bullmq.js";
 import {
     parseConnectionUrl,
     parsePositiveInteger,

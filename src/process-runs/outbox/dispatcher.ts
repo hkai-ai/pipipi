@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
-import type { WebhookOutbox } from "../../webhooks/outbox.js";
-import type { WebhookWorkQueue } from "../../webhooks/queue.js";
+import type { WebhookOutbox } from "../../webhooks/outbox/index.js";
+import type { WebhookWorkQueue } from "../../webhooks/queue/index.js";
 import {
     type AsyncOperationalLogSink,
     emitAsyncOperationalLog,

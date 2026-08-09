@@ -1,22 +1,11 @@
-import { createHmac, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import {
     type AsyncOperationalLogSink,
     emitAsyncOperationalLog,
     tryOperationalTimestamp,
-} from "../process-runs/ops/logging.js";
-import {
-    createPinnedWebhookHttpClient,
-    createWebhookTargetPolicy,
-    isWebhookTargetPolicyError,
-    type WebhookHttpClient,
-    type WebhookTargetPolicy,
-    type WebhookTargetRejectionCode,
-} from "./target-policy.js";
-
-export type WebhookDeliveryJob = Readonly<{
-    schemaVersion: 1;
-    deliveryId: string;
-}>;
+} from "../../process-runs/ops/logging.js";
+import type { WebhookSender, WebhookSendResult } from "./http.js";
+import { parseWebhookDeliveryJob } from "./job.js";
 
 export type ClaimedWebhookDelivery = Readonly<{
     deliveryId: string;
@@ -29,21 +18,6 @@ export type ClaimedWebhookDelivery = Readonly<{
     attemptNumber: number;
     createdAt: string;
 }>;
-
-export type WebhookSendResult =
-    | Readonly<{
-          outcome: "succeeded";
-          httpStatus: number;
-          latencyMs: number;
-      }>
-    | Readonly<{
-          outcome: "failed";
-          errorCode: "HTTP_ERROR" | "NETWORK_ERROR" | "TARGET_REJECTED";
-          httpStatus?: number;
-          retryAfterMs?: number;
-          targetRejectionCode?: WebhookTargetRejectionCode;
-          latencyMs: number;
-      }>;
 
 export type WebhookDeliveryStore = Readonly<{
     claim: (request: {
@@ -66,16 +40,6 @@ export type WebhookDeliveryStore = Readonly<{
         nextAttemptAt: string;
         result: Extract<WebhookSendResult, { outcome: "failed" }>;
     }) => Promise<boolean>;
-}>;
-
-export type WebhookSender = Readonly<{
-    send: (request: {
-        url: string;
-        eventId: string;
-        payload: string;
-        secrets: readonly string[];
-        signal?: AbortSignal;
-    }) => Promise<WebhookSendResult>;
 }>;
 
 export type WebhookWorkResult =
@@ -250,164 +214,6 @@ function emitWebhookAttempt(
     });
 }
 
-export function parseWebhookDeliveryJob(
-    value: unknown,
-): WebhookDeliveryJob | undefined {
-    if (
-        typeof value !== "object" ||
-        value === null ||
-        Array.isArray(value) ||
-        Object.getPrototypeOf(value) !== Object.prototype
-    ) {
-        return undefined;
-    }
-    const candidate = value as Record<string, unknown>;
-    if (
-        Object.keys(candidate).length !== 2 ||
-        candidate.schemaVersion !== 1 ||
-        typeof candidate.deliveryId !== "string" ||
-        candidate.deliveryId.trim().length === 0 ||
-        Buffer.byteLength(candidate.deliveryId, "utf8") > 256
-    ) {
-        return undefined;
-    }
-    return Object.freeze({
-        schemaVersion: 1,
-        deliveryId: candidate.deliveryId,
-    });
-}
-
-export function signStandardWebhook(request: {
-    messageId: string;
-    timestamp: string;
-    payload: string;
-    secret: string;
-}): string {
-    if (
-        request.messageId.length === 0 ||
-        request.messageId.includes(".") ||
-        request.timestamp.length === 0 ||
-        request.timestamp.includes(".")
-    ) {
-        throw new Error("Webhook signing metadata is invalid");
-    }
-    const key = parseWebhookSecret(request.secret);
-    const signature = createHmac("sha256", key)
-        .update(`${request.messageId}.${request.timestamp}.${request.payload}`)
-        .digest("base64");
-    return `v1,${signature}`;
-}
-
-export function assertStandardWebhookSecret(secret: string): void {
-    parseWebhookSecret(secret);
-}
-
-export function createStandardWebhookHttpSender(
-    options: {
-        timeoutMs?: number;
-        clock?: () => string;
-        targetPolicy?: WebhookTargetPolicy;
-        httpClient?: WebhookHttpClient;
-    } = {},
-): WebhookSender {
-    const timeoutMs = positiveInteger(
-        options.timeoutMs ?? 20_000,
-        "Webhook request timeout",
-    );
-    const clock = options.clock ?? (() => new Date().toISOString());
-    const httpClient =
-        options.httpClient ??
-        createPinnedWebhookHttpClient({
-            targetPolicy: options.targetPolicy ?? createWebhookTargetPolicy(),
-        });
-
-    return Object.freeze({
-        send: async (request): Promise<WebhookSendResult> => {
-            if (request.secrets.length < 1 || request.secrets.length > 2) {
-                throw new Error(
-                    "Webhook Delivery requires one or two signing secrets",
-                );
-            }
-            if (Buffer.byteLength(request.payload, "utf8") > 20_480) {
-                throw new Error(
-                    "Webhook payload must not exceed 20480 UTF-8 bytes",
-                );
-            }
-            const attemptedAt = clock();
-            const timestamp = webhookTimestamp(attemptedAt);
-            const signatures = request.secrets.map((secret) =>
-                signStandardWebhook({
-                    messageId: request.eventId,
-                    timestamp,
-                    payload: request.payload,
-                    secret,
-                }),
-            );
-            const startedAt = performance.now();
-            try {
-                const response = await httpClient.post({
-                    url: request.url,
-                    headers: {
-                        "content-type": "application/json",
-                        "webhook-id": request.eventId,
-                        "webhook-timestamp": timestamp,
-                        "webhook-signature": signatures.join(" "),
-                    },
-                    body: request.payload,
-                    signal: request.signal
-                        ? AbortSignal.any([
-                              request.signal,
-                              AbortSignal.timeout(timeoutMs),
-                          ])
-                        : AbortSignal.timeout(timeoutMs),
-                });
-                const latencyMs = elapsedMilliseconds(startedAt);
-                if (response.status < 100 || response.status > 599) {
-                    return Object.freeze({
-                        outcome: "failed",
-                        errorCode: "NETWORK_ERROR",
-                        latencyMs,
-                    });
-                }
-                return response.status >= 200 && response.status <= 299
-                    ? Object.freeze({
-                          outcome: "succeeded",
-                          httpStatus: response.status,
-                          latencyMs,
-                      })
-                    : Object.freeze({
-                          outcome: "failed",
-                          errorCode: "HTTP_ERROR",
-                          httpStatus: response.status,
-                          ...retryAfter(response.retryAfter, attemptedAt),
-                          latencyMs,
-                      });
-            } catch (error) {
-                if (isWebhookTargetPolicyError(error)) {
-                    if (error.code === "WEBHOOK_TARGET_DNS_FAILED") {
-                        return Object.freeze({
-                            outcome: "failed",
-                            errorCode: "NETWORK_ERROR",
-                            latencyMs: elapsedMilliseconds(startedAt),
-                        });
-                    }
-                    return Object.freeze({
-                        outcome: "failed",
-                        errorCode: "TARGET_REJECTED",
-                        targetRejectionCode: error.code,
-                        latencyMs: elapsedMilliseconds(startedAt),
-                    });
-                }
-                return Object.freeze({
-                    outcome: "failed",
-                    errorCode: "NETWORK_ERROR",
-                    latencyMs: elapsedMilliseconds(startedAt),
-                });
-            }
-        },
-    });
-}
-
 function isRetryable(
     result: Extract<WebhookSendResult, { outcome: "failed" }>,
 ): boolean {
@@ -492,27 +298,6 @@ function validateRetryPolicy(policy: WebhookRetryPolicy): WebhookRetryPolicy {
 
 const maximumWebhookDurationMs = 31 * 24 * 60 * 60 * 1_000;
 
-function retryAfter(
-    value: string | null,
-    attemptedAt: string,
-): Readonly<{ retryAfterMs?: number }> {
-    if (value === null) return Object.freeze({});
-    const trimmed = value.trim();
-    if (/^\d+$/.test(trimmed)) {
-        const seconds = Number(trimmed);
-        const milliseconds = seconds * 1_000;
-        if (Number.isSafeInteger(milliseconds)) {
-            return Object.freeze({ retryAfterMs: milliseconds });
-        }
-        return Object.freeze({});
-    }
-    const target = Date.parse(trimmed);
-    const attempted = timestampMilliseconds(attemptedAt);
-    return Number.isFinite(target) && target >= attempted
-        ? Object.freeze({ retryAfterMs: target - attempted })
-        : Object.freeze({});
-}
-
 function addMilliseconds(timestamp: string, durationMs: number): string {
     return new Date(
         timestampMilliseconds(timestamp) + durationMs,
@@ -534,44 +319,6 @@ function boundedInteger(
 ): number {
     if (!Number.isSafeInteger(value) || value < minimum || value > maximum) {
         throw new Error(`${label} must be between ${minimum} and ${maximum}`);
-    }
-    return value;
-}
-
-function parseWebhookSecret(secret: string): Buffer {
-    if (!secret.startsWith("whsec_")) {
-        throw new Error("Webhook secret must use whsec_ base64 encoding");
-    }
-    const encoded = secret.slice("whsec_".length);
-    if (!/^[A-Za-z0-9+/]+={0,2}$/.test(encoded) || encoded.length % 4 !== 0) {
-        throw new Error("Webhook secret must use whsec_ base64 encoding");
-    }
-    const key = Buffer.from(encoded, "base64");
-    if (
-        key.length < 24 ||
-        key.length > 64 ||
-        key.toString("base64") !== encoded
-    ) {
-        throw new Error("Webhook secret must use whsec_ base64 encoding");
-    }
-    return key;
-}
-
-function webhookTimestamp(value: string): string {
-    const milliseconds = new Date(value).getTime();
-    if (!Number.isFinite(milliseconds)) {
-        throw new Error("Webhook attempt timestamp is invalid");
-    }
-    return Math.floor(milliseconds / 1_000).toString();
-}
-
-function elapsedMilliseconds(startedAt: number): number {
-    return Math.max(0, Math.round(performance.now() - startedAt));
-}
-
-function positiveInteger(value: number, label: string): number {
-    if (!Number.isSafeInteger(value) || value < 1) {
-        throw new Error(`${label} must be a positive safe integer`);
     }
     return value;
 }

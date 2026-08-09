@@ -45,14 +45,14 @@ import {
     defineProcessRegistration,
     failProcess,
 } from "../src/processes/runtime/index.js";
+import { signStandardWebhook } from "../src/webhooks/delivery/signing.js";
+import { createWebhookTargetPolicy } from "../src/webhooks/delivery/target-policy.js";
 import {
     defaultWebhookWorkQueueName,
     defaultWebhookWorkQueuePrefix,
-} from "../src/webhooks/bullmq-queue.js";
-import { signStandardWebhook } from "../src/webhooks/delivery.js";
-import { createPostgresWebhookDeliveryStore } from "../src/webhooks/postgres-store.js";
-import { createWebhookSecretCipher } from "../src/webhooks/secret-cipher.js";
-import { createWebhookTargetPolicy } from "../src/webhooks/target-policy.js";
+} from "../src/webhooks/queue/bullmq.js";
+import { createPostgresWebhookDeliveryStore } from "../src/webhooks/store/postgres.js";
+import { createWebhookSecretCipher } from "../src/webhooks/store/secret-cipher.js";
 
 const databaseUrl = process.env.POSTGRES_TEST_DATABASE_URL;
 const redisUrl = process.env.REDIS_TEST_URL;

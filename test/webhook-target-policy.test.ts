@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
     createPinnedWebhookHttpClient,
     createWebhookTargetPolicy,
-} from "../src/webhooks/target-policy.js";
+} from "../src/webhooks/delivery/target-policy.js";
 
 let server: Server | undefined;
 

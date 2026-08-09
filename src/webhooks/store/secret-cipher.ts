@@ -1,5 +1,5 @@
 import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
-import { assertStandardWebhookSecret } from "./delivery.js";
+import { assertStandardWebhookSecret } from "../delivery/signing.js";
 
 const algorithm = "aes-256-gcm";
 const envelopeVersion = "v1";

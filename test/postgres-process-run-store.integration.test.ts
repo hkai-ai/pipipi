@@ -22,10 +22,10 @@ import { createProcessRegistry } from "../src/processes/runtime/index.js";
 import {
     createStandardWebhookHttpSender,
     createWebhookDeliveryWorker,
-} from "../src/webhooks/delivery.js";
-import { createPostgresWebhookDeliveryStore } from "../src/webhooks/postgres-store.js";
-import { createWebhookSecretCipher } from "../src/webhooks/secret-cipher.js";
-import { createWebhookTargetPolicy } from "../src/webhooks/target-policy.js";
+} from "../src/webhooks/delivery/index.js";
+import { createWebhookTargetPolicy } from "../src/webhooks/delivery/target-policy.js";
+import { createPostgresWebhookDeliveryStore } from "../src/webhooks/store/postgres.js";
+import { createWebhookSecretCipher } from "../src/webhooks/store/secret-cipher.js";
 import { processRunStoreContract } from "./support/process-run-store-contract.js";
 
 const databaseUrl = process.env.POSTGRES_TEST_DATABASE_URL;

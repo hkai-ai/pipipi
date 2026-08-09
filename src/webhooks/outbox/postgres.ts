@@ -1,6 +1,6 @@
 import type { Pool, QueryResultRow } from "pg";
-import { parseWebhookDeliveryJob } from "./delivery.js";
-import type { ClaimedWebhookOutboxMessage, WebhookOutbox } from "./outbox.js";
+import { parseWebhookDeliveryJob } from "../delivery/job.js";
+import type { ClaimedWebhookOutboxMessage, WebhookOutbox } from "./index.js";
 
 export function createPostgresWebhookOutbox(options: {
     pool: Pool;

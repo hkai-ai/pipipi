@@ -2,14 +2,16 @@ import { type Job, Queue, Worker } from "bullmq";
 import {
     type BullMqQueueSnapshot,
     readBullMqQueueSnapshot,
-} from "../process-runs/queue/observability.js";
+} from "../../process-runs/queue/observability.js";
 import {
     parseWebhookDeliveryJob,
     type WebhookDeliveryJob,
-    type WebhookDeliveryWorker,
-    type WebhookWorkResult,
-} from "./delivery.js";
-import type { WebhookWorkEnqueueResult, WebhookWorkQueue } from "./queue.js";
+} from "../delivery/job.js";
+import type {
+    WebhookDeliveryWorker,
+    WebhookWorkResult,
+} from "../delivery/worker.js";
+import type { WebhookWorkEnqueueResult, WebhookWorkQueue } from "./index.js";
 
 export const defaultWebhookWorkQueueName = "webhook-deliveries";
 export const defaultWebhookWorkQueuePrefix = "pipipi";

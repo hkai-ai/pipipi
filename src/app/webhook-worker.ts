@@ -1,18 +1,18 @@
 import { writeAsyncOperationalLog } from "../process-runs/ops/logging.js";
 import { createWebhookOutboxDispatcher } from "../process-runs/outbox/dispatcher.js";
 import {
-    createBullMqWebhookWorker,
-    createBullMqWebhookWorkQueue,
-} from "../webhooks/bullmq-queue.js";
-import {
     createStandardWebhookHttpSender,
     createWebhookDeliveryWorker,
-} from "../webhooks/delivery.js";
-import { createPostgresWebhookOutbox } from "../webhooks/postgres-outbox.js";
-import { createPostgresWebhookDeliveryStore } from "../webhooks/postgres-store.js";
-import { createWebhookSecretCipher } from "../webhooks/secret-cipher.js";
-import { createWebhookTargetPolicy } from "../webhooks/target-policy.js";
-import { createWebhookWorkerRuntime } from "../webhooks/worker.js";
+} from "../webhooks/delivery/index.js";
+import { createWebhookTargetPolicy } from "../webhooks/delivery/target-policy.js";
+import { createPostgresWebhookOutbox } from "../webhooks/outbox/postgres.js";
+import {
+    createBullMqWebhookWorker,
+    createBullMqWebhookWorkQueue,
+} from "../webhooks/queue/bullmq.js";
+import { createWebhookWorkerRuntime } from "../webhooks/runtime.js";
+import { createPostgresWebhookDeliveryStore } from "../webhooks/store/postgres.js";
+import { createWebhookSecretCipher } from "../webhooks/store/secret-cipher.js";
 import {
     optionalNonEmpty,
     parseBoolean,
