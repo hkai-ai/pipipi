@@ -1,0 +1,4 @@
+interface:
+  display_name: "集成 Runtime Skill"
+  short_description: "从本地路径或固定远程来源安全集成生产 Runtime Skill"
+  default_prompt: "Use $integrate-runtime-skill to review and integrate this Skill source into a Business Process."

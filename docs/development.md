@@ -105,7 +105,7 @@ Interface 是测试面。测试应覆盖公开结果、invariant、错误和副�
 
 ## 新增 Business Process
 
-流程拓扑和业务语义保留在 TypeScript 中，不使用 JSON 工作流语言。
+流程拓扑和业务语义保留在 TypeScript 中，不使用 JSON 工作流语言。维护者可以把自然语言需求直接交给 Codex；需求输入、判断规则和完整完成标准见 [`authoring-business-processes.md`](authoring-business-processes.md)。
 
 1. 新建 `create…Registration` factory，通过 `defineProcessRegistration` 声明固定 `id`、`version`、输入 Schema、输出 Schema 和 Process Definition。
 2. 把该流程获准使用的窄 Business Capability 和稳定策略传给 factory，并由闭包捕获。Execution Context 只携带 `runId` 和 `AbortSignal` 等请求级信息。
@@ -115,6 +115,8 @@ Interface 是测试面。测试应覆盖公开结果、invariant、错误和副�
 6. 更新 README 的当前能力、`CONTEXT.md` 的产品契约，以及受影响的设计或发布文档。
 
 [`src/titled-content-processing.ts`](../src/titled-content-processing.ts) 是最小示例。新版本必须新建 Registration 并显式加入 catalog；不要加入 `latest`、默认版本、自动发现或回退。
+
+流程需要外部 Skill 时，先按 [`integrating-runtime-skills.md`](integrating-runtime-skills.md) 在开发期解析、审查和固定来源。Process Registration 只绑定随应用发布的本地 Runtime Skill，不接收路径或 URL。
 
 ## 修改外部依赖
 

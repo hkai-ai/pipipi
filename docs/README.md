@@ -18,6 +18,8 @@
 | 文档 | 职责 | 变更触发条件 |
 | --- | --- | --- |
 | [`development.md`](development.md) | 说明开发环境、代码地图、常见改动路径和验证要求 | 目录、命令、开发流程或完成标准变化 |
+| [`authoring-business-processes.md`](authoring-business-processes.md) | 说明如何把自然语言流程描述封装为 Business Process | 流程需求入口、authoring 步骤或完成标准变化 |
+| [`integrating-runtime-skills.md`](integrating-runtime-skills.md) | 说明如何从本地或远程来源审查、固定并接入 Skill | Skill 来源、权限、安装、更新或 Runtime 边界变化 |
 | [`process-runtime-design.md`](process-runtime-design.md) | 记录 Process Runtime 的 Module、Interface、invariant 和测试面 | Seam、Interface、执行顺序或错误归属变化 |
 | [`experiments.md`](experiments.md) | 说明真实 Agent、Skill、图片和存储集成如何验证 | 实验命令、判据、成本或产物位置变化 |
 
@@ -35,7 +37,9 @@ Runbook 必须可按顺序执行。每一步都应说明前置条件、成功信
 
 `artifacts/` 保存实验输出和证据报告，不是规范性文档。报告由命令生成，不手工编辑；需要长期保留的结论应写入对应开发文档，并链接可复现命令。
 
-`.agents/skills/` 与 `.pi/skills/` 是运行资源。Skill 的 `SKILL.md` 约束 Agent 行为，不替代项目说明或开发文档。
+`.agents/skills/` 与 `.pi/skills/` 是运行资源。Skill 的 `SKILL.md` 约束 Agent 行为，不替代项目说明或开发文档。两类 Skill 的来源与接入规则见 [`integrating-runtime-skills.md`](integrating-runtime-skills.md)。
+
+`research/` 保存基于外部一手资料的带来源调研，不直接定义项目行为。当前 Skill 来源调研见 [`research/skill-source-patterns.md`](research/skill-source-patterns.md)；项目采用的规则以 [`integrating-runtime-skills.md`](integrating-runtime-skills.md) 为准。
 
 ## 分类与放置
 
@@ -43,6 +47,8 @@ Runbook 必须可按顺序执行。每一步都应说明前置条件、成功信
 
 - 想理解项目：更新根目录 `README.md` 或 `CONTEXT.md`。
 - 想修改代码：更新 `docs/development.md` 或对应 `*-design.md`。
+- 想把自然语言流程封装为产品能力：阅读或更新 `docs/authoring-business-processes.md`。
+- 想安装或接入 Skill：阅读或更新 `docs/integrating-runtime-skills.md`。
 - 想运行实验：更新 `docs/experiments.md`。
 - 想部署或恢复服务：更新对应 `*-runbook.md`。
 - 想记录不可逆或跨 Module 的设计决定：新增 `docs/decisions/YYYY-MM-DD-short-topic.md`。
@@ -120,6 +126,8 @@ README 不复制完整配置表、实验手册或发布步骤。设计文档不�
 | 代码变化 | 同一改动中检查的文档 |
 | --- | --- |
 | 新增或修改 Business Process | `README.md`、`CONTEXT.md`、`development.md`、Process Runtime 设计 |
+| 新增或更新 Development Skill | `integrating-runtime-skills.md`、`AGENTS.md`、`skills-lock.json`（外部来源） |
+| 新增或更新 Runtime Skill | `integrating-runtime-skills.md`、`experiments.md`、对应 Process 文档和发布清单 |
 | 修改公开请求、响应或错误 | `README.md`、`CONTEXT.md`、Process Runtime 设计、相关 Runbook |
 | 修改 Module Interface 或 Seam | 对应 `*-design.md`、`development.md` |
 | 新增环境变量或改变默认值 | `.env.example`、`development.md`、相关 Runbook |

@@ -25,6 +25,8 @@ Business Processing Service 让产品调用方通过一个稳定的 HTTP Interfa
 
 产品调用方不能上传步骤、脚本、模型、Skill、Tool、远程地址或运行配置。
 
+开发者可以在 authoring 阶段向 Codex 提供自然语言流程描述，或提供 Skill 的本地路径、Git 仓库和网页地址。Codex 必须先把它们收敛为经过审查、固定版本且由服务端拥有的代码或本地资源，再通过明确的 Process Registration 发布；这些 authoring 输入不会成为产品契约。具体流程见 [`docs/authoring-business-processes.md`](docs/authoring-business-processes.md) 和 [`docs/integrating-runtime-skills.md`](docs/integrating-runtime-skills.md)。
+
 ## 当前能力
 
 生产 catalog 当前注册两个精确版本：
@@ -94,6 +96,8 @@ Startup Construction 是生产组装 Seam；Process Executor 是传输与 Proces
 | 精确运行行为和公开错误 | `src/` 与 `test/` |
 | Module、Interface、invariant 和测试面 | [`docs/process-runtime-design.md`](docs/process-runtime-design.md) |
 | 本地开发与改动流程 | [`docs/development.md`](docs/development.md) |
+| 从自然语言封装 Business Process | [`docs/authoring-business-processes.md`](docs/authoring-business-processes.md) |
+| 从本地或远程来源集成 Skill | [`docs/integrating-runtime-skills.md`](docs/integrating-runtime-skills.md) |
 | 部署、验收和回滚 | [`docs/mvp-release-runbook.md`](docs/mvp-release-runbook.md) |
 | 配置键与示例值 | [`.env.example`](.env.example) 与配置解析测试 |
 

@@ -1,0 +1,4 @@
+interface:
+  display_name: "封装 Business Process"
+  short_description: "把自然语言流程需求封装为经过测试的版本化 Business Process"
+  default_prompt: "Use $author-business-process to turn this workflow brief into a tested Business Process."

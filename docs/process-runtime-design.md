@@ -175,15 +175,11 @@ Interface 就是测试面：
 
 ## 新增 Business Process
 
-新增流程只有两个 production code 修改点：新建 Registration factory，并在显式 catalog
-增加一项。完整步骤如下：
-
-1. 新建一个 `create…Registration` factory，用 `defineProcessRegistration` 声明固定 identity、
-   输入 Schema、输出 Schema 和 Process Definition。
-2. 把窄依赖和稳定策略传给 factory，由闭包捕获。
-3. 用 `failProcess` 返回预期的 `AGENT_FAILURE` 或 `DEPENDENCY_FAILURE`；让意外异常继续抛出。
-4. 把 Registration 加入 `createBusinessProcessExecutor` 的显式 production catalog。
-5. 通过 Process Runtime Seam 测试 authoring invariant，并通过 `/execute` 测试产品行为。
+Process Registration 是编写一个版本的 authoring Seam：Registration factory 保持 Schema、
+Process Definition、获准依赖和稳定策略的 Locality；显式 production catalog 决定该版本是否
+可被产品调用。自然语言需求如何收敛为产品契约见
+[`authoring-business-processes.md`](authoring-business-processes.md)，准确代码步骤和验证命令见
+[`development.md`](development.md#新增-business-process)。
 
 Runtime registration、自动发现、动态 Process Definition 和版本回退不受支持。显式 catalog
 增加一个中心编辑点，但它让依赖授权、启动顺序和版本选择保持可见。
