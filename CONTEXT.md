@@ -38,6 +38,8 @@ Business Processing Service 让产品调用方通过一个稳定的 HTTP Interfa
 
 HTTP 入口只公开 `GET /healthz` 和 `POST /execute`。每次执行生成独立 `runId`。默认生产构造不持久化 Run Record；结构化完成日志只保留运行元数据，不保存 Prompt、Tool 过程、模型消息或隐藏推理。
 
+仓库已实现尚未组装进 Startup Construction 的 Async Process Runs Module。它以 `submit/find` 固定公共状态、owner 隔离和 caller-scoped idempotency，并通过有界内存 Store、统一内存 Queue 与确定性测试 Worker 验证第一条异步纵切；它不是当前生产 Interface，也不提供跨进程持久性。
+
 图片生成、海报 Skill、对象存储和 Skill A/B 对比目前属于开发实验与集成验证，不属于 `/execute` 的生产 catalog。
 
 ## 运行与信任模型
@@ -51,7 +53,7 @@ Agent 只获得 Process Registration 明确授权的窄 Tool。生产内容处�
 项目当前不提供：
 
 - 动态 Process Definition、运行时注册、自动发现、默认版本或版本回退；
-- 通用工作流编排、队列、跨请求 Agent 记忆或自动重试；
+- 通用工作流编排、生产 Queue、跨请求 Agent 记忆或自动重试；
 - 应用内用户系统、RBAC、多租户、CORS 或公网匿名调用；
 - 生产 Run Record 查询、聊天历史、持久化执行历史或通用幂等；
 - 允许 Agent 使用 Coding Tools 的通用 Skill 执行环境。
@@ -71,9 +73,13 @@ Agent 只获得 Process Registration 明确授权的窄 Tool。生产内容处�
 | Process Executor | `execute(request)` | 查找、超时、取消、错误转换和 Run Record |
 | Process Registration | `identity`、`accept(input)`、`run(acceptedInput, context)` | Schema、JSON-safe accepted input、Process Definition、依赖、策略和输出验证 |
 | Process Attempt Runner | `run({ runId, registration, acceptedInput })` | 预分配 runId、超时、取消和公开错误净化 |
+| Async Process Runs | `submit(request, context)`、`find(runId, context)` | 输入接受、owner、幂等摘要和公共状态投影 |
+| Process Run Store | 接受 Run、owner 查询、claim、终态转换 | accepted input、attempt、revision 和 fencing；当前只有内存 Adapter |
+| Process Work Queue | `enqueue({ schemaVersion, runId })`、`close()` | 去重、容量和调度；当前只有确定性内存 Adapter |
+| Process Worker | `process(job)` | exact Registration 查找、Attempt 执行和受控状态转换 |
 | Business Capability | 窄业务方法 | 远程协议、认证、超时和供应商细节 |
 
-Startup Construction 是生产组装 Seam；Process Executor 是传输与 Process Runtime 之间的主 Seam；Process Registration 是编写一个 Business Process 版本的 Seam；Process Attempt Runner 让同步入口和计划中的异步 Worker 复用同一执行治理。Adapter 只有在 Seam 上存在真实替换需求时才引入。
+Startup Construction 是生产组装 Seam；Process Executor 是同步传输与 Process Runtime 之间的主 Seam；Async Process Runs 是计划中异步 HTTP 与权威 Store 之间的主 Seam；Process Registration 是编写一个 Business Process 版本的 Seam；Process Attempt Runner 让同步入口和异步 Worker 复用同一执行治理。Adapter 只有在 Seam 上存在真实替换需求时才引入。
 
 详细 invariant、错误归属和测试面见 [`docs/process-runtime-design.md`](docs/process-runtime-design.md)。
 

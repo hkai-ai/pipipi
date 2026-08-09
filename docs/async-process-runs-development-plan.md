@@ -32,7 +32,7 @@ flowchart LR
 | --- | --- | --- | --- |
 | M0 决策门禁 | 进行中 | 配置、身份、保留和 retry 决策固定 | 无变化 |
 | M1 Runtime Seam | 已完成 | Registration 可先接受、后执行 | `/execute` 行为不变 |
-| M2 内存异步纵切 | 未开始 | Async Process Runs Module 与状态机可测试 | 不组装进生产入口 |
+| M2 内存异步纵切 | 已完成 | Async Process Runs Module 与状态机可测试 | 不组装进生产入口 |
 | M3 PostgreSQL 与查询 | 未开始 | durable Run、幂等提交和查询路由 | feature flag 关闭 |
 | M4 Outbox 与 BullMQ Worker | 未开始 | 一个 Process Queue 端到端执行 | 先向内部调用方开放 |
 | M5 Webhook Delivery | 未开始 | 签名通知、重试、审计和重放 | 按 endpoint 灰度 |

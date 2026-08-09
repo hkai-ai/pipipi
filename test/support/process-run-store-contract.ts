@@ -1,0 +1,168 @@
+import { describe, expect, it } from "vitest";
+import type { AcceptedProcessInput } from "../../src/process-runtime.js";
+import type { ProcessRunStore } from "../../src/process-run-store.js";
+
+export function processRunStoreContract(
+  adapterName: string,
+  createStore: () => ProcessRunStore,
+): void {
+  describe(`${adapterName} Process Run Store contract`, () => {
+    it("atomically creates, replays, conflicts, and isolates accepted runs", async () => {
+      const store = createStore();
+      const original = acceptedRun({ runId: runId(1) });
+
+      await expect(store.accept(original)).resolves.toMatchObject({
+        outcome: "created",
+        run: { runId: original.runId, status: "queued" },
+      });
+      await expect(
+        store.accept({ ...original, runId: runId(2) }),
+      ).resolves.toMatchObject({
+        outcome: "replayed",
+        run: { runId: original.runId, status: "queued" },
+      });
+      await expect(
+        store.accept({
+          ...original,
+          runId: runId(3),
+          requestFingerprint: "different",
+        }),
+      ).resolves.toEqual({ outcome: "conflict" });
+
+      const otherOwner = acceptedRun({
+        runId: runId(4),
+        ownerId: "caller-b",
+      });
+      await expect(store.accept(otherOwner)).resolves.toMatchObject({
+        outcome: "created",
+        run: { runId: otherOwner.runId },
+      });
+      expect(await store.findOwned(original.runId, "caller-b")).toBeUndefined();
+      expect(await store.findOwned(otherOwner.runId, "caller-a")).toBeUndefined();
+    });
+
+    it("claims once and rejects stale or terminal updates", async () => {
+      const store = createStore();
+      const run = acceptedRun({ runId: runId(5) });
+      await store.accept(run);
+
+      const claim = await store.claim({
+        runId: run.runId,
+        claimToken: "claim-current",
+        claimedAt: "2026-08-09T10:00:01.000Z",
+      });
+      expect(claim).toMatchObject({
+        runId: run.runId,
+        claimToken: "claim-current",
+      });
+      await expect(
+        store.claim({
+          runId: run.runId,
+          claimToken: "claim-duplicate",
+          claimedAt: "2026-08-09T10:00:02.000Z",
+        }),
+      ).resolves.toBeUndefined();
+      await expect(
+        store.complete({
+          runId: run.runId,
+          claimToken: "claim-stale",
+          completedAt: "2026-08-09T10:00:03.000Z",
+          completion: { status: "succeeded", output: { value: "stale" } },
+        }),
+      ).resolves.toBe(false);
+      await expect(
+        store.complete({
+          runId: run.runId,
+          claimToken: "claim-current",
+          completedAt: "2026-08-09T10:00:04.000Z",
+          completion: { status: "succeeded", output: { value: "current" } },
+        }),
+      ).resolves.toBe(true);
+      await expect(
+        store.complete({
+          runId: run.runId,
+          claimToken: "claim-current",
+          completedAt: "2026-08-09T10:00:05.000Z",
+          completion: {
+            status: "failed",
+            error: { code: "INTERNAL_ERROR", message: "late" },
+          },
+        }),
+      ).resolves.toBe(false);
+
+      expect(await store.findOwned(run.runId, run.ownerId)).toMatchObject({
+        status: "succeeded",
+        output: { value: "current" },
+        revision: 2,
+        attemptCount: 1,
+      });
+    });
+
+    it("returns defensive snapshots from every read boundary", async () => {
+      const store = createStore();
+      const run = acceptedRun({ runId: runId(6) });
+      await store.accept(run);
+
+      const found = await store.findOwned(run.runId, run.ownerId);
+      if (!found) throw new Error("Expected Process Run");
+      (found.acceptedInput.input as { value: string }).value = "mutated read";
+
+      const claim = await store.claim({
+        runId: run.runId,
+        claimToken: "claim-defensive",
+        claimedAt: "2026-08-09T10:00:01.000Z",
+      });
+      if (!claim) throw new Error("Expected Process Run claim");
+      (claim.acceptedInput.input as { value: string }).value = "mutated claim";
+      const output = { value: "stored output" };
+      await store.complete({
+        runId: run.runId,
+        claimToken: claim.claimToken,
+        completedAt: "2026-08-09T10:00:02.000Z",
+        completion: { status: "succeeded", output },
+      });
+      output.value = "mutated source";
+
+      const completed = await store.findOwned(run.runId, run.ownerId);
+      expect(completed).toMatchObject({
+        acceptedInput: { input: { value: "request" } },
+        output: { value: "stored output" },
+      });
+      if (completed?.status !== "succeeded") {
+        throw new Error("Expected succeeded Process Run");
+      }
+      (completed.output as { value: string }).value = "mutated output read";
+      expect(await store.findOwned(run.runId, run.ownerId)).toMatchObject({
+        output: { value: "stored output" },
+      });
+    });
+  });
+}
+
+function acceptedRun(overrides: {
+  runId: string;
+  ownerId?: string;
+}): Parameters<ProcessRunStore["accept"]>[0] {
+  const process = "test-processing";
+  const version = "v1";
+  const acceptedInput: AcceptedProcessInput = {
+    schemaVersion: 1,
+    process,
+    version,
+    input: { value: "request" },
+  };
+  return {
+    runId: overrides.runId,
+    ownerId: overrides.ownerId ?? "caller-a",
+    idempotencyKey: "shared-key",
+    requestFingerprint: "same-request",
+    process,
+    version,
+    acceptedInput,
+    createdAt: "2026-08-09T10:00:00.000Z",
+  };
+}
+
+function runId(index: number): string {
+  return `00000000-0000-4000-8000-${index.toString().padStart(12, "0")}`;
+}
