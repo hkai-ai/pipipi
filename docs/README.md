@@ -2,6 +2,21 @@
 
 本页是仓库文档的统一入口，也规定每类文档的职责、位置和更新方式。目标是让读者先找到正确文档，再从一个稳定入口获得完整答案。
 
+## 按开发目标定位
+
+先按改动目标进入对应规范，再修改同一行列出的 Implementation 和验证入口。Agent、Skill、Process Registration 与 Business Capability 的详细边界见 [`integrating-runtime-skills.md`](integrating-runtime-skills.md#项目级-agent-与-skill)。
+
+| 改动目标 | 先读 | 主要 Implementation | 主要验证入口 |
+| --- | --- | --- | --- |
+| 新增或修改 Business Process | [`authoring-business-processes.md`](authoring-business-processes.md) | [`src/processes/<module>/registration.ts`](../src/processes)、[`src/processes/catalog.ts`](../src/processes/catalog.ts)、[`src/app/business-processes.ts`](../src/app/business-processes.ts) | 对应 Process 测试、[`test/execute-process.test.ts`](../test/execute-process.test.ts)、[`test/startup-construction.test.ts`](../test/startup-construction.test.ts) |
+| 修改文本 Agent 或 Runtime Skill | [`integrating-runtime-skills.md`](integrating-runtime-skills.md#当前生产流程定位) | [`content/registration.ts`](../src/processes/content/registration.ts)、[`content/agent.ts`](../src/processes/content/agent.ts)、[`content/pi.ts`](../src/processes/content/pi.ts)、[`content/skills.ts`](../src/processes/content/skills.ts)、[`content-optimization`](../.pi/skills/content-optimization/SKILL.md)、[`content-integrity`](../.pi/skills/content-integrity/SKILL.md) | [`test/agent-runtime.test.ts`](../test/agent-runtime.test.ts)、[`test/runtime-skills.test.ts`](../test/runtime-skills.test.ts)、[`test/execute-process.test.ts`](../test/execute-process.test.ts)、[`examples/agent-smoke.ts`](../examples/agent-smoke.ts) |
+| 修改海报 Agent、Runtime Skill 或图片 Capability | [`integrating-runtime-skills.md`](integrating-runtime-skills.md#当前生产流程定位) | [`poster/registration.ts`](../src/processes/poster/registration.ts)、[`poster/agent.ts`](../src/processes/poster/agent.ts)、[`poster/pi.ts`](../src/processes/poster/pi.ts)、[`poster/skills.ts`](../src/processes/poster/skills.ts)、[`poster/capability.ts`](../src/processes/poster/capability.ts)、[海报 Runtime Skill](../.pi/skills/minimal-zine-poster-prompt) | [`test/poster-process.test.ts`](../test/poster-process.test.ts)、[`test/poster-http.test.ts`](../test/poster-http.test.ts)、[`test/runtime-skills.test.ts`](../test/runtime-skills.test.ts)、[`examples/poster-business-acceptance.ts`](../examples/poster-business-acceptance.ts) |
+| 新增或修改 Codex Development Skill | [`integrating-runtime-skills.md`](integrating-runtime-skills.md#安装-development-skill) | [`.agents/skills/`](../.agents/skills)、[`AGENTS.md`](../AGENTS.md)、[`skills-lock.json`](../skills-lock.json) | Skill 结构校验、一个真实的显式调用和一个真实的隐式调用 |
+| 修改通用 Process Runtime 或 Seam | [`process-runtime-design.md`](process-runtime-design.md) | [`src/processes/runtime/`](../src/processes/runtime)、[`src/processes/catalog.ts`](../src/processes/catalog.ts) | [`test/process-runtime.test.ts`](../test/process-runtime.test.ts)、[`test/execute-process.test.ts`](../test/execute-process.test.ts) |
+| 修改异步执行、Queue、Webhook 或恢复 | [`async-process-runs-design.md`](async-process-runs-design.md) | [`src/process-runs/`](../src/process-runs)、[`src/webhooks/`](../src/webhooks)、对应 `src/app/` Composition Root | 对应单元或集成测试、[`async-process-runs-runbook.md`](async-process-runs-runbook.md) 的发布门禁 |
+
+真实模型、远程 Business Capability、图片生成、对象存储或已部署环境验证统一从 [`experiments.md`](experiments.md) 进入。这些命令可能联网、产生费用或写入外部系统，不属于默认确定性验证。
+
 ## 文档地图
 
 ### 项目说明
@@ -40,11 +55,11 @@ Runbook 必须可按顺序执行。每一步都应说明前置条件、成功信
 
 `artifacts/` 保存实验输出和证据报告，不是规范性文档。报告由命令生成，不手工编辑；需要长期保留的结论应写入对应开发文档，并链接可复现命令。
 
-`.agents/skills/` 与 `.pi/skills/` 是运行资源。Skill 的 `SKILL.md` 约束 Agent 行为，不替代项目说明或开发文档。两类 Skill 的来源与接入规则见 [`integrating-runtime-skills.md`](integrating-runtime-skills.md)。
+`.agents/skills/` 保存 Codex 使用的 Development Skill；`.pi/skills/` 保存随应用发布、由生产 Agent 读取的 Runtime Skill。Skill 的 `SKILL.md` 不替代项目说明或开发文档。两类 Skill 的调用方、权限、来源和接入规则见 [`integrating-runtime-skills.md`](integrating-runtime-skills.md)。
 
 `agents/` 保存工程 Skill 使用的 Issue Tracker、triage label 和领域文档消费配置。它约束自动化工具如何操作项目，不定义产品行为。
 
-`research/` 保存基于外部一手资料的带来源调研，不直接定义项目行为。当前调研包括 [`research/skill-source-patterns.md`](research/skill-source-patterns.md) 和 [`research/async-process-execution.md`](research/async-process-execution.md)；项目采用的规则以对应设计或集成文档为准。
+`research/` 保存基于外部一手资料的带来源调研，不直接定义项目行为。当前调研包括 [`research/skill-source-patterns.md`](research/skill-source-patterns.md)、[`research/async-process-execution.md`](research/async-process-execution.md) 和 [`research/pi-agent-plugin-ecosystem.md`](research/pi-agent-plugin-ecosystem.md)；项目采用的规则以对应设计或集成文档为准。
 
 ## 分类与放置
 

@@ -8,7 +8,7 @@
 
 这里的“pi-agent”最可能指原 `badlogic/pi-mono` 中的 Pi coding agent。原仓库地址现已重定向到 [`earendil-works/pi`](https://github.com/earendil-works/pi)，官方 README 明确区分交互式 `@earendil-works/pi-coding-agent` 与底层 `@earendil-works/pi-agent-core`。本项目依赖的也是 [`@earendil-works/pi-coding-agent`](../../package.json)，因此后文使用它的 extension/package 生态作为调查对象。
 
-当前不应把任何社区 extension 直接加入生产 Agent。现有 [`PiContentOptimizationAgentRuntime`](../../src/processes/agent.ts) 显式设置 `noExtensions`、`noPromptTemplates`、`noThemes` 和 `noContextFiles`，每个请求创建独立内存 Session，并只暴露 `process_business_content`。这与 [`CONTEXT.md`](../../CONTEXT.md) 中“请求级无状态、无跨请求记忆、无通用 Coding Tools”的信任模型一致。
+当前不应把任何社区 extension 直接加入生产 Agent。[`PiContentAgent`](../../src/processes/content/pi.ts) 和 [`PiPosterAgent`](../../src/processes/poster/pi.ts) 都显式设置 `noExtensions`、`noPromptTemplates`、`noThemes` 和 `noContextFiles`，并为每个请求创建独立内存 Session。前者只暴露 `process_business_content`，后者没有 Tool。这与 [`CONTEXT.md`](../../CONTEXT.md) 中“请求级无状态、无跨请求记忆、无通用 Coding Tools”的信任模型一致。
 
 如果维护者另行使用交互式 Pi CLI 开发本仓库，建议先试用一个低外部副作用的 extension：`@juicesharp/rpiv-ask-user-question`。MCP、LSP、人工计划审阅和权限提示都有价值，但只应按明确需求安装到个人开发环境。Subagent、Web、浏览器、记忆、遥测和自动安全审计 extension 当前都不适合进入本项目生产 Runtime。
 
@@ -19,6 +19,8 @@ Pi extension 是随宿主进程运行的 TypeScript 模块，可以注册模型�
 “Pi package”是分发容器，不等于 extension。一个 package 可以同时声明 `pi.extensions`、`pi.skills`、`pi.prompts` 和 `pi.themes`；没有 manifest 时也会按约定目录发现这些不同资源。本调研只收录 manifest 中确实声明 `extensions` 的包。[Pi package 文档](https://pi.dev/docs/latest/packages)
 
 Pi 支持 npm、Git 和本地路径来源。固定 npm 版本或 Git ref 会跳过普通更新；`pi -e` 可以只在一次运行中试用。项目级 `pi install -l` 会写入 `.pi/settings.json`，受信项目启动时还会自动安装缺失 package，因此不应在未完成供应链审查前把第三方 package 写入仓库设置。[安装、固定与项目自动安装规则](https://pi.dev/docs/latest/packages#install-and-manage)
+
+本仓库当前没有 `.pi/settings.json` 或 `.pi/extensions/`。本节描述的是可供个人 Pi CLI 评估的项目级扩展机制，不是仓库当前配置；生产 Agent 与 Runtime Skill 的实际分层见 [`integrating-runtime-skills.md`](../integrating-runtime-skills.md#项目级-agent-与-skill)。
 
 官方文档说明，npm package 只要带 `pi-package` keyword 就会进入 gallery；每个详情页仍警告第三方 package 可执行代码并要求安装前审查。由这两条一手规则可以判断：gallery 是发现入口，不应视为经过人工安全审核的 marketplace；“在官方 gallery 中”也不代表官方背书或安全认证。[Gallery 发现规则](https://pi.dev/docs/latest/packages#gallery-metadata)
 
@@ -93,6 +95,6 @@ Pi extension、Development Skill 和 Runtime Skill 不能互换：
 
 - extension 是在 coding-agent 进程内执行的 TypeScript，默认继承该进程的全部权限；
 - `.agents/skills/` 中的 Development Skill 指导 Codex 开发仓库；
-- `.pi/skills/` 中的 Runtime Skill 只为服务端受限 Agent 提供任务说明，并且最终权限仍由 Process Registration 的窄 Tool 决定。
+- `.pi/skills/` 中的 Runtime Skill 只为服务端受限 Agent 提供任务说明，不会授予权限；Agent Adapter 与 Process Registration 共同固定 Tool 和 Capability 边界，海报 Agent 可以完全没有 Tool。
 
-因此，不能把一个社区 extension 复制到 `.pi/skills/` 后就称为生产接入，也不应为了兼容它而关闭 `noExtensions`。如果某个 extension 的能力值得产品化，应先提取稳定业务语义，设计窄 Business Capability Interface 和 Adapter，绑定到准确版本的 Process Registration，再以确定性测试和单独 smoke 验证。外部调用方仍只选择 Business Process 和版本，不能选择 extension、Skill、MCP server 或 Tool 配置。
+因此，不能把一个社区 extension 复制到 `.pi/skills/` 后就称为生产接入，也不应为了兼容它而关闭 `noExtensions`。如果某个 extension 的能力值得产品化，应先提取稳定业务语义，设计窄 Business Capability Interface 和 Adapter，绑定到准确版本的 Process Registration，再以确定性测试和显式真实集成或业务验收验证。外部调用方仍只选择 Business Process 和版本，不能选择 extension、Skill、MCP server 或 Tool 配置。

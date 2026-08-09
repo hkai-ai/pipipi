@@ -2,6 +2,29 @@
 
 本文面向向 Codex 或生产 Agent 提供 Skill 的维护者。可以把本地路径、Git 仓库或网页地址交给 Codex，但这些地址是开发、安装或构建期的 Skill Source；生产业务请求只使用经过审查、固定版本并随应用发布的本地 Runtime Skill。
 
+## 项目级 Agent 与 Skill
+
+仓库中的“Agent + Skill”分为开发期和生产期。先区分调用方，再决定编辑位置：`AGENTS.md` 和 `.agents/skills/` 指导 Codex 开发仓库；`src/processes/` 中的 Agent Adapter 和 `.pi/skills/` 参与产品请求。Pi CLI 的 `.pi/extensions/` 或 `.pi/settings.json` 属于另一个开发宿主机制，本项目当前没有启用，也不进入生产 Runtime。
+
+| 角色 | 位置 | 调用方 | 拥有的事实 |
+| --- | --- | --- | --- |
+| 仓库协作规则 | [`../AGENTS.md`](../AGENTS.md) | Codex、维护者 | 开发入口、术语、Skill 路由和完成标准；不定义生产 Agent 行为 |
+| Development Skill | [`.agents/skills/<name>/`](../.agents/skills) | Codex | 编写、测试、集成、发布或维护文档的方法 |
+| 生产 Agent Interface 与 Adapter | [`src/processes/<module>/agent.ts`](../src/processes)、`pi.ts`，共享基础设施在 [`src/processes/agent/`](../src/processes/agent) | Process Registration、生产 Composition Root | 模型任务、请求级 Session、JSON 解析和实际 Tool 表面 |
+| Runtime Skill | [`.pi/skills/<name>/`](../.pi/skills) | 服务端受限 Agent | 经过评审的任务说明；它本身不授予 Tool、文件、Shell 或网络权限 |
+| 服务端绑定与流程治理 | `src/processes/<module>/skills.ts`、`registration.ts`，[`src/app/business-processes.ts`](../src/app/business-processes.ts)、[`src/processes/catalog.ts`](../src/processes/catalog.ts) | Startup Construction、Process Runner | 准确 Skill 集合、Agent 与 Capability Adapter、执行顺序、校验、错误、重试和 production catalog |
+
+生产请求的主路径是：production catalog 精确找到 Process Registration；Registration 执行业务定义；需要模型任务时调用窄 Agent Interface；Pi Adapter 只加载该流程 `skills.ts` 声明的 Runtime Skill，并只提供代码中显式配置的 Tool；Registration 再校验结果并决定是否调用 Business Capability。Runtime Skill 影响模型如何完成任务，不拥有流程、权限或副作用。
+
+### 当前生产流程定位
+
+| 流程 | 流程与校验 | Agent | Skill 绑定与正文 | Capability | 契约与业务验收 |
+| --- | --- | --- | --- | --- | --- |
+| `content-processing/v1` | [`content/registration.ts`](../src/processes/content/registration.ts) | [`content/agent.ts`](../src/processes/content/agent.ts)、[`content/pi.ts`](../src/processes/content/pi.ts) | [`content/skills.ts`](../src/processes/content/skills.ts)、[`content-optimization`](../.pi/skills/content-optimization/SKILL.md)、[`content-integrity`](../.pi/skills/content-integrity/SKILL.md) | [`content/capability.ts`](../src/processes/content/capability.ts)、[`content/http.ts`](../src/processes/content/http.ts) | [`test/agent-runtime.test.ts`](../test/agent-runtime.test.ts)、[`test/runtime-skills.test.ts`](../test/runtime-skills.test.ts)、[`test/execute-process.test.ts`](../test/execute-process.test.ts)、[`examples/agent-smoke.ts`](../examples/agent-smoke.ts) |
+| `minimal-zine-poster/v1` | [`poster/registration.ts`](../src/processes/poster/registration.ts) | [`poster/agent.ts`](../src/processes/poster/agent.ts)、[`poster/pi.ts`](../src/processes/poster/pi.ts) | [`poster/skills.ts`](../src/processes/poster/skills.ts)、[`minimal-zine-poster-prompt`](../.pi/skills/minimal-zine-poster-prompt/SKILL.md) | [`poster/capability.ts`](../src/processes/poster/capability.ts)、[`poster/http.ts`](../src/processes/poster/http.ts) | [`test/poster-process.test.ts`](../test/poster-process.test.ts)、[`test/runtime-skills.test.ts`](../test/runtime-skills.test.ts)、[`examples/poster-business-acceptance.ts`](../examples/poster-business-acceptance.ts) |
+
+要修改流程顺序、校验、失败或副作用，先编辑 `registration.ts`；要修改模型交互或 Tool 暴露，编辑 `agent.ts` 和具体 Adapter；要修改获准 Skill 名称、顺序或路径，编辑 `skills.ts` 和生产 Composition Root；要修改模型任务说明，编辑对应 `.pi/skills/<name>/SKILL.md`。新增 Process 还必须更新显式 production catalog。
+
 ## 两类 Skill
 
 本项目区分两种用途：
@@ -88,7 +111,7 @@ Runtime Skill 必须服务于一个明确的 Process Registration。集成步骤
 4. 在流程 Module 中定义一个经过整体评审的本地 Skill/Tool 集合，并由 Registration factory 绑定 Agent、Schema、调用 invariant 和稳定策略；
 5. 把 Registration 显式加入 production catalog；
 6. 更新 Dockerfile 或其他发布清单，确保快照进入不可变制品；
-7. 用 mock Agent 做确定性契约测试，再按需运行单独的真实模型 smoke；
+7. 用 mock Agent 做确定性契约测试，再按需运行显式的真实集成或业务验收；
 8. 记录来源、不可变 ref、内容哈希、适配改动和回滚版本。
 
 当前 Pi Agent 路径接受非空 `SkillRef[]`。具体 Process 的 `skills.ts` 固定 Skill 名称、顺序、默认本地路径和 Tool 名称；通用 [`src/processes/agent/skills.ts`](../src/processes/agent/skills.ts) 只负责精确加载。名称必须唯一，并且必须精确解析一次。Runtime 按声明顺序读取所有 `SKILL.md`，把正文作为一个经过评审的指令集交给 Agent，同时只暴露 Registration 已授权的 Tool。`content-processing/v1` 最多让一次 Tool 调用触达 Business Capability，并要求成功输出与 Tool 结果一致。`minimal-zine-poster/v1` 不给 Agent Tool；Registration 先验证 Agent 编译结果，再自行调用 Poster Rendering Capability。Runtime 不自动读取附加 reference、运行 Skill script 或连接 MCP。需要这些能力的 Skill 不能直接接入；应先设计窄 Runtime Interface、权限和测试，再扩展实现。当前限制和真实验证方法见 [`experiments.md`](experiments.md)。
@@ -117,6 +140,6 @@ Runtime Skill 必须服务于一个明确的 Process Registration。集成步骤
 
 ## 更新与回滚
 
-Skill 更新按依赖升级处理：解析新的不可变版本，比较目录差异，重新做安全和能力审查，运行确定性测试与 smoke，再发布新的应用制品。出现回归时回滚应用制品或恢复上一个固定快照；不要在运行实例上原地拉取旧分支。
+Skill 更新按依赖升级处理：解析新的不可变版本，比较目录差异，重新做安全和能力审查，运行确定性测试与明确需要的真实集成或业务验收，再发布新的应用制品。出现回归时回滚应用制品或恢复上一个固定快照；不要在运行实例上原地拉取旧分支。
 
 业界实现与这一判断的官方资料摘要见 [`research/skill-source-patterns.md`](research/skill-source-patterns.md)。
