@@ -51,7 +51,7 @@ postgresDescribe("PostgreSQL Process Run Store", () => {
 
   beforeEach(async () => {
     await primaryPool.query(
-      "TRUNCATE retention_cleanup_batches, webhook_endpoints, process_runs CASCADE",
+      "TRUNCATE queue_recovery_runs, retention_cleanup_batches, webhook_endpoints, process_runs CASCADE",
     );
   });
 

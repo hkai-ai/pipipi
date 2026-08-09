@@ -10,11 +10,24 @@ export type ProcessWorkQueue = Readonly<{
   close: () => Promise<void>;
 }>;
 
+export type ProcessWorkJobInspection = Readonly<{
+  runId: string;
+  state: "runnable" | "terminal" | "invalid" | "missing";
+}>;
+
+export type RecoverableProcessWorkQueue = ProcessWorkQueue &
+  Readonly<{
+    inspectJobs: (
+      runIds: readonly string[],
+    ) => Promise<readonly ProcessWorkJobInspection[]>;
+  }>;
+
 export type ProcessWorkSource = Readonly<{
   take: () => Promise<ProcessWorkJob | undefined>;
 }>;
 
-export type InMemoryProcessWorkQueue = ProcessWorkQueue & ProcessWorkSource;
+export type InMemoryProcessWorkQueue = RecoverableProcessWorkQueue &
+  ProcessWorkSource;
 
 export class ProcessWorkQueueCapacityError extends Error {
   constructor() {
@@ -54,6 +67,15 @@ export function createInMemoryProcessWorkQueue(
       pendingRunIds.delete(job.runId);
       return structuredClone(job);
     },
+    inspectJobs: async (runIds) => {
+      assertInspectionRunIds(runIds);
+      return runIds.map((runId) =>
+        Object.freeze({
+          runId,
+          state: pendingRunIds.has(runId) ? "runnable" : "missing",
+        }),
+      );
+    },
     close: async () => {
       closed = true;
     },
@@ -85,5 +107,23 @@ export function parseProcessWorkJob(value: unknown): ProcessWorkJob | undefined 
 function assertProcessWorkJob(job: ProcessWorkJob): void {
   if (!parseProcessWorkJob(job)) {
     throw new Error("Process Work Job is invalid");
+  }
+}
+
+export function assertInspectionRunIds(runIds: readonly string[]): void {
+  if (runIds.length < 1 || runIds.length > 100) {
+    throw new Error("Process Work Queue inspection requires 1 to 100 Run IDs");
+  }
+  const unique = new Set(runIds);
+  if (
+    unique.size !== runIds.length ||
+    runIds.some(
+      (runId) =>
+        typeof runId !== "string" ||
+        runId.trim().length === 0 ||
+        Buffer.byteLength(runId, "utf8") > 256,
+    )
+  ) {
+    throw new Error("Process Work Queue inspection Run IDs are invalid");
   }
 }

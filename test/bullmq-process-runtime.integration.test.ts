@@ -33,7 +33,10 @@ import {
   createOutboxDispatcher,
 } from "../src/outbox-dispatcher.js";
 import { createPostgresProcessOutbox } from "../src/postgres-process-outbox.js";
-import { createPostgresProcessRunStore } from "../src/postgres-process-run-store.js";
+import {
+  createPostgresProcessRunRecoverySource,
+  createPostgresProcessRunStore,
+} from "../src/postgres-process-run-store.js";
 import { createPostgresWebhookDeliveryStore } from "../src/postgres-webhook-delivery-store.js";
 import { createProcessRunReconciler } from "../src/process-run-reconciler.js";
 import {
@@ -82,7 +85,9 @@ integrationDescribe("BullMQ Process Runtime", () => {
   }, 30_000);
 
   beforeEach(async () => {
-    await pool.query("TRUNCATE webhook_endpoints, process_runs CASCADE");
+    await pool.query(
+      "TRUNCATE queue_recovery_runs, retention_cleanup_batches, webhook_endpoints, process_runs CASCADE",
+    );
     await redis.flushdb();
   });
 
@@ -565,13 +570,219 @@ integrationDescribe("BullMQ Process Runtime", () => {
     }
   }, 20_000);
 
+  it("dry-runs and rebuilds every nonterminal Run after Redis Queue data loss", async () => {
+    const registry = testRegistry();
+    const store = createPostgresProcessRunStore({ pool, retention: RETENTION });
+    const recoveryStore = createPostgresProcessRunRecoverySource({ pool });
+    const runs = createAsyncProcessRuns({ registry, store });
+    const queue = createBullMqProcessWorkQueue({ redisUrl: redisUrl as string });
+    const recoveryInspector = new Queue<ProcessWorkJob>(
+      defaultProcessWorkQueueName,
+      {
+        connection: { url: redisUrl as string },
+        prefix: defaultProcessWorkQueuePrefix,
+      },
+    );
+    const outbox = createPostgresProcessOutbox({ pool });
+    const completed = await runs.submit(
+      {
+        process: "test-success",
+        version: "v1",
+        input: { value: "already-terminal" },
+      },
+      { callerId: "caller-rebuild", idempotencyKey: "already-terminal" },
+    );
+    if (!completed.accepted) throw new Error("Expected accepted Process Run");
+    const firstWorker = runtimeWorker(registry, store);
+
+    try {
+      await queue.ready();
+      await createOutboxDispatcher({ outbox, queue }).dispatchOnce();
+      await firstWorker.start();
+      await expect(
+        waitForTerminal(runs, completed.runId, "caller-rebuild"),
+      ).resolves.toMatchObject({ status: "succeeded" });
+      await firstWorker.close();
+
+      const queued = [];
+      for (const index of [1, 2, 3]) {
+        const submission = await runs.submit(
+          {
+            process: "test-success",
+            version: "v1",
+            input: { value: `queue-loss-${index}` },
+          },
+          {
+            callerId: "caller-rebuild",
+            idempotencyKey: `queue-loss-${index}`,
+          },
+        );
+        if (!submission.accepted) throw new Error("Expected accepted Process Run");
+        queued.push(submission);
+      }
+      await expect(
+        createOutboxDispatcher({ outbox, queue, batchSize: 2 }).dispatchOnce(),
+      ).resolves.toEqual({ claimed: 2, published: 2, failed: 0 });
+      expect(
+        (await queue.inspectJobs(queued.map((run) => run.runId))).filter(
+          (job) => job.state === "runnable",
+        ),
+      ).toHaveLength(2);
+
+      await redis.flushdb();
+      await recoveryInspector.add(
+        "process-run",
+        {
+          schemaVersion: 1,
+          runId: queued[0]!.runId,
+          input: "invalid-queue-content",
+        } as unknown as ProcessWorkJob,
+        { jobId: queued[0]!.runId },
+      );
+      await expect(
+        queue.inspectJobs(queued.map((run) => run.runId)),
+      ).resolves.toEqual(
+        queued.map((run, index) => ({
+          runId: run.runId,
+          state: index === 0 ? "invalid" : "missing",
+        })),
+      );
+      const asOf = new Date().toISOString();
+      const dryRunReconciler = createProcessRunReconciler({
+        store: recoveryStore,
+        queue,
+        batchSize: 100,
+      });
+      const dryRun = await dryRunReconciler.recover({
+        trigger: "manual",
+        mode: "all",
+        dryRun: true,
+        actorId: "operator:queue-rebuild-test",
+        asOf,
+      });
+      expect(dryRun).toMatchObject({
+        found: 3,
+        missingJobs: 2,
+        invalidJobs: 1,
+        pendingOutbox: 1,
+        enqueued: 0,
+        outboxAcknowledged: 0,
+      });
+      expect(dryRun.items).toHaveLength(3);
+      expect(
+        dryRun.items.every((item) => item.action === "would_enqueue"),
+      ).toBe(true);
+      await expect(
+        queue.inspectJobs(queued.map((run) => run.runId)),
+      ).resolves.toEqual(
+        queued.map((run, index) => ({
+          runId: run.runId,
+          state: index === 0 ? "invalid" : "missing",
+        })),
+      );
+
+      const batchedReconciler = createProcessRunReconciler({
+        store: recoveryStore,
+        queue,
+        batchSize: 2,
+      });
+      const repaired = [];
+      let cursor: string | undefined;
+      do {
+        const report = await batchedReconciler.recover({
+          trigger: "manual",
+          mode: "all",
+          dryRun: false,
+          actorId: "operator:queue-rebuild-test",
+          asOf,
+          ...(cursor ? { cursor } : {}),
+        });
+        repaired.push(report);
+        cursor = report.nextCursor;
+      } while (cursor);
+      expect(repaired).toHaveLength(2);
+      expect(repaired.reduce((sum, report) => sum + report.enqueued, 0)).toBe(3);
+      expect(
+        repaired.reduce(
+          (sum, report) => sum + report.outboxAcknowledged,
+          0,
+        ),
+      ).toBe(1);
+      await expect(
+        pool.query<{ count: string }>(`
+          SELECT count(*)::text AS count
+          FROM outbox_messages
+          WHERE topic = 'process-runs' AND published_at IS NULL
+        `),
+      ).resolves.toMatchObject({ rows: [{ count: "0" }] });
+
+      await expect(
+        dryRunReconciler.recover({
+          trigger: "manual",
+          mode: "all",
+          dryRun: false,
+          actorId: "operator:queue-rebuild-test",
+          asOf,
+        }),
+      ).resolves.toMatchObject({
+        found: 3,
+        existingJobs: 3,
+        enqueued: 0,
+        duplicates: 0,
+      });
+      const recoveryWorker = runtimeWorker(registry, store);
+      try {
+        await recoveryWorker.start();
+        await Promise.all(
+          queued.map((run) =>
+            waitForTerminal(runs, run.runId, "caller-rebuild"),
+          ),
+        );
+      } finally {
+        await recoveryWorker.close();
+      }
+      const terminalAttempt = await pool.query<{
+        attempt_count: number;
+      }>("SELECT attempt_count FROM process_runs WHERE run_id = $1", [
+        completed.runId,
+      ]);
+      expect(terminalAttempt.rows[0]?.attempt_count).toBe(1);
+      const audit = await pool.query<{
+        status: string;
+        dry_run: boolean;
+      }>("SELECT status, dry_run FROM queue_recovery_runs");
+      expect(audit.rows).toHaveLength(4);
+      expect(audit.rows.every((entry) => entry.status === "completed")).toBe(
+        true,
+      );
+      expect(audit.rows.filter((entry) => entry.dry_run)).toHaveLength(1);
+      const auditItems = await pool.query<{ count: string }>(
+        "SELECT count(*)::text AS count FROM queue_recovery_items",
+      );
+      expect(auditItems.rows[0]?.count).toBe("9");
+      expect(
+        await pool.query(
+          "SELECT 1 FROM queue_recovery_items WHERE run_id = $1",
+          [completed.runId],
+        ),
+      ).toMatchObject({ rowCount: 0 });
+    } finally {
+      await Promise.allSettled([
+        firstWorker.close(),
+        queue.close(),
+        recoveryInspector.close(),
+      ]);
+    }
+  }, 20_000);
+
   it("reconciles an expired claim after a duplicate job was already completed", async () => {
     const registry = testRegistry();
     const store = createPostgresProcessRunStore({
       pool,
       retention: RETENTION,
-      claimLeaseMs: 75,
+      claimLeaseMs: 2_000,
     });
+    const recoveryStore = createPostgresProcessRunRecoverySource({ pool });
     const runs = createAsyncProcessRuns({ registry, store });
     const queue = createBullMqProcessWorkQueue({ redisUrl: redisUrl as string });
     const inspector = new Queue<ProcessWorkJob>(defaultProcessWorkQueueName, {
@@ -609,14 +820,33 @@ integrationDescribe("BullMQ Process Runtime", () => {
       await duplicateConsumer.start();
       await waitForJobState(inspector, submitted.runId, "completed");
       await duplicateConsumer.close();
-      await delay(100);
+      const reconciler = createProcessRunReconciler({
+        store: recoveryStore,
+        queue,
+        queuedAgeMs: 1,
+      });
+      await expect(
+        reconciler.recover({
+          trigger: "manual",
+          mode: "all",
+          dryRun: true,
+          actorId: "operator:lease-recovery-test",
+        }),
+      ).resolves.toMatchObject({
+        found: 1,
+        activeLeases: 1,
+        enqueued: 0,
+        items: [
+          expect.objectContaining({
+            queueState: "terminal",
+            action: "deferred",
+          }),
+        ],
+      });
+      await delay(2_050);
 
       await expect(
-        createProcessRunReconciler({
-          store,
-          queue,
-          queuedAgeMs: 1,
-        }).reconcileOnce(),
+        reconciler.reconcileOnce(),
       ).resolves.toEqual({
         found: 1,
         enqueued: 1,

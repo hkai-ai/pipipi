@@ -8,7 +8,7 @@ export type ProcessDispatcherOperation =
 
 export function createProcessDispatcherRuntime(options: {
   dispatcher: OutboxDispatcher;
-  reconciler: ProcessRunReconciler;
+  reconciler: Pick<ProcessRunReconciler, "reconcileOnce">;
   databaseReady: () => Promise<void>;
   queueReady: () => Promise<void>;
   closeResources: () => Promise<void>;

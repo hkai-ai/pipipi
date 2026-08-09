@@ -210,7 +210,7 @@ type AsyncProcessRuns = Readonly<{
 
 目标是让所有 Business Process 通过一个内部 Queue 可靠执行，并让 Redis 故障不会丢失已接受 Run。
 
-实现进度：Issue #14 已完成 Outbox claim/ack、统一 BullMQ Queue、最小 Job envelope、基础 Worker 生命周期和有界 Job retention。Issue #15 已完成过期租约接管、旧 token fencing、Reconciler、Redis/Dispatcher 故障恢复，以及有期限的优雅停机。Issue #16 已把 API、Dispatcher、Worker 组装成独立角色，并用真实 HTTP/PostgreSQL/Redis 验证成功、业务失败和 caller 隔离。Issue #17 已增加 Registration 所有的受控重试策略、稳定下游幂等键、queued 等待状态与真实 BullMQ 延迟重投。Issue #22 继续补齐 M4 所需指标和告警，因此本里程碑保持“进行中”。
+实现进度：Issue #14 已完成 Outbox claim/ack、统一 BullMQ Queue、最小 Job envelope、基础 Worker 生命周期和有界 Job retention。Issue #15 已完成过期租约接管、旧 token fencing、Reconciler、Redis/Dispatcher 故障恢复，以及有期限的优雅停机。Issue #16 已把 API、Dispatcher、Worker 组装成独立角色，并用真实 HTTP/PostgreSQL/Redis 验证成功、业务失败和 caller 隔离。Issue #17 已增加 Registration 所有的受控重试策略、稳定下游幂等键、queued 等待状态与真实 BullMQ 延迟重投。Issue #22 已把 Reconciler 加深为 PostgreSQL 权威的 periodic/manual 恢复路径，支持 stale/all、默认 dry-run、Queue inspection、pending Outbox 对账、逐批审计和游标重建；真实 Redis 数据丢失与租约故障测试证明非终态 Run 可恢复且终态不重跑。Issue #23 继续补齐 M4 所需容量指标和告警，因此本里程碑保持“进行中”。
 
 ### 实现任务
 
@@ -278,7 +278,7 @@ type AsyncProcessRuns = Readonly<{
 
 ## M6：生产硬化与发布
 
-实现进度：Issue #21 已增加分层到期字段语义、`005_retention_cleanup` migration、PostgreSQL 批次清理与审计、明确的结果过期响应，以及独立 Retention Cleaner 角色。真实 PostgreSQL 测试覆盖边界时间、失败回滚、游标续跑、并发查询、重复清理和 Delivery 引用保护。Issue #22 继续完成 Queue 全量重建与 stuck Run 修复，Issue #23 完成容量、可观测性和受控发布。
+实现进度：Issue #21 已增加分层到期字段语义、`005_retention_cleanup` migration、PostgreSQL 批次清理与审计、明确的结果过期响应，以及独立 Retention Cleaner 角色。真实 PostgreSQL 测试覆盖边界时间、失败回滚、游标续跑、并发查询、重复清理和 Delivery 引用保护。Issue #22 已增加 `006_queue_recovery_audit`、PostgreSQL/Queue 对账、默认 dry-run 的人工命令、全量重建、Outbox 修复、活跃租约延期和过期租约接管。Issue #23 完成容量、可观测性和受控发布。
 
 ### 实现任务
 

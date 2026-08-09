@@ -61,7 +61,7 @@ Agent 只获得 Process Registration 明确授权的窄 Tool。生产内容处�
 
 未来若流程产生发布、扣费、发送等副作用，必须先明确幂等、审计和补偿策略。
 
-异步 Process Run 的持久化提交、owner 查询、HTTP Interface、Outbox 调度、BullMQ Worker、受控 Process 重试和基础故障恢复已完成。终态事务会为已注册 Endpoint 创建精简 Webhook Delivery；独立 Webhook Worker 使用 Standard Webhooks HMAC 签名，并以 PostgreSQL 管理有界重试、逐次 Attempt 审计、稳定 event ID 和受控人工重放。Endpoint Secret 使用 AES-256-GCM 信封加密；注册和每次投递都重新解析目标、拒绝非公网地址并把连接固定到已检查的 IP，且不跟随重定向。独立 Retention Cleaner 已按 accepted input、公开结果、Run metadata 和 Delivery Attempt 历史的期限分批清理；结果到期不改变终态，metadata 到期删除前还会保护未完成或仍在保留期内的 Delivery 引用。功能默认关闭，容量保护、Queue 全量重建和完整观测仍按开发计划推进。该设计保留现有 Business Process 模型：外部调用方仍只选择准确 Process 和版本；Queue Job、Endpoint、重试与 Worker 配置由服务端拥有。详见 [`docs/async-process-runs-design.md`](docs/async-process-runs-design.md) 和 [`docs/async-process-runs-development-plan.md`](docs/async-process-runs-development-plan.md)。
+异步 Process Run 的持久化提交、owner 查询、HTTP Interface、Outbox 调度、BullMQ Worker、受控 Process 重试和基础故障恢复已完成。终态事务会为已注册 Endpoint 创建精简 Webhook Delivery；独立 Webhook Worker 使用 Standard Webhooks HMAC 签名，并以 PostgreSQL 管理有界重试、逐次 Attempt 审计、稳定 event ID 和受控人工重放。Endpoint Secret 使用 AES-256-GCM 信封加密；注册和每次投递都重新解析目标、拒绝非公网地址并把连接固定到已检查的 IP，且不跟随重定向。独立 Retention Cleaner 已按 accepted input、公开结果、Run metadata 和 Delivery Attempt 历史的期限分批清理；结果到期不改变终态，metadata 到期删除前还会保护未完成或仍在保留期内的 Delivery 引用。Process Recovery 以 PostgreSQL Run/Outbox 为事实来源，检查 BullMQ 中稳定 `runId` Job 是否仍存在，分批恢复 queued 和租约过期 running Run；全量模式会明确报告仍有活跃租约的 Run，但在租约到期前不抢占。功能默认关闭，容量保护和完整观测仍按开发计划推进。该设计保留现有 Business Process 模型：外部调用方仍只选择准确 Process 和版本；Queue Job、Endpoint、重试与 Worker 配置由服务端拥有。详见 [`docs/async-process-runs-design.md`](docs/async-process-runs-design.md) 和 [`docs/async-process-runs-development-plan.md`](docs/async-process-runs-development-plan.md)。
 
 ## Module 模型
 
@@ -80,6 +80,7 @@ Agent 只获得 Process Registration 明确授权的窄 Tool。生产内容处�
 | Process Work Queue | `enqueue({ schemaVersion, runId })`、`close()` | 去重、容量和调度；提供确定性内存与 BullMQ Adapter |
 | Outbox Dispatcher | `dispatchOnce()` | PostgreSQL claim、BullMQ publish、ack 与失败 release |
 | Process Run Reconciler | `reconcileOnce()` | 长期 queued 与过期 running Run 扫描、最小 Job 重投 |
+| Process Recovery | `recover({ mode, dryRun, cursor })` | Queue 缺失检查、Outbox 对账、租约分类、修复审计和批次指标 |
 | Process Worker | `process(job)` | exact Registration 查找、Attempt 执行和受控状态转换 |
 | Runtime Role Application | `listen`、`close` | Dispatcher/Worker liveness、readiness 和 HTTP 生命周期 |
 | Webhook Delivery | `claim`、`reschedule`、`complete`、`replay` | 加密 Endpoint、固定公网目标、Standard Webhooks 签名、Attempt 审计和重放 |

@@ -65,6 +65,7 @@ curl --fail -X POST http://127.0.0.1:3000/execute \
 | `npm run test:watch` | 监听并运行 Vitest | 否 |
 | `npm run build` | 编译 `src/` 到 `dist/` | 否 |
 | `npm run db:migrate` | 对 `DATABASE_URL` 执行受锁保护的 PostgreSQL migration | 是，会修改指定数据库 |
+| `npm run recover:queue -- ...` | dry-run 或修复 PostgreSQL 与 Process Queue 的差异 | 是；`--apply` 会写 Queue、Outbox 与审计表 |
 | `npm run test:integration:postgres` | 运行真实 PostgreSQL migration 与 Store contract tests | 是，会重建明确的 `_test` 数据库 schema |
 | `npm run test:integration:async` | 运行真实 PostgreSQL、Redis、Outbox Dispatcher 与 BullMQ Worker 测试 | 是，会重建 `_test` schema 并清空指定 Redis 测试 DB |
 | `npm run smoke:agent` | 验证真实 Agent 与 Business Capability | 是，可能产生模型费用 |
@@ -150,6 +151,21 @@ docker compose -f compose.integration.yaml down
 
 五个角色都提供 `GET /healthz` 和 `GET /readyz`。liveness 只确认进程工作，不访问下游；readiness 检查该角色实际使用的 migration、PostgreSQL 和 Redis，并在有界时间内返回 `503`，不暴露连接地址或内部错误。默认同步 API 保持原样，启用异步路由也不会删除 `POST /execute`。
 
+### Queue 对账与重建
+
+Dispatcher 的周期 `reconcileOnce()` 与人工 `recover:queue` 共用同一个 Process Recovery Module。`stale` 模式只检查超过 `PROCESS_RUN_RECONCILE_QUEUED_AGE_MS` 的 queued Run 和租约过期的 running Run；`all` 模式扫描所有非终态 Run，适合 Redis 数据丢失后的完整重建。终态 Run 从 PostgreSQL 候选 SQL 中排除，即使 Redis 残留旧 Job，Worker 的数据库 claim 也会将其短路为 ignored。活跃 running 租约在 `all` 报告中标为 `active_lease/deferred`，不提前抢占；到期后的下一次恢复会重新入队，旧 Worker 仍受 claim token fencing 约束。
+
+人工命令默认 dry-run，必须提供可审计 operator 身份：
+
+```bash
+PROCESS_RECOVERY_ACTOR_ID=operator:alice npm run recover:queue -- --mode=all
+PROCESS_RECOVERY_ACTOR_ID=operator:alice npm run recover:queue -- --apply --mode=all
+```
+
+dry-run 只检查 PostgreSQL 与 Redis 并写恢复审计，不写 Queue 或 Outbox。`--apply` 对 `missing` 或只有 terminal BullMQ Job 的非终态 Run，以稳定 `runId` 重新 `queue.add()`；并发恢复最多得到 `duplicate`，不会产生第二个有效 Job。只有确认 Job 已存在或成功入队后，才把对应 pending Process Outbox 标记为已对账。每批最多使用 `PROCESS_RUN_RECONCILE_BATCH_SIZE`，固定同一个 `asOf` 并自动沿 `nextCursor` 继续；`--single-batch` 可停在一个批次，随后用日志或 `queue_recovery_runs.next_cursor_run_id` 配合原 `--as-of`、`--cursor` 续跑。
+
+每次有候选的 periodic 恢复和每次 manual dry-run/apply 都写 `queue_recovery_runs`，每个候选再写不含业务内容的 `queue_recovery_items`；无候选 periodic 只返回零计数，避免审计表按轮询频率无界增长。完成记录包含 missing/existing/terminal/invalid Job、active lease、pending Outbox、enqueue、duplicate、ack 和 failure 计数。中途崩溃会留下 `running` 审计行；重跑是幂等的，并会把已成功入队的 Job 识别为 existing。若某一候选 Redis 操作失败，同批其他候选继续，命令以非零状态结束。不要直接从 Queue 反推产品状态，也不要用 `FLUSHDB` 作为常规运维手段。
+
 ### 内容保留与清理
 
 模板采用以下安全起点：accepted input 1 天、成功 output 或稳定 error 7 天、Run metadata 30 天、已完成 Webhook Delivery Attempt 历史 30 天。前三项通过 `PROCESS_RUN_ACCEPTED_INPUT_RETENTION_MS`、`PROCESS_RUN_RESULT_RETENTION_MS` 和 `PROCESS_RUN_METADATA_RETENTION_MS` 显式配置，并在接受或完成 Run 时写成绝对到期时间；Delivery 历史通过 `WEBHOOK_DELIVERY_HISTORY_RETENTION_MS` 配置，未填写时 Retention Cleaner 使用 30 天。缩短内容期限可降低隐私暴露和数据库体积，但必须覆盖调用方正常轮询、故障恢复和争议处理窗口；延长期限前应完成数据授权、容量与删除 SLA 评审。
@@ -192,6 +208,7 @@ Webhook 重试状态以 PostgreSQL 为准，不依赖 BullMQ 的 Job attempts。
 | `src/process-outbox.ts`、`src/postgres-process-outbox.ts` | Outbox claim、publish ack 与失败 release Seam/Adapter |
 | `src/outbox-dispatcher.ts` | 从 PostgreSQL Outbox 向 Process/Webhook Queue 转发各自最小 Job |
 | `src/process-run-reconciler.ts` | 扫描长期 queued 或过期 running Run，并通过 Queue Seam 重投 |
+| `src/queue-recovery-command.ts`、`src/queue-recovery-main.ts` | 默认 dry-run 的人工全量 Queue 对账、游标续跑和结构化批次报告 |
 | `src/process-dispatcher-runtime.ts` | 以不重叠的周期运行 Outbox 与 Reconciler，并隔离可恢复错误 |
 | `src/postgres-retention-cleanup.ts`、`src/retention-cleaner-runtime.ts` | 分层内容清理、引用保护、批次审计、游标 sweep 与安全中断 |
 | `src/bullmq-process-work-queue.ts` | 固定版本 BullMQ Queue、Worker、Redis 连接策略与有界 Job retention |

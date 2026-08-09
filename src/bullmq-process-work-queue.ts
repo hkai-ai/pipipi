@@ -2,9 +2,10 @@ import { DelayedError, Queue, Worker, type Job } from "bullmq";
 import type { ProcessWorker, ProcessWorkResult } from "./process-worker.js";
 import {
   parseProcessWorkJob,
+  assertInspectionRunIds,
   type ProcessWorkEnqueueResult,
   type ProcessWorkJob,
-  type ProcessWorkQueue,
+  type RecoverableProcessWorkQueue,
 } from "./process-work-queue.js";
 
 export const defaultProcessWorkQueueName = "process-runs";
@@ -14,7 +15,7 @@ const processWorkJobName = "process-run";
 const defaultCompletedRetention = Object.freeze({ age: 3_600, count: 1_000 });
 const defaultFailedRetention = Object.freeze({ age: 86_400, count: 5_000 });
 
-export type BullMqProcessWorkQueue = ProcessWorkQueue &
+export type BullMqProcessWorkQueue = RecoverableProcessWorkQueue &
   Readonly<{
     ready: () => Promise<void>;
   }>;
@@ -67,14 +68,46 @@ export function createBullMqProcessWorkQueue(options: {
       const existing = await queue.getJob(job.runId);
       if (existing) {
         const state = await existing.getState();
-        if (state === "completed" || state === "failed") {
-          await existing.remove();
-        } else {
+        const existingJob = parseProcessWorkJob(existing.data);
+        const validExistingJob = existingJob?.runId === job.runId;
+        if (
+          validExistingJob &&
+          state !== "completed" &&
+          state !== "failed" &&
+          state !== "unknown"
+        ) {
           return "duplicate";
+        }
+        if (state !== "unknown") {
+          await existing.remove();
         }
       }
       await queue.add(processWorkJobName, job, { jobId: job.runId });
       return "enqueued";
+    },
+    inspectJobs: async (runIds) => {
+      if (closed) throw new Error("Process Work Queue is closed");
+      assertInspectionRunIds(runIds);
+      return Promise.all(
+        runIds.map(async (runId) => {
+          const job = await queue.getJob(runId);
+          if (!job) return Object.freeze({ runId, state: "missing" as const });
+          const state = await job.getState();
+          const parsed = parseProcessWorkJob(job.data);
+          if (parsed?.runId !== runId) {
+            return Object.freeze({ runId, state: "invalid" as const });
+          }
+          return Object.freeze({
+            runId,
+            state:
+              state === "completed" || state === "failed"
+                ? ("terminal" as const)
+                : state === "unknown"
+                  ? ("missing" as const)
+                  : ("runnable" as const),
+          });
+        }),
+      );
     },
     ready: () => queue.waitUntilReady(),
     close: async () => {

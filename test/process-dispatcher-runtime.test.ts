@@ -99,7 +99,7 @@ function idleDispatcher(): OutboxDispatcher {
   };
 }
 
-function idleReconciler(): ProcessRunReconciler {
+function idleReconciler(): Pick<ProcessRunReconciler, "reconcileOnce"> {
   return {
     reconcileOnce: async () => ({
       found: 0,

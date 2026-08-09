@@ -215,6 +215,8 @@ flowchart LR
     Delivery --> HookQueue["Webhook Queue"]
     HookQueue --> Endpoint["Registered Webhook Endpoint"]
     Cleaner["Retention Cleaner"] --> Store
+    Recovery["Process Recovery"] --> Store
+    Recovery --> WorkQueue
 ```
 
 | Module | 外部 Interface | 隐藏的 Implementation |
@@ -225,6 +227,7 @@ flowchart LR
 | Process Work Queue | 发布 `runId`、消费 Queue Job、关闭 | BullMQ Queue/Worker、连接、backoff、并发和 job retention |
 | Process Attempt Runner | 执行一个已 claim 的 Attempt | 超时、AbortSignal、错误净化、retry classification 和 fencing |
 | Process Events | 在状态事务中追加不可变事件 | outbox 扫描、重复发布和 reconciliation |
+| Process Recovery | `recover({ mode, dryRun, cursor })` | PostgreSQL 候选、Queue inspection、Outbox ack、租约保护、审计和指标 |
 | Webhook Delivery | 为事件创建 Delivery、签名、投递、重试和重放 | endpoint 策略、HTTP、secret、backoff 和审计 |
 | Retention Cleaner | `runSweep({ asOf, cursor, signal })` | 到期选择、引用保护、短事务批次、审计与游标续跑 |
 
@@ -285,6 +288,8 @@ BullMQ 适合当前 Node.js 技术栈中的 Worker 调度、并发、延迟重�
 - Process Registration 决定 retry policy。调用方不能指定 attempts、delay、priority 或 concurrency。
 - Worker 收到关闭信号后停止领取新 Job，等待当前 Job 在宽限期内完成，再关闭 BullMQ 连接；超出宽限期的 Attempt 由租约与 stalled recovery 接管。
 - 已有 PostgreSQL 终态的重复 Job 直接确认，不再次执行。BullMQ 的 completed/failed Job 只保留短期诊断窗口，长期历史留在 PostgreSQL。
+- Queue Recovery 的 `stale` 和 `all` 模式使用同一修复路径。`all` 用于 Redis 数据丢失后扫描所有非终态 Run；活跃 running lease 只报告并延期，queued 与过期 running 使用稳定 `runId` 检查/补投。只有 Queue Job 已存在或成功加入后才确认 pending Process Outbox。
+- dry-run 不修改 Queue 或 Outbox，但和实际修复一样写 owner-independent operator 审计与逐项分类。每个实际批次返回 missing/existing/terminal、active lease、enqueue、duplicate、Outbox ack 和 failure 指标；terminal Process Run 永不进入重建候选。
 - 当前 BullMQ 不需要已弃用的 `QueueScheduler`。实现时固定准确版本，并按 API、Worker 与 QueueEvents 的角色分别配置 Redis 重连策略。
 
 如果部署环境不能可靠运维 Redis，应保留 `Process Work Queue` Interface，重新评估数据库型 Queue Adapter；外部 API 和 Process Run Store 不需要改变。
@@ -362,6 +367,7 @@ BullMQ 和网络只能提供至少一次执行。流程若会扣费、发布、�
 | Webhook Delivery | 原始 body 签名、重复、超时、状态码策略、secret 轮换和 SSRF 拒绝 | 受控本地 HTTP endpoint |
 | Retention cleanup | 边界时间、重复清理、并发查询、部分失败、游标续跑和引用保护 | 临时 PostgreSQL |
 | 故障注入 | API commit 后 Redis 断线、发布后未标记、Worker 崩溃、过期 claim、Webhook 断线 | 集成测试与 staging |
+| Queue Recovery | Redis `FLUSHDB` 后全量重建、pending Outbox 对账、dry-run、重复 apply 和活跃/过期租约 | 临时 PostgreSQL 与独立非零 Redis DB |
 
 所有现有同步测试必须继续通过。真实 Redis/PostgreSQL 集成测试可放入独立命令和 CI job，但状态机与 HTTP contract 的确定性测试不能依赖外部服务。
 

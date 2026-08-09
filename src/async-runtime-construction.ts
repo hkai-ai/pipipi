@@ -10,7 +10,10 @@ import {
   createPostgresProcessRunStore,
 } from "./postgres-process-run-store.js";
 import { createProcessDispatcherRuntime } from "./process-dispatcher-runtime.js";
-import { createProcessRunReconciler } from "./process-run-reconciler.js";
+import {
+  createProcessRunReconciler,
+  type ProcessRunReconciler,
+} from "./process-run-reconciler.js";
 import { createProcessAttemptRunner } from "./process-runtime.js";
 import { createProcessWorker } from "./process-worker.js";
 import { createPostgresRetentionCleanup } from "./postgres-retention-cleanup.js";
@@ -32,6 +35,12 @@ import {
 export type ConstructedRuntimeRoleService = Readonly<{
   application: RuntimeRoleApplication;
   port: number;
+}>;
+
+export type ConstructedProcessRecoveryCommand = Readonly<{
+  reconciler: ProcessRunReconciler;
+  ready: () => Promise<void>;
+  close: () => Promise<void>;
 }>;
 
 export function constructProcessDispatcherService(
@@ -101,8 +110,9 @@ export function constructProcessDispatcherService(
     batchSize: dispatchBatchSize,
     claimLeaseMs: outboxClaimLeaseMs,
   });
+  const recoveryStore = createPostgresProcessRunRecoverySource({ pool });
   const reconciler = createProcessRunReconciler({
-    store: createPostgresProcessRunRecoverySource({ pool }),
+    store: recoveryStore,
     queue,
     queuedAgeMs,
     batchSize: reconciliationBatchSize,
@@ -110,7 +120,9 @@ export function constructProcessDispatcherService(
   const runtime = createProcessDispatcherRuntime({
     dispatcher,
     reconciler,
-    databaseReady: () => dispatcherDatabaseReady(pool),
+    databaseReady: async () => {
+      await Promise.all([dispatcherDatabaseReady(pool), recoveryStore.ready()]);
+    },
     queueReady: queue.ready,
     closeResources: async () => {
       try {
@@ -291,6 +303,62 @@ export function constructRetentionCleanerService(
     port,
     readinessTimeoutMs,
   );
+}
+
+export function constructProcessRecoveryCommand(
+  environment: StartupEnvironment,
+): ConstructedProcessRecoveryCommand {
+  const databaseUrl = parsePostgresConnectionString(environment.DATABASE_URL);
+  const redisUrl = parseRedisConnectionString(environment.REDIS_URL);
+  const queueName = parseQueueName(environment.PROCESS_QUEUE_NAME);
+  const queuePrefix = parseQueuePrefix(environment.PROCESS_QUEUE_PREFIX);
+  const redisConnectionTimeoutMs = parsePositiveInteger(
+    environment.ASYNC_REDIS_CONNECTION_TIMEOUT_MS,
+    5_000,
+    "ASYNC_REDIS_CONNECTION_TIMEOUT_MS",
+  );
+  const queuedAgeMs = parsePositiveInteger(
+    environment.PROCESS_RUN_RECONCILE_QUEUED_AGE_MS,
+    60_000,
+    "PROCESS_RUN_RECONCILE_QUEUED_AGE_MS",
+  );
+  const batchSize = parseBoundedPositiveInteger(
+    environment.PROCESS_RUN_RECONCILE_BATCH_SIZE,
+    25,
+    "PROCESS_RUN_RECONCILE_BATCH_SIZE",
+    100,
+  );
+  const pool = createPool(environment, databaseUrl, "pipipi-process-recovery");
+  const queue = createBullMqProcessWorkQueue({
+    redisUrl,
+    queueName,
+    prefix: queuePrefix,
+    connectTimeoutMs: redisConnectionTimeoutMs,
+  });
+  const recoveryStore = createPostgresProcessRunRecoverySource({ pool });
+  const reconciler = createProcessRunReconciler({
+    store: recoveryStore,
+    queue,
+    queuedAgeMs,
+    batchSize,
+  });
+  let closed = false;
+
+  return Object.freeze({
+    reconciler,
+    ready: async () => {
+      await Promise.all([recoveryStore.ready(), queue.ready()]);
+    },
+    close: async () => {
+      if (closed) return;
+      closed = true;
+      try {
+        await queue.close();
+      } finally {
+        await pool.end();
+      }
+    },
+  });
 }
 
 function roleService(

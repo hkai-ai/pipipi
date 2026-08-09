@@ -1,12 +1,12 @@
 import { describe, expect, it } from "vitest";
 import type {
-  ProcessWorkQueue,
+  RecoverableProcessWorkQueue,
   ProcessWorkSource,
 } from "../../src/process-work-queue.js";
 
 export function processWorkQueueContract(
   adapterName: string,
-  createQueue: () => ProcessWorkQueue & ProcessWorkSource,
+  createQueue: () => RecoverableProcessWorkQueue & ProcessWorkSource,
 ): void {
   describe(`${adapterName} Process Work Queue contract`, () => {
     it("publishes the minimal job and returns a defensive copy", async () => {
@@ -31,6 +31,20 @@ export function processWorkQueueContract(
       await expect(queue.take()).resolves.toBeUndefined();
       await expect(queue.enqueue(job)).resolves.toBe("enqueued");
       await expect(queue.take()).resolves.toEqual(job);
+    });
+
+    it("inspects runnable and missing jobs without changing the queue", async () => {
+      const queue = createQueue();
+      const pending = { schemaVersion: 1 as const, runId: runId(4) };
+      await queue.enqueue(pending);
+
+      await expect(
+        queue.inspectJobs([pending.runId, runId(5)]),
+      ).resolves.toEqual([
+        { runId: pending.runId, state: "runnable" },
+        { runId: runId(5), state: "missing" },
+      ]);
+      await expect(queue.take()).resolves.toEqual(pending);
     });
 
     it("stops accepting jobs after close", async () => {

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   constructProcessDispatcherService,
+  constructProcessRecoveryCommand,
   constructProcessWorkerService,
   constructRetentionCleanerService,
 } from "../src/async-runtime-construction.js";
@@ -84,6 +85,18 @@ describe("Async runtime role construction", () => {
       WEBHOOK_DELIVERY_HISTORY_RETENTION_MS: "2592000000",
     });
     await service.application.close();
+  });
+
+  it("constructs one-shot Queue Recovery from Dispatcher-owned settings", async () => {
+    expect(() => constructProcessRecoveryCommand({})).toThrow(
+      "DATABASE_URL is required for this runtime role",
+    );
+    expect(() =>
+      constructProcessRecoveryCommand({ DATABASE_URL }),
+    ).toThrow("REDIS_URL is required for this runtime role");
+    const command = constructProcessRecoveryCommand({ DATABASE_URL, REDIS_URL });
+    await command.close();
+    await command.close();
   });
 });
 
