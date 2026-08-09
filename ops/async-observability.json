@@ -1,235 +1,235 @@
 {
-  "schemaVersion": 1,
-  "source": {
-    "command": "npm run observe:async",
-    "event": "async_operations_snapshot",
-    "recommendedIntervalSeconds": 60,
-    "recentWindowEnvironment": "ASYNC_OPERATIONS_RECENT_WINDOW_MS"
-  },
-  "dashboards": [
-    {
-      "id": "async-api-admission",
-      "title": "Async API acceptance",
-      "panels": [
+    "schemaVersion": 1,
+    "source": {
+        "command": "npm run observe:async",
+        "event": "async_operations_snapshot",
+        "recommendedIntervalSeconds": 60,
+        "recentWindowEnvironment": "ASYNC_OPERATIONS_RECENT_WINDOW_MS"
+    },
+    "dashboards": [
         {
-          "metric": "logs.process_run_submission_accepted.durationMs",
-          "statistic": "p95",
-          "title": "Acceptance latency"
+            "id": "async-api-admission",
+            "title": "Async API acceptance",
+            "panels": [
+                {
+                    "metric": "logs.process_run_submission_accepted.durationMs",
+                    "statistic": "p95",
+                    "title": "Acceptance latency"
+                },
+                {
+                    "metric": "logs.process_run_admission_rejected.httpStatus",
+                    "statistic": "count_by_scope",
+                    "title": "Caller and global admission rejection"
+                },
+                {
+                    "metric": "persistence.runs.queued",
+                    "statistic": "latest",
+                    "title": "Durable queued Runs"
+                },
+                {
+                    "metric": "persistence.runs.running",
+                    "statistic": "latest",
+                    "title": "Durable running Runs"
+                }
+            ]
         },
         {
-          "metric": "logs.process_run_admission_rejected.httpStatus",
-          "statistic": "count_by_scope",
-          "title": "Caller and global admission rejection"
+            "id": "async-process-execution",
+            "title": "Process execution",
+            "panels": [
+                {
+                    "metric": "persistence.runs.queueWaitP95Ms",
+                    "statistic": "latest",
+                    "title": "Queue wait p95"
+                },
+                {
+                    "metric": "persistence.runs.executionP95Ms",
+                    "statistic": "latest",
+                    "title": "Execution duration p95"
+                },
+                {
+                    "metric": "persistence.runs.failureRateRecent",
+                    "statistic": "latest",
+                    "title": "Process failure rate"
+                },
+                {
+                    "metric": "persistence.runs.stuck",
+                    "statistic": "latest",
+                    "title": "Stuck Runs"
+                },
+                {
+                    "metric": "queues.process.waiting",
+                    "statistic": "latest",
+                    "title": "Process Queue waiting"
+                },
+                {
+                    "metric": "queues.process.oldestRunnableAgeMs",
+                    "statistic": "latest",
+                    "title": "Oldest Process Job"
+                }
+            ]
         },
         {
-          "metric": "persistence.runs.queued",
-          "statistic": "latest",
-          "title": "Durable queued Runs"
+            "id": "async-delivery",
+            "title": "Outbox and Webhook delivery",
+            "panels": [
+                {
+                    "metric": "persistence.outbox.oldestProcessLagMs",
+                    "statistic": "latest",
+                    "title": "Process Outbox lag"
+                },
+                {
+                    "metric": "persistence.outbox.oldestWebhookLagMs",
+                    "statistic": "latest",
+                    "title": "Webhook Outbox lag"
+                },
+                {
+                    "metric": "persistence.webhooks.failureRateRecent",
+                    "statistic": "latest",
+                    "title": "Webhook terminal failure rate"
+                },
+                {
+                    "metric": "persistence.webhooks.oldestPendingAgeMs",
+                    "statistic": "latest",
+                    "title": "Oldest pending Delivery"
+                },
+                {
+                    "metric": "queues.webhook.waiting",
+                    "statistic": "latest",
+                    "title": "Webhook Queue waiting"
+                },
+                {
+                    "metric": "queues.webhook.oldestRunnableAgeMs",
+                    "statistic": "latest",
+                    "title": "Oldest Webhook Job"
+                }
+            ]
         },
         {
-          "metric": "persistence.runs.running",
-          "statistic": "latest",
-          "title": "Durable running Runs"
+            "id": "async-recovery-storage",
+            "title": "Recovery, cleanup, and storage",
+            "panels": [
+                {
+                    "metric": "persistence.recovery.lastFailedItems",
+                    "statistic": "latest",
+                    "title": "Last Queue Recovery failures"
+                },
+                {
+                    "metric": "persistence.cleanup.lastDeferredRuns",
+                    "statistic": "latest",
+                    "title": "Last cleanup deferred Runs"
+                },
+                {
+                    "metric": "persistence.cleanup.lastCompletedAt",
+                    "statistic": "latest_age",
+                    "title": "Last completed cleanup age"
+                },
+                {
+                    "metric": "persistence.storage.asyncTablesBytes",
+                    "statistic": "latest_and_daily_growth",
+                    "title": "Async table storage and growth"
+                }
+            ]
         }
-      ]
-    },
-    {
-      "id": "async-process-execution",
-      "title": "Process execution",
-      "panels": [
+    ],
+    "alerts": [
         {
-          "metric": "persistence.runs.queueWaitP95Ms",
-          "statistic": "latest",
-          "title": "Queue wait p95"
+            "id": "async-acceptance-latency",
+            "metric": "logs.process_run_submission_accepted.durationMs",
+            "condition": "p95 greater than acceptance SLO for 10m",
+            "severity": "warning",
+            "runbook": "docs/async-process-runs-runbook.md#容量拒绝与恢复"
         },
         {
-          "metric": "persistence.runs.executionP95Ms",
-          "statistic": "latest",
-          "title": "Execution duration p95"
+            "id": "async-global-capacity",
+            "metric": "logs.process_run_admission_rejected.httpStatus",
+            "condition": "global scope count > 0 for 5m",
+            "severity": "warning",
+            "runbook": "docs/async-process-runs-runbook.md#容量拒绝与恢复"
         },
         {
-          "metric": "persistence.runs.failureRateRecent",
-          "statistic": "latest",
-          "title": "Process failure rate"
+            "id": "async-process-queue-age",
+            "metric": "queues.process.oldestRunnableAgeMs",
+            "condition": "greater than ASYNC_STUCK_RUN_AGE_MS for 5m",
+            "severity": "critical",
+            "runbook": "docs/async-process-runs-runbook.md#run-或-process-queue-持续增长"
         },
         {
-          "metric": "persistence.runs.stuck",
-          "statistic": "latest",
-          "title": "Stuck Runs"
+            "id": "async-queue-wait",
+            "metric": "persistence.runs.queueWaitP95Ms",
+            "condition": "greater than service SLO for 10m",
+            "severity": "warning",
+            "runbook": "docs/async-process-runs-runbook.md#run-或-process-queue-持续增长"
         },
         {
-          "metric": "queues.process.waiting",
-          "statistic": "latest",
-          "title": "Process Queue waiting"
+            "id": "async-execution-duration",
+            "metric": "persistence.runs.executionP95Ms",
+            "condition": "greater than 80% of PROCESS_TIMEOUT_MS for 10m",
+            "severity": "warning",
+            "runbook": "docs/async-process-runs-runbook.md#run-或-process-queue-持续增长"
         },
         {
-          "metric": "queues.process.oldestRunnableAgeMs",
-          "statistic": "latest",
-          "title": "Oldest Process Job"
+            "id": "async-process-failure-rate",
+            "metric": "persistence.runs.failureRateRecent",
+            "condition": "greater than 0.05 with at least 20 terminal Runs",
+            "severity": "critical",
+            "runbook": "docs/async-process-runs-runbook.md#run-或-process-queue-持续增长"
+        },
+        {
+            "id": "async-stuck-runs",
+            "metric": "persistence.runs.stuck",
+            "condition": "greater than ASYNC_MAX_STUCK_RUNS for 5m",
+            "severity": "critical",
+            "runbook": "docs/async-process-runs-runbook.md#run-或-process-queue-持续增长"
+        },
+        {
+            "id": "async-process-outbox-lag",
+            "metric": "persistence.outbox.oldestProcessLagMs",
+            "condition": "greater than ASYNC_MAX_OUTBOX_LAG_MS for 5m",
+            "severity": "critical",
+            "runbook": "docs/async-process-runs-runbook.md#outbox-延迟"
+        },
+        {
+            "id": "async-webhook-outbox-lag",
+            "metric": "persistence.outbox.oldestWebhookLagMs",
+            "condition": "greater than ASYNC_MAX_OUTBOX_LAG_MS for 5m",
+            "severity": "critical",
+            "runbook": "docs/async-process-runs-runbook.md#webhook-失败或积压"
+        },
+        {
+            "id": "async-webhook-failure-rate",
+            "metric": "persistence.webhooks.failureRateRecent",
+            "condition": "greater than 0.10 with at least 20 terminal Deliveries",
+            "severity": "warning",
+            "runbook": "docs/async-process-runs-runbook.md#webhook-失败或积压"
+        },
+        {
+            "id": "async-webhook-queue-age",
+            "metric": "queues.webhook.oldestRunnableAgeMs",
+            "condition": "greater than delivery SLO for 10m",
+            "severity": "warning",
+            "runbook": "docs/async-process-runs-runbook.md#webhook-失败或积压"
+        },
+        {
+            "id": "async-storage-growth",
+            "metric": "persistence.storage.asyncTablesBytes",
+            "condition": "daily growth exceeds approved forecast or storage exceeds 80%",
+            "severity": "warning",
+            "runbook": "docs/async-process-runs-runbook.md#存储增长或清理滞后"
+        },
+        {
+            "id": "async-cleanup-failure",
+            "metric": "logs.retention_cleanup_sweep_failed.count",
+            "condition": "greater than 0 for 5m",
+            "severity": "critical",
+            "runbook": "docs/async-process-runs-runbook.md#存储增长或清理滞后"
+        },
+        {
+            "id": "async-cleanup-overdue",
+            "metric": "persistence.cleanup.lastCompletedAt",
+            "condition": "missing or older than two configured cleanup intervals",
+            "severity": "critical",
+            "runbook": "docs/async-process-runs-runbook.md#存储增长或清理滞后"
         }
-      ]
-    },
-    {
-      "id": "async-delivery",
-      "title": "Outbox and Webhook delivery",
-      "panels": [
-        {
-          "metric": "persistence.outbox.oldestProcessLagMs",
-          "statistic": "latest",
-          "title": "Process Outbox lag"
-        },
-        {
-          "metric": "persistence.outbox.oldestWebhookLagMs",
-          "statistic": "latest",
-          "title": "Webhook Outbox lag"
-        },
-        {
-          "metric": "persistence.webhooks.failureRateRecent",
-          "statistic": "latest",
-          "title": "Webhook terminal failure rate"
-        },
-        {
-          "metric": "persistence.webhooks.oldestPendingAgeMs",
-          "statistic": "latest",
-          "title": "Oldest pending Delivery"
-        },
-        {
-          "metric": "queues.webhook.waiting",
-          "statistic": "latest",
-          "title": "Webhook Queue waiting"
-        },
-        {
-          "metric": "queues.webhook.oldestRunnableAgeMs",
-          "statistic": "latest",
-          "title": "Oldest Webhook Job"
-        }
-      ]
-    },
-    {
-      "id": "async-recovery-storage",
-      "title": "Recovery, cleanup, and storage",
-      "panels": [
-        {
-          "metric": "persistence.recovery.lastFailedItems",
-          "statistic": "latest",
-          "title": "Last Queue Recovery failures"
-        },
-        {
-          "metric": "persistence.cleanup.lastDeferredRuns",
-          "statistic": "latest",
-          "title": "Last cleanup deferred Runs"
-        },
-        {
-          "metric": "persistence.cleanup.lastCompletedAt",
-          "statistic": "latest_age",
-          "title": "Last completed cleanup age"
-        },
-        {
-          "metric": "persistence.storage.asyncTablesBytes",
-          "statistic": "latest_and_daily_growth",
-          "title": "Async table storage and growth"
-        }
-      ]
-    }
-  ],
-  "alerts": [
-    {
-      "id": "async-acceptance-latency",
-      "metric": "logs.process_run_submission_accepted.durationMs",
-      "condition": "p95 greater than acceptance SLO for 10m",
-      "severity": "warning",
-      "runbook": "docs/async-process-runs-runbook.md#容量拒绝与恢复"
-    },
-    {
-      "id": "async-global-capacity",
-      "metric": "logs.process_run_admission_rejected.httpStatus",
-      "condition": "global scope count > 0 for 5m",
-      "severity": "warning",
-      "runbook": "docs/async-process-runs-runbook.md#容量拒绝与恢复"
-    },
-    {
-      "id": "async-process-queue-age",
-      "metric": "queues.process.oldestRunnableAgeMs",
-      "condition": "greater than ASYNC_STUCK_RUN_AGE_MS for 5m",
-      "severity": "critical",
-      "runbook": "docs/async-process-runs-runbook.md#run-或-process-queue-持续增长"
-    },
-    {
-      "id": "async-queue-wait",
-      "metric": "persistence.runs.queueWaitP95Ms",
-      "condition": "greater than service SLO for 10m",
-      "severity": "warning",
-      "runbook": "docs/async-process-runs-runbook.md#run-或-process-queue-持续增长"
-    },
-    {
-      "id": "async-execution-duration",
-      "metric": "persistence.runs.executionP95Ms",
-      "condition": "greater than 80% of PROCESS_TIMEOUT_MS for 10m",
-      "severity": "warning",
-      "runbook": "docs/async-process-runs-runbook.md#run-或-process-queue-持续增长"
-    },
-    {
-      "id": "async-process-failure-rate",
-      "metric": "persistence.runs.failureRateRecent",
-      "condition": "greater than 0.05 with at least 20 terminal Runs",
-      "severity": "critical",
-      "runbook": "docs/async-process-runs-runbook.md#run-或-process-queue-持续增长"
-    },
-    {
-      "id": "async-stuck-runs",
-      "metric": "persistence.runs.stuck",
-      "condition": "greater than ASYNC_MAX_STUCK_RUNS for 5m",
-      "severity": "critical",
-      "runbook": "docs/async-process-runs-runbook.md#run-或-process-queue-持续增长"
-    },
-    {
-      "id": "async-process-outbox-lag",
-      "metric": "persistence.outbox.oldestProcessLagMs",
-      "condition": "greater than ASYNC_MAX_OUTBOX_LAG_MS for 5m",
-      "severity": "critical",
-      "runbook": "docs/async-process-runs-runbook.md#outbox-延迟"
-    },
-    {
-      "id": "async-webhook-outbox-lag",
-      "metric": "persistence.outbox.oldestWebhookLagMs",
-      "condition": "greater than ASYNC_MAX_OUTBOX_LAG_MS for 5m",
-      "severity": "critical",
-      "runbook": "docs/async-process-runs-runbook.md#webhook-失败或积压"
-    },
-    {
-      "id": "async-webhook-failure-rate",
-      "metric": "persistence.webhooks.failureRateRecent",
-      "condition": "greater than 0.10 with at least 20 terminal Deliveries",
-      "severity": "warning",
-      "runbook": "docs/async-process-runs-runbook.md#webhook-失败或积压"
-    },
-    {
-      "id": "async-webhook-queue-age",
-      "metric": "queues.webhook.oldestRunnableAgeMs",
-      "condition": "greater than delivery SLO for 10m",
-      "severity": "warning",
-      "runbook": "docs/async-process-runs-runbook.md#webhook-失败或积压"
-    },
-    {
-      "id": "async-storage-growth",
-      "metric": "persistence.storage.asyncTablesBytes",
-      "condition": "daily growth exceeds approved forecast or storage exceeds 80%",
-      "severity": "warning",
-      "runbook": "docs/async-process-runs-runbook.md#存储增长或清理滞后"
-    },
-    {
-      "id": "async-cleanup-failure",
-      "metric": "logs.retention_cleanup_sweep_failed.count",
-      "condition": "greater than 0 for 5m",
-      "severity": "critical",
-      "runbook": "docs/async-process-runs-runbook.md#存储增长或清理滞后"
-    },
-    {
-      "id": "async-cleanup-overdue",
-      "metric": "persistence.cleanup.lastCompletedAt",
-      "condition": "missing or older than two configured cleanup intervals",
-      "severity": "critical",
-      "runbook": "docs/async-process-runs-runbook.md#存储增长或清理滞后"
-    }
-  ]
+    ]
 }

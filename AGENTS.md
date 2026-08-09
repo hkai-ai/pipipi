@@ -22,7 +22,7 @@
 ## 完成与验证
 
 - 新增 Business Process、接入 Runtime Skill 或改变公开行为时，同步更新测试、`README.md`、`CONTEXT.md` 和受影响的 `docs/` 页面。
-- 默认运行 `npm run typecheck`、`npm test` 和 `npm run build`。需要网络、凭证、费用或外部写入的 smoke 必须单独说明，不把它混入确定性验证。
+- 默认运行 `npm run check`、`npm run typecheck`、`npm test` 和 `npm run build`。需要网络、凭证、费用或外部写入的 smoke 必须单独说明，不把它混入确定性验证。
 - 文档以中文为主，遵循 `docs/README.md` 的分类、事实来源和写作规范。
 
 ## Agent skills

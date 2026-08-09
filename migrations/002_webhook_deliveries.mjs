@@ -1,5 +1,5 @@
 export const up = (pgm) => {
-  pgm.sql(`
+    pgm.sql(`
     ALTER TABLE outbox_messages
       DROP CONSTRAINT IF EXISTS outbox_messages_event_id_key;
 
@@ -129,7 +129,7 @@ export const up = (pgm) => {
 };
 
 export const down = (pgm) => {
-  pgm.sql(`
+    pgm.sql(`
     DROP TABLE IF EXISTS webhook_delivery_attempts;
     DROP TABLE IF EXISTS webhook_deliveries;
     DROP TABLE IF EXISTS webhook_endpoints;

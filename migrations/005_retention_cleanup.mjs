@@ -1,5 +1,5 @@
 export const up = (pgm) => {
-  pgm.sql(`
+    pgm.sql(`
     ALTER TABLE process_runs
       DROP CONSTRAINT process_runs_accepted_input_size_check,
       DROP CONSTRAINT process_runs_result_check,
@@ -109,7 +109,7 @@ export const up = (pgm) => {
 };
 
 export const down = (pgm) => {
-  pgm.sql(`
+    pgm.sql(`
     DO $$
     BEGIN
       IF EXISTS (

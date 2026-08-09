@@ -60,6 +60,10 @@ curl --fail -X POST http://127.0.0.1:3000/execute \
 | `npm run dev:webhook-worker` | 启动 Webhook Outbox 与 Delivery Worker 角色 | 是，访问 PostgreSQL、Redis 与已注册 Endpoint |
 | `npm run dev:retention-cleaner` | 启动分批内容清理角色 | 是，会删除 PostgreSQL 中已到期内容 |
 | `npm run dev:business-api` | 启动本地演示 Business Capability | 否 |
+| `npm run check` | 只读运行 Biome 格式、lint 和 import 排序检查 | 否 |
+| `npm run check:fix` | 写入 Biome 格式和安全修复 | 否；会修改工作区文件 |
+| `npm run lint` | 只读运行 Biome lint | 否 |
+| `npm run format` | 用 Biome 格式化受管文件 | 否；会修改工作区文件 |
 | `npm run typecheck` | 严格 TypeScript 检查 | 否 |
 | `npm test` | 运行确定性测试 | 否 |
 | `npm run test:watch` | 监听并运行 Vitest | 否 |
@@ -322,7 +326,7 @@ Run Record 是运行排障数据，不是聊天历史。产品聊天记录应由
 按风险从窄到宽验证：
 
 1. 在改动附近运行单个测试文件，例如 `npm test -- test/process-runtime.test.ts`。
-2. 运行 `npm run typecheck` 和 `npm test`。
+2. 运行 `npm run check`、`npm run typecheck` 和 `npm test`。
 3. 修改构建、入口或发布资源时运行 `npm run build`；修改镜像时再构建 Docker image。
 4. 只有确定性验证通过后，才运行需要凭证、网络或费用的 smoke。
 
@@ -344,6 +348,6 @@ Run Record 是运行排障数据，不是聊天历史。产品聊天记录应由
 - Interface 比改动前更清楚，或至少没有把 Implementation 知识推给调用方；
 - 预期失败有稳定错误码，意外失败不会泄露内部消息；
 - 确定性测试覆盖成功、拒绝和关键 invariant；
-- `npm run typecheck`、`npm test` 和受影响的构建检查通过；
+- `npm run check`、`npm run typecheck`、`npm test` 和受影响的构建检查通过；
 - 配置样例、项目说明、设计文档和 Runbook 与代码保持一致；
 - 不含 `.env`、真实业务内容、签名 URL、模型过程或其他敏感产物。

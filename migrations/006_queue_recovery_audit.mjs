@@ -1,5 +1,5 @@
 export const up = (pgm) => {
-  pgm.sql(`
+    pgm.sql(`
     CREATE TABLE queue_recovery_runs (
       recovery_id uuid PRIMARY KEY,
       trigger_kind text NOT NULL,
@@ -118,7 +118,7 @@ export const up = (pgm) => {
 };
 
 export const down = (pgm) => {
-  pgm.sql(`
+    pgm.sql(`
     DROP TABLE IF EXISTS queue_recovery_items;
     DROP TABLE IF EXISTS queue_recovery_runs;
   `);

@@ -1,18 +1,15 @@
 import type { Pool, QueryResultRow } from "pg";
 import { parseWebhookDeliveryJob } from "./delivery.js";
-import type {
-  ClaimedWebhookOutboxMessage,
-  WebhookOutbox,
-} from "./outbox.js";
+import type { ClaimedWebhookOutboxMessage, WebhookOutbox } from "./outbox.js";
 
 export function createPostgresWebhookOutbox(options: {
-  pool: Pool;
+    pool: Pool;
 }): WebhookOutbox {
-  return Object.freeze({
-    claimWebhookWork: async (request) => {
-      validateLimit(request.limit);
-      const result = await options.pool.query<WebhookOutboxRow>(
-        `
+    return Object.freeze({
+        claimWebhookWork: async (request) => {
+            validateLimit(request.limit);
+            const result = await options.pool.query<WebhookOutboxRow>(
+                `
           WITH candidates AS (
             SELECT message_id
             FROM outbox_messages
@@ -38,18 +35,18 @@ export function createPostgresWebhookOutbox(options: {
             messages.claim_token,
             messages.payload
         `,
-        [
-          request.claimToken,
-          request.claimedAt,
-          request.claimExpiresAt,
-          request.limit,
-        ],
-      );
-      return result.rows.map(claimedMessageFromRow);
-    },
-    markPublished: async (request) => {
-      const result = await options.pool.query(
-        `
+                [
+                    request.claimToken,
+                    request.claimedAt,
+                    request.claimExpiresAt,
+                    request.limit,
+                ],
+            );
+            return result.rows.map(claimedMessageFromRow);
+        },
+        markPublished: async (request) => {
+            const result = await options.pool.query(
+                `
           UPDATE outbox_messages
           SET
             published_at = $3,
@@ -60,13 +57,13 @@ export function createPostgresWebhookOutbox(options: {
             AND claim_token = $2
             AND published_at IS NULL
         `,
-        [request.messageId, request.claimToken, request.publishedAt],
-      );
-      return result.rowCount === 1;
-    },
-    release: async (request) => {
-      const result = await options.pool.query(
-        `
+                [request.messageId, request.claimToken, request.publishedAt],
+            );
+            return result.rowCount === 1;
+        },
+        release: async (request) => {
+            const result = await options.pool.query(
+                `
           UPDATE outbox_messages
           SET claim_token = NULL, claim_expires_at = NULL
           WHERE
@@ -74,38 +71,40 @@ export function createPostgresWebhookOutbox(options: {
             AND claim_token = $2
             AND published_at IS NULL
         `,
-        [request.messageId, request.claimToken],
-      );
-      return result.rowCount === 1;
-    },
-  });
+                [request.messageId, request.claimToken],
+            );
+            return result.rowCount === 1;
+        },
+    });
 }
 
 interface WebhookOutboxRow extends QueryResultRow {
-  message_id: string;
-  event_id: string;
-  claim_token: string;
-  payload: unknown;
+    message_id: string;
+    event_id: string;
+    claim_token: string;
+    payload: unknown;
 }
 
 function claimedMessageFromRow(
-  row: WebhookOutboxRow,
+    row: WebhookOutboxRow,
 ): ClaimedWebhookOutboxMessage {
-  const job = parseWebhookDeliveryJob(row.payload);
-  if (!job) throw new Error("Persisted Webhook outbox payload is invalid");
-  return Object.freeze({
-    messageId: row.message_id,
-    eventId: row.event_id,
-    claimToken: row.claim_token,
-    job,
-  });
+    const job = parseWebhookDeliveryJob(row.payload);
+    if (!job) throw new Error("Persisted Webhook outbox payload is invalid");
+    return Object.freeze({
+        messageId: row.message_id,
+        eventId: row.event_id,
+        claimToken: row.claim_token,
+        job,
+    });
 }
 
 function validateLimit(value: number): void {
-  if (!Number.isSafeInteger(value) || value < 1) {
-    throw new Error("Webhook outbox claim limit must be a positive integer");
-  }
-  if (value > 100) {
-    throw new Error("Webhook outbox claim limit must not exceed 100");
-  }
+    if (!Number.isSafeInteger(value) || value < 1) {
+        throw new Error(
+            "Webhook outbox claim limit must be a positive integer",
+        );
+    }
+    if (value > 100) {
+        throw new Error("Webhook outbox claim limit must not exceed 100");
+    }
 }

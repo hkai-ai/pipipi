@@ -1,5 +1,5 @@
 export const up = (pgm) => {
-  pgm.sql(`
+    pgm.sql(`
     DO $$
     BEGIN
       IF EXISTS (SELECT 1 FROM webhook_endpoints LIMIT 1) THEN
@@ -68,7 +68,7 @@ export const up = (pgm) => {
 };
 
 export const down = (pgm) => {
-  pgm.sql(`
+    pgm.sql(`
     DO $$
     BEGIN
       IF EXISTS (SELECT 1 FROM webhook_endpoints LIMIT 1) THEN

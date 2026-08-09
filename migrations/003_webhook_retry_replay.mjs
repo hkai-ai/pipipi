@@ -1,5 +1,5 @@
 export const up = (pgm) => {
-  pgm.sql(`
+    pgm.sql(`
     ALTER TABLE webhook_delivery_attempts
       DROP CONSTRAINT webhook_delivery_attempts_outcome_check,
       DROP CONSTRAINT webhook_delivery_attempts_latency_check,
@@ -51,7 +51,7 @@ export const up = (pgm) => {
 };
 
 export const down = (pgm) => {
-  pgm.sql(`
+    pgm.sql(`
     DELETE FROM outbox_messages
     WHERE topic = 'webhook-deliveries'
       AND payload->>'deliveryId' IN (

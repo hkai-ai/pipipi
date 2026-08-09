@@ -114,7 +114,7 @@ flowchart LR
 
 ### 完成门槛
 
-- `npm run typecheck`、`npm test` 和 `npm run build` 通过。
+- `npm run check`、`npm run typecheck`、`npm test` 和 `npm run build` 通过。
 - 删除新的 Attempt Runner 后，`runId`、超时、错误净化和 accepted input 执行会重新散落到同步与异步调用方；该 Module 通过 deletion test。
 - 生产 catalog、公开路由和环境配置没有变化。
 
@@ -331,9 +331,10 @@ type AsyncProcessRuns = Readonly<{
 
 ## 验证命令
 
-现有确定性门禁保持不变：
+确定性门禁运行：
 
 ```bash
+npm run check
 npm run typecheck
 npm test
 npm run build

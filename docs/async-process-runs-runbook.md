@@ -34,6 +34,7 @@ flowchart LR
 
 ```bash
 npm ci
+npm run check
 npm run typecheck
 npm test
 npm run build

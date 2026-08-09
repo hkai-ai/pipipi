@@ -1,5 +1,5 @@
 export const up = (pgm) => {
-  pgm.sql(`
+    pgm.sql(`
     CREATE TABLE process_runs (
       schema_version smallint NOT NULL DEFAULT 1,
       run_id uuid PRIMARY KEY,
@@ -168,7 +168,7 @@ export const up = (pgm) => {
 };
 
 export const down = (pgm) => {
-  pgm.sql(`
+    pgm.sql(`
     DROP TABLE IF EXISTS outbox_messages;
     DROP TABLE IF EXISTS process_events;
     DROP TABLE IF EXISTS process_run_attempts;
