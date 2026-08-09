@@ -1,4 +1,8 @@
 import { randomUUID } from "node:crypto";
+import {
+  emitAsyncOperationalLog,
+  type AsyncOperationalLogSink,
+} from "./async-operational-logging.js";
 import type {
   ProcessErrorCode,
   ProcessAttemptRunner,
@@ -32,9 +36,12 @@ export function createProcessWorker(options: {
   attemptRunner: ProcessAttemptRunner;
   clock?: () => string;
   createClaimToken?: () => string;
+  logSink?: AsyncOperationalLogSink;
+  logClock?: () => string;
 }): ProcessWorker {
   const clock = options.clock ?? (() => new Date().toISOString());
   const createClaimToken = options.createClaimToken ?? randomUUID;
+  const logClock = options.logClock ?? (() => new Date().toISOString());
   const activeClaims = new Map<
     string,
     Readonly<{ runId: string; claimToken: string }>
@@ -44,14 +51,20 @@ export function createProcessWorker(options: {
     process: async (rawJob, context) => {
       const job = parseProcessWorkJob(rawJob);
       if (!job) return "invalid-job";
-      if (context?.signal?.aborted) return "ignored";
+      if (context?.signal?.aborted) {
+        logProcessWork(options.logSink, logClock, job.runId, "ignored");
+        return "ignored";
+      }
 
       const claim = await options.store.claim({
         runId: job.runId,
         claimToken: createClaimToken(),
         claimedAt: clock(),
       });
-      if (!claim) return "ignored";
+      if (!claim) {
+        logProcessWork(options.logSink, logClock, job.runId, "ignored");
+        return "ignored";
+      }
       activeClaims.set(claim.claimToken, {
         runId: claim.runId,
         claimToken: claim.claimToken,
@@ -64,6 +77,13 @@ export function createProcessWorker(options: {
             claimToken: claim.claimToken,
             releasedAt: clock(),
           });
+          logProcessWork(
+            options.logSink,
+            logClock,
+            claim.runId,
+            "ignored",
+            claim.attemptNumber,
+          );
           return "ignored";
         }
         const registration = options.registry.find({
@@ -94,6 +114,13 @@ export function createProcessWorker(options: {
             claimToken: claim.claimToken,
             releasedAt: clock(),
           });
+          logProcessWork(
+            options.logSink,
+            logClock,
+            claim.runId,
+            "ignored",
+            claim.attemptNumber,
+          );
           return "ignored";
         }
 
@@ -112,7 +139,7 @@ export function createProcessWorker(options: {
             scheduledAt: clock(),
             failure: result.error,
           });
-          return scheduled
+          const outcome: ProcessWorkResult = scheduled
             ? {
                 outcome: "retry-scheduled",
                 delayMs: retryDelay(
@@ -121,6 +148,14 @@ export function createProcessWorker(options: {
                 ),
               }
             : "ignored";
+          logProcessWork(
+            options.logSink,
+            logClock,
+            claim.runId,
+            scheduled ? "retry_scheduled" : "ignored",
+            claim.attemptNumber,
+          );
+          return outcome;
         }
 
         const completed = await options.store.complete({
@@ -132,7 +167,24 @@ export function createProcessWorker(options: {
               ? { status: "succeeded", output: result.output }
               : { status: "failed", error: result.error },
         });
-        return completed ? "processed" : "ignored";
+        const outcome = completed ? "processed" : "ignored";
+        logProcessWork(
+          options.logSink,
+          logClock,
+          claim.runId,
+          outcome,
+          claim.attemptNumber,
+        );
+        return outcome;
+      } catch (error) {
+        logProcessWork(
+          options.logSink,
+          logClock,
+          claim.runId,
+          "worker_error",
+          claim.attemptNumber,
+        );
+        throw error;
       } finally {
         activeClaims.delete(claim.claimToken);
       }
@@ -151,6 +203,28 @@ export function createProcessWorker(options: {
       );
       return released.filter(Boolean).length;
     },
+  });
+}
+
+function logProcessWork(
+  sink: AsyncOperationalLogSink | undefined,
+  clock: () => string,
+  runId: string,
+  outcome: "processed" | "ignored" | "retry_scheduled" | "worker_error",
+  attemptNumber?: number,
+): void {
+  let timestamp: string;
+  try {
+    timestamp = clock();
+  } catch {
+    return;
+  }
+  emitAsyncOperationalLog(sink, {
+    event: "process_run_work_finished",
+    timestamp,
+    runId,
+    ...(attemptNumber === undefined ? {} : { attemptNumber }),
+    outcome,
   });
 }
 

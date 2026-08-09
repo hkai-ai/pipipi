@@ -1,4 +1,5 @@
 import { Pool } from "pg";
+import { writeAsyncOperationalLog } from "./async-operational-logging.js";
 import {
   createBullMqWebhookWorker,
   createBullMqWebhookWorkQueue,
@@ -205,6 +206,7 @@ export function constructWebhookWorkerService(
           100,
         ),
       },
+      logSink: writeAsyncOperationalLog,
     }),
   });
   const runtime = createWebhookWorkerRuntime({
@@ -213,6 +215,7 @@ export function constructWebhookWorkerService(
       queue,
       batchSize: dispatchBatchSize,
       claimLeaseMs: outboxClaimLeaseMs,
+      logSink: writeAsyncOperationalLog,
     }),
     worker,
     databaseReady: store.ready,

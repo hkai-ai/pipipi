@@ -4,6 +4,10 @@ import { runner } from "node-pg-migrate";
 import { Pool } from "pg";
 import { createAsyncProcessRuns } from "../src/async-process-runs.js";
 import {
+  createPostgresAsyncOperations,
+  createPostgresAsyncReleaseReadiness,
+} from "../src/async-operations.js";
+import {
   callerIdentityHeader,
   gatewayAuthenticationHeader,
 } from "../src/caller-identity.js";
@@ -16,7 +20,10 @@ import {
   createStandardWebhookHttpSender,
   createWebhookDeliveryWorker,
 } from "../src/webhook-delivery.js";
-import type { ProcessRunStore } from "../src/process-run-store.js";
+import {
+  ProcessRunBacklogLimitError,
+  type ProcessRunStore,
+} from "../src/process-run-store.js";
 import { createProcessRegistry } from "../src/process-runtime.js";
 import { constructProcessingService } from "../src/startup-construction.js";
 import { processRunStoreContract } from "./support/process-run-store-contract.js";
@@ -94,6 +101,198 @@ postgresDescribe("PostgreSQL Process Run Store", () => {
       status: "succeeded",
       output: { value: "persisted" },
     });
+  });
+
+  it("admits idempotent replay before enforcing caller and global backlog limits", async () => {
+    const store = createPostgresProcessRunStore({
+      pool: primaryPool,
+      retention: RETENTION,
+      admission: {
+        globalBacklogLimit: 2,
+        callerBacklogLimit: 1,
+        retryAfterSeconds: 7,
+      },
+    });
+    const first = acceptedRun(201, {
+      ownerId: "caller-admission-a",
+      idempotencyKey: "first",
+    });
+    await expect(store.accept(first)).resolves.toMatchObject({ outcome: "created" });
+    await expect(store.accept(first)).resolves.toMatchObject({ outcome: "replayed" });
+
+    await expect(
+      store.accept(
+        acceptedRun(202, {
+          ownerId: "caller-admission-a",
+          idempotencyKey: "second",
+        }),
+      ),
+    ).rejects.toEqual(new ProcessRunBacklogLimitError("caller", 7));
+
+    const secondCaller = acceptedRun(203, {
+      ownerId: "caller-admission-b",
+      idempotencyKey: "first",
+    });
+    await expect(store.accept(secondCaller)).resolves.toMatchObject({
+      outcome: "created",
+    });
+    await expect(
+      store.accept(
+        acceptedRun(204, {
+          ownerId: "caller-admission-c",
+          idempotencyKey: "first",
+        }),
+      ),
+    ).rejects.toEqual(new ProcessRunBacklogLimitError("global", 7));
+
+    await expect(store.findOwned(first.runId, first.ownerId)).resolves.toMatchObject({
+      runId: first.runId,
+      status: "queued",
+    });
+  });
+
+  it("serializes concurrent acceptance so the global backlog cannot overshoot", async () => {
+    const stores = [primaryPool, secondaryPool].map((pool) =>
+      createPostgresProcessRunStore({
+        pool,
+        retention: RETENTION,
+        admission: {
+          globalBacklogLimit: 3,
+          callerBacklogLimit: 3,
+          retryAfterSeconds: 5,
+        },
+      }),
+    );
+    const outcomes = await Promise.allSettled(
+      Array.from({ length: 12 }, (_, index) =>
+        stores[index % stores.length]!.accept(
+          acceptedRun(220 + index, {
+            ownerId: `caller-concurrent-${index}`,
+            idempotencyKey: `concurrent-${index}`,
+          }),
+        ),
+      ),
+    );
+
+    expect(outcomes.filter((outcome) => outcome.status === "fulfilled")).toHaveLength(3);
+    const rejected = outcomes.filter(
+      (outcome): outcome is PromiseRejectedResult => outcome.status === "rejected",
+    );
+    expect(rejected).toHaveLength(9);
+    expect(
+      rejected.every(
+        (outcome) =>
+          outcome.reason instanceof ProcessRunBacklogLimitError &&
+          outcome.reason.scope === "global",
+      ),
+    ).toBe(true);
+    const count = await primaryPool.query<{ count: string }>(
+      "SELECT count(*)::text AS count FROM process_runs WHERE status IN ('queued', 'running')",
+    );
+    expect(count.rows[0]?.count).toBe("3");
+  });
+
+  it("reports Run, Outbox, Webhook, cleanup, recovery, and storage operations metrics", async () => {
+    const queued = acceptedRun(240, {
+      ownerId: "caller-observe-a",
+      idempotencyKey: "queued",
+    });
+    const failed = acceptedRun(241, {
+      ownerId: "caller-observe-b",
+      idempotencyKey: "failed",
+    });
+    await primaryStore.accept(queued);
+    await primaryStore.accept(failed);
+    const claim = await primaryStore.claim({
+      runId: failed.runId,
+      claimToken: claimToken(241),
+      claimedAt: "2026-08-09T10:00:02.000Z",
+    });
+    if (!claim) throw new Error("Expected Process Run claim");
+    await primaryStore.complete({
+      runId: failed.runId,
+      claimToken: claim.claimToken,
+      completedAt: "2026-08-09T10:00:12.000Z",
+      completion: {
+        status: "failed",
+        error: { code: "INTERNAL_ERROR", message: "Public failure" },
+      },
+    });
+
+    const operations = createPostgresAsyncOperations({
+      pool: primaryPool,
+      recentWindowMs: 120_000,
+      stuckRunAgeMs: 30_000,
+    });
+    await expect(operations.ready()).resolves.toBeUndefined();
+    const snapshot = await operations.snapshot({
+      asOf: "2026-08-09T10:01:00.000Z",
+    });
+
+    expect(snapshot.runs).toMatchObject({
+      queued: 1,
+      running: 0,
+      succeededRecent: 0,
+      failedRecent: 1,
+      failureRateRecent: 1,
+      oldestQueuedAgeMs: 60_000,
+      queueWaitP95Ms: 2_000,
+      executionP95Ms: 10_000,
+      stuck: 1,
+    });
+    expect(snapshot.outbox).toMatchObject({
+      processPending: 2,
+      webhookPending: 0,
+      oldestProcessLagMs: 60_000,
+    });
+    expect(snapshot.webhooks).toMatchObject({
+      pending: 0,
+      delivering: 0,
+      failedRecent: 0,
+      exhaustedRecent: 0,
+    });
+    expect(snapshot.storage.databaseBytes).toBeGreaterThan(0);
+    expect(snapshot.storage.asyncTablesBytes).toBeGreaterThan(0);
+
+    await primaryPool.query(
+      `
+        INSERT INTO queue_recovery_runs (
+          recovery_id,
+          trigger_kind,
+          recovery_mode,
+          dry_run,
+          actor_id,
+          as_of,
+          queued_before,
+          status,
+          started_at,
+          completed_at
+        )
+        VALUES (
+          '40000000-0000-4000-8000-000000000240',
+          'manual',
+          'all',
+          true,
+          'operator:release-gate-test',
+          '2026-08-09T10:00:50.000Z',
+          '2026-08-09T10:00:20.000Z',
+          'completed',
+          '2026-08-09T10:00:50.000Z',
+          '2026-08-09T10:00:51.000Z'
+        )
+      `,
+    );
+    const releaseReady = createPostgresAsyncReleaseReadiness({
+      pool: primaryPool,
+      stage: "canary",
+      globalBacklogLimit: 100,
+      stuckRunAgeMs: 120_000,
+      maximumStuckRuns: 0,
+      maximumOutboxLagMs: 120_000,
+      recoveryMaxAgeMs: 120_000,
+      clock: () => "2026-08-09T10:01:00.000Z",
+    });
+    await expect(releaseReady()).resolves.toBeUndefined();
   });
 
   it("persists a stable failure across independent adapter instances", async () => {
@@ -1313,6 +1512,10 @@ postgresDescribe("PostgreSQL Process Run Store", () => {
       PROCESS_RUN_ACCEPTED_INPUT_RETENTION_MS: "86400000",
       PROCESS_RUN_RESULT_RETENTION_MS: "604800000",
       PROCESS_RUN_METADATA_RETENTION_MS: "2592000000",
+      ASYNC_RELEASE_STAGE: "internal",
+      ASYNC_GLOBAL_BACKLOG_LIMIT: "1000",
+      ASYNC_CALLER_BACKLOG_LIMIT: "100",
+      ASYNC_BACKLOG_RETRY_AFTER_SECONDS: "5",
     });
     const { url } = await constructed.application.listen();
     const headers = {

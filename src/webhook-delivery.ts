@@ -1,5 +1,9 @@
 import { createHmac, randomUUID } from "node:crypto";
 import {
+  emitAsyncOperationalLog,
+  type AsyncOperationalLogSink,
+} from "./async-operational-logging.js";
+import {
   createPinnedWebhookHttpClient,
   createWebhookTargetPolicy,
   isWebhookTargetPolicyError,
@@ -102,6 +106,8 @@ export function createWebhookDeliveryWorker(options: {
   createClaimToken?: () => string;
   retryPolicy?: WebhookRetryPolicy;
   random?: () => number;
+  logSink?: AsyncOperationalLogSink;
+  logClock?: () => string;
 }): WebhookDeliveryWorker {
   const clock = options.clock ?? (() => new Date().toISOString());
   const createClaimToken = options.createClaimToken ?? randomUUID;
@@ -116,6 +122,7 @@ export function createWebhookDeliveryWorker(options: {
     },
   );
   const random = options.random ?? Math.random;
+  const logClock = options.logClock ?? (() => new Date().toISOString());
 
   return Object.freeze({
     process: async (rawJob, context) => {
@@ -129,13 +136,25 @@ export function createWebhookDeliveryWorker(options: {
       });
       if (!delivery) return "ignored";
 
-      const result = await options.sender.send({
-        url: delivery.endpointUrl,
-        eventId: delivery.eventId,
-        payload: delivery.payload,
-        secrets: delivery.secrets,
-        ...(context?.signal ? { signal: context.signal } : {}),
-      });
+      let result: WebhookSendResult;
+      try {
+        result = await options.sender.send({
+          url: delivery.endpointUrl,
+          eventId: delivery.eventId,
+          payload: delivery.payload,
+          secrets: delivery.secrets,
+          ...(context?.signal ? { signal: context.signal } : {}),
+        });
+      } catch (error) {
+        const timestamp = safeLogTimestamp(logClock);
+        if (timestamp) {
+          emitWebhookAttempt(options.logSink, delivery, timestamp, {
+            outcome: "failed",
+            disposition: "worker_error",
+          });
+        }
+        throw error;
+      }
       const completedAt = clock();
       if (result.outcome === "failed" && isRetryable(result)) {
         const delayMs = retryDelay(
@@ -158,6 +177,15 @@ export function createWebhookDeliveryWorker(options: {
             nextAttemptAt,
             result,
           });
+          const disposition = rescheduled ? "retry_scheduled" : "claim_lost";
+          emitWebhookAttempt(options.logSink, delivery, completedAt, {
+            outcome: "failed",
+            disposition,
+            ...(result.httpStatus === undefined
+              ? {}
+              : { httpStatus: result.httpStatus }),
+            errorCode: result.errorCode,
+          });
           return rescheduled
             ? { outcome: "retry-scheduled", delayMs }
             : "ignored";
@@ -176,8 +204,43 @@ export function createWebhookDeliveryWorker(options: {
             }
           : {}),
       });
+      emitWebhookAttempt(options.logSink, delivery, completedAt, {
+        outcome: result.outcome,
+        disposition: completed ? "completed" : "claim_lost",
+        ...(result.httpStatus === undefined ? {} : { httpStatus: result.httpStatus }),
+        ...(result.outcome === "failed" ? { errorCode: result.errorCode } : {}),
+      });
       return completed ? "processed" : "ignored";
     },
+  });
+}
+
+function safeLogTimestamp(clock: () => string): string | undefined {
+  try {
+    return clock();
+  } catch {
+    return undefined;
+  }
+}
+
+function emitWebhookAttempt(
+  sink: AsyncOperationalLogSink | undefined,
+  delivery: ClaimedWebhookDelivery,
+  timestamp: string,
+  result: Readonly<{
+    outcome: "succeeded" | "failed";
+    disposition: "completed" | "retry_scheduled" | "claim_lost" | "worker_error";
+    httpStatus?: number;
+    errorCode?: "HTTP_ERROR" | "NETWORK_ERROR" | "TARGET_REJECTED";
+  }>,
+): void {
+  emitAsyncOperationalLog(sink, {
+    event: "webhook_delivery_attempt_finished",
+    timestamp,
+    deliveryId: delivery.deliveryId,
+    eventId: delivery.eventId,
+    attemptNumber: delivery.attemptNumber,
+    ...result,
   });
 }
 

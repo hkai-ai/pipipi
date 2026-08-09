@@ -137,6 +137,23 @@ export class ProcessRunStoreCapacityError extends Error {
   }
 }
 
+export type ProcessRunBacklogScope = "caller" | "global";
+
+export class ProcessRunBacklogLimitError extends Error {
+  readonly scope: ProcessRunBacklogScope;
+  readonly retryAfterSeconds: number;
+
+  constructor(scope: ProcessRunBacklogScope, retryAfterSeconds: number) {
+    super(`${scope === "caller" ? "Caller" : "Global"} Process Run backlog limit reached`);
+    this.name = "ProcessRunBacklogLimitError";
+    this.scope = scope;
+    this.retryAfterSeconds = positiveInteger(
+      retryAfterSeconds,
+      "Process Run backlog Retry-After",
+    );
+  }
+}
+
 export function createInMemoryProcessRunStore(
   options: { maxRuns?: number; claimLeaseMs?: number } = {},
 ): ProcessRunStore {

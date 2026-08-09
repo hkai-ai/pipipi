@@ -1,5 +1,9 @@
 import { Queue, Worker, type Job } from "bullmq";
 import {
+  readBullMqQueueSnapshot,
+  type BullMqQueueSnapshot,
+} from "./bullmq-queue-observability.js";
+import {
   parseWebhookDeliveryJob,
   type WebhookDeliveryJob,
   type WebhookDeliveryWorker,
@@ -18,7 +22,10 @@ const completedRetention = Object.freeze({ age: 3_600, count: 1_000 });
 const failedRetention = Object.freeze({ age: 86_400, count: 5_000 });
 
 export type BullMqWebhookWorkQueue = WebhookWorkQueue &
-  Readonly<{ ready: () => Promise<void> }>;
+  Readonly<{
+    ready: () => Promise<void>;
+    snapshot: (asOfMilliseconds?: number) => Promise<BullMqQueueSnapshot>;
+  }>;
 
 export type BullMqWebhookWorker = Readonly<{
   start: () => Promise<void>;
@@ -77,6 +84,10 @@ export function createBullMqWebhookWorkQueue(options: {
       }
       await queue.add(webhookJobName, job, { jobId: job.deliveryId });
       return "enqueued";
+    },
+    snapshot: async (asOfMilliseconds) => {
+      if (closed) throw new Error("Webhook Work Queue is closed");
+      return readBullMqQueueSnapshot(queue, asOfMilliseconds);
     },
     ready: () => queue.waitUntilReady(),
     close: async () => {

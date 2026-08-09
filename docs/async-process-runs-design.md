@@ -2,7 +2,7 @@
 
 状态：设计已确认，尚未实现。
 
-本文面向准备增加异步执行、任务查询和 Webhook 的开发者。它定义目标 Interface、Module 边界和可靠性约束；具体实施顺序见 [`async-process-runs-development-plan.md`](async-process-runs-development-plan.md)。当前生产行为仍以 [`process-runtime-design.md`](process-runtime-design.md) 和代码测试为准。BullMQ、Redis 与 Webhook 的外部事实见 [`research/async-process-execution.md`](research/async-process-execution.md)。
+本文面向维护异步执行、任务查询和 Webhook 的开发者。它定义当前 Interface、Module 边界和可靠性约束；完成的实施批次见 [`async-process-runs-development-plan.md`](async-process-runs-development-plan.md)，部署与故障处理见 [`async-process-runs-runbook.md`](async-process-runs-runbook.md)。精确行为仍以代码和测试为准。BullMQ、Redis 与 Webhook 的外部事实见 [`research/async-process-execution.md`](research/async-process-execution.md)。
 
 ## 结论
 
@@ -330,15 +330,16 @@ BullMQ 和网络只能提供至少一次执行。流程若会扣费、发布、�
 
 - 入口继续由 TLS 网关认证。异步 API 还需要稳定的 caller identity；网关必须删除客户端伪造的身份头，或应用直接验证 token。Process Run、幂等键和 Webhook Endpoint 都按 caller 隔离。
 - 当前 Gateway Adapter 使用固定的内部头 `x-pipipi-caller-id` 与 `x-pipipi-gateway-token`。网关先验证外部凭证并删除客户端同名头，再注入稳定 subject 和至少 32 bytes 的共享凭证；外部调用方不应直接构造这两个头。功能默认关闭，缺少数据库、retention 或网关凭证时 Startup Construction 拒绝启用。
-- `GET /healthz` 不访问外部依赖；`GET /readyz` 在异步功能启用时检查 PostgreSQL 连接与 `process_runs` migration。readiness 失败不应把数据库地址或错误细节返回给调用方。
+- `GET /healthz` 不访问外部依赖；`GET /readyz` 在异步功能启用时检查 PostgreSQL 与 migration。`canary` 和 `production` 阶段还检查 durable backlog、stuck Run、Outbox lag 与最近一次成功的人工全量恢复；readiness 失败不向调用方返回内部细节。
 - `runId` 使用不可预测标识，但它不是授权凭证。所有查询都检查 owner。
 - 数据库和 Redis 使用不同的最小权限凭证。Secret 只由部署平台注入，不能出现在 Queue Job、日志或错误响应中。
 - Webhook secret 加密保存，只在 Delivery Worker 内解密；日志只记录 endpoint ID、delivery ID、HTTP status 和错误分类。
 - Webhook 签名只证明来源与正文完整性，不加密 payload；Endpoint 必须使用 HTTPS，payload 仍只发送最少元数据。
 - Endpoint 注册和 URL 修改先解析全部地址并拒绝 loopback、link-local、私网、metadata、保留和其他非公网地址。Delivery 每次发送前重新解析，并通过自定义 lookup 把本次连接固定到已验证地址；HTTP client 不跟随重定向，因此 DNS rebinding 和跳转不能绕过检查。
 - Endpoint 的创建、URL 修改、停用、Secret 轮换和目标拒绝都写 owner-scoped 审计事件。Secret 查询永不返回明文或加密信封；轮换窗口内只在 Worker 内解密 current/previous 两把签名 Secret。
-- API、Worker、Dispatcher 和 Webhook Delivery 都需要结构化日志、metrics 和 trace correlation。共同关联键是 `runId`、event ID 和 delivery ID。
-- backlog、最长 queued age、Attempt 成功率、stalled count、outbox age、Webhook retry age 和 dead-letter count 必须有告警。
+- API、Worker、Dispatcher 和 Webhook Delivery 使用无业务内容的结构化关联日志。共同关联键是 `runId`、`eventId` 和 `deliveryId`；Outbox 还记录 `messageId`。
+- `observe:async` 统一读取 PostgreSQL 与两个 Queue 的运维快照；Dashboard 与告警规范覆盖 backlog、queued/Job age、queue wait、execution p95、failure rate、stuck、Outbox lag、Webhook failure、cleanup/recovery 与 storage growth。
+- 新 Run 的 caller/global backlog admission 位于 PostgreSQL acceptance 事务内。幂等重放先于容量判断；达到 caller 阈值返回 `429`，达到全局阈值返回 `503`，既有 GET 始终独立可用。
 
 ## 部署形状
 
@@ -350,9 +351,10 @@ BullMQ 和网络只能提供至少一次执行。流程若会扣费、发布、�
 | Process Dispatcher/Worker | outbox 入队和执行 Process Attempt | Queue depth、oldest Job age、下游配额 |
 | Webhook Dispatcher/Worker | 创建并投递 Webhook Delivery | Delivery backlog 和 endpoint latency |
 | Retention Cleaner | 分批删除已到期内容与 metadata | 到期候选量、删除量、deferred 数和 sweep 延迟 |
+| Operations Job | 一次性读取 PostgreSQL 与两个 Queue 的无内容快照 | 固定周期运行，不接产品流量 |
 | Migration Job | 在新代码接流量前执行数据库迁移 | 每个版本一次，不水平扩容 |
 
-初期可以在一个 Worker 进程内运行 Dispatcher 与 Process Worker，也可以在一个 Delivery 进程内组合 Webhook Dispatcher 与 Worker；Interface 和数据表仍保持分离，便于随后独立扩容。API 进程不应在后台偷偷消费 Job。
+当前构造把 API、Process Dispatcher、Process Worker、Webhook Worker 和 Retention Cleaner 分为独立长运行角色；Operations 是一次性 Job。API 进程不在后台消费 Job，Process 与 Webhook Queue 也不共享 concurrency。
 
 每个角色分别实现 liveness、readiness 和优雅关闭。API readiness 检查数据库；Dispatcher/Worker readiness 检查数据库与 Redis。健康检查不调用模型、Business Capability 或外部 Webhook。
 
@@ -375,7 +377,7 @@ BullMQ 和网络只能提供至少一次执行。流程若会扣费、发布、�
 
 开发批次、状态、代码落点、测试矩阵、迁移顺序和发布门槛统一维护在 [`async-process-runs-development-plan.md`](async-process-runs-development-plan.md)。本设计文档只维护目标结构和 invariant，避免计划状态与架构事实形成两个来源。
 
-## 实施前必须确认的决策
+## 已采用的关键决策
 
 | 决策 | 建议默认值 | 未确认时的安全行为 |
 | --- | --- | --- |

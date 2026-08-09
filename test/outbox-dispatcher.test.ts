@@ -6,6 +6,7 @@ import type { ProcessWorkQueue } from "../src/process-work-queue.js";
 describe("Outbox Dispatcher", () => {
   it("publishes a claimed Process Work message before acknowledging it", async () => {
     const calls: string[] = [];
+    const logs: unknown[] = [];
     const outbox = fakeOutbox({
       claimProcessWork: async (request) => {
         calls.push(`claim:${request.claimToken}:${request.claimExpiresAt}`);
@@ -40,6 +41,7 @@ describe("Outbox Dispatcher", () => {
       claimLeaseMs: 30_000,
       clock: () => timestamps.shift() ?? "unexpected",
       createClaimToken: () => "claim-1",
+      logSink: (record) => logs.push(record),
     });
 
     await expect(dispatcher.dispatchOnce()).resolves.toEqual({
@@ -52,9 +54,18 @@ describe("Outbox Dispatcher", () => {
       `enqueue:${runId(1)}`,
       "ack:message-1:2026-08-09T01:00:01.000Z",
     ]);
+    expect(logs).toContainEqual({
+      event: "outbox_message_published",
+      topic: "process-runs",
+      timestamp: "2026-08-09T01:00:01.000Z",
+      messageId: "message-1",
+      eventId: "event-1",
+      runId: runId(1),
+    });
   });
 
   it("releases a claim when publishing fails so a later pass can retry", async () => {
+    const logs: unknown[] = [];
     const release = vi.fn(async () => true);
     const outbox = fakeOutbox({
       claimProcessWork: async (request) => [
@@ -76,6 +87,7 @@ describe("Outbox Dispatcher", () => {
       }),
       clock: () => "2026-08-09T01:00:00.000Z",
       createClaimToken: () => "claim-2",
+      logSink: (record) => logs.push(record),
     });
 
     await expect(dispatcher.dispatchOnce()).resolves.toEqual({
@@ -87,6 +99,15 @@ describe("Outbox Dispatcher", () => {
       messageId: "message-2",
       claimToken: "claim-2",
     });
+    expect(logs).toContainEqual({
+      event: "outbox_message_publish_failed",
+      topic: "process-runs",
+      timestamp: "2026-08-09T01:00:00.000Z",
+      messageId: "message-2",
+      eventId: "event-2",
+      runId: runId(2),
+    });
+    expect(JSON.stringify(logs)).not.toContain("Redis unavailable");
   });
 
   it("isolates one failed message and continues the claimed batch", async () => {

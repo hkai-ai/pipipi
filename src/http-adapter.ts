@@ -13,6 +13,7 @@ import type {
   ProcessExecutor,
   ProcessRunResult,
 } from "./process-runtime.js";
+import { ProcessRunBacklogLimitError } from "./process-run-store.js";
 
 export const defaultHttpMaxRequestBodyBytes = 262_144;
 export const defaultMaxConcurrentExecutions = 4;
@@ -62,9 +63,35 @@ export type HttpRequestRejectedLogRecord = {
   durationMs: number;
 };
 
+export type AsyncProcessRunLogRecord =
+  | Readonly<{
+      event: "process_run_submission_accepted";
+      timestamp: string;
+      runId: string;
+      process: string;
+      version: string;
+      durationMs: number;
+    }>
+  | Readonly<{
+      event: "process_run_observed";
+      timestamp: string;
+      runId: string;
+      status: "queued" | "running" | "succeeded" | "failed";
+      durationMs: number;
+    }>
+  | Readonly<{
+      event: "process_run_admission_rejected";
+      timestamp: string;
+      scope: "caller" | "global";
+      httpStatus: 429 | 503;
+      retryAfterSeconds: number;
+      durationMs: number;
+    }>;
+
 export type ProcessingLogRecord =
   | ProcessRunCompletedLogRecord
-  | HttpRequestRejectedLogRecord;
+  | HttpRequestRejectedLogRecord
+  | AsyncProcessRunLogRecord;
 
 export type ProcessingLogSink = (record: ProcessingLogRecord) => void;
 
@@ -195,6 +222,7 @@ async function handleRequest(
       response,
       asyncRunId,
       context.asyncProcessRuns,
+      context.logging,
     );
     return;
   }
@@ -320,7 +348,11 @@ async function submitProcessRun(
       callerId: caller.callerId,
       idempotencyKey: idempotencyKeyHeader,
     });
-  } catch {
+  } catch (error) {
+    if (error instanceof ProcessRunBacklogLimitError) {
+      writeBacklogLimit(response, error, context.logging);
+      return;
+    }
     writeAsyncUnavailable(response, asyncOptions);
     return;
   }
@@ -340,6 +372,17 @@ async function submitProcessRun(
   }
 
   const retryAfter = retryAfterSeconds(asyncOptions);
+  emitLog(context.logging.logSink, {
+    event: "process_run_submission_accepted",
+    timestamp: context.logging.clock.timestamp(),
+    runId: submission.runId,
+    process: submission.process,
+    version: submission.version,
+    durationMs: elapsedMilliseconds(
+      context.logging.clock,
+      context.logging.startedAt,
+    ),
+  });
   response.setHeader("location", `/process-runs/${submission.runId}`);
   response.setHeader("retry-after", String(retryAfter));
   response.setHeader("cache-control", "no-store");
@@ -357,6 +400,7 @@ async function findProcessRun(
   response: ServerResponse,
   runId: string,
   asyncOptions: AsyncProcessRunsHttpOptions,
+  logging: RequestLoggingContext,
 ): Promise<void> {
   const caller = await resolveCaller(request, response, asyncOptions);
   if (!caller) return;
@@ -382,7 +426,42 @@ async function findProcessRun(
   if (run.status === "queued" || run.status === "running") {
     response.setHeader("retry-after", String(retryAfterSeconds(asyncOptions)));
   }
+  emitLog(logging.logSink, {
+    event: "process_run_observed",
+    timestamp: logging.clock.timestamp(),
+    runId: run.runId,
+    status: run.status,
+    durationMs: elapsedMilliseconds(logging.clock, logging.startedAt),
+  });
   writeJson(response, 200, run);
+}
+
+function writeBacklogLimit(
+  response: ServerResponse,
+  error: ProcessRunBacklogLimitError,
+  logging: RequestLoggingContext,
+): void {
+  const httpStatus = error.scope === "caller" ? 429 : 503;
+  response.setHeader("retry-after", String(error.retryAfterSeconds));
+  response.setHeader("cache-control", "no-store");
+  emitLog(logging.logSink, {
+    event: "process_run_admission_rejected",
+    timestamp: logging.clock.timestamp(),
+    scope: error.scope,
+    httpStatus,
+    retryAfterSeconds: error.retryAfterSeconds,
+    durationMs: elapsedMilliseconds(logging.clock, logging.startedAt),
+  });
+  writeFailureJson(
+    response,
+    httpStatus,
+    error.scope === "caller"
+      ? "CALLER_BACKLOG_LIMIT_REACHED"
+      : "ASYNC_SERVICE_CAPACITY_REACHED",
+    error.scope === "caller"
+      ? "Caller Process Run backlog limit reached"
+      : "Async Process Run capacity is temporarily unavailable",
+  );
 }
 
 async function resolveCaller(

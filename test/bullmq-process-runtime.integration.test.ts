@@ -147,6 +147,11 @@ integrationDescribe("BullMQ Process Runtime", () => {
         published: 2,
         failed: 0,
       });
+      await expect(queue.snapshot()).resolves.toMatchObject({
+        waiting: 2,
+        active: 0,
+        oldestRunnableAgeMs: expect.any(Number),
+      });
       const jobs = await inspector.getJobs(["wait"]);
       expect(jobs).toHaveLength(2);
       expect(jobs.map((job) => job.queueName)).toEqual([
@@ -988,6 +993,10 @@ integrationDescribe("BullMQ Process Runtime", () => {
       BUSINESS_API_BASE_URL: businessApi.url,
       ASYNC_PROCESS_RUNS_ENABLED: "true",
       ASYNC_GATEWAY_SHARED_SECRET: gatewaySecret,
+      ASYNC_RELEASE_STAGE: "internal",
+      ASYNC_GLOBAL_BACKLOG_LIMIT: "1000",
+      ASYNC_CALLER_BACKLOG_LIMIT: "100",
+      ASYNC_BACKLOG_RETRY_AFTER_SECONDS: "5",
     });
     const dispatcher = constructProcessDispatcherService({
       DATABASE_URL: databaseUrl,

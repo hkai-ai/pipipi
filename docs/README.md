@@ -32,6 +32,7 @@
 | 文档 | 职责 | 变更触发条件 |
 | --- | --- | --- |
 | [`mvp-release-runbook.md`](mvp-release-runbook.md) | 给出受控文本 MVP 的部署、验收、观测和回滚步骤 | 发布范围、平台约束、配置或门禁变化 |
+| [`async-process-runs-runbook.md`](async-process-runs-runbook.md) | 给出异步角色的 migration、容量、观测、故障演练、灰度与回滚步骤 | 异步部署、容量、告警、恢复或发布门禁变化 |
 
 Runbook 必须可按顺序执行。每一步都应说明前置条件、成功信号和失败后的安全动作。
 

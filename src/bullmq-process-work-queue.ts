@@ -1,4 +1,8 @@
 import { DelayedError, Queue, Worker, type Job } from "bullmq";
+import {
+  readBullMqQueueSnapshot,
+  type BullMqQueueSnapshot,
+} from "./bullmq-queue-observability.js";
 import type { ProcessWorker, ProcessWorkResult } from "./process-worker.js";
 import {
   parseProcessWorkJob,
@@ -18,6 +22,7 @@ const defaultFailedRetention = Object.freeze({ age: 86_400, count: 5_000 });
 export type BullMqProcessWorkQueue = RecoverableProcessWorkQueue &
   Readonly<{
     ready: () => Promise<void>;
+    snapshot: (asOfMilliseconds?: number) => Promise<BullMqQueueSnapshot>;
   }>;
 
 export type BullMqProcessWorker = Readonly<{
@@ -108,6 +113,10 @@ export function createBullMqProcessWorkQueue(options: {
           });
         }),
       );
+    },
+    snapshot: async (asOfMilliseconds) => {
+      if (closed) throw new Error("Process Work Queue is closed");
+      return readBullMqQueueSnapshot(queue, asOfMilliseconds);
     },
     ready: () => queue.waitUntilReady(),
     close: async () => {

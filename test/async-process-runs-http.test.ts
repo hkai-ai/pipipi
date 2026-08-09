@@ -3,7 +3,10 @@ import { z } from "zod";
 import { createProcessingApplication } from "../src/application.js";
 import { createAsyncProcessRuns } from "../src/async-process-runs.js";
 import type { CallerIdentityResolver } from "../src/caller-identity.js";
-import { createInMemoryProcessRunStore } from "../src/process-run-store.js";
+import {
+  createInMemoryProcessRunStore,
+  ProcessRunBacklogLimitError,
+} from "../src/process-run-store.js";
 import {
   createProcessRegistry,
   defineProcessRegistration,
@@ -286,9 +289,115 @@ describe("Async Process Runs HTTP Interface", () => {
     });
     expect(JSON.stringify(body)).not.toContain(sensitiveFailure);
   });
+
+  it.each([
+    {
+      scope: "caller" as const,
+      httpStatus: 429,
+      errorCode: "CALLER_BACKLOG_LIMIT_REACHED",
+    },
+    {
+      scope: "global" as const,
+      httpStatus: 503,
+      errorCode: "ASYNC_SERVICE_CAPACITY_REACHED",
+    },
+  ])(
+    "maps $scope backlog admission without disabling existing Run queries",
+    async ({ scope, httpStatus, errorCode }) => {
+      const logs: unknown[] = [];
+      const application = createProcessingApplication({
+        executor: unusedExecutor(),
+        http: {
+          logSink: (record) => logs.push(record),
+          asyncProcessRuns: {
+            runs: {
+              submit: async () => {
+                throw new ProcessRunBacklogLimitError(scope, 17);
+              },
+              find: async (runId) => ({
+                runId,
+                process: "test-processing",
+                version: "v1",
+                status: "queued",
+                createdAt: "2026-08-09T10:00:00.000Z",
+              }),
+            },
+            callerIdentity: fakeCallerIdentity,
+            readiness: async () => {},
+          },
+        },
+      });
+      runningApplications.push(application);
+      const { url } = await application.listen();
+
+      const response = await submit(url, {
+        callerId: "caller-a",
+        idempotencyKey: "request-1",
+      });
+      expect(response.status).toBe(httpStatus);
+      expect(response.headers.get("retry-after")).toBe("17");
+      expect(response.headers.get("cache-control")).toBe("no-store");
+      expect(await response.json()).toMatchObject({ error: { code: errorCode } });
+
+      const query = await find(url, RUN_ID, "caller-a");
+      expect(query.status).toBe(200);
+      expect(await query.json()).toMatchObject({ runId: RUN_ID, status: "queued" });
+      expect(logs).toContainEqual(
+        expect.objectContaining({
+          event: "process_run_admission_rejected",
+          scope,
+          httpStatus,
+          retryAfterSeconds: 17,
+        }),
+      );
+    },
+  );
+
+  it("logs async acceptance and observation without request or result content", async () => {
+    const logs: unknown[] = [];
+    const fixture = await startFixture({
+      logSink: (record) => logs.push(record),
+    });
+
+    await submit(fixture.url, {
+      callerId: "caller-a",
+      idempotencyKey: "request-1",
+      request: {
+        process: "test-processing",
+        version: "v1",
+        input: { value: "must-not-appear-in-logs" },
+      },
+    });
+    await find(fixture.url, RUN_ID, "caller-a");
+
+    expect(logs).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          event: "process_run_submission_accepted",
+          runId: RUN_ID,
+          process: "test-processing",
+          version: "v1",
+        }),
+        expect.objectContaining({
+          event: "process_run_observed",
+          runId: RUN_ID,
+          status: "queued",
+        }),
+      ]),
+    );
+    expect(JSON.stringify(logs)).not.toContain("must-not-appear-in-logs");
+    expect(JSON.stringify(logs)).not.toContain("request-1");
+  });
 });
 
-async function startFixture(options: { readiness?: () => Promise<void> } = {}) {
+async function startFixture(
+  options: {
+    readiness?: () => Promise<void>;
+    logSink?: NonNullable<
+      Parameters<typeof createProcessingApplication>[0]["http"]
+    >["logSink"];
+  } = {},
+) {
   const registration = defineProcessRegistration({
     id: "test-processing",
     version: "v1",
@@ -308,7 +417,7 @@ async function startFixture(options: { readiness?: () => Promise<void> } = {}) {
   const application = createProcessingApplication({
     executor: unusedExecutor(),
     http: {
-      logSink: () => {},
+      logSink: options.logSink ?? (() => {}),
       asyncProcessRuns: {
         runs,
         callerIdentity: fakeCallerIdentity,

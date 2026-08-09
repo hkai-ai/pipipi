@@ -1,4 +1,8 @@
 import { randomUUID } from "node:crypto";
+import {
+  emitAsyncOperationalLog,
+  type AsyncOperationalLogSink,
+} from "./async-operational-logging.js";
 import type { ProcessOutbox } from "./process-outbox.js";
 import type { ProcessWorkQueue } from "./process-work-queue.js";
 import type { WebhookOutbox } from "./webhook-outbox.js";
@@ -21,6 +25,7 @@ export function createOutboxDispatcher(options: {
   claimLeaseMs?: number;
   clock?: () => string;
   createClaimToken?: () => string;
+  logSink?: AsyncOperationalLogSink;
 }): OutboxDispatcher {
   return createOutboxRelay({
     claim: options.outbox.claimProcessWork,
@@ -31,6 +36,8 @@ export function createOutboxDispatcher(options: {
     claimLeaseMs: options.claimLeaseMs,
     clock: options.clock,
     createClaimToken: options.createClaimToken,
+    topic: "process-runs",
+    logSink: options.logSink,
   });
 }
 
@@ -41,6 +48,7 @@ export function createWebhookOutboxDispatcher(options: {
   claimLeaseMs?: number;
   clock?: () => string;
   createClaimToken?: () => string;
+  logSink?: AsyncOperationalLogSink;
 }): OutboxDispatcher {
   return createOutboxRelay({
     claim: options.outbox.claimWebhookWork,
@@ -51,13 +59,17 @@ export function createWebhookOutboxDispatcher(options: {
     claimLeaseMs: options.claimLeaseMs,
     clock: options.clock,
     createClaimToken: options.createClaimToken,
+    topic: "webhook-deliveries",
+    logSink: options.logSink,
   });
 }
 
 function createOutboxRelay<
   Message extends Readonly<{
     messageId: string;
+    eventId: string;
     claimToken: string;
+    job: Readonly<{ runId: string }> | Readonly<{ deliveryId: string }>;
   }>,
 >(options: {
   claim: (request: {
@@ -80,6 +92,8 @@ function createOutboxRelay<
   claimLeaseMs?: number;
   clock?: () => string;
   createClaimToken?: () => string;
+  topic: "process-runs" | "webhook-deliveries";
+  logSink?: AsyncOperationalLogSink;
 }): OutboxDispatcher {
   const batchSize = positiveInteger(options.batchSize ?? 25, "Outbox batch size");
   if (batchSize > 100) {
@@ -106,15 +120,32 @@ function createOutboxRelay<
       for (const message of messages) {
         try {
           await options.enqueue(message);
+          const publishedAt = clock();
           const marked = await options.markPublished({
             messageId: message.messageId,
             claimToken: message.claimToken,
-            publishedAt: clock(),
+            publishedAt,
           });
           if (!marked) throw new Error("Outbox publish claim was lost");
           published += 1;
+          emitAsyncOperationalLog(options.logSink, {
+            event: "outbox_message_published",
+            topic: options.topic,
+            timestamp: publishedAt,
+            messageId: message.messageId,
+            eventId: message.eventId,
+            ...messageCorrelation(message.job),
+          });
         } catch {
           failed += 1;
+          emitAsyncOperationalLog(options.logSink, {
+            event: "outbox_message_publish_failed",
+            topic: options.topic,
+            timestamp: claimedAt,
+            messageId: message.messageId,
+            eventId: message.eventId,
+            ...messageCorrelation(message.job),
+          });
           await options.release({
             messageId: message.messageId,
             claimToken: message.claimToken,
@@ -128,6 +159,12 @@ function createOutboxRelay<
       });
     },
   });
+}
+
+function messageCorrelation(
+  job: Readonly<{ runId: string }> | Readonly<{ deliveryId: string }>,
+): Readonly<{ runId: string }> | Readonly<{ deliveryId: string }> {
+  return "runId" in job ? { runId: job.runId } : { deliveryId: job.deliveryId };
 }
 
 function positiveInteger(value: number, label: string): number {

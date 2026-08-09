@@ -188,6 +188,7 @@ describe("Webhook Delivery", () => {
   });
 
   it("claims, sends, and persists a successful Delivery without exposing transport to the Process", async () => {
+    const logs: unknown[] = [];
     const complete = vi.fn<WebhookDeliveryStore["complete"]>(async () => true);
     const store: WebhookDeliveryStore = {
       claim: vi.fn(async () => ({
@@ -214,6 +215,7 @@ describe("Webhook Delivery", () => {
       sender: { send },
       clock: () => "2026-08-09T10:00:00.000Z",
       createClaimToken: () => "claim-1",
+      logSink: (record) => logs.push(record),
     });
 
     await expect(
@@ -231,6 +233,21 @@ describe("Webhook Delivery", () => {
       completedAt: "2026-08-09T10:00:00.000Z",
       result: { outcome: "succeeded", httpStatus: 202, latencyMs: 12 },
     });
+    expect(logs).toContainEqual(
+      expect.objectContaining({
+        event: "webhook_delivery_attempt_finished",
+        deliveryId: "delivery-1",
+        eventId: "event-1",
+        attemptNumber: 1,
+        outcome: "succeeded",
+        disposition: "completed",
+        httpStatus: 202,
+      }),
+    );
+    const serializedLogs = JSON.stringify(logs);
+    expect(serializedLogs).not.toContain("hooks.example");
+    expect(serializedLogs).not.toContain("whsec_");
+    expect(serializedLogs).not.toContain("payload");
   });
 
   it("retries only network, 429, and 5xx failures with bounded backoff", async () => {

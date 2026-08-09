@@ -1,4 +1,5 @@
 import { Pool } from "pg";
+import { writeAsyncOperationalLog } from "./async-operational-logging.js";
 import {
   createBullMqProcessWorker,
   createBullMqProcessWorkQueue,
@@ -109,6 +110,7 @@ export function constructProcessDispatcherService(
     queue,
     batchSize: dispatchBatchSize,
     claimLeaseMs: outboxClaimLeaseMs,
+    logSink: writeAsyncOperationalLog,
   });
   const recoveryStore = createPostgresProcessRunRecoverySource({ pool });
   const reconciler = createProcessRunReconciler({
@@ -229,6 +231,7 @@ export function constructProcessWorkerService(
       registry: businessRuntime.registry,
       store,
       attemptRunner: createProcessAttemptRunner({ processTimeoutMs }),
+      logSink: writeAsyncOperationalLog,
     }),
   });
   const runtime: BackgroundRuntime = Object.freeze({

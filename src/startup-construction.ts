@@ -9,6 +9,10 @@ import {
 } from "./agent-runtime.js";
 import { createAsyncProcessRuns } from "./async-process-runs.js";
 import {
+  createPostgresAsyncReleaseReadiness,
+  type AsyncReleaseStage,
+} from "./async-operations.js";
+import {
   createBusinessProcessRuntime,
   type BusinessProcessRuntime,
 } from "./business-process-executor.js";
@@ -121,6 +125,8 @@ function constructAsyncProcessRuns(
     return undefined;
   }
 
+  const releaseStage = parseAsyncReleaseStage(environment.ASYNC_RELEASE_STAGE);
+
   const connectionString = parsePostgresConnectionString(
     environment.DATABASE_URL,
   );
@@ -163,6 +169,45 @@ function constructAsyncProcessRuns(
     2,
     "ASYNC_RETRY_AFTER_SECONDS",
   );
+  const globalBacklogLimit = parseRequiredPositiveInteger(
+    environment.ASYNC_GLOBAL_BACKLOG_LIMIT,
+    "ASYNC_GLOBAL_BACKLOG_LIMIT",
+  );
+  const callerBacklogLimit = parseRequiredPositiveInteger(
+    environment.ASYNC_CALLER_BACKLOG_LIMIT,
+    "ASYNC_CALLER_BACKLOG_LIMIT",
+  );
+  if (callerBacklogLimit > globalBacklogLimit) {
+    throw new Error(
+      "ASYNC_CALLER_BACKLOG_LIMIT must not exceed ASYNC_GLOBAL_BACKLOG_LIMIT",
+    );
+  }
+  const backlogRetryAfterSeconds = parseRequiredPositiveInteger(
+    environment.ASYNC_BACKLOG_RETRY_AFTER_SECONDS,
+    "ASYNC_BACKLOG_RETRY_AFTER_SECONDS",
+  );
+  const releaseReadiness = {
+    stuckRunAgeMs: parsePositiveInteger(
+      environment.ASYNC_STUCK_RUN_AGE_MS,
+      300_000,
+      "ASYNC_STUCK_RUN_AGE_MS",
+    ),
+    maximumStuckRuns: parseNonNegativeInteger(
+      environment.ASYNC_MAX_STUCK_RUNS,
+      0,
+      "ASYNC_MAX_STUCK_RUNS",
+    ),
+    maximumOutboxLagMs: parsePositiveInteger(
+      environment.ASYNC_MAX_OUTBOX_LAG_MS,
+      60_000,
+      "ASYNC_MAX_OUTBOX_LAG_MS",
+    ),
+    recoveryMaxAgeMs: parsePositiveInteger(
+      environment.ASYNC_RECOVERY_MAX_AGE_MS,
+      86_400_000,
+      "ASYNC_RECOVERY_MAX_AGE_MS",
+    ),
+  };
   const pool = new Pool({
     connectionString,
     max: poolMax,
@@ -181,18 +226,59 @@ function constructAsyncProcessRuns(
     pool,
     retention,
     claimLeaseMs,
+    admission: {
+      globalBacklogLimit,
+      callerBacklogLimit,
+      retryAfterSeconds: backlogRetryAfterSeconds,
+    },
   });
   const runs = createAsyncProcessRuns({ registry, store });
+  const releaseReady = createPostgresAsyncReleaseReadiness({
+    pool,
+    stage: releaseStage,
+    globalBacklogLimit,
+    ...releaseReadiness,
+  });
 
   return Object.freeze({
     http: Object.freeze({
       runs,
       callerIdentity,
-      readiness: store.ready,
+      readiness: async () => {
+        await store.ready();
+        await releaseReady();
+      },
       retryAfterSeconds,
     }),
     close: () => pool.end(),
   });
+}
+
+function parseAsyncReleaseStage(
+  value: string | undefined,
+): AsyncReleaseStage {
+  if (value === undefined) {
+    throw new Error(
+      "ASYNC_RELEASE_STAGE is required when Async Process Runs are enabled",
+    );
+  }
+  if (value === "internal" || value === "canary" || value === "production") {
+    return value;
+  }
+  throw new Error("ASYNC_RELEASE_STAGE must be internal, canary, or production");
+}
+
+function parseNonNegativeInteger(
+  value: string | undefined,
+  fallback: number,
+  name: string,
+): number {
+  if (value === undefined) return fallback;
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed) || parsed < 0) {
+    throw new Error(`${name} must be a non-negative integer`);
+  }
+  return parsed;
 }
 
 function parsePort(value: string | undefined): number {

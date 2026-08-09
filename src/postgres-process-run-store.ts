@@ -9,6 +9,7 @@ import type {
   ProcessRunStore,
   StoredProcessRun,
 } from "./process-run-store.js";
+import { ProcessRunBacklogLimitError } from "./process-run-store.js";
 import type {
   ProcessRecoveryCandidate,
   ProcessRecoveryStore,
@@ -21,6 +22,12 @@ export type PostgresProcessRunStoreRetention = Readonly<{
   metadataMs: number;
 }>;
 
+export type PostgresProcessRunAdmission = Readonly<{
+  globalBacklogLimit: number;
+  callerBacklogLimit: number;
+  retryAfterSeconds: number;
+}>;
+
 export type PostgresProcessRunStore = ProcessRunStore &
   Readonly<{
     ready: () => Promise<void>;
@@ -29,12 +36,16 @@ export type PostgresProcessRunStore = ProcessRunStore &
 export function createPostgresProcessRunStore(options: {
   pool: Pool;
   retention: PostgresProcessRunStoreRetention;
+  admission?: PostgresProcessRunAdmission;
   claimLeaseMs?: number;
   createEventId?: () => string;
   createOutboxMessageId?: () => string;
   createWebhookDeliveryId?: () => string;
 }): PostgresProcessRunStore {
   const retention = validateRetention(options.retention);
+  const admission = options.admission
+    ? validateAdmission(options.admission)
+    : undefined;
   const claimLeaseMs = positiveInteger(
     options.claimLeaseMs ?? 60_000,
     "Process Run claim lease",
@@ -58,6 +69,42 @@ export function createPostgresProcessRunStore(options: {
       );
 
       return transaction(options.pool, async (client) => {
+        if (admission) {
+          await client.query(
+            "SELECT pg_advisory_xact_lock(1886417, 230001)",
+          );
+          const existing = await findIdempotentRun(client, candidate);
+          if (existing) return existing;
+
+          const backlog = await client.query<{
+            global_count: number;
+            caller_count: number;
+          }>(
+            `
+              SELECT
+                count(*)::integer AS global_count,
+                count(*) FILTER (WHERE caller_id = $1)::integer AS caller_count
+              FROM process_runs
+              WHERE status IN ('queued', 'running')
+            `,
+            [candidate.ownerId],
+          );
+          const counts = backlog.rows[0];
+          if (!counts) throw new Error("Process Run backlog count is unavailable");
+          if (counts.caller_count >= admission.callerBacklogLimit) {
+            throw new ProcessRunBacklogLimitError(
+              "caller",
+              admission.retryAfterSeconds,
+            );
+          }
+          if (counts.global_count >= admission.globalBacklogLimit) {
+            throw new ProcessRunBacklogLimitError(
+              "global",
+              admission.retryAfterSeconds,
+            );
+          }
+        }
+
         const inserted = await client.query<ProcessRunRow>(
           `
             INSERT INTO process_runs (
@@ -621,6 +668,30 @@ export function createPostgresProcessRunStore(options: {
   });
 }
 
+async function findIdempotentRun(
+  client: PoolClient,
+  candidate: Readonly<{
+    ownerId: string;
+    idempotencyKey: string;
+    requestFingerprint: string;
+  }>,
+) {
+  const existing = await client.query<ProcessRunRow>(
+    `
+      SELECT *
+      FROM process_runs
+      WHERE caller_id = $1 AND idempotency_key = $2
+    `,
+    [candidate.ownerId, candidate.idempotencyKey],
+  );
+  const row = existing.rows[0];
+  if (!row) return undefined;
+  const run = processRunFromRow(row);
+  return run.requestFingerprint === candidate.requestFingerprint
+    ? ({ outcome: "replayed", run } as const)
+    : ({ outcome: "conflict" } as const);
+}
+
 export function createPostgresProcessRunRecoverySource(options: {
   pool: Pool;
 }): ProcessRunRecoverySource &
@@ -1102,6 +1173,32 @@ function validateRetention(
     metadataMs: positiveInteger(
       retention.metadataMs,
       "Process metadata retention",
+    ),
+  });
+}
+
+function validateAdmission(
+  admission: PostgresProcessRunAdmission,
+): PostgresProcessRunAdmission {
+  const globalBacklogLimit = positiveInteger(
+    admission.globalBacklogLimit,
+    "Global Process Run backlog limit",
+  );
+  const callerBacklogLimit = positiveInteger(
+    admission.callerBacklogLimit,
+    "Caller Process Run backlog limit",
+  );
+  if (callerBacklogLimit > globalBacklogLimit) {
+    throw new Error(
+      "Caller Process Run backlog limit must not exceed the global limit",
+    );
+  }
+  return Object.freeze({
+    globalBacklogLimit,
+    callerBacklogLimit,
+    retryAfterSeconds: positiveInteger(
+      admission.retryAfterSeconds,
+      "Process Run backlog Retry-After",
     ),
   });
 }

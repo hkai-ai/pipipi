@@ -229,6 +229,34 @@ describe("Async Process Runs", () => {
     });
   });
 
+  it("logs Process Worker outcomes by runId without accepted input or output", async () => {
+    const logs: unknown[] = [];
+    const fixture = createFixture([registration("v1")], {
+      logSink: (record) => logs.push(record),
+    });
+    await fixture.runs.submit(
+      {
+        process: "test-processing",
+        version: "v1",
+        input: { value: "must-not-appear-in-worker-log" },
+      },
+      { callerId: "caller-a", idempotencyKey: "worker-log" },
+    );
+
+    await expect(fixture.drain.drainOne()).resolves.toBe("processed");
+    expect(logs).toContainEqual(
+      expect.objectContaining({
+        event: "process_run_work_finished",
+        runId: RUN_IDS[0],
+        attemptNumber: 1,
+        outcome: "processed",
+      }),
+    );
+    expect(JSON.stringify(logs)).not.toContain("must-not-appear-in-worker-log");
+    expect(JSON.stringify(logs)).not.toContain("MUST-NOT-APPEAR-IN-WORKER-LOG");
+    expect(JSON.stringify(logs)).not.toContain("worker-log");
+  });
+
   it("rejects invalid requests before allocating a run or queue job", async () => {
     const createRunId = vi.fn(() => RUN_IDS[0]);
     const fixture = createFixture([registration("v1")], { createRunId });
@@ -473,7 +501,10 @@ describe("Async Process Runs", () => {
 
 function createFixture(
   registrations: readonly ProcessRegistration[],
-  options: { createRunId?: () => string } = {},
+  options: {
+    createRunId?: () => string;
+    logSink?: (record: unknown) => void;
+  } = {},
 ) {
   const store = createInMemoryProcessRunStore({ maxRuns: 20 });
   const queue = createInMemoryProcessWorkQueue({ maxJobs: 20 });
@@ -514,6 +545,7 @@ function createFixture(
     attemptRunner: createProcessAttemptRunner(),
     clock,
     createClaimToken: () => "claim-token",
+    logSink: options.logSink,
   });
   return {
     runs,

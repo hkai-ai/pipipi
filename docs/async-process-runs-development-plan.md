@@ -1,6 +1,6 @@
 # 异步 Process Run 开发计划
 
-状态：实施中。M1–M3 已完成；M4 已完成执行、恢复与内部角色组装，待 Issue #22 补齐观测门槛。异步 Interface 默认关闭，尚未进入外部生产发布。
+状态：实现完成。Issue #10–#23 的代码、测试、文档和受控发布门禁已交付；异步 Interface 仍默认关闭，实际外部发布必须按 Runbook 单独授权和执行。
 
 追踪规格：[GitHub Issue #9](https://github.com/techidsk/pipipi/issues/9)。
 
@@ -30,13 +30,13 @@ flowchart LR
 
 | 里程碑 | 状态 | 可交付结果 | 生产可见性 |
 | --- | --- | --- | --- |
-| M0 决策门禁 | 进行中 | 配置、身份、保留和 retry 决策固定 | 无变化 |
+| M0 决策门禁 | 已完成 | 配置、身份、保留和 retry 决策固定 | 无变化 |
 | M1 Runtime Seam | 已完成 | Registration 可先接受、后执行 | `/execute` 行为不变 |
 | M2 内存异步纵切 | 已完成 | Async Process Runs Module 与状态机可测试 | 不组装进生产入口 |
 | M3 PostgreSQL 与查询 | 已完成 | durable Run、幂等提交和查询路由 | feature flag 关闭 |
-| M4 Outbox 与 BullMQ Worker | 进行中 | 一个 Process Queue 端到端执行 | 先向内部调用方开放 |
+| M4 Outbox 与 BullMQ Worker | 已完成 | 一个 Process Queue 端到端执行 | 先向内部调用方开放 |
 | M5 Webhook Delivery | 已完成 | 签名、重试、审计、重放与 egress 安全 | 仅隔离测试 |
-| M6 生产硬化与发布 | 进行中 | 保留已完成；容量、Queue 重建、Runbook 和正式发布待完成 | 受控发布 |
+| M6 生产硬化与发布 | 已完成 | 保留、容量、Queue 重建、观测与 Runbook 完成 | 默认关闭，按门禁受控发布 |
 
 每个里程碑必须让主分支保持可构建、可测试和可部署。后续代码不能依赖尚未合并的隐藏分支；数据库迁移只做向前兼容的 additive change，删除和收紧约束留到所有旧进程退出之后。
 
@@ -74,7 +74,7 @@ flowchart LR
 | Process Queue | 一个 `process-runs` Queue；默认 key prefix 为 `pipipi` | 两个不同 Process 通过同一 Queue 选择准确 Registration |
 | 本地 Redis | `compose.integration.yaml` 的 Redis 7.4、`noeviction`、临时数据目录 | `REDIS_TEST_URL` 必须指向本机非零 database |
 
-生产 Redis 高可用、业务内容字段级加密和完整 retry/idempotency matrix 仍由后续批次固定。Retention 已采用 input 1 天、result 7 天、metadata 30 天、Delivery Attempt 30 天的可覆盖模板值，因此 M0 仍因其余门禁保持“进行中”。
+生产 Redis 的具体高可用产品与容量值由部署环境选择，但必须满足 Runbook 的内部网络、认证、`noeviction`、恢复和故障演练要求。Retention 已采用 input 1 天、result 7 天、metadata 30 天、Delivery Attempt 30 天的可覆盖模板值；caller identity、retry、Webhook egress 和 Secret 边界也已固定。
 
 ### 完成门槛
 
@@ -210,7 +210,7 @@ type AsyncProcessRuns = Readonly<{
 
 目标是让所有 Business Process 通过一个内部 Queue 可靠执行，并让 Redis 故障不会丢失已接受 Run。
 
-实现进度：Issue #14 已完成 Outbox claim/ack、统一 BullMQ Queue、最小 Job envelope、基础 Worker 生命周期和有界 Job retention。Issue #15 已完成过期租约接管、旧 token fencing、Reconciler、Redis/Dispatcher 故障恢复，以及有期限的优雅停机。Issue #16 已把 API、Dispatcher、Worker 组装成独立角色，并用真实 HTTP/PostgreSQL/Redis 验证成功、业务失败和 caller 隔离。Issue #17 已增加 Registration 所有的受控重试策略、稳定下游幂等键、queued 等待状态与真实 BullMQ 延迟重投。Issue #22 已把 Reconciler 加深为 PostgreSQL 权威的 periodic/manual 恢复路径，支持 stale/all、默认 dry-run、Queue inspection、pending Outbox 对账、逐批审计和游标重建；真实 Redis 数据丢失与租约故障测试证明非终态 Run 可恢复且终态不重跑。Issue #23 继续补齐 M4 所需容量指标和告警，因此本里程碑保持“进行中”。
+实现进度：Issue #14 已完成 Outbox claim/ack、统一 BullMQ Queue、最小 Job envelope、基础 Worker 生命周期和有界 Job retention。Issue #15 已完成过期租约接管、旧 token fencing、Reconciler、Redis/Dispatcher 故障恢复，以及有期限的优雅停机。Issue #16 已把 API、Dispatcher、Worker 组装成独立角色，并用真实 HTTP/PostgreSQL/Redis 验证成功、业务失败和 caller 隔离。Issue #17 已增加 Registration 所有的受控重试策略、稳定下游幂等键、queued 等待状态与真实 BullMQ 延迟重投。Issue #22 已把 Reconciler 加深为 PostgreSQL 权威的 periodic/manual 恢复路径，支持 stale/all、默认 dry-run、Queue inspection、pending Outbox 对账、逐批审计和游标重建。Issue #23 已增加原子 backlog admission、Queue/PostgreSQL 运维快照、结构化关联日志、Dashboard/alert 规范和 staged readiness，因此本里程碑完成。
 
 ### 实现任务
 
@@ -278,7 +278,7 @@ type AsyncProcessRuns = Readonly<{
 
 ## M6：生产硬化与发布
 
-实现进度：Issue #21 已增加分层到期字段语义、`005_retention_cleanup` migration、PostgreSQL 批次清理与审计、明确的结果过期响应，以及独立 Retention Cleaner 角色。真实 PostgreSQL 测试覆盖边界时间、失败回滚、游标续跑、并发查询、重复清理和 Delivery 引用保护。Issue #22 已增加 `006_queue_recovery_audit`、PostgreSQL/Queue 对账、默认 dry-run 的人工命令、全量重建、Outbox 修复、活跃租约延期和过期租约接管。Issue #23 完成容量、可观测性和受控发布。
+实现进度：Issue #21 已增加分层到期字段语义、`005_retention_cleanup` migration、PostgreSQL 批次清理与审计、明确的结果过期响应，以及独立 Retention Cleaner 角色。Issue #22 已增加 `006_queue_recovery_audit`、PostgreSQL/Queue 对账、默认 dry-run 的人工命令、全量重建、Outbox 修复、活跃租约延期和过期租约接管。Issue #23 已完成 `007_process_run_admission`、caller/global backlog 错误映射、运维快照、发布 readiness、日志净化、Dashboard/alert 规范、migration/rollback/fault drill 和 staged rollout Runbook。代码实现完成；实际环境发布仍是单独的运维授权动作。
 
 ### 实现任务
 
@@ -346,11 +346,10 @@ npm test
 npm run build
 ```
 
-实现阶段计划新增独立集成命令，准确名称在 M0 固定：
+真实依赖验证使用两个独立命令：
 
 ```bash
 npm run test:integration:postgres
-npm run test:integration:redis
 npm run test:integration:async
 ```
 

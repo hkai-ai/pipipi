@@ -66,6 +66,7 @@ curl --fail -X POST http://127.0.0.1:3000/execute \
 | `npm run build` | 编译 `src/` 到 `dist/` | 否 |
 | `npm run db:migrate` | 对 `DATABASE_URL` 执行受锁保护的 PostgreSQL migration | 是，会修改指定数据库 |
 | `npm run recover:queue -- ...` | dry-run 或修复 PostgreSQL 与 Process Queue 的差异 | 是；`--apply` 会写 Queue、Outbox 与审计表 |
+| `npm run observe:async` | 读取 PostgreSQL 与两个 BullMQ Queue，输出一次无内容运维快照 | 是，只读访问 PostgreSQL 与 Redis |
 | `npm run test:integration:postgres` | 运行真实 PostgreSQL migration 与 Store contract tests | 是，会重建明确的 `_test` 数据库 schema |
 | `npm run test:integration:async` | 运行真实 PostgreSQL、Redis、Outbox Dispatcher 与 BullMQ Worker 测试 | 是，会重建 `_test` schema 并清空指定 Redis 测试 DB |
 | `npm run smoke:agent` | 验证真实 Agent 与 Business Capability | 是，可能产生模型费用 |
@@ -116,22 +117,25 @@ docker compose -f compose.integration.yaml down
 异步路由默认关闭。启用时以下配置必须作为一个完整配置组提供：
 
 - `ASYNC_PROCESS_RUNS_ENABLED=true` 与已完成 migration 的 `DATABASE_URL`；
+- `ASYNC_RELEASE_STAGE=internal|canary|production`；
 - 至少 32 bytes 的 `ASYNC_GATEWAY_SHARED_SECRET`；
 - `PROCESS_RUN_ACCEPTED_INPUT_RETENTION_MS`、`PROCESS_RUN_RESULT_RETENTION_MS` 和 `PROCESS_RUN_METADATA_RETENTION_MS`；
-- 可选的 PostgreSQL Pool、连接超时、claim lease 和 `Retry-After` 正整数覆盖值。
+- `ASYNC_GLOBAL_BACKLOG_LIMIT`、不高于它的 `ASYNC_CALLER_BACKLOG_LIMIT` 和 `ASYNC_BACKLOG_RETRY_AFTER_SECONDS`；
+- 可选的 PostgreSQL Pool、连接超时、claim lease、轮询 `Retry-After` 与 staged readiness 阈值。
 
-可信网关必须先验证 service principal，删除外部请求中的 `x-pipipi-caller-id` 和 `x-pipipi-gateway-token`，再分别注入稳定 subject 与共享凭证。应用不接受请求 body 中的 owner，也不把身份头、共享凭证或数据库错误写入响应。`GET /healthz` 始终只做 liveness；`GET /readyz` 在异步功能启用时检查数据库连接和 `process_runs` migration。
+可信网关必须先验证 service principal，删除外部请求中的 `x-pipipi-caller-id` 和 `x-pipipi-gateway-token`，再分别注入稳定 subject 与共享凭证。应用不接受请求 body 中的 owner，也不把身份头、共享凭证或数据库错误写入响应。`GET /healthz` 始终只做 liveness；`GET /readyz` 在异步功能启用时检查数据库 migration，`canary` 与 `production` 还检查 backlog、stuck Run、Outbox lag 和最近一次成功的人工全量恢复。
 
-当前已验证提交、查询、Outbox 调度、BullMQ Worker、基础故障恢复和独立运行角色。完整监控与运维门禁尚未完成；即使配置齐全也不要向外部生产流量启用该 feature flag。
+当前已验证提交、查询、Outbox 调度、BullMQ Worker、故障恢复、容量门禁、独立角色、结构化关联日志和运维快照。配置齐全不等于可以直接开放；外部生产流量必须按 [`async-process-runs-runbook.md`](async-process-runs-runbook.md) 完成安全审查、故障演练和 staged rollout。
 
 ### 异步运行角色
 
-同一构建产物提供五个命令：`npm run start:api`、`npm run start:dispatcher`、`npm run start:worker`、`npm run start:webhook-worker` 和 `npm run start:retention-cleaner`。五个角色应部署为独立进程或工作负载；API 不消费 Job，Dispatcher 不加载 Business Process 或 caller Secret，Process Worker 不加载网关身份配置，Webhook Worker 不加载 production catalog，Retention Cleaner 只连接 PostgreSQL。启动后台命令本身就是启用该内部角色的部署选择；`ASYNC_PROCESS_RUNS_ENABLED` 只控制 API 是否公开异步路由。
+同一构建产物提供五个长运行命令：`npm run start:api`、`npm run start:dispatcher`、`npm run start:worker`、`npm run start:webhook-worker` 和 `npm run start:retention-cleaner`。五个角色应部署为独立进程或工作负载；API 不消费 Job，Dispatcher 不加载 Business Process 或 caller Secret，Process Worker 不加载网关身份配置，Webhook Worker 不加载 production catalog，Retention Cleaner 只连接 PostgreSQL。`npm run start:operations` 是读取 PostgreSQL 与两个 Queue 后退出的一次性运维 Job。启动后台命令本身就是启用该内部角色的部署选择；`ASYNC_PROCESS_RUNS_ENABLED` 只控制 API 是否公开异步路由。
 
 | 配置 | API | Dispatcher | Process Worker | Webhook Worker | Retention Cleaner |
 | --- | --- | --- | --- | --- | --- |
 | `BUSINESS_API_BASE_URL` 与 Process 配置 | 必需 | 不读取 | 必需 | 不读取 | 不读取 |
 | `ASYNC_PROCESS_RUNS_ENABLED` | 控制异步路由 | 不读取 | 不读取 | 不读取 | 不读取 |
+| `ASYNC_RELEASE_STAGE`、`ASYNC_*_BACKLOG_*` 与 release thresholds | 异步路由启用时必需或采用安全默认值 | 不读取 | 不读取 | 不读取 | 不读取 |
 | `ASYNC_GATEWAY_SHARED_SECRET` | 异步路由启用时必需 | 不读取 | 不读取 | 不读取 | 不读取 |
 | `DATABASE_URL`、PostgreSQL Pool 配置 | 异步路由启用时必需 | 必需 | 必需 | 必需 | 必需 |
 | 三个 `PROCESS_RUN_*_RETENTION_MS` | 异步路由启用时必需 | 不读取 | 必需 | 不读取 | 不读取；读取已持久化到期时间 |
@@ -165,6 +169,14 @@ PROCESS_RECOVERY_ACTOR_ID=operator:alice npm run recover:queue -- --apply --mode
 dry-run 只检查 PostgreSQL 与 Redis 并写恢复审计，不写 Queue 或 Outbox。`--apply` 对 `missing` 或只有 terminal BullMQ Job 的非终态 Run，以稳定 `runId` 重新 `queue.add()`；并发恢复最多得到 `duplicate`，不会产生第二个有效 Job。只有确认 Job 已存在或成功入队后，才把对应 pending Process Outbox 标记为已对账。每批最多使用 `PROCESS_RUN_RECONCILE_BATCH_SIZE`，固定同一个 `asOf` 并自动沿 `nextCursor` 继续；`--single-batch` 可停在一个批次，随后用日志或 `queue_recovery_runs.next_cursor_run_id` 配合原 `--as-of`、`--cursor` 续跑。
 
 每次有候选的 periodic 恢复和每次 manual dry-run/apply 都写 `queue_recovery_runs`，每个候选再写不含业务内容的 `queue_recovery_items`；无候选 periodic 只返回零计数，避免审计表按轮询频率无界增长。完成记录包含 missing/existing/terminal/invalid Job、active lease、pending Outbox、enqueue、duplicate、ack 和 failure 计数。中途崩溃会留下 `running` 审计行；重跑是幂等的，并会把已成功入队的 Job 识别为 existing。若某一候选 Redis 操作失败，同批其他候选继续，命令以非零状态结束。不要直接从 Queue 反推产品状态，也不要用 `FLUSHDB` 作为常规运维手段。
+
+### 运维快照与容量门禁
+
+`npm run observe:async` 一次性读取 PostgreSQL 权威状态与两个 BullMQ Queue，输出 `async_operations_snapshot` JSON。它覆盖 queued/running、近期 queue wait/execution p95、failure rate、stuck、Process/Webhook Outbox lag、Delivery failure、cleanup/recovery 和 storage，并给出两个 Queue 的 waiting/active/delayed/failed 与 oldest runnable age。生产镜像使用 `npm run start:operations`；由受信定时 Job 采集，不增加产品 HTTP 路由。Dashboard 与告警字段以 [`../ops/async-observability.json`](../ops/async-observability.json) 为准。
+
+PostgreSQL Store 在 acceptance 事务内先检查 caller-scoped idempotency，再使用事务级 advisory lock 串行统计非终态 backlog。caller 达到阈值抛出稳定 `429 CALLER_BACKLOG_LIMIT_REACHED`，全局达到阈值抛出 `503 ASYNC_SERVICE_CAPACITY_REACHED`，都返回配置的 `Retry-After`；相同请求的幂等重放和既有 Run GET 不受门禁影响。`007_process_run_admission` 的 caller/status 部分索引保持检查可预测。
+
+成功日志只保留关联元数据：API/Worker 用 `runId`，Outbox 用 `messageId + eventId + runId|deliveryId`，Webhook Attempt 用 `deliveryId + eventId`。日志不得包含 idempotency key、accepted input、output、Webhook URL/payload、Secret 或内部异常正文。精确部署、告警处置和 fault drill 见 [`async-process-runs-runbook.md`](async-process-runs-runbook.md)。
 
 ### 内容保留与清理
 
@@ -209,6 +221,8 @@ Webhook 重试状态以 PostgreSQL 为准，不依赖 BullMQ 的 Job attempts。
 | `src/outbox-dispatcher.ts` | 从 PostgreSQL Outbox 向 Process/Webhook Queue 转发各自最小 Job |
 | `src/process-run-reconciler.ts` | 扫描长期 queued 或过期 running Run，并通过 Queue Seam 重投 |
 | `src/queue-recovery-command.ts`、`src/queue-recovery-main.ts` | 默认 dry-run 的人工全量 Queue 对账、游标续跑和结构化批次报告 |
+| `src/async-operations.ts`、`src/async-operations-command.ts` | PostgreSQL/BullMQ 运维快照与 staged release readiness |
+| `src/async-operational-logging.ts` | 不含业务内容的 `runId`/`eventId`/`deliveryId` 关联日志 |
 | `src/process-dispatcher-runtime.ts` | 以不重叠的周期运行 Outbox 与 Reconciler，并隔离可恢复错误 |
 | `src/postgres-retention-cleanup.ts`、`src/retention-cleaner-runtime.ts` | 分层内容清理、引用保护、批次审计、游标 sweep 与安全中断 |
 | `src/bullmq-process-work-queue.ts` | 固定版本 BullMQ Queue、Worker、Redis 连接策略与有界 Job retention |

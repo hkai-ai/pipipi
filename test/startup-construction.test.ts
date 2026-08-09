@@ -651,6 +651,13 @@ describe("Startup Construction", () => {
       "PROCESS_RUN_METADATA_RETENTION_MS",
       "PROCESS_RUN_METADATA_RETENTION_MS",
     ],
+    ["ASYNC_RELEASE_STAGE", "ASYNC_RELEASE_STAGE"],
+    ["ASYNC_GLOBAL_BACKLOG_LIMIT", "ASYNC_GLOBAL_BACKLOG_LIMIT"],
+    ["ASYNC_CALLER_BACKLOG_LIMIT", "ASYNC_CALLER_BACKLOG_LIMIT"],
+    [
+      "ASYNC_BACKLOG_RETRY_AFTER_SECONDS",
+      "ASYNC_BACKLOG_RETRY_AFTER_SECONDS",
+    ],
   ])("requires %s when Async Process Runs are enabled", (key, label) => {
     expect(() =>
       constructProcessingService(asyncEnvironment({ [key]: undefined })),
@@ -689,10 +696,36 @@ describe("Startup Construction", () => {
     "ASYNC_POSTGRES_CONNECTION_TIMEOUT_MS",
     "PROCESS_RUN_CLAIM_LEASE_MS",
     "ASYNC_RETRY_AFTER_SECONDS",
+    "ASYNC_GLOBAL_BACKLOG_LIMIT",
+    "ASYNC_CALLER_BACKLOG_LIMIT",
+    "ASYNC_BACKLOG_RETRY_AFTER_SECONDS",
+    "ASYNC_STUCK_RUN_AGE_MS",
+    "ASYNC_MAX_OUTBOX_LAG_MS",
+    "ASYNC_RECOVERY_MAX_AGE_MS",
   ])("rejects invalid async positive-integer values for %s", (name) => {
     expect(() =>
       constructProcessingService(asyncEnvironment({ [name]: "0" })),
     ).toThrow(`${name} must be a positive integer`);
+  });
+
+  it("rejects a negative staged-release stuck Run threshold", () => {
+    expect(() =>
+      constructProcessingService(asyncEnvironment({ ASYNC_MAX_STUCK_RUNS: "-1" })),
+    ).toThrow("ASYNC_MAX_STUCK_RUNS must be a non-negative integer");
+  });
+
+  it("requires an explicit rollout stage and coherent admission limits", () => {
+    expect(() =>
+      constructProcessingService(asyncEnvironment({ ASYNC_RELEASE_STAGE: "preview" })),
+    ).toThrow("ASYNC_RELEASE_STAGE must be internal, canary, or production");
+    expect(() =>
+      constructProcessingService(
+        asyncEnvironment({
+          ASYNC_GLOBAL_BACKLOG_LIMIT: "10",
+          ASYNC_CALLER_BACKLOG_LIMIT: "11",
+        }),
+      ),
+    ).toThrow("ASYNC_CALLER_BACKLOG_LIMIT must not exceed ASYNC_GLOBAL_BACKLOG_LIMIT");
   });
 
   it("keeps liveness independent when the async database is unreachable", async () => {
@@ -722,6 +755,10 @@ function asyncEnvironment(
     PROCESS_RUN_ACCEPTED_INPUT_RETENTION_MS: "86400000",
     PROCESS_RUN_RESULT_RETENTION_MS: "604800000",
     PROCESS_RUN_METADATA_RETENTION_MS: "2592000000",
+    ASYNC_RELEASE_STAGE: "internal",
+    ASYNC_GLOBAL_BACKLOG_LIMIT: "1000",
+    ASYNC_CALLER_BACKLOG_LIMIT: "100",
+    ASYNC_BACKLOG_RETRY_AFTER_SECONDS: "5",
     ...overrides,
   };
 }
