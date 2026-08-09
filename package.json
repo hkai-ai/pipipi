@@ -17,11 +17,14 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:integration:postgres": "RUN_POSTGRES_INTEGRATION=1 vitest run test/postgres-process-run-store.integration.test.ts",
+    "test:integration:async": "RUN_ASYNC_INTEGRATION=1 vitest run test/bullmq-process-runtime.integration.test.ts",
     "db:migrate": "node-pg-migrate up --migrations-dir migrations --advisory-lock-mode wait"
   },
   "dependencies": {
     "@earendil-works/pi-coding-agent": "^0.84.1",
     "ali-oss": "^6.23.0",
+    "bullmq": "6.0.9",
+    "ioredis": "6.0.0",
     "pg": "^8.23.0",
     "typebox": "^1.3.7",
     "zod": "4.4.3"

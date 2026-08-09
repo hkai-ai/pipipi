@@ -37,9 +37,9 @@ Business Processing Service 让产品调用方通过一个稳定的 HTTP Interfa
 | `content-processing/v1` | `{ content: string }` | `{ content: string }` | 服务端可选择 Direct 或 Agent 路径 |
 | `titled-content-processing/v1` | `{ title: string, body: string }` | `{ title: string, content: string }` | 复用 Content Processing Capability |
 
-默认 HTTP 入口公开 `GET /healthz`、`GET /readyz` 和 `POST /execute`。每次执行生成独立 `runId`。显式启用并完整配置 Async Process Runs 后，入口还提供 `POST /process-runs` 和 `GET /process-runs/{runId}`；该功能默认关闭，在 BullMQ Worker 就绪前不得向生产调用方开放。默认同步生产构造不持久化 Run Record；结构化完成日志只保留运行元数据，不保存 Prompt、Tool 过程、模型消息或隐藏推理。
+默认 HTTP 入口公开 `GET /healthz`、`GET /readyz` 和 `POST /execute`。每次执行生成独立 `runId`。显式启用并完整配置 Async Process Runs 后，入口还提供 `POST /process-runs` 和 `GET /process-runs/{runId}`；该功能默认关闭，在异步角色组装、故障恢复和生产门禁完成前不得向生产调用方开放。默认同步生产构造不持久化 Run Record；结构化完成日志只保留运行元数据，不保存 Prompt、Tool 过程、模型消息或隐藏推理。
 
-仓库已实现尚未组装进 Startup Construction 的 Async Process Runs Module。它以 `submit/find` 固定公共状态、owner 隔离和 caller-scoped idempotency，并通过有界内存 Store、统一内存 Queue 与确定性测试 Worker 验证第一条异步纵切。PostgreSQL Adapter 已能以事务持久化 Run、初始 Event 和 Outbox，并通过真实 PostgreSQL contract tests 验证跨实例查询、幂等和 fencing；这些能力仍不是当前生产 Interface。
+仓库已实现 Async Process Runs Module。它以 `submit/find` 固定公共状态、owner 隔离和 caller-scoped idempotency；PostgreSQL Adapter 以事务持久化 Run、初始 Event 和 Outbox。Outbox Dispatcher 通过统一的 BullMQ `process-runs` Queue 只发布 `{ schemaVersion, runId }`，Worker 再从 PostgreSQL 读取准确 Registration 与 accepted input。真实 PostgreSQL/Redis 集成测试已覆盖两个不同 Process 的成功与业务失败；BullMQ 组件仍未组装进生产 Startup Construction。
 
 图片生成、海报 Skill、对象存储和 Skill A/B 对比目前属于开发实验与集成验证，不属于 `/execute` 的生产 catalog。
 
@@ -54,14 +54,14 @@ Agent 只获得 Process Registration 明确授权的窄 Tool。生产内容处�
 项目当前不提供：
 
 - 动态 Process Definition、运行时注册、自动发现、默认版本或版本回退；
-- 通用工作流编排、生产 Queue、跨请求 Agent 记忆或自动重试；
+- 通用工作流编排、已开放的生产 Queue、跨请求 Agent 记忆或自动重试；
 - 应用内用户系统、RBAC、多租户、CORS 或公网匿名调用；
 - 生产 Run Record 查询、聊天历史、持久化执行历史或通用幂等；
 - 允许 Agent 使用 Coding Tools 的通用 Skill 执行环境。
 
 未来若流程产生发布、扣费、发送等副作用，必须先明确幂等、审计和补偿策略。
 
-异步 Process Run 的持久化提交、owner 查询和 HTTP Interface 已完成，但功能默认关闭；BullMQ 调度、恢复、重试和 Webhook 仍按开发计划推进。该设计保留现有 Business Process 模型：外部调用方仍只选择准确 Process 和版本；Queue Job、重试与 Worker 配置由服务端拥有。详见 [`docs/async-process-runs-design.md`](docs/async-process-runs-design.md) 和 [`docs/async-process-runs-development-plan.md`](docs/async-process-runs-development-plan.md)。
+异步 Process Run 的持久化提交、owner 查询、HTTP Interface、Outbox 调度和基础 BullMQ Worker 已完成，但功能默认关闭；故障恢复、生产角色组装、重试和 Webhook 仍按开发计划推进。该设计保留现有 Business Process 模型：外部调用方仍只选择准确 Process 和版本；Queue Job、重试与 Worker 配置由服务端拥有。详见 [`docs/async-process-runs-design.md`](docs/async-process-runs-design.md) 和 [`docs/async-process-runs-development-plan.md`](docs/async-process-runs-development-plan.md)。
 
 ## Module 模型
 
@@ -76,7 +76,8 @@ Agent 只获得 Process Registration 明确授权的窄 Tool。生产内容处�
 | Process Attempt Runner | `run({ runId, registration, acceptedInput })` | 预分配 runId、超时、取消和公开错误净化 |
 | Async Process Runs | `submit(request, context)`、`find(runId, context)` | 输入接受、owner、幂等摘要和公共状态投影 |
 | Process Run Store | 接受 Run、owner 查询、claim、终态转换 | accepted input、attempt、revision 和 fencing；提供内存与 PostgreSQL Adapter |
-| Process Work Queue | `enqueue({ schemaVersion, runId })`、`close()` | 去重、容量和调度；当前只有确定性内存 Adapter |
+| Process Work Queue | `enqueue({ schemaVersion, runId })`、`close()` | 去重、容量和调度；提供确定性内存与 BullMQ Adapter |
+| Outbox Dispatcher | `dispatchOnce()` | PostgreSQL claim、BullMQ publish、ack 与失败 release |
 | Process Worker | `process(job)` | exact Registration 查找、Attempt 执行和受控状态转换 |
 | Business Capability | 窄业务方法 | 远程协议、认证、超时和供应商细节 |
 

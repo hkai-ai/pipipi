@@ -74,7 +74,7 @@ curl http://127.0.0.1:3000/healthz
 
 仓库已提供资源式的 `POST /process-runs` 和 `GET /process-runs/{runId}`。它要求网关验证身份、注入固定 caller 头与共享凭证，并要求每次提交携带 `Idempotency-Key`。成功提交返回 `202`、`Location`、`Retry-After` 和 queued Run；查询只向 owner 返回 queued、running、succeeded 或 failed。
 
-该 Interface 由 `ASYNC_PROCESS_RUNS_ENABLED=true` 显式启用，默认关闭。当前尚未接入 BullMQ Dispatcher 和生产 Worker，因此只能用于 PostgreSQL/API 开发验证，不得在现阶段向生产调用方开放。完整契约和配置见 [`docs/async-process-runs-design.md`](docs/async-process-runs-design.md) 与 [`docs/development.md`](docs/development.md)。
+该 Interface 由 `ASYNC_PROCESS_RUNS_ENABLED=true` 显式启用，默认关闭。仓库已经实现 transactional Outbox Dispatcher、统一 BullMQ Queue 和可独立启停的 Worker Adapter，并通过真实 PostgreSQL/Redis 验证准确版本执行；故障恢复、生产角色组装和运维门禁完成前仍不得向生产调用方开放。完整契约和配置见 [`docs/async-process-runs-design.md`](docs/async-process-runs-design.md) 与 [`docs/development.md`](docs/development.md)。
 
 ## Interface 约束
 
@@ -89,7 +89,7 @@ curl http://127.0.0.1:3000/healthz
 
 这是一个受控、同步、无状态的 MVP。部署平台必须提供 TLS、私有入口、调用方认证、Secret 注入和实例上限。当前生产服务不提供应用用户系统、RBAC、多租户、CORS、Queue、通用幂等、跨实例执行历史或动态流程注册。
 
-仓库内已有供开发和契约测试使用的 Async Process Runs Module、有界内存 Store/Queue、确定性 Worker，以及事务化 PostgreSQL Store 与初始 Outbox migration。它们尚未接入生产启动路径；BullMQ Dispatcher、异步 HTTP 和可信 caller identity 仍需按开发计划接入。
+仓库内已有 Async Process Runs Module、有界内存 Store/Queue、确定性 Worker、事务化 PostgreSQL Store、Outbox Dispatcher，以及固定版本的 BullMQ Queue/Worker Adapter。异步 HTTP 与可信 caller identity 已受 feature flag 保护；BullMQ 组件尚未组装进生产启动角色，租约恢复、重试和 Webhook 仍按开发计划推进。
 
 图片生成、海报 Skill、对象存储和 Skill A/B 对比属于开发实验与集成验证，尚未进入 `/execute` 的生产 catalog。
 

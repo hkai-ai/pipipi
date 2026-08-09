@@ -34,7 +34,7 @@ flowchart LR
 | M1 Runtime Seam | 已完成 | Registration 可先接受、后执行 | `/execute` 行为不变 |
 | M2 内存异步纵切 | 已完成 | Async Process Runs Module 与状态机可测试 | 不组装进生产入口 |
 | M3 PostgreSQL 与查询 | 已完成 | durable Run、幂等提交和查询路由 | feature flag 关闭 |
-| M4 Outbox 与 BullMQ Worker | 未开始 | 一个 Process Queue 端到端执行 | 先向内部调用方开放 |
+| M4 Outbox 与 BullMQ Worker | 进行中 | 一个 Process Queue 端到端执行 | 先向内部调用方开放 |
 | M5 Webhook Delivery | 未开始 | 签名通知、重试、审计和重放 | 按 endpoint 灰度 |
 | M6 生产硬化与发布 | 未开始 | 容量、恢复、保留、Runbook 和正式发布 | 受控发布 |
 
@@ -70,8 +70,11 @@ flowchart LR
 | 本地 PostgreSQL | `compose.integration.yaml` 的 PostgreSQL 17 临时实例 | `npm run test:integration:postgres` |
 | migration 配置 | `DATABASE_URL`；测试单独使用 `POSTGRES_TEST_DATABASE_URL` | 测试数据库名必须以 `_test` 结尾 |
 | 可信 caller identity | 网关验证 principal，删除外部同名头，再注入 caller subject 与共享凭证 | 应用对共享凭证做定时安全比较；缺失或伪造身份返回 `401` |
+| BullMQ / Redis client | `bullmq 6.0.9`、`ioredis 6.0.0`，首期 `attempts=1` | 依赖精确锁定；真实 Redis 集成测试 |
+| Process Queue | 一个 `process-runs` Queue；默认 key prefix 为 `pipipi` | 两个不同 Process 通过同一 Queue 选择准确 Registration |
+| 本地 Redis | `compose.integration.yaml` 的 Redis 7.4、`noeviction`、临时数据目录 | `REDIS_TEST_URL` 必须指向本机非零 database |
 
-Redis、可信 caller identity、生产 retention、字段级加密和 retry matrix 仍由后续批次固定，因此 M0 继续保持“进行中”。
+生产 Redis 高可用、生产 retention、字段级加密和 retry matrix 仍由后续批次固定，因此 M0 继续保持“进行中”。
 
 ### 完成门槛
 
@@ -206,6 +209,8 @@ type AsyncProcessRuns = Readonly<{
 ## M4：接入 transactional outbox 与 BullMQ Worker
 
 目标是让所有 Business Process 通过一个内部 Queue 可靠执行，并让 Redis 故障不会丢失已接受 Run。
+
+实现进度：Issue #14 已完成 Outbox claim/ack、统一 BullMQ Queue、最小 Job envelope、基础 Worker 生命周期、有界 Job retention，以及真实 PostgreSQL/Redis 的成功与业务失败集成测试。Issue #15 继续实现过期租约恢复、reconciliation、故障注入和有期限的优雅停机；Issue #16 再把 API、Dispatcher、Worker 组装成独立生产角色。
 
 ### 实现任务
 

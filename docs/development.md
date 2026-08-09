@@ -61,6 +61,7 @@ curl --fail -X POST http://127.0.0.1:3000/execute \
 | `npm run build` | 编译 `src/` 到 `dist/` | 否 |
 | `npm run db:migrate` | 对 `DATABASE_URL` 执行受锁保护的 PostgreSQL migration | 是，会修改指定数据库 |
 | `npm run test:integration:postgres` | 运行真实 PostgreSQL migration 与 Store contract tests | 是，会重建明确的 `_test` 数据库 schema |
+| `npm run test:integration:async` | 运行真实 PostgreSQL、Redis、Outbox Dispatcher 与 BullMQ Worker 测试 | 是，会重建 `_test` schema 并清空指定 Redis 测试 DB |
 | `npm run smoke:agent` | 验证真实 Agent 与 Business Capability | 是，可能产生模型费用 |
 | `npm run smoke:staging` | 验证已部署的受控环境 | 是 |
 | `npm run test:skill-ab` | 运行三组 Skill 对比 | 是，可能产生模型费用 |
@@ -88,6 +89,20 @@ DATABASE_URL="$POSTGRES_TEST_DATABASE_URL" npm run db:migrate
 
 默认 `npm test` 不连接数据库；PostgreSQL 集成文件在缺少测试 URL 时跳过。生产 migration 必须由部署步骤使用最小权限凭证显式执行，应用启动不隐式修改 schema。
 
+### PostgreSQL 与 Redis 异步集成测试
+
+异步集成测试复用同一 Compose 文件，并只允许清空本机 Redis 的非零 database：
+
+```bash
+docker compose -f compose.integration.yaml up -d --wait
+export POSTGRES_TEST_DATABASE_URL=postgres://pipipi:pipipi-test-only@127.0.0.1:55432/pipipi_test
+export REDIS_TEST_URL=redis://127.0.0.1:56379/15
+npm run test:integration:async
+docker compose -f compose.integration.yaml down
+```
+
+测试证明 Outbox 在 PostgreSQL commit 后才进入统一 `process-runs` Queue，Job 只含 `schemaVersion` 和 `runId`，Worker 仍能从数据库选择准确 Registration。Compose Redis 使用 `noeviction` 和临时数据目录；它只用于测试，不代表生产高可用配置。
+
 ### 异步 HTTP 开发入口
 
 异步路由默认关闭。启用时以下配置必须作为一个完整配置组提供：
@@ -99,7 +114,7 @@ DATABASE_URL="$POSTGRES_TEST_DATABASE_URL" npm run db:migrate
 
 可信网关必须先验证 service principal，删除外部请求中的 `x-pipipi-caller-id` 和 `x-pipipi-gateway-token`，再分别注入稳定 subject 与共享凭证。应用不接受请求 body 中的 owner，也不把身份头、共享凭证或数据库错误写入响应。`GET /healthz` 始终只做 liveness；`GET /readyz` 在异步功能启用时检查数据库连接和 `process_runs` migration。
 
-当前批次只验证提交与查询。Outbox Dispatcher 和 BullMQ Worker 完成前，即使配置齐全也不要向生产流量启用该 feature flag。
+当前已验证提交、查询、Outbox 调度和基础 BullMQ Worker。Worker/Dispatcher 尚未进入生产启动角色，恢复、监控与运维门禁也未完成；即使配置齐全也不要向生产流量启用该 feature flag。
 
 ## 代码地图
 
@@ -119,6 +134,9 @@ DATABASE_URL="$POSTGRES_TEST_DATABASE_URL" npm run db:migrate
 | `src/async-process-runs.ts` | 异步提交、owner 隔离、caller-scoped idempotency 和公共状态投影 |
 | `src/process-run-store.ts` | 权威 Process Run Store Seam、状态转换和有界内存 Adapter |
 | `src/postgres-process-run-store.ts` | PostgreSQL 事务、Attempt fencing、初始 Event 与 Outbox Adapter |
+| `src/process-outbox.ts`、`src/postgres-process-outbox.ts` | Outbox claim、publish ack 与失败 release Seam/Adapter |
+| `src/outbox-dispatcher.ts` | 从 PostgreSQL Outbox 向内部 Process Work Queue 转发最小 Job |
+| `src/bullmq-process-work-queue.ts` | 固定版本 BullMQ Queue、Worker、Redis 连接策略与有界 Job retention |
 | `src/caller-identity.ts` | 网关注入 caller subject 的认证与 HTTP 身份 Resolver |
 | `migrations/` | 受版本和 advisory lock 管理的 PostgreSQL schema 变化 |
 | `src/object-storage*.ts`、`src/aliyun-oss-storage.ts` | 通用对象存储 Seam、配置和 OSS Adapter |
