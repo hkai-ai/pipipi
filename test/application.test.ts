@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   createProcessingApplication,
   type ProcessingApplication,
-} from "../src/application.js";
+} from "../src/api/application.js";
 
 const runningApplications: ProcessingApplication[] = [];
 

@@ -10,49 +10,49 @@ import { Redis } from "ioredis";
 import { runner } from "node-pg-migrate";
 import { Pool } from "pg";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { createAsyncProcessRuns, type ProcessRunView } from "../src/async-process-runs.js";
+import { createAsyncProcessRuns, type ProcessRunView } from "../src/runs/service.js";
 import {
   constructProcessDispatcherService,
   constructProcessWorkerService,
-} from "../src/async-runtime-construction.js";
+} from "../src/runs/bootstrap.js";
 import {
   defaultWebhookWorkQueueName,
   defaultWebhookWorkQueuePrefix,
-} from "../src/bullmq-webhook-work-queue.js";
+} from "../src/webhooks/bullmq-queue.js";
 import {
   createBullMqProcessWorker,
   createBullMqProcessWorkQueue,
   defaultProcessWorkQueueName,
   defaultProcessWorkQueuePrefix,
-} from "../src/bullmq-process-work-queue.js";
+} from "../src/runs/bullmq-queue.js";
 import {
   callerIdentityHeader,
   gatewayAuthenticationHeader,
-} from "../src/caller-identity.js";
+} from "../src/api/identity.js";
 import {
   createOutboxDispatcher,
-} from "../src/outbox-dispatcher.js";
-import { createPostgresProcessOutbox } from "../src/postgres-process-outbox.js";
+} from "../src/runs/outbox-dispatcher.js";
+import { createPostgresProcessOutbox } from "../src/runs/postgres-outbox.js";
 import {
   createPostgresProcessRunRecoverySource,
   createPostgresProcessRunStore,
-} from "../src/postgres-process-run-store.js";
-import { createPostgresWebhookDeliveryStore } from "../src/postgres-webhook-delivery-store.js";
-import { createProcessRunReconciler } from "../src/process-run-reconciler.js";
+} from "../src/runs/postgres-store.js";
+import { createPostgresWebhookDeliveryStore } from "../src/webhooks/postgres-store.js";
+import { createProcessRunReconciler } from "../src/runs/recovery.js";
 import {
   createProcessAttemptRunner,
   createProcessRegistry,
   defineProcessRegistration,
   failProcess,
-} from "../src/process-runtime.js";
-import { createProcessWorker } from "../src/process-worker.js";
-import type { ProcessWorker } from "../src/process-worker.js";
-import type { ProcessWorkJob } from "../src/process-work-queue.js";
-import { constructProcessingService } from "../src/startup-construction.js";
-import { signStandardWebhook } from "../src/webhook-delivery.js";
-import { constructWebhookWorkerService } from "../src/webhook-runtime-construction.js";
-import { createWebhookSecretCipher } from "../src/webhook-secret-cipher.js";
-import { createWebhookTargetPolicy } from "../src/webhook-target-policy.js";
+} from "../src/processes/runtime.js";
+import { createProcessWorker } from "../src/runs/worker.js";
+import type { ProcessWorker } from "../src/runs/worker.js";
+import type { ProcessWorkJob } from "../src/runs/queue.js";
+import { constructProcessingService } from "../src/api/bootstrap.js";
+import { signStandardWebhook } from "../src/webhooks/delivery.js";
+import { constructWebhookWorkerService } from "../src/webhooks/bootstrap.js";
+import { createWebhookSecretCipher } from "../src/webhooks/secret-cipher.js";
+import { createWebhookTargetPolicy } from "../src/webhooks/target-policy.js";
 import { z } from "zod";
 
 const databaseUrl = process.env.POSTGRES_TEST_DATABASE_URL;

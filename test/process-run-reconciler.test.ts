@@ -3,8 +3,8 @@ import {
   createProcessRunReconciler,
   type ProcessRecoveryCandidate,
   type ProcessRecoveryStore,
-} from "../src/process-run-reconciler.js";
-import type { RecoverableProcessWorkQueue } from "../src/process-work-queue.js";
+} from "../src/runs/recovery.js";
+import type { RecoverableProcessWorkQueue } from "../src/runs/queue.js";
 
 describe("Process Run Reconciler", () => {
   it("repairs missing jobs and pending outbox while deferring an active lease", async () => {

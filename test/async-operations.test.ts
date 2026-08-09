@@ -3,9 +3,9 @@ import type { Pool } from "pg";
 import {
   createPostgresAsyncOperations,
   createPostgresAsyncReleaseReadiness,
-} from "../src/async-operations.js";
-import { readBullMqQueueSnapshot } from "../src/bullmq-queue-observability.js";
-import { constructAsyncOperationsCommand } from "../src/async-operations-command.js";
+} from "../src/runs/operations.js";
+import { readBullMqQueueSnapshot } from "../src/runs/bullmq-observability.js";
+import { constructAsyncOperationsCommand } from "../src/runs/operations-command.js";
 
 describe("Async operations observability", () => {
   it("normalizes PostgreSQL operational metrics without content fields", async () => {

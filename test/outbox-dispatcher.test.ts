@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
-import { createOutboxDispatcher } from "../src/outbox-dispatcher.js";
-import type { ProcessOutbox } from "../src/process-outbox.js";
-import type { ProcessWorkQueue } from "../src/process-work-queue.js";
+import { createOutboxDispatcher } from "../src/runs/outbox-dispatcher.js";
+import type { ProcessOutbox } from "../src/runs/outbox.js";
+import type { ProcessWorkQueue } from "../src/runs/queue.js";
 
 describe("Outbox Dispatcher", () => {
   it("publishes a claimed Process Work message before acknowledging it", async () => {

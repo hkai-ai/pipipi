@@ -3,7 +3,7 @@ import {
   callerIdentityHeader,
   createGatewayCallerIdentityResolver,
   gatewayAuthenticationHeader,
-} from "../src/caller-identity.js";
+} from "../src/api/identity.js";
 
 describe("Gateway Caller Identity", () => {
   const sharedSecret = "gateway-test-secret-that-is-at-least-32-bytes";

@@ -81,21 +81,21 @@ PostgreSQL 是本项目的推荐 Implementation，不是 BullMQ 或 Standard Web
 
 **仓库事实：** 当前 HTTP 入口只提供 `GET /healthz` 和同步 `POST /execute`。HTTP Adapter 在
 调用 Process Executor 前校验 media type、请求体大小和单实例并发；容量满时返回 `503` 和
-`Retry-After`。[HTTP Adapter](../../src/http-adapter.ts)
+`Retry-After`。[HTTP Adapter](../../src/api/http.ts)
 
 **仓库事实：** `ProcessExecutor.execute(request)` 在内部生成 `runId`，解析请求、精确查找
 Process Registration、启动 Process、执行超时竞争并返回终态。它不能接受由提交端预先分配的
-`runId`。[Process Runtime](../../src/process-runtime.ts)
+`runId`。[Process Runtime](../../src/processes/runtime.ts)
 
 **仓库事实：** 当前 `ProcessRunRecords` 只记录完成结果。`record` 是 best-effort，写入失败会被
 忽略；默认 Adapter 禁用，另一个 Adapter 只保存在单进程内存中。它没有 `queued`、`running`、
 `retrying` 等状态，也没有权威状态转换或跨实例存储。
-[Process Run Records](../../src/process-run-records.ts)
+[Process Run Records](../../src/processes/records.ts)
 
 **仓库事实：** `package.json` 没有 BullMQ、Redis client 或数据库依赖。生产组装只创建同步
-Application 和 Process Executor，`main.ts` 收到 `SIGINT`/`SIGTERM` 时只关闭 HTTP server。
-[package.json](../../package.json)、[Startup Construction](../../src/startup-construction.ts)、
-[main.ts](../../src/main.ts)
+Application 和 Process Executor，`src/bin/api.ts` 收到 `SIGINT`/`SIGTERM` 时只关闭 HTTP server。
+[package.json](../../package.json)、[Startup Construction](../../src/api/bootstrap.ts)、
+[API entry](../../src/bin/api.ts)
 
 ### 异步化不能直接复用的地方
 

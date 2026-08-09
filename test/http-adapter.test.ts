@@ -5,16 +5,16 @@ import {
   type Server,
 } from "node:http";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createProcessingApplication } from "../src/application.js";
-import { ContentProcessingUnavailable } from "../src/business-capabilities.js";
+import { createProcessingApplication } from "../src/api/application.js";
+import { ContentProcessingUnavailable } from "../src/processes/content-capability.js";
 import {
   createBusinessProcessExecutor,
   type BusinessProcessExecutorOptions,
-} from "../src/business-process-executor.js";
+} from "../src/processes/catalog.js";
 import {
   createProcessingRequestListener,
   type ProcessingHttpOptions,
-} from "../src/http-adapter.js";
+} from "../src/api/http.js";
 
 type RunningService = {
   url: string;

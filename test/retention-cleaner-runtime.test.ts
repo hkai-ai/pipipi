@@ -1,10 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { PostgresRetentionCleanup } from "../src/postgres-retention-cleanup.js";
+import type { PostgresRetentionCleanup } from "../src/runs/postgres-retention.js";
 import {
   createRetentionCleaner,
   createRetentionCleanerRuntime,
   type RetentionCleaner,
-} from "../src/retention-cleaner-runtime.js";
+} from "../src/runs/retention.js";
 
 afterEach(() => {
   vi.useRealTimers();

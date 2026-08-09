@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createProcessDispatcherRuntime } from "../src/process-dispatcher-runtime.js";
-import type { OutboxDispatcher } from "../src/outbox-dispatcher.js";
-import type { ProcessRunReconciler } from "../src/process-run-reconciler.js";
+import { createProcessDispatcherRuntime } from "../src/runs/dispatcher.js";
+import type { OutboxDispatcher } from "../src/runs/outbox-dispatcher.js";
+import type { ProcessRunReconciler } from "../src/runs/recovery.js";
 
 afterEach(() => {
   vi.useRealTimers();

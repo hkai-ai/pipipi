@@ -200,44 +200,36 @@ Webhook 重试状态以 PostgreSQL 为准，不依赖 BullMQ 的 Job attempts。
 
 ## 代码地图
 
-| 路径 | Module 职责 |
+`src/` 按拥有行为的 Module 分组。目录表达代码所有权；Adapter 与其实现的 Interface 保持在同一 Module 内。
+
+| 目录 | Module 职责 |
 | --- | --- |
-| `src/main.ts` | 监听端口、启动日志、关闭信号和退出状态 |
-| `src/startup-construction.ts` | 配置翻译、校验、Adapter 选择和生产组装 |
-| `src/async-runtime-construction.ts` | Dispatcher/Worker/Retention Cleaner 的角色专属配置、Adapter 和 production catalog 组装 |
-| `src/webhook-runtime-construction.ts` | Webhook Outbox、Queue、Sender 和 Worker 的独立生产组装 |
-| `src/application.ts` | HTTP server 的 `listen` 与 `close` 生命周期 |
-| `src/runtime-role-application.ts` | 后台角色的 liveness、readiness、监听与关闭生命周期 |
-| `src/http-adapter.ts` | 路由、传输校验、请求体上限、并发准入、状态码和结构化日志 |
-| `src/process-runtime.ts` | Registration accept/run、Registry、同步 Runner、Attempt Runner、公共结果和错误治理 |
-| `src/business-process-executor.ts` | 显式 production catalog 和 Process Runtime 组装 |
-| `src/content-processing.ts` | `content-processing/v1` Registration 与 HTTP Capability Adapter |
-| `src/titled-content-processing.ts` | `titled-content-processing/v1` Registration |
-| `src/business-capabilities.ts` | Content Processing Capability 的窄 Interface 与依赖错误 |
-| `src/agent-runtime.ts` | 受限 Pi Agent Adapter、请求级会话和唯一业务 Tool |
-| `src/process-run-records.ts` | disabled、内存和持久化 Run Record Adapter 的公共语义 |
-| `src/async-process-runs.ts` | 异步提交、owner 隔离、caller-scoped idempotency 和公共状态投影 |
-| `src/process-run-store.ts` | 权威 Process Run Store Seam、状态转换和有界内存 Adapter |
-| `src/postgres-process-run-store.ts` | PostgreSQL 事务、Attempt fencing、初始 Event 与 Outbox Adapter |
-| `src/process-outbox.ts`、`src/postgres-process-outbox.ts` | Outbox claim、publish ack 与失败 release Seam/Adapter |
-| `src/outbox-dispatcher.ts` | 从 PostgreSQL Outbox 向 Process/Webhook Queue 转发各自最小 Job |
-| `src/process-run-reconciler.ts` | 扫描长期 queued 或过期 running Run，并通过 Queue Seam 重投 |
-| `src/queue-recovery-command.ts`、`src/queue-recovery-main.ts` | 默认 dry-run 的人工全量 Queue 对账、游标续跑和结构化批次报告 |
-| `src/async-operations.ts`、`src/async-operations-command.ts` | PostgreSQL/BullMQ 运维快照与 staged release readiness |
-| `src/async-operational-logging.ts` | 不含业务内容的 `runId`/`eventId`/`deliveryId` 关联日志 |
-| `src/process-dispatcher-runtime.ts` | 以不重叠的周期运行 Outbox 与 Reconciler，并隔离可恢复错误 |
-| `src/postgres-retention-cleanup.ts`、`src/retention-cleaner-runtime.ts` | 分层内容清理、引用保护、批次审计、游标 sweep 与安全中断 |
-| `src/bullmq-process-work-queue.ts` | 固定版本 BullMQ Queue、Worker、Redis 连接策略与有界 Job retention |
-| `src/webhook-delivery.ts`、`src/postgres-webhook-delivery-store.ts` | 终态 Delivery、原始 body 签名、HTTP 投递和持久化结果 |
-| `src/bullmq-webhook-work-queue.ts` | 独立 Webhook Queue/Worker、Redis 生命周期和有界 Job retention |
-| `src/caller-identity.ts` | 网关注入 caller subject 的认证与 HTTP 身份 Resolver |
+| `src/bin/` | API、Dispatcher、Worker、Cleaner、Operations 和 Recovery 的可执行入口；不放业务规则 |
+| `src/api/` | HTTP 生命周期、路由、caller identity、后台角色健康检查和 API production bootstrap |
+| `src/processes/` | Process Registration、Registry、Runner、production catalog、Run Record 与获准 Business Capability |
+| `src/runs/` | Async Process Runs、Store、Queue、Outbox、Worker、Recovery、Retention 和 Operations |
+| `src/webhooks/` | Webhook Delivery、Store、Queue、签名、目标策略和独立 Worker bootstrap |
+| `examples/support/` | 只供实验使用的图片生成和对象存储实现；不进入生产 `dist/` |
 | `migrations/` | 受版本和 advisory lock 管理的 PostgreSQL schema 变化 |
-| `src/object-storage*.ts`、`src/aliyun-oss-storage.ts` | 通用对象存储 Seam、配置和 OSS Adapter |
-| `src/openai-image-generation.ts` | 图片生成 Interface 与 OpenAI Adapter |
 | `test/` | 跨公开 Seam 的确定性行为验证 |
 | `examples/` | 本地依赖、真实集成 smoke 和可复现实验 |
 
-完整 Module 关系见 [`process-runtime-design.md`](process-runtime-design.md)。图片与对象存储 Module 当前只由 `examples/` 的实验路径使用，没有进入 HTTP production catalog。
+关键 Interface 和 Composition Root 位于：
+
+| 路径 | 职责 |
+| --- | --- |
+| `src/api/bootstrap.ts` | API 配置翻译、校验、Adapter 选择和完整生产组装 |
+| `src/processes/runtime.ts` | Registration、Registry、同步 Runner、Attempt Runner、公共结果和错误治理 |
+| `src/processes/catalog.ts` | 显式 production catalog 和 Process Runtime 组装 |
+| `src/runs/service.ts` | 异步提交、owner 隔离、caller-scoped idempotency 和公共状态投影 |
+| `src/runs/store.ts`、`src/runs/postgres-store.ts` | 权威状态转换，以及内存和 PostgreSQL Adapter |
+| `src/runs/queue.ts`、`src/runs/bullmq-queue.ts` | 最小 Job Interface，以及内存和 BullMQ Adapter |
+| `src/runs/recovery.ts` | 周期 reconciliation 与人工 Queue Recovery |
+| `src/webhooks/delivery.ts`、`src/webhooks/postgres-store.ts` | Webhook 投递行为和 PostgreSQL Adapter |
+
+目录使用简短的领域复数名词。文件名不重复父目录已经表达的词，例如使用 `src/runs/store.ts`，不用 `src/runs/process-run-store.ts`；只有 Adapter 文件保留 `postgres-`、`bullmq-` 等技术名称。不要新增 `common/`、`shared/`、`utils/` 或横向的 `controllers/services/repositories` 目录。无法明确归属的代码应先重新检查 Module 和 Seam。
+
+完整 Module 关系见 [`process-runtime-design.md`](process-runtime-design.md)。图片与对象存储实现只由 `examples/` 使用，没有进入 HTTP production catalog 或生产构建。
 
 ## 设计改动的工作方式
 
@@ -272,7 +264,7 @@ JSON-safe snapshot。业务 input payload 默认上限为 262144 UTF-8 bytes，�
 5. 通过 Registration Seam 测试接受、JSON 往返、单次解析、策略和输出；通过 Process Attempt Runner 测试预分配 `runId`、超时与错误净化；通过真实本地 `/execute` 测试产品行为和 HTTP 映射。
 6. 更新 README 的当前能力、`CONTEXT.md` 的产品契约，以及受影响的设计或发布文档。
 
-[`src/titled-content-processing.ts`](../src/titled-content-processing.ts) 是最小示例。新版本必须新建 Registration 并显式加入 catalog；不要加入 `latest`、默认版本、自动发现或回退。
+[`src/processes/titled-content.ts`](../src/processes/titled-content.ts) 是最小示例。新版本必须新建 Registration 并显式加入 catalog；不要加入 `latest`、默认版本、自动发现或回退。
 
 流程需要外部 Skill 时，先按 [`integrating-runtime-skills.md`](integrating-runtime-skills.md) 在开发期解析、审查和固定来源。Process Registration 只绑定随应用发布的本地 Runtime Skill，不接收路径或 URL。
 
@@ -293,9 +285,9 @@ JSON-safe snapshot。业务 input payload 默认上限为 262144 UTF-8 bytes，�
 默认生产构造使用 disabled 实现，只输出结构化完成日志。开发或单实例测试可以注入有容量上限的内存实现：
 
 ```ts
-import { createProcessingApplication } from "./src/application.js";
-import { createBusinessProcessExecutor } from "./src/business-process-executor.js";
-import { createInMemoryProcessRunRecords } from "./src/process-run-records.js";
+import { createProcessingApplication } from "./src/api/application.js";
+import { createBusinessProcessExecutor } from "./src/processes/catalog.js";
+import { createInMemoryProcessRunRecords } from "./src/processes/records.js";
 
 const runRecords = createInMemoryProcessRunRecords({ maxRecords: 100 });
 const executor = createBusinessProcessExecutor({

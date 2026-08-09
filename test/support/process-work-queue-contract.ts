@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type {
   RecoverableProcessWorkQueue,
   ProcessWorkSource,
-} from "../../src/process-work-queue.js";
+} from "../../src/runs/queue.js";
 
 export function processWorkQueueContract(
   adapterName: string,

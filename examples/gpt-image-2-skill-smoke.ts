@@ -14,15 +14,15 @@ import {
   configureOpenAIProvider,
   parseOpenAIApiMode,
   type OpenAIApiMode,
-} from "../src/agent-runtime.js";
+} from "../src/processes/agent.js";
 import {
   OpenAIImageGenerationClient,
   type GeneratedImage,
   type GptImageOutputFormat,
   type GptImageQuality,
-} from "../src/openai-image-generation.js";
-import { createObjectStorageFromEnvironment } from "../src/object-storage-config.js";
-import type { StoredObject } from "../src/object-storage.js";
+} from "./support/openai-image-generation.js";
+import { createObjectStorageFromEnvironment } from "./support/object-storage-config.js";
+import type { StoredObject } from "./support/object-storage.js";
 
 const posterSkillName = "gc-minimal-zine-poster-v0-1";
 const posterSkillDirectory = resolve(

@@ -15,7 +15,7 @@ Process Runtime 在不暴露具体 Business Process 依赖和策略的前提下�
 - Process Runner 统一生成 `runId`、接受输入并写入 best-effort Run Records；Process Attempt Runner 用预分配的 `runId` 管理超时、取消和公共结果。
 - Startup Construction 从只读环境变量映射生成 ready Application 和端口，并隐藏配置翻译、默认值、跨字段校验和生产组装。
 - Application 只管理 HTTP 生命周期，不知道具体 Business Process。
-- `main.ts` 只监听端口、记录启动、处理关闭信号和设置退出状态。
+- `src/bin/api.ts` 只监听端口、记录启动、处理关闭信号和设置退出状态。
 
 ## Module 地图
 
@@ -136,7 +136,7 @@ Process Definition 抛出的异常属于意外失败。Process Attempt Runner �
 
 ## Composition 与依赖
 
-[`constructProcessingService`](../src/startup-construction.ts) 拥有完整的生产 Composition Root。
+[`constructProcessingService`](../src/api/bootstrap.ts) 拥有完整的生产 Composition Root。
 它先校验通用配置，再选择 `direct` 或 `agent` 路径。Direct 路径忽略 Agent 专用配置；Agent
 路径校验成组的 provider/model 和 OpenAI API mode，再构造 Pi Agent Runtime。任何配置错误
 都会在 Application 监听端口前抛出。
@@ -150,12 +150,11 @@ Capability。独立 Webhook Construction 只组装 Delivery Store、Webhook Outb
 HTTP Sender，不加载 Business Process。四个角色的 liveness 不访问下游，readiness 只检查本角色依赖；生产观测和发布门禁
 完成前，异步 feature flag 只用于受控内部环境。
 
-`main.ts`、`process-dispatcher-main.ts`、`process-worker-main.ts` 和 `webhook-worker-main.ts` 只把 `process.env` 传给各自
-Construction Seam，然后监听端口、写启动日志并处理 `SIGINT` 和 `SIGTERM`。入口不翻译配置，
-也不直接组装 Adapter、Executor 或 Application。
+`src/bin/` 中的入口只把 `process.env` 传给各自 Construction Seam，然后监听端口、写启动日志并处理
+`SIGINT` 和 `SIGTERM`。入口不翻译配置，也不直接组装 Adapter、Executor 或 Application。
 
 Production catalog 由
-[`createBusinessProcessExecutor`](../src/business-process-executor.ts)
+[`createBusinessProcessExecutor`](../src/processes/catalog.ts)
 定义，也是唯一知道全部具体 Business Process 的位置。它创建两个 Registration、不可变
 Registry 和 Process Runner，再向 Application 返回 ready `ProcessExecutor`。
 

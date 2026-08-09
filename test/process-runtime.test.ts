@@ -1,6 +1,6 @@
 import { describe, expect, expectTypeOf, it } from "vitest";
 import { z } from "zod";
-import type { CompletedProcessRun } from "../src/process-run-records.js";
+import type { CompletedProcessRun } from "../src/processes/records.js";
 import {
   createProcessAttemptRunner,
   createProcessRegistry,
@@ -11,7 +11,7 @@ import {
   type ProcessExecutionContext,
   type ProcessRegistration,
   type ProcessRegistry,
-} from "../src/process-runtime.js";
+} from "../src/processes/runtime.js";
 
 describe("Process Runtime", () => {
   it("captures and validates a server-owned retry policy", () => {

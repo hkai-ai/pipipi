@@ -6,17 +6,17 @@ import {
   type ServerResponse,
 } from "node:http";
 import { afterEach, describe, expect, it } from "vitest";
-import type { ContentOptimizationAgentRuntime } from "../src/agent-runtime.js";
-import { createProcessingApplication } from "../src/application.js";
-import { ContentProcessingUnavailable } from "../src/business-capabilities.js";
+import type { ContentOptimizationAgentRuntime } from "../src/processes/agent.js";
+import { createProcessingApplication } from "../src/api/application.js";
+import { ContentProcessingUnavailable } from "../src/processes/content-capability.js";
 import {
   createBusinessProcessExecutor,
   type BusinessProcessExecutorOptions,
-} from "../src/business-process-executor.js";
+} from "../src/processes/catalog.js";
 import {
   HttpContentProcessingCapability,
   type ContentProcessingCapability,
-} from "../src/content-processing.js";
+} from "../src/processes/content.js";
 
 type RunningServer = {
   url: string;

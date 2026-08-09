@@ -14,13 +14,13 @@ import {
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
-import { createProcessingApplication } from "../src/application.js";
-import { createBusinessProcessExecutor } from "../src/business-process-executor.js";
+import { createProcessingApplication } from "../src/api/application.js";
+import { createBusinessProcessExecutor } from "../src/processes/catalog.js";
 import {
   parseOpenAIApiMode,
   PiContentOptimizationAgentRuntime,
-} from "../src/agent-runtime.js";
-import { HttpContentProcessingCapability } from "../src/content-processing.js";
+} from "../src/processes/agent.js";
+import { HttpContentProcessingCapability } from "../src/processes/content.js";
 
 const sourceContent =
   process.env.SKILL_AB_CONTENT ??

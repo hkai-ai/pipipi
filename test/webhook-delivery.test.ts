@@ -6,12 +6,12 @@ import {
   createWebhookDeliveryWorker,
   signStandardWebhook,
   type WebhookDeliveryStore,
-} from "../src/webhook-delivery.js";
+} from "../src/webhooks/delivery.js";
 import {
   createWebhookTargetPolicy,
   WebhookTargetPolicyError,
   type WebhookHttpClient,
-} from "../src/webhook-target-policy.js";
+} from "../src/webhooks/target-policy.js";
 
 const signingKey = Buffer.alloc(32, 7);
 const signingSecret = `whsec_${signingKey.toString("base64")}`;

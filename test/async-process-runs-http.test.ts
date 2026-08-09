@@ -1,14 +1,14 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
-import { createProcessingApplication } from "../src/application.js";
-import { createAsyncProcessRuns } from "../src/async-process-runs.js";
-import type { CallerIdentityResolver } from "../src/caller-identity.js";
-import { createInMemoryProcessRunStore } from "../src/process-run-store.js";
+import { createProcessingApplication } from "../src/api/application.js";
+import { createAsyncProcessRuns } from "../src/runs/service.js";
+import type { CallerIdentityResolver } from "../src/api/identity.js";
+import { createInMemoryProcessRunStore } from "../src/runs/store.js";
 import {
   createProcessRegistry,
   defineProcessRegistration,
-} from "../src/process-runtime.js";
-import { createInMemoryProcessWorkQueue } from "../src/process-work-queue.js";
+} from "../src/processes/runtime.js";
+import { createInMemoryProcessWorkQueue } from "../src/runs/queue.js";
 
 const runningApplications: Array<{ close: () => Promise<void> }> = [];
 

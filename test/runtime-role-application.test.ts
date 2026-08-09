@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   createRuntimeRoleApplication,
   type BackgroundRuntime,
-} from "../src/runtime-role-application.js";
+} from "../src/api/role.js";
 
 describe("Runtime role application", () => {
   it("keeps liveness independent and reports dynamic readiness", async () => {

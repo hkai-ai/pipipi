@@ -190,7 +190,7 @@ host、防止本地路径越过允许根目录、限制 bundle 大小和文件�
 ### 当前能力
 
 本项目已经有一个最小的本地路径入口：Startup Construction 可把
-`PI_SKILL_DIRECTORY` 传给 [`PiContentOptimizationAgentRuntime`](../../src/agent-runtime.ts)，
+`PI_SKILL_DIRECTORY` 传给 [`PiContentOptimizationAgentRuntime`](../../src/processes/agent.ts)，
 后者从该目录加载 Skill，并只保留准确名为 `content-optimization` 的一项。默认路径仍是
 `.pi/skills/content-optimization`，Docker image 也只复制这一项
 [`Dockerfile`](../../Dockerfile)。

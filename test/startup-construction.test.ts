@@ -5,8 +5,8 @@ import {
   type ServerResponse,
 } from "node:http";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { ProcessingApplication } from "../src/application.js";
-import { constructProcessingService } from "../src/startup-construction.js";
+import type { ProcessingApplication } from "../src/api/application.js";
+import { constructProcessingService } from "../src/api/bootstrap.js";
 
 type RunningServer = {
   url: string;

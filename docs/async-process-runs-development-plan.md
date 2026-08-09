@@ -304,18 +304,11 @@ type AsyncProcessRuns = Readonly<{
 
 | 代码区域 | 实现职责 |
 | --- | --- |
-| `src/process-runtime.ts` | M1 的 accept/run、accepted input 和 Attempt execution |
-| `src/business-process-executor.ts` | 复用同一 production catalog 组装同步与异步执行核心 |
-| `src/async-process-runs.ts` | Async Process Runs 的 `submit/find` 外部 Interface 与状态投影 |
-| `src/process-run-store.ts` | 内部 Store Seam、状态转换类型和内存 Adapter |
-| `src/postgres-process-run-store.ts` | PostgreSQL Adapter 与事务 Implementation |
-| `src/process-work-queue.ts` | Queue Job schema、内存 Adapter 与内部发布/消费 Interface |
-| `src/bullmq-process-work-queue.ts` | BullMQ Queue/Worker Adapter 与 Redis 配置 |
-| `src/outbox-dispatcher.ts` | outbox claim、发布、确认和 reconciliation |
-| `src/process-worker.ts`、`src/process-worker-main.ts` | Worker 生命周期和 composition root |
-| `src/http-adapter.ts`、`src/application.ts` | 异步路由、caller identity 和 readiness，保留同步路由 |
-| `src/startup-construction.ts` | feature flag、数据库/Redis Adapter 和角色组装 |
-| `src/webhook-*.ts` | M5 的 Endpoint、Delivery、签名、Queue 与 Worker |
+| `src/processes/` | accept/run、accepted input、Attempt execution 和复用的 production catalog |
+| `src/runs/` | Async Process Runs、Store、Queue、Outbox、Worker、Recovery、Retention 和 Operations |
+| `src/api/` | 异步 HTTP 路由、caller identity、readiness 和 API bootstrap；保留同步路由 |
+| `src/webhooks/` | Endpoint、Delivery、签名、Queue、Store 和独立 Worker bootstrap |
+| `src/bin/` | 各部署角色与人工命令的薄入口 |
 | `migrations/` | 分批、向前兼容的 PostgreSQL migration |
 | `test/` | Module contract、HTTP 和受控故障测试 |
 

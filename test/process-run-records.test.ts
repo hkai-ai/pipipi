@@ -2,15 +2,15 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   createProcessingApplication,
   type ProcessingApplication,
-} from "../src/application.js";
-import { createBusinessProcessExecutor } from "../src/business-process-executor.js";
+} from "../src/api/application.js";
+import { createBusinessProcessExecutor } from "../src/processes/catalog.js";
 import {
   createInMemoryProcessRunRecords,
   createProcessRunRecords,
   type ProcessRunRecordAdapter,
   type ProcessRunRecords,
-} from "../src/process-run-records.js";
-import type { ProcessRunResult } from "../src/process-runtime.js";
+} from "../src/processes/records.js";
+import type { ProcessRunResult } from "../src/processes/runtime.js";
 
 const runningApplications: ProcessingApplication[] = [];
 

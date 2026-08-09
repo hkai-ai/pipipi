@@ -2,30 +2,30 @@ import path from "node:path";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { runner } from "node-pg-migrate";
 import { Pool } from "pg";
-import { createAsyncProcessRuns } from "../src/async-process-runs.js";
+import { createAsyncProcessRuns } from "../src/runs/service.js";
 import {
   createPostgresAsyncOperations,
   createPostgresAsyncReleaseReadiness,
-} from "../src/async-operations.js";
+} from "../src/runs/operations.js";
 import {
   callerIdentityHeader,
   gatewayAuthenticationHeader,
-} from "../src/caller-identity.js";
-import { createPostgresProcessRunStore } from "../src/postgres-process-run-store.js";
-import { createPostgresRetentionCleanup } from "../src/postgres-retention-cleanup.js";
-import { createPostgresWebhookDeliveryStore } from "../src/postgres-webhook-delivery-store.js";
-import { createWebhookSecretCipher } from "../src/webhook-secret-cipher.js";
-import { createWebhookTargetPolicy } from "../src/webhook-target-policy.js";
+} from "../src/api/identity.js";
+import { createPostgresProcessRunStore } from "../src/runs/postgres-store.js";
+import { createPostgresRetentionCleanup } from "../src/runs/postgres-retention.js";
+import { createPostgresWebhookDeliveryStore } from "../src/webhooks/postgres-store.js";
+import { createWebhookSecretCipher } from "../src/webhooks/secret-cipher.js";
+import { createWebhookTargetPolicy } from "../src/webhooks/target-policy.js";
 import {
   createStandardWebhookHttpSender,
   createWebhookDeliveryWorker,
-} from "../src/webhook-delivery.js";
+} from "../src/webhooks/delivery.js";
 import {
   ProcessRunBacklogLimitError,
   type ProcessRunStore,
-} from "../src/process-run-store.js";
-import { createProcessRegistry } from "../src/process-runtime.js";
-import { constructProcessingService } from "../src/startup-construction.js";
+} from "../src/runs/store.js";
+import { createProcessRegistry } from "../src/processes/runtime.js";
+import { constructProcessingService } from "../src/api/bootstrap.js";
 import { processRunStoreContract } from "./support/process-run-store-contract.js";
 
 const databaseUrl = process.env.POSTGRES_TEST_DATABASE_URL;
