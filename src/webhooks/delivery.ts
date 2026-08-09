@@ -3,7 +3,7 @@ import {
     type AsyncOperationalLogSink,
     emitAsyncOperationalLog,
     tryOperationalTimestamp,
-} from "../runs/logging.js";
+} from "../process-runs/ops/logging.js";
 import {
     createPinnedWebhookHttpClient,
     createWebhookTargetPolicy,

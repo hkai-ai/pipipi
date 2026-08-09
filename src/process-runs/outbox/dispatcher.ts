@@ -1,12 +1,12 @@
 import { randomUUID } from "node:crypto";
-import type { WebhookOutbox } from "../webhooks/outbox.js";
-import type { WebhookWorkQueue } from "../webhooks/queue.js";
+import type { WebhookOutbox } from "../../webhooks/outbox.js";
+import type { WebhookWorkQueue } from "../../webhooks/queue.js";
 import {
     type AsyncOperationalLogSink,
     emitAsyncOperationalLog,
-} from "./logging.js";
-import type { ProcessOutbox } from "./outbox.js";
-import type { ProcessWorkQueue } from "./queue.js";
+} from "../ops/logging.js";
+import type { ProcessWorkQueue } from "../queue/index.js";
+import type { ProcessOutbox } from "./index.js";
 
 export type OutboxDispatchResult = Readonly<{
     claimed: number;

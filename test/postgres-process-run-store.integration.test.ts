@@ -7,18 +7,18 @@ import {
     callerIdentityHeader,
     gatewayAuthenticationHeader,
 } from "../src/api/identity.js";
-import { createProcessRegistry } from "../src/processes/runtime.js";
+import { createAsyncProcessRuns } from "../src/process-runs/index.js";
 import {
     createPostgresAsyncOperations,
     createPostgresAsyncReleaseReadiness,
-} from "../src/runs/operations.js";
-import { createPostgresRetentionCleanup } from "../src/runs/postgres-retention.js";
-import { createPostgresProcessRunStore } from "../src/runs/postgres-store.js";
-import { createAsyncProcessRuns } from "../src/runs/service.js";
+} from "../src/process-runs/ops/index.js";
+import { createPostgresRetentionCleanup } from "../src/process-runs/retention/postgres.js";
 import {
     ProcessRunBacklogLimitError,
     type ProcessRunStore,
-} from "../src/runs/store.js";
+} from "../src/process-runs/store/index.js";
+import { createPostgresProcessRunStore } from "../src/process-runs/store/postgres.js";
+import { createProcessRegistry } from "../src/processes/runtime.js";
 import {
     createStandardWebhookHttpSender,
     createWebhookDeliveryWorker,

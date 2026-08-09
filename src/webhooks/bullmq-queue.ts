@@ -2,7 +2,7 @@ import { type Job, Queue, Worker } from "bullmq";
 import {
     type BullMqQueueSnapshot,
     readBullMqQueueSnapshot,
-} from "../runs/bullmq-observability.js";
+} from "../process-runs/queue/observability.js";
 import {
     parseWebhookDeliveryJob,
     type WebhookDeliveryJob,

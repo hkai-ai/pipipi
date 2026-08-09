@@ -2,8 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
     createBullMqProcessWorker,
     createBullMqProcessWorkQueue,
-} from "../src/runs/bullmq-queue.js";
-import type { ProcessWorker } from "../src/runs/worker.js";
+} from "../src/process-runs/queue/bullmq.js";
+import type { ProcessWorker } from "../src/process-runs/worker/index.js";
 
 const unusedWorker: ProcessWorker = {
     process: async () => "ignored",

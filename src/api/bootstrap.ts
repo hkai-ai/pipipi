@@ -1,4 +1,10 @@
 import { Pool } from "pg";
+import { createAsyncProcessRuns } from "../process-runs/index.js";
+import {
+    type AsyncReleaseStage,
+    createPostgresAsyncReleaseReadiness,
+} from "../process-runs/ops/index.js";
+import { createPostgresProcessRunStore } from "../process-runs/store/postgres.js";
 import {
     PiContentOptimizationAgentRuntime,
     parseOpenAIApiMode,
@@ -13,12 +19,6 @@ import type {
     ProcessRegistry,
     ProcessRetryPolicy,
 } from "../processes/runtime.js";
-import {
-    type AsyncReleaseStage,
-    createPostgresAsyncReleaseReadiness,
-} from "../runs/operations.js";
-import { createPostgresProcessRunStore } from "../runs/postgres-store.js";
-import { createAsyncProcessRuns } from "../runs/service.js";
 import {
     createProcessingApplication,
     type ProcessingApplication,

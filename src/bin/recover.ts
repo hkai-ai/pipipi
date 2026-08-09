@@ -1,8 +1,8 @@
-import { constructProcessRecoveryCommand } from "../runs/bootstrap.js";
+import { constructProcessRecoveryCommand } from "../process-runs/bootstrap.js";
 import {
     parseQueueRecoveryCommandOptions,
     runQueueRecoveryCommand,
-} from "../runs/recovery-command.js";
+} from "../process-runs/recovery/command.js";
 
 const command = parseQueueRecoveryCommandOptions(
     process.argv.slice(2),

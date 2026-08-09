@@ -17,35 +17,35 @@ import {
     gatewayAuthenticationHeader,
 } from "../src/api/identity.js";
 import {
-    createProcessAttemptRunner,
-    createProcessRegistry,
-    defineProcessRegistration,
-    failProcess,
-} from "../src/processes/runtime.js";
-import {
     constructProcessDispatcherService,
     constructProcessWorkerService,
-} from "../src/runs/bootstrap.js";
+} from "../src/process-runs/bootstrap.js";
+import {
+    createAsyncProcessRuns,
+    type ProcessRunView,
+} from "../src/process-runs/index.js";
+import { createOutboxDispatcher } from "../src/process-runs/outbox/dispatcher.js";
+import { createPostgresProcessOutbox } from "../src/process-runs/outbox/postgres.js";
 import {
     createBullMqProcessWorker,
     createBullMqProcessWorkQueue,
     defaultProcessWorkQueueName,
     defaultProcessWorkQueuePrefix,
-} from "../src/runs/bullmq-queue.js";
-import { createOutboxDispatcher } from "../src/runs/outbox-dispatcher.js";
-import { createPostgresProcessOutbox } from "../src/runs/postgres-outbox.js";
+} from "../src/process-runs/queue/bullmq.js";
+import type { ProcessWorkJob } from "../src/process-runs/queue/index.js";
+import { createProcessRunReconciler } from "../src/process-runs/recovery/index.js";
 import {
     createPostgresProcessRunRecoverySource,
     createPostgresProcessRunStore,
-} from "../src/runs/postgres-store.js";
-import type { ProcessWorkJob } from "../src/runs/queue.js";
-import { createProcessRunReconciler } from "../src/runs/recovery.js";
+} from "../src/process-runs/store/postgres.js";
+import type { ProcessWorker } from "../src/process-runs/worker/index.js";
+import { createProcessWorker } from "../src/process-runs/worker/index.js";
 import {
-    createAsyncProcessRuns,
-    type ProcessRunView,
-} from "../src/runs/service.js";
-import type { ProcessWorker } from "../src/runs/worker.js";
-import { createProcessWorker } from "../src/runs/worker.js";
+    createProcessAttemptRunner,
+    createProcessRegistry,
+    defineProcessRegistration,
+    failProcess,
+} from "../src/processes/runtime.js";
 import { constructWebhookWorkerService } from "../src/webhooks/bootstrap.js";
 import {
     defaultWebhookWorkQueueName,

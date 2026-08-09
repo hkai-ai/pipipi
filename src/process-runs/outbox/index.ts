@@ -1,4 +1,4 @@
-import type { ProcessWorkJob } from "./queue.js";
+import type { ProcessWorkJob } from "../queue/index.js";
 
 export type ClaimedProcessOutboxMessage = Readonly<{
     messageId: string;

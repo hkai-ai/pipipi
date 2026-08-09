@@ -5,14 +5,14 @@ import type {
     ProcessRegistration,
     ProcessRegistry,
     ProcessRunResult,
-} from "../processes/runtime.js";
+} from "../../processes/runtime.js";
 import {
     type AsyncOperationalLogSink,
     emitAsyncOperationalLog,
     tryOperationalTimestamp,
-} from "./logging.js";
-import { type ProcessWorkSource, parseProcessWorkJob } from "./queue.js";
-import type { ProcessRunStore } from "./store.js";
+} from "../ops/logging.js";
+import { type ProcessWorkSource, parseProcessWorkJob } from "../queue/index.js";
+import type { ProcessRunStore } from "../store/index.js";
 
 export type ProcessWorkResult =
     | "processed"

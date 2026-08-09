@@ -1,4 +1,4 @@
-import { constructRetentionCleanerService } from "../runs/bootstrap.js";
+import { constructRetentionCleanerService } from "../process-runs/bootstrap.js";
 
 const { application, port } = constructRetentionCleanerService(process.env);
 const { url } = await application.listen({ host: "0.0.0.0", port });

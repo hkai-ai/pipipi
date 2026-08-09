@@ -305,7 +305,7 @@ type AsyncProcessRuns = Readonly<{
 | 代码区域 | 实现职责 |
 | --- | --- |
 | `src/processes/` | accept/run、accepted input、Attempt execution 和复用的 production catalog |
-| `src/runs/` | Async Process Runs、Store、Queue、Outbox、Worker、Recovery、Retention 和 Operations |
+| `src/process-runs/` | Async Process Runs，以及按 Store、Queue、Outbox、Worker、Recovery、Retention 和 Operations 分组的内部 Module |
 | `src/api/` | 异步 HTTP 路由、caller identity、readiness 和 API bootstrap；保留同步路由 |
 | `src/webhooks/` | Endpoint、Delivery、签名、Queue、Store 和独立 Worker bootstrap |
 | `src/bin/` | 各部署角色与人工命令的薄入口 |

@@ -4,13 +4,13 @@ import type {
     ProcessErrorCode,
     ProcessRegistry,
 } from "../processes/runtime.js";
-import type { ProcessWorkQueue } from "./queue.js";
+import type { ProcessWorkQueue } from "./queue/index.js";
 import {
     type ProcessRunAcceptance,
     ProcessRunBacklogLimitError,
     type ProcessRunStore,
     type StoredProcessRun,
-} from "./store.js";
+} from "./store/index.js";
 
 const processRunRequestSchema = z.strictObject({
     process: z.string().min(1),

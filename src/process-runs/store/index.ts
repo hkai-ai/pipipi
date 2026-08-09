@@ -1,7 +1,7 @@
 import type {
     AcceptedProcessInput,
     ProcessErrorCode,
-} from "../processes/runtime.js";
+} from "../../processes/runtime.js";
 
 export type ProcessRunStatus = "queued" | "running" | "succeeded" | "failed";
 

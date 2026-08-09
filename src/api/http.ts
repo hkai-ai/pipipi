@@ -4,15 +4,15 @@ import type {
     ServerResponse,
 } from "node:http";
 import type {
+    AsyncProcessRuns,
+    ProcessRunSubmission,
+    ProcessRunView,
+} from "../process-runs/index.js";
+import type {
     ProcessErrorCode,
     ProcessExecutor,
     ProcessRunResult,
 } from "../processes/runtime.js";
-import type {
-    AsyncProcessRuns,
-    ProcessRunSubmission,
-    ProcessRunView,
-} from "../runs/service.js";
 import type { CallerIdentityResolver } from "./identity.js";
 
 export const defaultHttpMaxRequestBodyBytes = 262_144;

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
     createInMemoryProcessRunStore,
     ProcessRunStoreCapacityError,
-} from "../src/runs/store.js";
+} from "../src/process-runs/store/index.js";
 import { processRunStoreContract } from "./support/process-run-store-contract.js";
 
 processRunStoreContract("in-memory", () =>

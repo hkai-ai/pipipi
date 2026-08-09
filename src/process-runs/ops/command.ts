@@ -1,18 +1,18 @@
 import { Pool } from "pg";
-import type { StartupEnvironment } from "../api/bootstrap.js";
+import type { StartupEnvironment } from "../../api/bootstrap.js";
 import {
     type BullMqWebhookWorkQueue,
     createBullMqWebhookWorkQueue,
-} from "../webhooks/bullmq-queue.js";
-import type { BullMqQueueSnapshot } from "./bullmq-observability.js";
+} from "../../webhooks/bullmq-queue.js";
 import {
     type BullMqProcessWorkQueue,
     createBullMqProcessWorkQueue,
-} from "./bullmq-queue.js";
+} from "../queue/bullmq.js";
+import type { BullMqQueueSnapshot } from "../queue/observability.js";
 import {
     createPostgresAsyncOperations,
     type PostgresAsyncOperationsSnapshot,
-} from "./operations.js";
+} from "./index.js";
 
 export type AsyncOperationsCommandSnapshot = Readonly<{
     schemaVersion: 1;

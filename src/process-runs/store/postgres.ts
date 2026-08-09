@@ -3,18 +3,18 @@ import type { Pool, PoolClient, QueryResultRow } from "pg";
 import type {
     AcceptedProcessInput,
     ProcessErrorCode,
-} from "../processes/runtime.js";
+} from "../../processes/runtime.js";
 import type {
     ProcessRecoveryCandidate,
     ProcessRecoveryStore,
     ProcessRunRecoverySource,
-} from "./recovery.js";
+} from "../recovery/index.js";
 import type {
     ClaimedProcessRun,
     ProcessRunStore,
     StoredProcessRun,
-} from "./store.js";
-import { ProcessRunBacklogLimitError } from "./store.js";
+} from "./index.js";
+import { ProcessRunBacklogLimitError } from "./index.js";
 
 export type PostgresProcessRunStoreRetention = Readonly<{
     acceptedInputMs: number;

@@ -10,28 +10,28 @@ import {
     type RuntimeRoleName,
 } from "../api/role.js";
 import { createProcessAttemptRunner } from "../processes/runtime.js";
+import { createProcessDispatcherRuntime } from "./dispatcher.js";
+import { writeAsyncOperationalLog } from "./ops/logging.js";
+import { createOutboxDispatcher } from "./outbox/dispatcher.js";
+import { createPostgresProcessOutbox } from "./outbox/postgres.js";
 import {
     createBullMqProcessWorker,
     createBullMqProcessWorkQueue,
-} from "./bullmq-queue.js";
-import { createProcessDispatcherRuntime } from "./dispatcher.js";
-import { writeAsyncOperationalLog } from "./logging.js";
-import { createOutboxDispatcher } from "./outbox-dispatcher.js";
-import { createPostgresProcessOutbox } from "./postgres-outbox.js";
-import { createPostgresRetentionCleanup } from "./postgres-retention.js";
-import {
-    createPostgresProcessRunRecoverySource,
-    createPostgresProcessRunStore,
-} from "./postgres-store.js";
+} from "./queue/bullmq.js";
 import {
     createProcessRunReconciler,
     type ProcessRunReconciler,
-} from "./recovery.js";
+} from "./recovery/index.js";
 import {
     createRetentionCleaner,
     createRetentionCleanerRuntime,
-} from "./retention.js";
-import { createProcessWorker } from "./worker.js";
+} from "./retention/index.js";
+import { createPostgresRetentionCleanup } from "./retention/postgres.js";
+import {
+    createPostgresProcessRunRecoverySource,
+    createPostgresProcessRunStore,
+} from "./store/postgres.js";
+import { createProcessWorker } from "./worker/index.js";
 
 export type ConstructedRuntimeRoleService = Readonly<{
     application: RuntimeRoleApplication;

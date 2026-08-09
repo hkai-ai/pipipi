@@ -1,5 +1,5 @@
 import type { BackgroundRuntime } from "../api/role.js";
-import type { OutboxDispatcher } from "../runs/outbox-dispatcher.js";
+import type { OutboxDispatcher } from "../process-runs/outbox/dispatcher.js";
 
 export function createWebhookWorkerRuntime(options: {
     dispatcher: OutboxDispatcher;

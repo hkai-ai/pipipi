@@ -1,5 +1,15 @@
 import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
+import { createAsyncProcessRuns } from "../src/process-runs/index.js";
+import { createInMemoryProcessWorkQueue } from "../src/process-runs/queue/index.js";
+import {
+    createInMemoryProcessRunStore,
+    ProcessRunBacklogLimitError,
+} from "../src/process-runs/store/index.js";
+import {
+    createProcessWorker,
+    createProcessWorkerDrain,
+} from "../src/process-runs/worker/index.js";
 import {
     createProcessAttemptRunner,
     createProcessRegistry,
@@ -7,16 +17,6 @@ import {
     failProcess,
     type ProcessRegistration,
 } from "../src/processes/runtime.js";
-import { createInMemoryProcessWorkQueue } from "../src/runs/queue.js";
-import { createAsyncProcessRuns } from "../src/runs/service.js";
-import {
-    createInMemoryProcessRunStore,
-    ProcessRunBacklogLimitError,
-} from "../src/runs/store.js";
-import {
-    createProcessWorker,
-    createProcessWorkerDrain,
-} from "../src/runs/worker.js";
 
 describe("Async Process Runs", () => {
     it("moves an accepted run through queued, running, and succeeded", async () => {

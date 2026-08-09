@@ -211,7 +211,7 @@ Webhook 重试状态以 PostgreSQL 为准，不依赖 BullMQ 的 Job attempts。
 | `src/bin/` | API、Dispatcher、Worker、Cleaner、Operations 和 Recovery 的可执行入口；不放业务规则 |
 | `src/api/` | HTTP 生命周期、路由、caller identity、后台角色健康检查和 API production bootstrap |
 | `src/processes/` | Process Registration、Registry、Runner、production catalog、Run Record 与获准 Business Capability |
-| `src/runs/` | Async Process Runs、Store、Queue、Outbox、Worker、Recovery、Retention 和 Operations |
+| `src/process-runs/` | Async Process Runs，以及按 `store/`、`queue/`、`outbox/`、`worker/`、`recovery/`、`retention/` 和 `ops/` 分组的内部 Module |
 | `src/webhooks/` | Webhook Delivery、Store、Queue、签名、目标策略和独立 Worker bootstrap |
 | `examples/support/` | 只供实验使用的图片生成和对象存储实现；不进入生产 `dist/` |
 | `migrations/` | 受版本和 advisory lock 管理的 PostgreSQL schema 变化 |
@@ -225,13 +225,13 @@ Webhook 重试状态以 PostgreSQL 为准，不依赖 BullMQ 的 Job attempts。
 | `src/api/bootstrap.ts` | API 配置翻译、校验、Adapter 选择和完整生产组装 |
 | `src/processes/runtime.ts` | Registration、Registry、同步 Runner、Attempt Runner、公共结果和错误治理 |
 | `src/processes/catalog.ts` | 显式 production catalog 和 Process Runtime 组装 |
-| `src/runs/service.ts` | 异步提交、owner 隔离、caller-scoped idempotency 和公共状态投影 |
-| `src/runs/store.ts`、`src/runs/postgres-store.ts` | 权威状态转换，以及内存和 PostgreSQL Adapter |
-| `src/runs/queue.ts`、`src/runs/bullmq-queue.ts` | 最小 Job Interface，以及内存和 BullMQ Adapter |
-| `src/runs/recovery.ts` | 周期 reconciliation 与人工 Queue Recovery |
+| `src/process-runs/index.ts` | 异步提交、owner 隔离、caller-scoped idempotency 和公共状态投影 |
+| `src/process-runs/store/index.ts`、`src/process-runs/store/postgres.ts` | 权威状态转换，以及内存和 PostgreSQL Adapter |
+| `src/process-runs/queue/index.ts`、`src/process-runs/queue/bullmq.ts` | 最小 Job Interface，以及内存和 BullMQ Adapter |
+| `src/process-runs/recovery/index.ts` | 周期 reconciliation 与人工 Queue Recovery |
 | `src/webhooks/delivery.ts`、`src/webhooks/postgres-store.ts` | Webhook 投递行为和 PostgreSQL Adapter |
 
-目录使用简短的领域复数名词。文件名不重复父目录已经表达的词，例如使用 `src/runs/store.ts`，不用 `src/runs/process-run-store.ts`；只有 Adapter 文件保留 `postgres-`、`bullmq-` 等技术名称。不要新增 `common/`、`shared/`、`utils/` 或横向的 `controllers/services/repositories` 目录。无法明确归属的代码应先重新检查 Module 和 Seam。
+顶层目录使用明确的领域名，子目录对应实际 Module。父目录已经提供的上下文不在文件名中重复，例如使用 `src/process-runs/store/postgres.ts`，不用 `src/process-runs/store/postgres-process-run-store.ts`；Adapter 文件只保留 `postgres.ts`、`bullmq.ts`、`http.ts` 等技术名称。不要新增 `common/`、`shared/`、`utils/` 或横向的 `controllers/services/repositories` 目录。无法明确归属的代码应先重新检查 Module 和 Seam。
 
 完整 Module 关系见 [`process-runtime-design.md`](process-runtime-design.md)。图片与对象存储实现只由 `examples/` 使用，没有进入 HTTP production catalog 或生产构建。
 

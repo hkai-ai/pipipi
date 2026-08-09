@@ -1,8 +1,8 @@
-import type { BackgroundRuntime } from "../api/role.js";
+import type { BackgroundRuntime } from "../../api/role.js";
 import type {
     PostgresRetentionCleanup,
     RetentionCleanupBatchResult,
-} from "./postgres-retention.js";
+} from "./postgres.js";
 
 export type RetentionCleanupSweepResult = Readonly<{
     asOf: string;

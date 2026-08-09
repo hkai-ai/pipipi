@@ -1,16 +1,16 @@
 import { DelayedError, type Job, Queue, Worker } from "bullmq";
-import {
-    type BullMqQueueSnapshot,
-    readBullMqQueueSnapshot,
-} from "./bullmq-observability.js";
+import type { ProcessWorker, ProcessWorkResult } from "../worker/index.js";
 import {
     assertInspectionRunIds,
     type ProcessWorkEnqueueResult,
     type ProcessWorkJob,
     parseProcessWorkJob,
     type RecoverableProcessWorkQueue,
-} from "./queue.js";
-import type { ProcessWorker, ProcessWorkResult } from "./worker.js";
+} from "./index.js";
+import {
+    type BullMqQueueSnapshot,
+    readBullMqQueueSnapshot,
+} from "./observability.js";
 
 export const defaultProcessWorkQueueName = "process-runs";
 export const defaultProcessWorkQueuePrefix = "pipipi";

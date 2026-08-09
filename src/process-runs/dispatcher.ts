@@ -1,6 +1,6 @@
 import type { BackgroundRuntime } from "../api/role.js";
-import type { OutboxDispatcher } from "./outbox-dispatcher.js";
-import type { ProcessRunReconciler } from "./recovery.js";
+import type { OutboxDispatcher } from "./outbox/dispatcher.js";
+import type { ProcessRunReconciler } from "./recovery/index.js";
 
 export type ProcessDispatcherOperation =
     | "outbox_dispatch"

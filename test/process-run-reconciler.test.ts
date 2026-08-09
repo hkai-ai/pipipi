@@ -1,10 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
-import type { RecoverableProcessWorkQueue } from "../src/runs/queue.js";
+import type { RecoverableProcessWorkQueue } from "../src/process-runs/queue/index.js";
 import {
     createProcessRunReconciler,
     type ProcessRecoveryCandidate,
     type ProcessRecoveryStore,
-} from "../src/runs/recovery.js";
+} from "../src/process-runs/recovery/index.js";
 
 describe("Process Run Reconciler", () => {
     it("repairs missing jobs and pending outbox while deferring an active lease", async () => {

@@ -4,8 +4,8 @@ import {
     createRuntimeRoleApplication,
     type RuntimeRoleApplication,
 } from "../api/role.js";
-import { writeAsyncOperationalLog } from "../runs/logging.js";
-import { createWebhookOutboxDispatcher } from "../runs/outbox-dispatcher.js";
+import { writeAsyncOperationalLog } from "../process-runs/ops/logging.js";
+import { createWebhookOutboxDispatcher } from "../process-runs/outbox/dispatcher.js";
 import {
     createBullMqWebhookWorker,
     createBullMqWebhookWorkQueue,

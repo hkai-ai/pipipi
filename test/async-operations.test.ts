@@ -1,11 +1,11 @@
 import type { Pool } from "pg";
 import { describe, expect, it, vi } from "vitest";
-import { readBullMqQueueSnapshot } from "../src/runs/bullmq-observability.js";
+import { constructAsyncOperationsCommand } from "../src/process-runs/ops/command.js";
 import {
     createPostgresAsyncOperations,
     createPostgresAsyncReleaseReadiness,
-} from "../src/runs/operations.js";
-import { constructAsyncOperationsCommand } from "../src/runs/operations-command.js";
+} from "../src/process-runs/ops/index.js";
+import { readBullMqQueueSnapshot } from "../src/process-runs/queue/observability.js";
 
 describe("Async operations observability", () => {
     it("normalizes PostgreSQL operational metrics without content fields", async () => {

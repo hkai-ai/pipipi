@@ -1,7 +1,4 @@
-import type {
-    ProcessRecoveryReport,
-    ProcessRunReconciler,
-} from "./recovery.js";
+import type { ProcessRecoveryReport, ProcessRunReconciler } from "./index.js";
 
 export type QueueRecoveryCommandOptions = Readonly<{
     dryRun: boolean;

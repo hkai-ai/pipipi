@@ -1,12 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
-import type {
-    ProcessRecoveryReport,
-    ProcessRunReconciler,
-} from "../src/runs/recovery.js";
 import {
     parseQueueRecoveryCommandOptions,
     runQueueRecoveryCommand,
-} from "../src/runs/recovery-command.js";
+} from "../src/process-runs/recovery/command.js";
+import type {
+    ProcessRecoveryReport,
+    ProcessRunReconciler,
+} from "../src/process-runs/recovery/index.js";
 
 describe("Queue Recovery command", () => {
     it("defaults to a safe dry-run and requires an audited actor", () => {

@@ -1,6 +1,6 @@
 import type { Pool, QueryResultRow } from "pg";
-import type { ClaimedProcessOutboxMessage, ProcessOutbox } from "./outbox.js";
-import { parseProcessWorkJob } from "./queue.js";
+import { parseProcessWorkJob } from "../queue/index.js";
+import type { ClaimedProcessOutboxMessage, ProcessOutbox } from "./index.js";
 
 export function createPostgresProcessOutbox(options: {
     pool: Pool;

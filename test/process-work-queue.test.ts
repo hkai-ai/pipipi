@@ -3,7 +3,7 @@ import {
     createInMemoryProcessWorkQueue,
     ProcessWorkQueueCapacityError,
     parseProcessWorkJob,
-} from "../src/runs/queue.js";
+} from "../src/process-runs/queue/index.js";
 import { processWorkQueueContract } from "./support/process-work-queue-contract.js";
 
 processWorkQueueContract("in-memory", () =>

@@ -4,7 +4,7 @@ import {
     constructProcessRecoveryCommand,
     constructProcessWorkerService,
     constructRetentionCleanerService,
-} from "../src/runs/bootstrap.js";
+} from "../src/process-runs/bootstrap.js";
 
 describe("Async runtime role construction", () => {
     it("requires only role-owned Dispatcher connection configuration", () => {

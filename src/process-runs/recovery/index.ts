@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import type {
     ProcessWorkJobInspection,
     RecoverableProcessWorkQueue,
-} from "./queue.js";
+} from "../queue/index.js";
 
 export type ProcessRunRecoverySource = Readonly<{
     findRecoverable: (request: {
