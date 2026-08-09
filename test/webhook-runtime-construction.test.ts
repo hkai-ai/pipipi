@@ -36,6 +36,20 @@ describe("Webhook Worker construction", () => {
         WEBHOOK_ALLOW_INSECURE_HTTP: "yes",
       }),
     ).toThrow("WEBHOOK_ALLOW_INSECURE_HTTP must be true or false");
+    expect(() =>
+      constructWebhookWorkerService({
+        DATABASE_URL,
+        REDIS_URL,
+        WEBHOOK_DELIVERY_MAX_ATTEMPTS: "21",
+      }),
+    ).toThrow("WEBHOOK_DELIVERY_MAX_ATTEMPTS must not exceed 20");
+    expect(() =>
+      constructWebhookWorkerService({
+        DATABASE_URL,
+        REDIS_URL,
+        WEBHOOK_DELIVERY_JITTER_PERCENT: "101",
+      }),
+    ).toThrow("WEBHOOK_DELIVERY_JITTER_PERCENT must be an integer between 0 and 100");
   });
 });
 

@@ -3,6 +3,7 @@ import {
   parseWebhookDeliveryJob,
   type WebhookDeliveryJob,
   type WebhookDeliveryWorker,
+  type WebhookWorkResult,
 } from "./webhook-delivery.js";
 import type {
   WebhookWorkEnqueueResult,
@@ -36,7 +37,7 @@ export function createBullMqWebhookWorkQueue(options: {
   const prefix = parseQueuePrefix(options.prefix);
   const queue = new Queue<
     WebhookDeliveryJob,
-    "processed" | "ignored",
+    WebhookWorkResult,
     typeof webhookJobName
   >(queueName, {
     connection: {
@@ -117,7 +118,7 @@ export function createBullMqWebhookWorker(options: {
   let activeCount = 0;
   const worker = new Worker<
     WebhookDeliveryJob,
-    "processed" | "ignored",
+    WebhookWorkResult,
     typeof webhookJobName
   >(
     queueName,

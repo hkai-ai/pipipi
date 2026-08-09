@@ -336,6 +336,260 @@ postgresDescribe("PostgreSQL Process Run Store", () => {
     ]);
   });
 
+  it("audits every Webhook Attempt and replays an exhausted Delivery without rewriting history", async () => {
+    const webhooks = createPostgresWebhookDeliveryStore({ pool: primaryPool });
+    const endpointId = "20000000-0000-4000-8000-000000000019";
+    await webhooks.provisionEndpoint({
+      endpointId,
+      ownerId: "caller-webhook-retry",
+      url: "https://hooks.example/retry",
+      secret: `whsec_${Buffer.alloc(32, 19).toString("base64")}`,
+      createdAt: "2026-08-09T10:00:00.000Z",
+    });
+    const run = acceptedRun(53, {
+      ownerId: "caller-webhook-retry",
+      idempotencyKey: "webhook-retry-replay",
+    });
+    await primaryStore.accept(run);
+    const runClaim = await primaryStore.claim({
+      runId: run.runId,
+      claimToken: claimToken(53),
+      claimedAt: "2026-08-09T10:00:01.000Z",
+    });
+    if (!runClaim) throw new Error("Expected Process Run claim");
+    await primaryStore.complete({
+      runId: run.runId,
+      claimToken: runClaim.claimToken,
+      completedAt: "2026-08-09T10:00:02.000Z",
+      completion: { status: "succeeded", output: { value: "not-in-webhook" } },
+    });
+    const [delivery] = await webhooks.findByRun({
+      ownerId: run.ownerId,
+      runIds: [run.runId],
+    });
+    if (!delivery) throw new Error("Expected Webhook Delivery");
+
+    const firstClaimToken = "30000000-0000-4000-8000-000000000019";
+    await expect(
+      webhooks.claim({
+        deliveryId: delivery.deliveryId,
+        claimToken: firstClaimToken,
+        claimedAt: "2026-08-09T10:00:03.000Z",
+      }),
+    ).resolves.toMatchObject({ attemptNumber: 1 });
+    await expect(
+      webhooks.findAttempts({
+        ownerId: run.ownerId,
+        deliveryId: delivery.deliveryId,
+      }),
+    ).resolves.toEqual([
+      expect.objectContaining({
+        eventId: delivery.eventId,
+        runId: run.runId,
+        endpointId,
+        attemptNumber: 1,
+        outcome: "started",
+      }),
+    ]);
+    await expect(
+      webhooks.reschedule({
+        deliveryId: delivery.deliveryId,
+        claimToken: firstClaimToken,
+        completedAt: "2026-08-09T10:00:04.000Z",
+        nextAttemptAt: "2026-08-09T10:00:06.000Z",
+        result: {
+          outcome: "failed",
+          errorCode: "HTTP_ERROR",
+          httpStatus: 503,
+          latencyMs: 27,
+        },
+      }),
+    ).resolves.toBe(true);
+    await expect(
+      webhooks.claim({
+        deliveryId: delivery.deliveryId,
+        claimToken: "30000000-0000-4000-8000-000000000020",
+        claimedAt: "2026-08-09T10:00:05.999Z",
+      }),
+    ).resolves.toBeUndefined();
+
+    const secondClaimToken = "30000000-0000-4000-8000-000000000021";
+    await expect(
+      webhooks.claim({
+        deliveryId: delivery.deliveryId,
+        claimToken: secondClaimToken,
+        claimedAt: "2026-08-09T10:00:06.000Z",
+      }),
+    ).resolves.toMatchObject({ attemptNumber: 2 });
+    await expect(
+      webhooks.complete({
+        deliveryId: delivery.deliveryId,
+        claimToken: secondClaimToken,
+        completedAt: "2026-08-09T10:00:07.000Z",
+        result: {
+          outcome: "failed",
+          errorCode: "NETWORK_ERROR",
+          latencyMs: 1_000,
+        },
+        terminalStatus: "exhausted",
+      }),
+    ).resolves.toBe(true);
+
+    const attempts = await webhooks.findAttempts({
+      ownerId: run.ownerId,
+      deliveryId: delivery.deliveryId,
+    });
+    expect(attempts).toEqual([
+      expect.objectContaining({
+        attemptNumber: 1,
+        outcome: "failed",
+        httpStatus: 503,
+        latencyMs: 27,
+        nextAttemptAt: "2026-08-09T10:00:06.000Z",
+      }),
+      expect.objectContaining({
+        attemptNumber: 2,
+        outcome: "failed",
+        errorCode: "NETWORK_ERROR",
+        latencyMs: 1_000,
+      }),
+    ]);
+    await expect(
+      webhooks.findAttempts({
+        ownerId: "other-caller",
+        deliveryId: delivery.deliveryId,
+      }),
+    ).resolves.toEqual([]);
+    await expect(
+      webhooks.findByEvent({
+        ownerId: run.ownerId,
+        eventIds: [delivery.eventId],
+      }),
+    ).resolves.toEqual([
+      expect.objectContaining({ deliveryId: delivery.deliveryId }),
+    ]);
+    await expect(
+      webhooks.findByEndpoint({ ownerId: "other-caller", endpointId }),
+    ).resolves.toEqual([]);
+    await expect(
+      webhooks.replay({
+        ownerId: "other-caller",
+        deliveryId: delivery.deliveryId,
+        actorId: "operator:alice",
+        replayedAt: "2026-08-09T10:00:08.000Z",
+      }),
+    ).resolves.toBeUndefined();
+
+    const replay = await webhooks.replay({
+      ownerId: run.ownerId,
+      deliveryId: delivery.deliveryId,
+      actorId: "operator:alice",
+      replayedAt: "2026-08-09T10:00:08.000Z",
+    });
+    expect(replay).toMatchObject({
+      eventId: delivery.eventId,
+      runId: run.runId,
+      endpointId,
+      status: "pending",
+      attemptCount: 0,
+      replayNumber: 1,
+      replayOfDeliveryId: delivery.deliveryId,
+    });
+    expect(replay?.deliveryId).not.toBe(delivery.deliveryId);
+    const audit = await primaryPool.query<{
+      source_delivery_id: string;
+      replay_delivery_id: string;
+      caller_id: string;
+      actor_id: string;
+    }>("SELECT * FROM webhook_delivery_replays");
+    expect(audit.rows).toEqual([
+      expect.objectContaining({
+        source_delivery_id: delivery.deliveryId,
+        replay_delivery_id: replay?.deliveryId,
+        caller_id: run.ownerId,
+        actor_id: "operator:alice",
+      }),
+    ]);
+    const traced = await webhooks.findByEndpoint({
+      ownerId: run.ownerId,
+      endpointId,
+    });
+    expect(traced).toHaveLength(2);
+    expect(new Set(traced.map((entry) => entry.eventId))).toEqual(
+      new Set([delivery.eventId]),
+    );
+  });
+
+  it("disables only the Endpoint that returns HTTP 410", async () => {
+    const webhooks = createPostgresWebhookDeliveryStore({ pool: primaryPool });
+    const endpointIds = [
+      "20000000-0000-4000-8000-000000000020",
+      "20000000-0000-4000-8000-000000000021",
+    ];
+    for (const [index, endpointId] of endpointIds.entries()) {
+      await webhooks.provisionEndpoint({
+        endpointId,
+        ownerId: "caller-webhook-gone",
+        url: `https://hooks.example/gone-${index}`,
+        secret: `whsec_${Buffer.alloc(32, 20 + index).toString("base64")}`,
+        createdAt: "2026-08-09T10:00:00.000Z",
+      });
+    }
+    const run = acceptedRun(54, {
+      ownerId: "caller-webhook-gone",
+      idempotencyKey: "webhook-gone",
+    });
+    await primaryStore.accept(run);
+    const runClaim = await primaryStore.claim({
+      runId: run.runId,
+      claimToken: claimToken(54),
+      claimedAt: "2026-08-09T10:00:01.000Z",
+    });
+    if (!runClaim) throw new Error("Expected Process Run claim");
+    await primaryStore.complete({
+      runId: run.runId,
+      claimToken: runClaim.claimToken,
+      completedAt: "2026-08-09T10:00:02.000Z",
+      completion: { status: "succeeded", output: { value: "done" } },
+    });
+    const deliveries = await webhooks.findByRun({
+      ownerId: run.ownerId,
+      runIds: [run.runId],
+    });
+    const gone = deliveries.find((entry) => entry.endpointId === endpointIds[0]);
+    if (!gone) throw new Error("Expected Webhook Delivery");
+    const goneClaimToken = "30000000-0000-4000-8000-000000000022";
+    await webhooks.claim({
+      deliveryId: gone.deliveryId,
+      claimToken: goneClaimToken,
+      claimedAt: "2026-08-09T10:00:03.000Z",
+    });
+    await webhooks.complete({
+      deliveryId: gone.deliveryId,
+      claimToken: goneClaimToken,
+      completedAt: "2026-08-09T10:00:04.000Z",
+      result: {
+        outcome: "failed",
+        errorCode: "HTTP_ERROR",
+        httpStatus: 410,
+        latencyMs: 9,
+      },
+      terminalStatus: "failed",
+      disableEndpoint: true,
+    });
+
+    const endpoints = await primaryPool.query<{
+      endpoint_id: string;
+      status: string;
+    }>(
+      "SELECT endpoint_id, status FROM webhook_endpoints ORDER BY endpoint_id",
+    );
+    expect(endpoints.rows).toEqual([
+      { endpoint_id: endpointIds[0], status: "disabled" },
+      { endpoint_id: endpointIds[1], status: "enabled" },
+    ]);
+  });
+
   it("rejects an illegal terminal transition at the database boundary", async () => {
     const run = acceptedRun(60, {
       ownerId: "caller-constraint",

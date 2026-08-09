@@ -141,6 +141,40 @@ export function constructWebhookWorkerService(
           "WEBHOOK_ALLOW_INSECURE_HTTP",
         ),
       }),
+      retryPolicy: {
+        maximumAttempts: parseBoundedPositiveInteger(
+          environment.WEBHOOK_DELIVERY_MAX_ATTEMPTS,
+          8,
+          "WEBHOOK_DELIVERY_MAX_ATTEMPTS",
+          20,
+        ),
+        initialBackoffMs: parsePositiveInteger(
+          environment.WEBHOOK_DELIVERY_INITIAL_BACKOFF_MS,
+          5_000,
+          "WEBHOOK_DELIVERY_INITIAL_BACKOFF_MS",
+        ),
+        maximumBackoffMs: parsePositiveInteger(
+          environment.WEBHOOK_DELIVERY_MAX_BACKOFF_MS,
+          86_400_000,
+          "WEBHOOK_DELIVERY_MAX_BACKOFF_MS",
+        ),
+        maximumRetryAfterMs: parsePositiveInteger(
+          environment.WEBHOOK_DELIVERY_MAX_RETRY_AFTER_MS,
+          86_400_000,
+          "WEBHOOK_DELIVERY_MAX_RETRY_AFTER_MS",
+        ),
+        deliveryHorizonMs: parsePositiveInteger(
+          environment.WEBHOOK_DELIVERY_HORIZON_MS,
+          259_200_000,
+          "WEBHOOK_DELIVERY_HORIZON_MS",
+        ),
+        jitterPercent: parseBoundedNonNegativeInteger(
+          environment.WEBHOOK_DELIVERY_JITTER_PERCENT,
+          20,
+          "WEBHOOK_DELIVERY_JITTER_PERCENT",
+          100,
+        ),
+      },
     }),
   });
   const runtime = createWebhookWorkerRuntime({
@@ -203,6 +237,20 @@ function parseBoundedPositiveInteger(
 ): number {
   const parsed = parsePositiveInteger(value, fallback, name);
   if (parsed > maximum) throw new Error(`${name} must not exceed ${maximum}`);
+  return parsed;
+}
+
+function parseBoundedNonNegativeInteger(
+  value: string | undefined,
+  fallback: number,
+  name: string,
+  maximum: number,
+): number {
+  if (value === undefined) return fallback;
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed) || parsed < 0 || parsed > maximum) {
+    throw new Error(`${name} must be an integer between 0 and ${maximum}`);
+  }
   return parsed;
 }
 

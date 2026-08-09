@@ -145,7 +145,11 @@ docker compose -f compose.integration.yaml down
 
 四个角色都提供 `GET /healthz` 和 `GET /readyz`。liveness 只确认进程工作，不访问下游；readiness 检查该角色实际使用的 migration、PostgreSQL 和 Redis，并在有界时间内返回 `503`，不暴露连接地址或内部错误。默认同步 API 保持原样，启用异步路由也不会删除 `POST /execute`。
 
-Webhook Endpoint 由运维侧预注册并绑定 caller；Process 提交不能携带 callback URL。Webhook Worker 只发送包含 `eventId`、`runId`、准确 Process/version、终态、完成时间和相对查询位置的 payload，不复制输入、输出或内部错误。`WEBHOOK_ALLOW_INSECURE_HTTP=true` 只供隔离的本地测试；正常环境仅允许 HTTPS。Issue #19 和 #20 完成前，不要向真实接收方启用该角色。
+Webhook Endpoint 由运维侧预注册并绑定 caller；Process 提交不能携带 callback URL。Webhook Worker 只发送包含 `eventId`、`runId`、准确 Process/version、终态、完成时间和相对查询位置的 payload，不复制输入、输出或内部错误。`WEBHOOK_ALLOW_INSECURE_HTTP=true` 只供隔离的本地测试；正常环境仅允许 HTTPS。Issue #20 完成前，不要向真实接收方启用该角色。
+
+Webhook 重试状态以 PostgreSQL 为准，不依赖 BullMQ 的 Job attempts。网络错误、`429` 和 `5xx` 在 `WEBHOOK_DELIVERY_HORIZON_MS` 内按有界指数退避重试；`WEBHOOK_DELIVERY_MAX_RETRY_AFTER_MS` 限制远端 `Retry-After`，`WEBHOOK_DELIVERY_JITTER_PERCENT` 防止同步重试。默认最多 8 次 Attempt、初始等待 5 秒、单次最长等待 1 天、总投递期限 3 天。永久 `4xx` 直接失败，`410` 只停用返回该状态的 Endpoint。
+
+每次 claim 会先创建 `started` Attempt，完成后只保存响应分类、HTTP 状态、延迟和稳定错误码，不读取或保存远端正文。运维查询必须携带 owner，并可从 run、event 或 endpoint 找到 Delivery，再查询其 Attempt。只有 `failed` 或 `exhausted` Delivery 可通过 `PostgresWebhookDeliveryStore.replay` 人工重放；调用方传入经过认证的 owner 与 operator actor。重放创建新 Delivery 和独立 Attempt 链，保留原记录与审计事件，并复用原 `eventId` 供接收方去重。
 
 ## 代码地图
 

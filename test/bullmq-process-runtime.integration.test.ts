@@ -282,7 +282,7 @@ integrationDescribe("BullMQ Process Runtime", () => {
     }
   }, 20_000);
 
-  it("delivers signed success and failure events through an isolated Webhook Queue", async () => {
+  it("retries a transient signed Webhook with one stable event ID on its isolated Queue", async () => {
     const received: Array<{
       body: string;
       headers: Record<string, string | string[] | undefined>;
@@ -294,6 +294,10 @@ integrationDescribe("BullMQ Process Runtime", () => {
         body: Buffer.concat(chunks).toString("utf8"),
         headers: request.headers,
       });
+      if (received.length === 1) {
+        response.writeHead(503, { "retry-after": "1" }).end();
+        return;
+      }
       response.writeHead(204).end();
     });
     const receiverUrl = await listenHttpServer(receiver);
@@ -332,6 +336,12 @@ integrationDescribe("BullMQ Process Runtime", () => {
       WEBHOOK_REQUEST_TIMEOUT_MS: "1000",
       WEBHOOK_DELIVERY_CLAIM_LEASE_MS: "2000",
       WEBHOOK_OUTBOX_DISPATCH_INTERVAL_MS: "20",
+      WEBHOOK_DELIVERY_MAX_ATTEMPTS: "2",
+      WEBHOOK_DELIVERY_INITIAL_BACKOFF_MS: "1100",
+      WEBHOOK_DELIVERY_MAX_BACKOFF_MS: "1100",
+      WEBHOOK_DELIVERY_MAX_RETRY_AFTER_MS: "1100",
+      WEBHOOK_DELIVERY_HORIZON_MS: "10000",
+      WEBHOOK_DELIVERY_JITTER_PERCENT: "0",
     });
     await webhookService.application.listen();
 
@@ -382,11 +392,10 @@ integrationDescribe("BullMQ Process Runtime", () => {
       } finally {
         await webhookInspector.close();
       }
-      expect(received).toHaveLength(2);
-      expect(received.map((entry) => JSON.parse(entry.body).type).sort()).toEqual([
-        "process_run.failed",
-        "process_run.succeeded",
-      ]);
+      expect(received).toHaveLength(3);
+      expect(
+        [...new Set(received.map((entry) => JSON.parse(entry.body).type))].sort(),
+      ).toEqual(["process_run.failed", "process_run.succeeded"]);
       for (const entry of received) {
         const payload = JSON.parse(entry.body) as {
           eventId: string;
@@ -410,6 +419,42 @@ integrationDescribe("BullMQ Process Runtime", () => {
         expect(entry.body).not.toContain("webhook-failure-secret");
         expect(entry.body).not.toContain("output");
       }
+      const attempts = await Promise.all(
+        delivered.map((delivery) =>
+          deliveryStore.findAttempts({
+            ownerId: "caller-webhook",
+            deliveryId: delivery.deliveryId,
+          }),
+        ),
+      );
+      expect(attempts.map((chain) => chain.length).sort()).toEqual([1, 2]);
+      const retried = attempts.find((chain) => chain.length === 2);
+      expect(retried).toEqual([
+        expect.objectContaining({
+          attemptNumber: 1,
+          outcome: "failed",
+          httpStatus: 503,
+        }),
+        expect.objectContaining({
+          attemptNumber: 2,
+          outcome: "succeeded",
+          httpStatus: 204,
+        }),
+      ]);
+      const eventGroups = new Map<string, typeof received>();
+      for (const entry of received) {
+        const eventId = String(entry.headers["webhook-id"]);
+        eventGroups.set(eventId, [...(eventGroups.get(eventId) ?? []), entry]);
+      }
+      const retriedRequests = [...eventGroups.values()].find(
+        (entries) => entries.length === 2,
+      );
+      expect(retriedRequests).toHaveLength(2);
+      expect(
+        Number(retriedRequests?.[1]?.headers["webhook-timestamp"]),
+      ).toBeGreaterThan(
+        Number(retriedRequests?.[0]?.headers["webhook-timestamp"]),
+      );
     } finally {
       await Promise.allSettled([
         processWorker.close(),

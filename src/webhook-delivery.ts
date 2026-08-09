@@ -14,6 +14,7 @@ export type ClaimedWebhookDelivery = Readonly<{
   payload: string;
   claimToken: string;
   attemptNumber: number;
+  createdAt: string;
 }>;
 
 export type WebhookSendResult =
@@ -26,6 +27,7 @@ export type WebhookSendResult =
       outcome: "failed";
       errorCode: "HTTP_ERROR" | "NETWORK_ERROR";
       httpStatus?: number;
+      retryAfterMs?: number;
       latencyMs: number;
     }>;
 
@@ -40,6 +42,15 @@ export type WebhookDeliveryStore = Readonly<{
     claimToken: string;
     completedAt: string;
     result: WebhookSendResult;
+    terminalStatus?: "failed" | "exhausted";
+    disableEndpoint?: boolean;
+  }) => Promise<boolean>;
+  reschedule: (request: {
+    deliveryId: string;
+    claimToken: string;
+    completedAt: string;
+    nextAttemptAt: string;
+    result: Extract<WebhookSendResult, { outcome: "failed" }>;
   }) => Promise<boolean>;
 }>;
 
@@ -53,11 +64,26 @@ export type WebhookSender = Readonly<{
   }) => Promise<WebhookSendResult>;
 }>;
 
+export type WebhookWorkResult =
+  | "processed"
+  | "ignored"
+  | "invalid-job"
+  | Readonly<{ outcome: "retry-scheduled"; delayMs: number }>;
+
 export type WebhookDeliveryWorker = Readonly<{
   process: (
     job: unknown,
     context?: Readonly<{ signal?: AbortSignal }>,
-  ) => Promise<"processed" | "ignored" | "invalid-job">;
+  ) => Promise<WebhookWorkResult>;
+}>;
+
+export type WebhookRetryPolicy = Readonly<{
+  maximumAttempts: number;
+  initialBackoffMs: number;
+  maximumBackoffMs: number;
+  maximumRetryAfterMs: number;
+  deliveryHorizonMs: number;
+  jitterPercent: number;
 }>;
 
 export function createWebhookDeliveryWorker(options: {
@@ -65,9 +91,22 @@ export function createWebhookDeliveryWorker(options: {
   sender: WebhookSender;
   clock?: () => string;
   createClaimToken?: () => string;
+  retryPolicy?: WebhookRetryPolicy;
+  random?: () => number;
 }): WebhookDeliveryWorker {
   const clock = options.clock ?? (() => new Date().toISOString());
   const createClaimToken = options.createClaimToken ?? randomUUID;
+  const retryPolicy = validateRetryPolicy(
+    options.retryPolicy ?? {
+      maximumAttempts: 8,
+      initialBackoffMs: 5_000,
+      maximumBackoffMs: 86_400_000,
+      maximumRetryAfterMs: 86_400_000,
+      deliveryHorizonMs: 259_200_000,
+      jitterPercent: 20,
+    },
+  );
+  const random = options.random ?? Math.random;
 
   return Object.freeze({
     process: async (rawJob, context) => {
@@ -88,11 +127,44 @@ export function createWebhookDeliveryWorker(options: {
         secrets: delivery.secrets,
         ...(context?.signal ? { signal: context.signal } : {}),
       });
+      const completedAt = clock();
+      if (result.outcome === "failed" && isRetryable(result)) {
+        const delayMs = retryDelay(
+          retryPolicy,
+          delivery.attemptNumber,
+          result.retryAfterMs,
+          random,
+        );
+        const nextAttemptAt = addMilliseconds(completedAt, delayMs);
+        if (
+          delivery.attemptNumber < retryPolicy.maximumAttempts &&
+          timestampMilliseconds(nextAttemptAt) <=
+            timestampMilliseconds(delivery.createdAt) +
+              retryPolicy.deliveryHorizonMs
+        ) {
+          const rescheduled = await options.store.reschedule({
+            deliveryId: delivery.deliveryId,
+            claimToken: delivery.claimToken,
+            completedAt,
+            nextAttemptAt,
+            result,
+          });
+          return rescheduled
+            ? { outcome: "retry-scheduled", delayMs }
+            : "ignored";
+        }
+      }
       const completed = await options.store.complete({
         deliveryId: delivery.deliveryId,
         claimToken: delivery.claimToken,
-        completedAt: clock(),
+        completedAt,
         result,
+        ...(result.outcome === "failed"
+          ? {
+              terminalStatus: isRetryable(result) ? "exhausted" : "failed",
+              disableEndpoint: result.httpStatus === 410,
+            }
+          : {}),
       });
       return completed ? "processed" : "ignored";
     },
@@ -220,6 +292,7 @@ export function createStandardWebhookHttpSender(options: {
               outcome: "failed",
               errorCode: "HTTP_ERROR",
               httpStatus: response.status,
+              ...retryAfter(response.headers.get("retry-after"), attemptedAt),
               latencyMs,
             });
       } catch {
@@ -231,6 +304,121 @@ export function createStandardWebhookHttpSender(options: {
       }
     },
   });
+}
+
+function isRetryable(
+  result: Extract<WebhookSendResult, { outcome: "failed" }>,
+): boolean {
+  return (
+    result.errorCode === "NETWORK_ERROR" ||
+    result.httpStatus === 429 ||
+    (result.httpStatus !== undefined && result.httpStatus >= 500)
+  );
+}
+
+function retryDelay(
+  policy: WebhookRetryPolicy,
+  attemptNumber: number,
+  retryAfterMs: number | undefined,
+  random: () => number,
+): number {
+  const randomValue = random();
+  if (!Number.isFinite(randomValue) || randomValue < 0 || randomValue > 1) {
+    throw new Error("Webhook retry random value must be between 0 and 1");
+  }
+  const base = Math.min(
+    policy.initialBackoffMs * 2 ** (attemptNumber - 1),
+    policy.maximumBackoffMs,
+  );
+  const jitter = Math.round(
+    base * ((randomValue * 2 - 1) * policy.jitterPercent) / 100,
+  );
+  const backoff = Math.max(1, base + jitter);
+  return retryAfterMs === undefined
+    ? backoff
+    : Math.max(backoff, Math.min(retryAfterMs, policy.maximumRetryAfterMs));
+}
+
+function validateRetryPolicy(policy: WebhookRetryPolicy): WebhookRetryPolicy {
+  const maximumAttempts = boundedInteger(
+    policy.maximumAttempts,
+    1,
+    20,
+    "Webhook retry maximum attempts",
+  );
+  const initialBackoffMs = positiveInteger(
+    policy.initialBackoffMs,
+    "Webhook retry initial backoff",
+  );
+  const maximumBackoffMs = positiveInteger(
+    policy.maximumBackoffMs,
+    "Webhook retry maximum backoff",
+  );
+  if (maximumBackoffMs < initialBackoffMs) {
+    throw new Error("Webhook retry maximum backoff must not be below its initial backoff");
+  }
+  return Object.freeze({
+    maximumAttempts,
+    initialBackoffMs,
+    maximumBackoffMs,
+    maximumRetryAfterMs: positiveInteger(
+      policy.maximumRetryAfterMs,
+      "Webhook maximum Retry-After",
+    ),
+    deliveryHorizonMs: positiveInteger(
+      policy.deliveryHorizonMs,
+      "Webhook delivery horizon",
+    ),
+    jitterPercent: boundedInteger(
+      policy.jitterPercent,
+      0,
+      100,
+      "Webhook retry jitter percent",
+    ),
+  });
+}
+
+function retryAfter(
+  value: string | null,
+  attemptedAt: string,
+): Readonly<{ retryAfterMs?: number }> {
+  if (value === null) return Object.freeze({});
+  const trimmed = value.trim();
+  if (/^\d+$/.test(trimmed)) {
+    const seconds = Number(trimmed);
+    const milliseconds = seconds * 1_000;
+    if (Number.isSafeInteger(milliseconds)) {
+      return Object.freeze({ retryAfterMs: milliseconds });
+    }
+    return Object.freeze({});
+  }
+  const target = Date.parse(trimmed);
+  const attempted = timestampMilliseconds(attemptedAt);
+  return Number.isFinite(target) && target >= attempted
+    ? Object.freeze({ retryAfterMs: target - attempted })
+    : Object.freeze({});
+}
+
+function addMilliseconds(timestamp: string, durationMs: number): string {
+  return new Date(timestampMilliseconds(timestamp) + durationMs).toISOString();
+}
+
+function timestampMilliseconds(timestamp: string): number {
+  const value = new Date(timestamp).getTime();
+  if (!Number.isFinite(value)) throw new Error("Webhook timestamp is invalid");
+  return value;
+}
+
+function boundedInteger(
+  value: number,
+  minimum: number,
+  maximum: number,
+  label: string,
+): number {
+  if (!Number.isSafeInteger(value) || value < minimum || value > maximum) {
+    throw new Error(`${label} must be between ${minimum} and ${maximum}`);
+  }
+  return value;
 }
 
 function parseWebhookSecret(secret: string): Buffer {

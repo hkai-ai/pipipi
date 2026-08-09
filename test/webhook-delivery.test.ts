@@ -92,6 +92,31 @@ describe("Webhook Delivery", () => {
     expect(payload).not.toContain("output");
   });
 
+  it("parses Retry-After without reading or persisting the remote response body", async () => {
+    const sender = createStandardWebhookHttpSender({
+      clock: () => "2026-08-09T10:00:00.000Z",
+      fetchImplementation: async () =>
+        new Response("remote details must remain unread", {
+          status: 429,
+          headers: { "retry-after": "10" },
+        }),
+    });
+
+    await expect(
+      sender.send({
+        url: "https://hooks.example/process-runs",
+        eventId: "event-1",
+        payload: '{"eventId":"event-1"}',
+        secrets: [signingSecret],
+      }),
+    ).resolves.toMatchObject({
+      outcome: "failed",
+      errorCode: "HTTP_ERROR",
+      httpStatus: 429,
+      retryAfterMs: 10_000,
+    });
+  });
+
   it("claims, sends, and persists a successful Delivery without exposing transport to the Process", async () => {
     const complete = vi.fn<WebhookDeliveryStore["complete"]>(async () => true);
     const store: WebhookDeliveryStore = {
@@ -104,8 +129,10 @@ describe("Webhook Delivery", () => {
         payload: '{"eventId":"event-1"}',
         claimToken: "claim-1",
         attemptNumber: 1,
+        createdAt: "2026-08-09T10:00:00.000Z",
       })),
       complete,
+      reschedule: vi.fn(async () => true),
     };
     const send = vi.fn(async () => ({
       outcome: "succeeded" as const,
@@ -135,7 +162,164 @@ describe("Webhook Delivery", () => {
       result: { outcome: "succeeded", httpStatus: 202, latencyMs: 12 },
     });
   });
+
+  it("retries only network, 429, and 5xx failures with bounded backoff", async () => {
+    const reschedule = vi.fn<WebhookDeliveryStore["reschedule"]>(async () => true);
+    const complete = vi.fn<WebhookDeliveryStore["complete"]>(async () => true);
+    const store = deliveryStore({ reschedule, complete, attemptNumber: 1 });
+    const worker = createWebhookDeliveryWorker({
+      store,
+      sender: {
+        send: async () => ({
+          outcome: "failed",
+          errorCode: "HTTP_ERROR",
+          httpStatus: 503,
+          retryAfterMs: 10_000,
+          latencyMs: 7,
+        }),
+      },
+      retryPolicy: {
+        maximumAttempts: 3,
+        initialBackoffMs: 1_000,
+        maximumBackoffMs: 8_000,
+        maximumRetryAfterMs: 5_000,
+        deliveryHorizonMs: 60_000,
+        jitterPercent: 0,
+      },
+      clock: sequenceClock([
+        "2026-08-09T10:00:00.000Z",
+        "2026-08-09T10:00:01.000Z",
+      ]),
+      createClaimToken: () => "claim-1",
+    });
+
+    await expect(
+      worker.process({ schemaVersion: 1, deliveryId: "delivery-1" }),
+    ).resolves.toEqual({ outcome: "retry-scheduled", delayMs: 5_000 });
+    expect(reschedule).toHaveBeenCalledWith({
+      deliveryId: "delivery-1",
+      claimToken: "claim-1",
+      completedAt: "2026-08-09T10:00:01.000Z",
+      nextAttemptAt: "2026-08-09T10:00:06.000Z",
+      result: {
+        outcome: "failed",
+        errorCode: "HTTP_ERROR",
+        httpStatus: 503,
+        retryAfterMs: 10_000,
+        latencyMs: 7,
+      },
+    });
+    expect(complete).not.toHaveBeenCalled();
+  });
+
+  it("does not retry permanent 4xx and disables only an Endpoint returning 410", async () => {
+    for (const httpStatus of [400, 410]) {
+      const complete = vi.fn<WebhookDeliveryStore["complete"]>(async () => true);
+      const reschedule = vi.fn<WebhookDeliveryStore["reschedule"]>(async () => true);
+      const worker = createWebhookDeliveryWorker({
+        store: deliveryStore({ complete, reschedule, attemptNumber: 1 }),
+        sender: {
+          send: async () => ({
+            outcome: "failed",
+            errorCode: "HTTP_ERROR",
+            httpStatus,
+            latencyMs: 4,
+          }),
+        },
+        clock: sequenceClock([
+          "2026-08-09T10:00:00.000Z",
+          "2026-08-09T10:00:01.000Z",
+        ]),
+        createClaimToken: () => "claim-1",
+      });
+
+      await expect(
+        worker.process({ schemaVersion: 1, deliveryId: "delivery-1" }),
+      ).resolves.toBe("processed");
+      expect(reschedule).not.toHaveBeenCalled();
+      expect(complete).toHaveBeenCalledWith({
+        deliveryId: "delivery-1",
+        claimToken: "claim-1",
+        completedAt: "2026-08-09T10:00:01.000Z",
+        result: {
+          outcome: "failed",
+          errorCode: "HTTP_ERROR",
+          httpStatus,
+          latencyMs: 4,
+        },
+        terminalStatus: "failed",
+        disableEndpoint: httpStatus === 410,
+      });
+    }
+  });
+
+  it("marks a retryable failure exhausted at the configured Attempt limit", async () => {
+    const complete = vi.fn<WebhookDeliveryStore["complete"]>(async () => true);
+    const reschedule = vi.fn<WebhookDeliveryStore["reschedule"]>(async () => true);
+    const worker = createWebhookDeliveryWorker({
+      store: deliveryStore({ complete, reschedule, attemptNumber: 3 }),
+      sender: {
+        send: async () => ({
+          outcome: "failed",
+          errorCode: "NETWORK_ERROR",
+          latencyMs: 3,
+        }),
+      },
+      retryPolicy: {
+        maximumAttempts: 3,
+        initialBackoffMs: 1_000,
+        maximumBackoffMs: 8_000,
+        maximumRetryAfterMs: 5_000,
+        deliveryHorizonMs: 60_000,
+        jitterPercent: 0,
+      },
+      clock: sequenceClock([
+        "2026-08-09T10:00:00.000Z",
+        "2026-08-09T10:00:01.000Z",
+      ]),
+      createClaimToken: () => "claim-1",
+    });
+
+    await expect(
+      worker.process({ schemaVersion: 1, deliveryId: "delivery-1" }),
+    ).resolves.toBe("processed");
+    expect(reschedule).not.toHaveBeenCalled();
+    expect(complete).toHaveBeenCalledWith(
+      expect.objectContaining({ terminalStatus: "exhausted" }),
+    );
+  });
 });
+
+function deliveryStore(options: {
+  complete: WebhookDeliveryStore["complete"];
+  reschedule: WebhookDeliveryStore["reschedule"];
+  attemptNumber: number;
+}): WebhookDeliveryStore {
+  return {
+    claim: async () => ({
+      deliveryId: "delivery-1",
+      eventId: "event-1",
+      endpointId: "endpoint-1",
+      endpointUrl: "https://hooks.example/process-runs",
+      secrets: [signingSecret],
+      payload: '{"eventId":"event-1"}',
+      claimToken: "claim-1",
+      attemptNumber: options.attemptNumber,
+      createdAt: "2026-08-09T10:00:00.000Z",
+    }),
+    complete: options.complete,
+    reschedule: options.reschedule,
+  };
+}
+
+function sequenceClock(values: readonly string[]): () => string {
+  const remaining = [...values];
+  return () => {
+    const value = remaining.shift();
+    if (!value) throw new Error("Clock exhausted");
+    return value;
+  };
+}
 
 async function listen(target: Server): Promise<string> {
   await new Promise<void>((resolve, reject) => {
