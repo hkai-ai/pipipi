@@ -1,6 +1,7 @@
 import { createHmac, randomUUID } from "node:crypto";
 import {
   emitAsyncOperationalLog,
+  tryOperationalTimestamp,
   type AsyncOperationalLogSink,
 } from "./async-operational-logging.js";
 import {
@@ -146,7 +147,7 @@ export function createWebhookDeliveryWorker(options: {
           ...(context?.signal ? { signal: context.signal } : {}),
         });
       } catch (error) {
-        const timestamp = safeLogTimestamp(logClock);
+        const timestamp = tryOperationalTimestamp(logClock);
         if (timestamp) {
           emitWebhookAttempt(options.logSink, delivery, timestamp, {
             outcome: "failed",
@@ -213,14 +214,6 @@ export function createWebhookDeliveryWorker(options: {
       return completed ? "processed" : "ignored";
     },
   });
-}
-
-function safeLogTimestamp(clock: () => string): string | undefined {
-  try {
-    return clock();
-  } catch {
-    return undefined;
-  }
 }
 
 function emitWebhookAttempt(

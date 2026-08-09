@@ -4,7 +4,7 @@
 
 追踪规格：[GitHub Issue #9](https://github.com/techidsk/pipipi/issues/9)。
 
-本文面向实现异步 Process Run 的开发者，把 [`async-process-runs-design.md`](async-process-runs-design.md) 拆成可独立合并、验证和回滚的开发批次。设计文档定义目标 Interface 和可靠性规则；本文只维护实施顺序、交付物、测试门槛和发布依赖。
+本文记录异步 Process Run 已完成的独立开发批次。设计文档定义当前 Interface 和可靠性规则；本文维护实施顺序、交付物、测试门槛和发布依赖。
 
 ## 已确认的实施基线
 
@@ -95,7 +95,7 @@ flowchart LR
 
 具体 TypeScript 形状先用测试约束，不把持久化格式、Zod 类型或 Registration 私有泛型暴露给 HTTP 调用方。
 
-### 实现任务
+### 已实现内容
 
 - 在现有 Process Runtime 内抽出 accepted input 与 Attempt execution，不先为每个 helper 建文件或公共 Interface。
 - 让 `defineProcessRegistration` 保持 Schema、Definition、依赖和策略的 Locality。
@@ -298,11 +298,11 @@ type AsyncProcessRuns = Readonly<{
 - 回滚旧 API/Worker 不会读取不兼容 schema，也不会删除已接受 Run。
 - 安全评审覆盖 caller identity、内容保留、Webhook egress、Secret 和日志。
 
-## 计划中的代码落点
+## 代码落点
 
-文件名可在实现时按 Locality 调整；Module 和 Interface 责任不得散落。
+实现按 Locality 集中在以下区域；Module 和 Interface 责任不得散落。
 
-| 代码区域 | 计划变化 |
+| 代码区域 | 实现职责 |
 | --- | --- |
 | `src/process-runtime.ts` | M1 的 accept/run、accepted input 和 Attempt execution |
 | `src/business-process-executor.ts` | 复用同一 production catalog 组装同步与异步执行核心 |
@@ -336,7 +336,7 @@ type AsyncProcessRuns = Readonly<{
 
 不要把 PostgreSQL、BullMQ、HTTP、Webhook 和部署配置压进一个无法独立评审的大提交。每批只在前一个 Interface 已稳定时开始；发现设计需要变化时先更新设计文档，再修改后续批次。
 
-## 验证命令计划
+## 验证命令
 
 现有确定性门禁保持不变：
 

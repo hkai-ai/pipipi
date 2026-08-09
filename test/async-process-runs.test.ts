@@ -1,7 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { createAsyncProcessRuns } from "../src/async-process-runs.js";
-import { createInMemoryProcessRunStore } from "../src/process-run-store.js";
+import {
+  createInMemoryProcessRunStore,
+  ProcessRunBacklogLimitError,
+} from "../src/process-run-store.js";
 import {
   createProcessAttemptRunner,
   createProcessRegistry,
@@ -296,6 +299,42 @@ describe("Async Process Runs", () => {
 
     expect(createRunId).not.toHaveBeenCalled();
     await expect(fixture.drain.drainOne()).resolves.toBe("empty");
+  });
+
+  it.each([
+    {
+      scope: "caller" as const,
+      code: "CALLER_BACKLOG_LIMIT_REACHED",
+      message: "Caller Process Run backlog limit reached",
+    },
+    {
+      scope: "global" as const,
+      code: "ASYNC_SERVICE_CAPACITY_REACHED",
+      message: "Async Process Run capacity is temporarily unavailable",
+    },
+  ])("translates $scope Store admission at the Async Process Runs seam", async ({ scope, code, message }) => {
+    const baseStore = createInMemoryProcessRunStore({ maxRuns: 10 });
+    const runs = createAsyncProcessRuns({
+      registry: createProcessRegistry([registration("v1")]),
+      store: {
+        ...baseStore,
+        accept: async () => {
+          throw new ProcessRunBacklogLimitError(scope, 17);
+        },
+      },
+      clock: () => "2026-08-09T10:00:00.000Z",
+      createRunId: () => RUN_IDS[0],
+    });
+
+    await expect(
+      runs.submit(request("v1", "request"), {
+        callerId: "caller-a",
+        idempotencyKey: "capacity-test",
+      }),
+    ).resolves.toEqual({
+      accepted: false,
+      error: { code, message, retryAfterSeconds: 17 },
+    });
   });
 
   it("replays caller-scoped idempotency and rejects conflicting reuse", async () => {

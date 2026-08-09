@@ -4,11 +4,14 @@ import type {
   ProcessErrorCode,
   ProcessRegistry,
 } from "./process-runtime.js";
-import type {
-  ProcessRunStore,
-  StoredProcessRun,
+import {
+  ProcessRunBacklogLimitError,
+  type ProcessRunStore,
+  type StoredProcessRun,
 } from "./process-run-store.js";
-import type { ProcessWorkQueue } from "./process-work-queue.js";
+import type {
+  ProcessWorkQueue,
+} from "./process-work-queue.js";
 
 const processRunRequestSchema = z.strictObject({
   process: z.string().min(1),
@@ -89,13 +92,21 @@ export type ProcessRunSubmission =
     }>
   | Readonly<{
       accepted: false;
-      error: Readonly<{
-        code:
-          | "INVALID_INPUT"
-          | "PROCESS_NOT_FOUND"
-          | "IDEMPOTENCY_CONFLICT";
-        message: string;
-      }>;
+      error:
+        | Readonly<{
+            code:
+              | "INVALID_INPUT"
+              | "PROCESS_NOT_FOUND"
+              | "IDEMPOTENCY_CONFLICT";
+            message: string;
+          }>
+        | Readonly<{
+            code:
+              | "CALLER_BACKLOG_LIMIT_REACHED"
+              | "ASYNC_SERVICE_CAPACITY_REACHED";
+            message: string;
+            retryAfterSeconds: number;
+          }>;
     }>;
 
 export type AsyncProcessRuns = Readonly<{
@@ -154,16 +165,24 @@ export function createAsyncProcessRuns(options: {
         );
       }
 
-      const storeResult = await store.accept({
-        runId: createRunId(),
-        ownerId: context.callerId,
-        idempotencyKey: context.idempotencyKey,
-        requestFingerprint: fingerprint(acceptance.acceptedInput),
-        process: request.process,
-        version: request.version,
-        acceptedInput: acceptance.acceptedInput,
-        createdAt: clock(),
-      });
+      let storeResult;
+      try {
+        storeResult = await store.accept({
+          runId: createRunId(),
+          ownerId: context.callerId,
+          idempotencyKey: context.idempotencyKey,
+          requestFingerprint: fingerprint(acceptance.acceptedInput),
+          process: request.process,
+          version: request.version,
+          acceptedInput: acceptance.acceptedInput,
+          createdAt: clock(),
+        });
+      } catch (error) {
+        if (error instanceof ProcessRunBacklogLimitError) {
+          return backlogRejected(error);
+        }
+        throw error;
+      }
       if (storeResult.outcome === "conflict") {
         return rejected(
           "IDEMPOTENCY_CONFLICT",
@@ -194,15 +213,31 @@ export function createAsyncProcessRuns(options: {
 }
 
 function rejected(
-  code: Extract<
-    ProcessRunSubmission,
-    { accepted: false }
-  >["error"]["code"],
+  code: "INVALID_INPUT" | "PROCESS_NOT_FOUND" | "IDEMPOTENCY_CONFLICT",
   message: string,
 ): ProcessRunSubmission {
   return Object.freeze({
     accepted: false,
     error: Object.freeze({ code, message }),
+  });
+}
+
+function backlogRejected(
+  error: ProcessRunBacklogLimitError,
+): ProcessRunSubmission {
+  return Object.freeze({
+    accepted: false,
+    error: Object.freeze({
+      code:
+        error.scope === "caller"
+          ? "CALLER_BACKLOG_LIMIT_REACHED"
+          : "ASYNC_SERVICE_CAPACITY_REACHED",
+      message:
+        error.scope === "caller"
+          ? "Caller Process Run backlog limit reached"
+          : "Async Process Run capacity is temporarily unavailable",
+      retryAfterSeconds: error.retryAfterSeconds,
+    }),
   });
 }
 

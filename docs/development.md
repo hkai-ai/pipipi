@@ -123,7 +123,7 @@ docker compose -f compose.integration.yaml down
 - `ASYNC_GLOBAL_BACKLOG_LIMIT`、不高于它的 `ASYNC_CALLER_BACKLOG_LIMIT` 和 `ASYNC_BACKLOG_RETRY_AFTER_SECONDS`；
 - 可选的 PostgreSQL Pool、连接超时、claim lease、轮询 `Retry-After` 与 staged readiness 阈值。
 
-可信网关必须先验证 service principal，删除外部请求中的 `x-pipipi-caller-id` 和 `x-pipipi-gateway-token`，再分别注入稳定 subject 与共享凭证。应用不接受请求 body 中的 owner，也不把身份头、共享凭证或数据库错误写入响应。`GET /healthz` 始终只做 liveness；`GET /readyz` 在异步功能启用时检查数据库 migration，`canary` 与 `production` 还检查 backlog、stuck Run、Outbox lag 和最近一次成功的人工全量恢复。
+可信网关必须先验证 service principal，删除外部请求中的 `x-pipipi-caller-id` 和 `x-pipipi-gateway-token`，再分别注入稳定 subject 与共享凭证。应用不接受请求 body 中的 owner，也不把身份头、共享凭证或数据库错误写入响应。`GET /healthz` 始终只做 liveness；`GET /readyz` 在异步功能启用时检查包括 backlog admission 索引在内的数据库 migration，`canary` 与 `production` 还检查 backlog、stuck Run、已到期 Outbox lag 和最近一次从空 cursor 到最终空 `nextCursor` 的完整成功人工全量恢复链。
 
 当前已验证提交、查询、Outbox 调度、BullMQ Worker、故障恢复、容量门禁、独立角色、结构化关联日志和运维快照。配置齐全不等于可以直接开放；外部生产流量必须按 [`async-process-runs-runbook.md`](async-process-runs-runbook.md) 完成安全审查、故障演练和 staged rollout。
 
@@ -161,6 +161,8 @@ Dispatcher 的周期 `reconcileOnce()` 与人工 `recover:queue` 共用同一个
 
 人工命令默认 dry-run，必须提供可审计 operator 身份：
 
+> 警告：dry-run 会写恢复审计；`--apply` 还会写 BullMQ 并确认 Process Outbox。只对逐字核对过的测试、staging 或事故目标执行，生产操作以 [`async-process-runs-runbook.md`](async-process-runs-runbook.md) 的授权和安全动作要求为准。
+
 ```bash
 PROCESS_RECOVERY_ACTOR_ID=operator:alice npm run recover:queue -- --mode=all
 PROCESS_RECOVERY_ACTOR_ID=operator:alice npm run recover:queue -- --apply --mode=all
@@ -172,7 +174,7 @@ dry-run 只检查 PostgreSQL 与 Redis 并写恢复审计，不写 Queue 或 Out
 
 ### 运维快照与容量门禁
 
-`npm run observe:async` 一次性读取 PostgreSQL 权威状态与两个 BullMQ Queue，输出 `async_operations_snapshot` JSON。它覆盖 queued/running、近期 queue wait/execution p95、failure rate、stuck、Process/Webhook Outbox lag、Delivery failure、cleanup/recovery 和 storage，并给出两个 Queue 的 waiting/active/delayed/failed 与 oldest runnable age。生产镜像使用 `npm run start:operations`；由受信定时 Job 采集，不增加产品 HTTP 路由。Dashboard 与告警字段以 [`../ops/async-observability.json`](../ops/async-observability.json) 为准。
+`npm run observe:async` 一次性读取 PostgreSQL 权威状态与两个 BullMQ Queue，输出 `async_operations_snapshot` JSON。它覆盖 queued/running、近期 queue wait/execution p95、failure rate、stuck、已到期 Process/Webhook Outbox lag、Delivery failure、cleanup/recovery 和完整异步表 storage，并给出两个 Queue 的 waiting/active/delayed/failed 与跨状态最老 runnable age。生产镜像使用 `npm run start:operations`；由受信定时 Job 采集，不增加产品 HTTP 路由。Dashboard 与告警字段以 [`../ops/async-observability.json`](../ops/async-observability.json) 为准。
 
 PostgreSQL Store 在 acceptance 事务内先检查 caller-scoped idempotency，再使用事务级 advisory lock 串行统计非终态 backlog。caller 达到阈值抛出稳定 `429 CALLER_BACKLOG_LIMIT_REACHED`，全局达到阈值抛出 `503 ASYNC_SERVICE_CAPACITY_REACHED`，都返回配置的 `Retry-After`；相同请求的幂等重放和既有 Run GET 不受门禁影响。`007_process_run_admission` 的 caller/status 部分索引保持检查可预测。
 

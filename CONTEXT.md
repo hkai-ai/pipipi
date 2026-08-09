@@ -88,7 +88,7 @@ Agent 只获得 Process Registration 明确授权的窄 Tool。生产内容处�
 | Retention Cleaner | `runSweep({ asOf, cursor, signal })` | 分层期限、短事务批次、引用保护、审计和游标续跑 |
 | Business Capability | 窄业务方法 | 远程协议、认证、超时和供应商细节 |
 
-Startup Construction 是生产组装 Seam；Process Executor 是同步传输与 Process Runtime 之间的主 Seam；Async Process Runs 是计划中异步 HTTP 与权威 Store 之间的主 Seam；Process Registration 是编写一个 Business Process 版本的 Seam；Process Attempt Runner 让同步入口和异步 Worker 复用同一执行治理。Adapter 只有在 Seam 上存在真实替换需求时才引入。
+Startup Construction 是生产组装 Seam；Process Executor 是同步传输与 Process Runtime 之间的主 Seam；Async Process Runs 是异步 HTTP 与权威 Store 之间的主 Seam；Process Registration 是编写一个 Business Process 版本的 Seam；Process Attempt Runner 让同步入口和异步 Worker 复用同一执行治理。Adapter 只有在 Seam 上存在真实替换需求时才引入。
 
 详细 invariant、错误归属和测试面见 [`docs/process-runtime-design.md`](docs/process-runtime-design.md)。
 

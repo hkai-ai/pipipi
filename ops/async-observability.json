@@ -120,6 +120,11 @@
           "title": "Last cleanup deferred Runs"
         },
         {
+          "metric": "persistence.cleanup.lastCompletedAt",
+          "statistic": "latest_age",
+          "title": "Last completed cleanup age"
+        },
+        {
           "metric": "persistence.storage.asyncTablesBytes",
           "statistic": "latest_and_daily_growth",
           "title": "Async table storage and growth"
@@ -128,6 +133,13 @@
     }
   ],
   "alerts": [
+    {
+      "id": "async-acceptance-latency",
+      "metric": "logs.process_run_submission_accepted.durationMs",
+      "condition": "p95 greater than acceptance SLO for 10m",
+      "severity": "warning",
+      "runbook": "docs/async-process-runs-runbook.md#容量拒绝与恢复"
+    },
     {
       "id": "async-global-capacity",
       "metric": "logs.process_run_admission_rejected.httpStatus",
@@ -178,6 +190,13 @@
       "runbook": "docs/async-process-runs-runbook.md#outbox-延迟"
     },
     {
+      "id": "async-webhook-outbox-lag",
+      "metric": "persistence.outbox.oldestWebhookLagMs",
+      "condition": "greater than ASYNC_MAX_OUTBOX_LAG_MS for 5m",
+      "severity": "critical",
+      "runbook": "docs/async-process-runs-runbook.md#webhook-失败或积压"
+    },
+    {
       "id": "async-webhook-failure-rate",
       "metric": "persistence.webhooks.failureRateRecent",
       "condition": "greater than 0.10 with at least 20 terminal Deliveries",
@@ -196,6 +215,20 @@
       "metric": "persistence.storage.asyncTablesBytes",
       "condition": "daily growth exceeds approved forecast or storage exceeds 80%",
       "severity": "warning",
+      "runbook": "docs/async-process-runs-runbook.md#存储增长或清理滞后"
+    },
+    {
+      "id": "async-cleanup-failure",
+      "metric": "logs.retention_cleanup_sweep_failed.count",
+      "condition": "greater than 0 for 5m",
+      "severity": "critical",
+      "runbook": "docs/async-process-runs-runbook.md#存储增长或清理滞后"
+    },
+    {
+      "id": "async-cleanup-overdue",
+      "metric": "persistence.cleanup.lastCompletedAt",
+      "condition": "missing or older than two configured cleanup intervals",
+      "severity": "critical",
       "runbook": "docs/async-process-runs-runbook.md#存储增长或清理滞后"
     }
   ]

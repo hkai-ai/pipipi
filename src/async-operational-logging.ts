@@ -43,6 +43,16 @@ export function emitAsyncOperationalLog(
   }
 }
 
+export function tryOperationalTimestamp(
+  clock: () => string,
+): string | undefined {
+  try {
+    return clock();
+  } catch {
+    return undefined;
+  }
+}
+
 export function writeAsyncOperationalLog(
   record: AsyncOperationalLogRecord,
 ): void {

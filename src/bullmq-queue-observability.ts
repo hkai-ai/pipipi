@@ -59,7 +59,17 @@ export async function readBullMqQueueSnapshot(
     queue.getJobCounts(...countedStates),
     queue.getJobs([...runnableStates], 0, 0, true),
   ]);
-  const oldestTimestamp = oldestJobs[0]?.timestamp;
+  const oldestTimestamp = oldestJobs.reduce<number | undefined>(
+    (oldest, job) => {
+      if (!Number.isFinite(job.timestamp) || job.timestamp < 0) {
+        throw new Error("BullMQ Job timestamp is invalid");
+      }
+      return oldest === undefined
+        ? job.timestamp
+        : Math.min(oldest, job.timestamp);
+    },
+    undefined,
+  );
   return Object.freeze({
     waiting: queueCount(counts.waiting, "waiting"),
     active: queueCount(counts.active, "active"),

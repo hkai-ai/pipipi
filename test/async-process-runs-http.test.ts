@@ -3,10 +3,7 @@ import { z } from "zod";
 import { createProcessingApplication } from "../src/application.js";
 import { createAsyncProcessRuns } from "../src/async-process-runs.js";
 import type { CallerIdentityResolver } from "../src/caller-identity.js";
-import {
-  createInMemoryProcessRunStore,
-  ProcessRunBacklogLimitError,
-} from "../src/process-run-store.js";
+import { createInMemoryProcessRunStore } from "../src/process-run-store.js";
 import {
   createProcessRegistry,
   defineProcessRegistration,
@@ -294,12 +291,12 @@ describe("Async Process Runs HTTP Interface", () => {
     {
       scope: "caller" as const,
       httpStatus: 429,
-      errorCode: "CALLER_BACKLOG_LIMIT_REACHED",
+      errorCode: "CALLER_BACKLOG_LIMIT_REACHED" as const,
     },
     {
       scope: "global" as const,
       httpStatus: 503,
-      errorCode: "ASYNC_SERVICE_CAPACITY_REACHED",
+      errorCode: "ASYNC_SERVICE_CAPACITY_REACHED" as const,
     },
   ])(
     "maps $scope backlog admission without disabling existing Run queries",
@@ -311,9 +308,17 @@ describe("Async Process Runs HTTP Interface", () => {
           logSink: (record) => logs.push(record),
           asyncProcessRuns: {
             runs: {
-              submit: async () => {
-                throw new ProcessRunBacklogLimitError(scope, 17);
-              },
+              submit: async () => ({
+                accepted: false,
+                error: {
+                  code: errorCode,
+                  message:
+                    scope === "caller"
+                      ? "Caller Process Run backlog limit reached"
+                      : "Async Process Run capacity is temporarily unavailable",
+                  retryAfterSeconds: 17,
+                },
+              }),
               find: async (runId) => ({
                 runId,
                 process: "test-processing",

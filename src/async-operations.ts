@@ -25,6 +25,7 @@ export type PostgresAsyncOperationsSnapshot = Readonly<{
   webhooks: Readonly<{
     pending: number;
     delivering: number;
+    succeededRecent: number;
     failedRecent: number;
     exhaustedRecent: number;
     failureRateRecent: number;
@@ -127,6 +128,7 @@ export function createPostgresAsyncOperations(options: {
         webhooks: Object.freeze({
           pending: count(row.webhook_pending, "pending Webhooks"),
           delivering: count(row.webhook_delivering, "delivering Webhooks"),
+          succeededRecent: webhookSucceededRecent,
           failedRecent: webhookFailedRecent,
           exhaustedRecent: webhookExhaustedRecent,
           failureRateRecent: rate(
@@ -161,13 +163,15 @@ export function createPostgresAsyncOperations(options: {
         webhook_deliveries: string | null;
         retention_cleanup_batches: string | null;
         queue_recovery_runs: string | null;
+        admission_index: string | null;
       }>(`
         SELECT
           to_regclass('public.process_runs')::text AS process_runs,
           to_regclass('public.outbox_messages')::text AS outbox_messages,
           to_regclass('public.webhook_deliveries')::text AS webhook_deliveries,
           to_regclass('public.retention_cleanup_batches')::text AS retention_cleanup_batches,
-          to_regclass('public.queue_recovery_runs')::text AS queue_recovery_runs
+          to_regclass('public.queue_recovery_runs')::text AS queue_recovery_runs,
+          to_regclass('public.process_runs_caller_backlog_idx')::text AS admission_index
       `);
       const row = result.rows[0];
       if (
@@ -175,7 +179,8 @@ export function createPostgresAsyncOperations(options: {
         row.outbox_messages !== "outbox_messages" ||
         row.webhook_deliveries !== "webhook_deliveries" ||
         row.retention_cleanup_batches !== "retention_cleanup_batches" ||
-        row.queue_recovery_runs !== "queue_recovery_runs"
+        row.queue_recovery_runs !== "queue_recovery_runs" ||
+        row.admission_index !== "process_runs_caller_backlog_idx"
       ) {
         throw new Error("Async operations database migration is not ready");
       }
@@ -245,7 +250,12 @@ export function createPostgresAsyncReleaseReadiness(options: {
     if (
       !recoveryCompletedAt ||
       new Date(recoveryCompletedAt).getTime() < asOfMs - recoveryMaxAgeMs ||
-      count(row.recovery_failed_count, "release recovery failed items") > 0
+      count(row.recovery_failed_count, "release recovery failed items") > 0 ||
+      count(
+        row.recovery_incomplete_count,
+        "release incomplete recovery batches",
+      ) > 0 ||
+      row.recovery_finished !== true
     ) {
       throw new Error("Async release recovery gate failed");
     }
@@ -287,6 +297,8 @@ interface ReleaseGateRow extends QueryResultRow {
   oldest_outbox_lag_ms: number | string | null;
   recovery_completed_at: Date | string | null;
   recovery_failed_count: number | string | null;
+  recovery_incomplete_count: number | string | null;
+  recovery_finished: boolean | null;
 }
 
 const operationsQuery = `
@@ -331,15 +343,15 @@ const operationsQuery = `
       (status = 'queued' AND updated_at <= $3)
       OR (status = 'running' AND claim_expires_at <= $1)
     ) AS stuck_runs,
-    (SELECT count(*)::integer FROM outbox_messages WHERE topic = 'process-runs' AND published_at IS NULL) AS process_outbox_pending,
-    (SELECT count(*)::integer FROM outbox_messages WHERE topic = 'webhook-deliveries' AND published_at IS NULL) AS webhook_outbox_pending,
+    (SELECT count(*)::integer FROM outbox_messages WHERE topic = 'process-runs' AND published_at IS NULL AND available_at <= $1) AS process_outbox_pending,
+    (SELECT count(*)::integer FROM outbox_messages WHERE topic = 'webhook-deliveries' AND published_at IS NULL AND available_at <= $1) AS webhook_outbox_pending,
     COALESCE((
       SELECT greatest(0, extract(epoch FROM ($1::timestamptz - min(created_at))) * 1000)::double precision
-      FROM outbox_messages WHERE topic = 'process-runs' AND published_at IS NULL
+      FROM outbox_messages WHERE topic = 'process-runs' AND published_at IS NULL AND available_at <= $1
     ), 0) AS oldest_process_outbox_lag_ms,
     COALESCE((
       SELECT greatest(0, extract(epoch FROM ($1::timestamptz - min(created_at))) * 1000)::double precision
-      FROM outbox_messages WHERE topic = 'webhook-deliveries' AND published_at IS NULL
+      FROM outbox_messages WHERE topic = 'webhook-deliveries' AND published_at IS NULL AND available_at <= $1
     ), 0) AS oldest_webhook_outbox_lag_ms,
     (SELECT count(*)::integer FROM webhook_deliveries WHERE status = 'pending') AS webhook_pending,
     (SELECT count(*)::integer FROM webhook_deliveries WHERE status = 'delivering') AS webhook_delivering,
@@ -367,6 +379,8 @@ const operationsQuery = `
         'webhook_endpoints'::regclass,
         'webhook_deliveries'::regclass,
         'webhook_delivery_attempts'::regclass,
+        'webhook_delivery_replays'::regclass,
+        'webhook_endpoint_audit_events'::regclass,
         'retention_cleanup_batches'::regclass,
         'queue_recovery_runs'::regclass,
         'queue_recovery_items'::regclass
@@ -375,15 +389,65 @@ const operationsQuery = `
 `;
 
 const releaseGateQuery = `
-  WITH latest_recovery AS (
-    SELECT completed_at, failed_count
+  WITH RECURSIVE latest_recovery_root AS (
+    SELECT recovery_id
     FROM queue_recovery_runs
     WHERE
       trigger_kind = 'manual'
       AND recovery_mode = 'all'
-      AND status = 'completed'
-    ORDER BY completed_at DESC, recovery_id DESC
+      AND cursor_run_id IS NULL
+    ORDER BY started_at DESC, recovery_id DESC
     LIMIT 1
+  ),
+  latest_recovery_chain (
+    recovery_id,
+    actor_id,
+    as_of,
+    dry_run,
+    cursor_run_id,
+    next_cursor_run_id,
+    status,
+    failed_count,
+    started_at,
+    completed_at
+  ) AS (
+    SELECT
+      recovery.recovery_id,
+      recovery.actor_id,
+      recovery.as_of,
+      recovery.dry_run,
+      recovery.cursor_run_id,
+      recovery.next_cursor_run_id,
+      recovery.status,
+      recovery.failed_count,
+      recovery.started_at,
+      recovery.completed_at
+    FROM queue_recovery_runs AS recovery
+    JOIN latest_recovery_root AS root
+      ON recovery.recovery_id = root.recovery_id
+    UNION
+    SELECT
+      next.recovery_id,
+      next.actor_id,
+      next.as_of,
+      next.dry_run,
+      next.cursor_run_id,
+      next.next_cursor_run_id,
+      next.status,
+      next.failed_count,
+      next.started_at,
+      next.completed_at
+    FROM latest_recovery_chain AS current
+    JOIN queue_recovery_runs AS next
+      ON next.trigger_kind = 'manual'
+      AND next.recovery_mode = 'all'
+      AND next.actor_id = current.actor_id
+      AND next.as_of = current.as_of
+      AND next.dry_run = current.dry_run
+      AND next.cursor_run_id = current.next_cursor_run_id
+    WHERE
+      current.status = 'completed'
+      AND current.next_cursor_run_id IS NOT NULL
   )
   SELECT
     (SELECT count(*)::integer FROM process_runs WHERE status IN ('queued', 'running')) AS backlog,
@@ -393,10 +457,33 @@ const releaseGateQuery = `
     ) AS stuck,
     COALESCE((
       SELECT greatest(0, extract(epoch FROM ($1::timestamptz - min(created_at))) * 1000)::double precision
-      FROM outbox_messages WHERE published_at IS NULL
+      FROM outbox_messages WHERE published_at IS NULL AND available_at <= $1
     ), 0) AS oldest_outbox_lag_ms,
-    (SELECT completed_at FROM latest_recovery) AS recovery_completed_at,
-    COALESCE((SELECT failed_count FROM latest_recovery), 0) AS recovery_failed_count
+    (SELECT max(completed_at) FROM latest_recovery_chain) AS recovery_completed_at,
+    COALESCE((SELECT sum(failed_count)::bigint FROM latest_recovery_chain), 0) AS recovery_failed_count,
+    (SELECT count(*)::integer FROM latest_recovery_chain WHERE status <> 'completed') AS recovery_incomplete_count,
+    (
+      EXISTS (
+        SELECT 1
+        FROM latest_recovery_chain
+        WHERE status = 'completed' AND next_cursor_run_id IS NULL
+      )
+      AND NOT EXISTS (
+        SELECT 1
+        FROM latest_recovery_chain AS current
+        WHERE
+          current.next_cursor_run_id IS NOT NULL
+          AND NOT EXISTS (
+            SELECT 1
+            FROM latest_recovery_chain AS next
+            WHERE
+              next.actor_id = current.actor_id
+              AND next.as_of = current.as_of
+              AND next.dry_run = current.dry_run
+              AND next.cursor_run_id = current.next_cursor_run_id
+          )
+      )
+    ) AS recovery_finished
 `;
 
 function normalizedTimestamp(value: string): string {

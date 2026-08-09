@@ -653,14 +653,17 @@ export function createPostgresProcessRunStore(options: {
       const result = await options.pool.query<{
         process_runs: string | null;
         webhook_endpoints: string | null;
+        admission_index: string | null;
       }>(`
         SELECT
           to_regclass('public.process_runs')::text AS process_runs,
-          to_regclass('public.webhook_endpoints')::text AS webhook_endpoints
+          to_regclass('public.webhook_endpoints')::text AS webhook_endpoints,
+          to_regclass('public.process_runs_caller_backlog_idx')::text AS admission_index
       `);
       if (
         result.rows[0]?.process_runs !== "process_runs" ||
-        result.rows[0]?.webhook_endpoints !== "webhook_endpoints"
+        result.rows[0]?.webhook_endpoints !== "webhook_endpoints" ||
+        result.rows[0]?.admission_index !== "process_runs_caller_backlog_idx"
       ) {
         throw new Error("Process Run database migration is not ready");
       }

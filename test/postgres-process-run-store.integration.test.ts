@@ -219,6 +219,30 @@ postgresDescribe("PostgreSQL Process Run Store", () => {
       },
     });
 
+    const futureWebhookOutbox = await primaryPool.query(
+      `
+        INSERT INTO outbox_messages (
+          message_id,
+          event_id,
+          topic,
+          payload,
+          created_at,
+          available_at
+        )
+        SELECT
+          '50000000-0000-4000-8000-000000000240',
+          event_id,
+          'webhook-deliveries',
+          '{"schemaVersion":1,"deliveryId":"50000000-0000-4000-8000-000000000241"}'::jsonb,
+          '2026-08-09T10:00:30.000Z',
+          '2026-08-09T10:02:00.000Z'
+        FROM process_events
+        ORDER BY created_at, event_id
+        LIMIT 1
+      `,
+    );
+    expect(futureWebhookOutbox.rowCount).toBe(1);
+
     const operations = createPostgresAsyncOperations({
       pool: primaryPool,
       recentWindowMs: 120_000,
@@ -244,10 +268,12 @@ postgresDescribe("PostgreSQL Process Run Store", () => {
       processPending: 2,
       webhookPending: 0,
       oldestProcessLagMs: 60_000,
+      oldestWebhookLagMs: 0,
     });
     expect(snapshot.webhooks).toMatchObject({
       pending: 0,
       delivering: 0,
+      succeededRecent: 0,
       failedRecent: 0,
       exhaustedRecent: 0,
     });
@@ -293,6 +319,104 @@ postgresDescribe("PostgreSQL Process Run Store", () => {
       clock: () => "2026-08-09T10:01:00.000Z",
     });
     await expect(releaseReady()).resolves.toBeUndefined();
+
+    await primaryPool.query(
+      `
+        INSERT INTO queue_recovery_runs (
+          recovery_id,
+          trigger_kind,
+          recovery_mode,
+          dry_run,
+          actor_id,
+          as_of,
+          queued_before,
+          next_cursor_run_id,
+          status,
+          started_at,
+          completed_at
+        )
+        VALUES (
+          '40000000-0000-4000-8000-000000000242',
+          'manual',
+          'all',
+          true,
+          'operator:multi-batch-gate-test',
+          '2026-08-09T10:00:52.000Z',
+          '2026-08-09T10:00:22.000Z',
+          '40000000-0000-4000-8000-000000000299',
+          'completed',
+          '2026-08-09T10:00:52.000Z',
+          '2026-08-09T10:00:53.000Z'
+        )
+      `,
+    );
+    await expect(releaseReady()).rejects.toThrow("recovery gate");
+
+    await primaryPool.query(
+      `
+        INSERT INTO queue_recovery_runs (
+          recovery_id,
+          trigger_kind,
+          recovery_mode,
+          dry_run,
+          actor_id,
+          as_of,
+          queued_before,
+          cursor_run_id,
+          status,
+          started_at,
+          completed_at
+        )
+        VALUES (
+          '40000000-0000-4000-8000-000000000243',
+          'manual',
+          'all',
+          true,
+          'operator:multi-batch-gate-test',
+          '2026-08-09T10:00:52.000Z',
+          '2026-08-09T10:00:22.000Z',
+          '40000000-0000-4000-8000-000000000299',
+          'completed',
+          '2026-08-09T10:00:54.000Z',
+          '2026-08-09T10:00:55.000Z'
+        )
+      `,
+    );
+    await expect(releaseReady()).resolves.toBeUndefined();
+
+    await primaryPool.query(
+      `
+        INSERT INTO queue_recovery_runs (
+          recovery_id,
+          trigger_kind,
+          recovery_mode,
+          dry_run,
+          actor_id,
+          as_of,
+          queued_before,
+          cursor_run_id,
+          status,
+          error_code,
+          started_at,
+          completed_at
+        )
+        VALUES (
+          '40000000-0000-4000-8000-000000000244',
+          'manual',
+          'all',
+          true,
+          'operator:multi-batch-gate-test',
+          '2026-08-09T10:00:52.000Z',
+          '2026-08-09T10:00:22.000Z',
+          '40000000-0000-4000-8000-000000000299',
+          'failed',
+          'RECOVERY_FAILED',
+          '2026-08-09T10:00:56.000Z',
+          '2026-08-09T10:00:57.000Z'
+        )
+      `,
+    );
+    await expect(releaseReady()).rejects.toThrow("recovery gate");
   });
 
   it("persists a stable failure across independent adapter instances", async () => {

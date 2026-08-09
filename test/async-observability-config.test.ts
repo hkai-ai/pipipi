@@ -16,6 +16,9 @@ describe("Async observability specification", () => {
       ),
       ...specification.alerts.map((alert) => alert.metric),
     ]);
+    const alertMetrics = new Set(
+      specification.alerts.map((alert) => alert.metric),
+    );
 
     expect(specification.schemaVersion).toBe(1);
     expect(metrics).toEqual(
@@ -36,6 +39,14 @@ describe("Async observability specification", () => {
       "queues.webhook.oldestRunnableAgeMs",
     ]) {
       expect(metrics.has(required), required).toBe(true);
+    }
+    for (const requiredAlert of [
+      "logs.process_run_submission_accepted.durationMs",
+      "persistence.outbox.oldestWebhookLagMs",
+      "logs.retention_cleanup_sweep_failed.count",
+      "persistence.cleanup.lastCompletedAt",
+    ]) {
+      expect(alertMetrics.has(requiredAlert), requiredAlert).toBe(true);
     }
     expect(specification.alerts.every((alert) => alert.runbook.startsWith("docs/async-process-runs-runbook.md#"))).toBe(true);
   });

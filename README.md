@@ -68,7 +68,7 @@ curl http://127.0.0.1:3000/healthz
 
 `GET /healthz` 只确认进程完成初始化，不访问模型或 Business Capability。
 
-`GET /readyz` 表达当前角色所需依赖是否就绪；默认同步形状不访问外部依赖。启用异步入口后会检查 PostgreSQL migration，`canary` 与 `production` 阶段还检查容量、stuck Run、Outbox 延迟和最近人工全量恢复。
+`GET /readyz` 表达当前角色所需依赖是否就绪；默认同步形状不访问外部依赖。启用异步入口后会检查包括 backlog admission 索引在内的 PostgreSQL migration，`canary` 与 `production` 阶段还检查容量、stuck Run、已到期 Outbox 延迟和最近一次完整成功的人工全量恢复批次链。
 
 ## 异步开发 Interface
 

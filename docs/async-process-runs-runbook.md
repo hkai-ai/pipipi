@@ -24,11 +24,13 @@ flowchart LR
     Observer --> WQ
 ```
 
-`ASYNC_PROCESS_RUNS_ENABLED` 默认是 `false`。设置为 `true` 还必须给出 `ASYNC_RELEASE_STAGE=internal|canary|production`、持久化期限、网关 Secret 和 backlog admission 上限。`internal` 只允许私网测试流量；`canary` 与 `production` 的 API readiness 会额外执行容量、stuck Run、Outbox 延迟和最近人工全量恢复门禁。
+`ASYNC_PROCESS_RUNS_ENABLED` 默认是 `false`。设置为 `true` 还必须给出 `ASYNC_RELEASE_STAGE=internal|canary|production`、持久化期限、网关 Secret 和 backlog admission 上限。`internal` 只允许私网测试流量；`canary` 与 `production` 的 API readiness 会额外执行容量、stuck Run、已到期 Outbox 延迟和最近人工全量恢复门禁。未来才到 `availableAt` 的延迟 Webhook 重试不计入当前 Outbox backlog 或 lag。
 
 ## 发布前置条件
 
 候选提交必须先通过确定性与真实依赖验证：
+
+> 警告：`npm ci` 会访问配置的软件包源并重建 `node_modules`；只在隔离的候选工作区运行。以下集成测试还会重建名称以 `_test` 结尾的 PostgreSQL schema，并清空明确的本机非零 Redis database；执行前逐字核对两个测试 URL，禁止传入共享或生产地址。
 
 ```bash
 npm ci
@@ -44,8 +46,6 @@ npm run test:integration:async
 docker compose -f compose.integration.yaml down
 ```
 
-集成测试会重建名称以 `_test` 结尾的 schema，并清空明确的本机非零 Redis database。不要把生产 URL 传给这些命令。
-
 发布人员还必须确认：
 
 - PostgreSQL 已完成备份与恢复验证，Redis 使用内部网络、认证、`noeviction` 和批准的高可用形状；
@@ -59,6 +59,8 @@ docker compose -f compose.integration.yaml down
 
 所有 migration 必须由一次性 Job 在新代码接流量前执行：
 
+> 警告：`db:migrate` 会写 PostgreSQL schema。只在备份和恢复验证完成后，对已经核对的目标数据库执行；失败时停止部署，不运行 migration down。
+
 ```bash
 DATABASE_URL='postgres://service-user:replace-me@database.internal/business_processing' \
 npm run db:migrate
@@ -66,12 +68,14 @@ npm run db:migrate
 
 当前 migration `001` 至 `007` 采用向前兼容的表、列和索引变化。`007_process_run_admission` 只增加 caller backlog 部分索引，旧进程可以继续读写。按照以下顺序部署：
 
-1. 记录旧镜像摘要、当前 migration 版本、数据库备份 ID、Queue prefix 和基线运维快照。
-2. 运行 migration Job；再次运行 `npm run db:migrate` 必须显示无待执行 migration。
-3. 先部署 Retention Cleaner、Process Dispatcher、Process Worker 和 Webhook Worker，但不接外部流量；所有角色的 `/readyz` 必须为 `200`。
-4. 运行一次人工全量 Queue Recovery dry-run，保存 `recoveryId` 与零失败报告。
-5. 部署 API，保持 `ASYNC_RELEASE_STAGE=internal`，只允许内部合成调用方提交和查询。
-6. 采集至少一个正常观测窗口，完成故障演练，再依次提升到 `canary` 和 `production`。
+| 步骤 | 动作 | 成功信号 | 失败后的安全动作 |
+| --- | --- | --- | --- |
+| 1 | 记录旧镜像摘要、当前 migration 版本、数据库备份 ID、Queue prefix 和基线运维快照 | 证据可由另一名发布人员复核 | 不开始变更；补齐备份或证据 |
+| 2 | 运行 migration Job，再次运行 `npm run db:migrate` | 第二次运行显示无待执行 migration，`007` 索引存在 | 停止部署并保留数据库；从 migration 日志诊断，不运行 down |
+| 3 | 部署 Retention Cleaner、Process Dispatcher、Process Worker 和 Webhook Worker，不接外部流量 | 所有角色 readiness 成功，Queue 名称与 prefix 一致 | 停止有问题的角色并回滚镜像；保留 additive schema 和 PostgreSQL 数据 |
+| 4 | 运行人工全量 Queue Recovery dry-run，保存完整批次链 | 根批次从空 cursor 开始，所有批次 `completed`、最终 cursor 为空且 `failed=0` | 不执行 apply，不提升流量；修复 Queue、配置或候选异常后重跑完整链 |
+| 5 | 部署 API，保持 `ASYNC_RELEASE_STAGE=internal`，只允许内部合成调用方 | 提交、owner 查询和 Webhook smoke 到达预期终态 | 设置 `ASYNC_PROCESS_RUNS_ENABLED=false` 或回滚 API；保留 GET 所需数据库 |
+| 6 | 采集至少一个正常观测窗口并完成故障演练，再依次提升到 `canary` 和 `production` | readiness、Dashboard 和告警均通过，演练证据完整 | 停止提升并退回上一个阶段；按对应告警章节处置 |
 
 同一 Queue 上滚动升级 Worker 时，先让新 Worker ready，再停止旧 Worker 领取新 Job，并给旧 Worker 至少 `PROCESS_WORKER_SHUTDOWN_GRACE_MS` 完成或释放 claim。Job envelope 始终只有 `{ schemaVersion: 1, runId }`；新旧 Worker 都从 PostgreSQL 选择准确 Registration。不要同时改变 schema、Process 语义和 Queue prefix。
 
@@ -153,6 +157,8 @@ Dashboard 与告警的 vendor-neutral 规范位于 [`ops/async-observability.jso
 
 人工恢复默认 dry-run，必须给出可审计 actor：
 
+> 警告：dry-run 也会写恢复审计；`--apply` 还会写 BullMQ、确认 Process Outbox 并写逐项审计。只在获批的 staging 演练或事故处置中执行，先逐字核对 `DATABASE_URL`、`REDIS_URL`、Queue name/prefix 和 actor；任何批次失败时停止，不继续放量。
+
 ```bash
 PROCESS_RECOVERY_ACTOR_ID=operator:replace-me \
 npm run recover:queue -- --mode=all
@@ -161,7 +167,7 @@ PROCESS_RECOVERY_ACTOR_ID=operator:replace-me \
 npm run recover:queue -- --apply --mode=all
 ```
 
-先保存 dry-run 的 candidate、missing、terminal、invalid、active lease、pending Outbox 和 failed 计数。只有 `failed=0` 且影响范围符合事故判断时执行 `--apply`。恢复命令以 PostgreSQL 非终态 Run 为候选；终态 Run 不会重建。活跃 running 租约只报告 `deferred`，过期后下一轮才重入队。成功入队或确认有效 Job 后才确认 pending Outbox。
+先保存 dry-run 的 candidate、missing、terminal、invalid、active lease、pending Outbox 和 failed 计数。只有完整链从空 cursor 开始、每个批次都完成、最终 `nextCursor` 为空、汇总 `failed=0` 且影响范围符合事故判断时执行 `--apply`。canary/production readiness 也按这条完整链判定，不接受单个中间批次。恢复命令以 PostgreSQL 非终态 Run 为候选；终态 Run 不会重建。活跃 running 租约只报告 `deferred`，过期后下一轮才重入队。成功入队或确认有效 Job 后才确认 pending Outbox。
 
 Redis 数据丢失的标准动作：
 
@@ -224,7 +230,7 @@ Redis 数据丢失的标准动作：
 
 ### Outbox 延迟
 
-确认 Dispatcher ready、Redis 可达和 Queue prefix 一致。检查 Outbox claim 是否过期；普通故障恢复后 relay 会重试。持续不一致时运行 dry-run，对 `pendingOutbox` 候选执行受控 apply。只有有效或新建 Job 才允许确认 Outbox。
+先区分 Process 与 Webhook Outbox，并确认指标只统计 `availableAt` 已到期的消息。确认对应 Dispatcher/Worker ready、Redis 可达和 Queue prefix 一致。检查 Outbox claim 是否过期；普通故障恢复后 relay 会重试。Process Outbox 持续不一致时运行 dry-run，对 `pendingOutbox` 候选执行受控 apply。只有有效或新建 Job 才允许确认 Outbox。
 
 ### Webhook 失败或积压
 
@@ -232,7 +238,7 @@ Redis 数据丢失的标准动作：
 
 ### 存储增长或清理滞后
 
-检查 `asyncTablesBytes` 日增长、最近 cleanup 时间和 `lastDeferredRuns`。deferred 通常表示 pending Outbox 或仍在保留期内的 Delivery 引用，先修复投递链。不要手工删除关联行。`005_retention_cleanup` 已清空内容后不能安全回滚为旧的非空 schema；需要恢复内容时使用数据库备份。
+检查 `asyncTablesBytes` 日增长、最近 cleanup 时间、`lastDeferredRuns` 和 `retention_cleanup_sweep_failed` 日志告警。失败或超过两个清理周期没有完成记录时，先停止内容保留策略变更并检查数据库锁、连接与批次错误；deferred 通常表示 pending Outbox 或仍在保留期内的 Delivery 引用，先修复投递链。不要手工删除关联行。`005_retention_cleanup` 已清空内容后不能安全回滚为旧的非空 schema；需要恢复内容时使用数据库备份。
 
 ## 回滚边界
 

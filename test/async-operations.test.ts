@@ -47,6 +47,7 @@ describe("Async operations observability", () => {
       webhooks: {
         pending: 5,
         delivering: 1,
+        succeededRecent: 7,
         failedRecent: 1,
         exhaustedRecent: 2,
         failureRateRecent: 0.3,
@@ -79,7 +80,10 @@ describe("Async operations observability", () => {
         completed: 9,
         "waiting-children": 0,
       }),
-      getJobs: vi.fn().mockResolvedValue([{ timestamp: 1_000 }]),
+      getJobs: vi.fn().mockResolvedValue([
+        { timestamp: 6_000 },
+        { timestamp: 1_000 },
+      ]),
     };
 
     await expect(readBullMqQueueSnapshot(queue, 11_000)).resolves.toEqual({
@@ -108,7 +112,17 @@ describe("Async operations observability", () => {
           rows: [{ backlog: 9, stuck: 0, oldest_outbox_lag_ms: 10 }],
         })
         .mockResolvedValueOnce({
-          rows: [{ backlog: 1, stuck: 0, oldest_outbox_lag_ms: 10 }],
+          rows: [
+            {
+              backlog: 1,
+              stuck: 0,
+              oldest_outbox_lag_ms: 10,
+              recovery_completed_at: new Date("2026-08-09T10:04:00.000Z"),
+              recovery_failed_count: 0,
+              recovery_incomplete_count: 0,
+              recovery_finished: false,
+            },
+          ],
         })
         .mockResolvedValueOnce({
           rows: [
@@ -118,6 +132,8 @@ describe("Async operations observability", () => {
               oldest_outbox_lag_ms: 10,
               recovery_completed_at: new Date("2026-08-09T10:04:00.000Z"),
               recovery_failed_count: 0,
+              recovery_incomplete_count: 0,
+              recovery_finished: true,
             },
           ],
         }),

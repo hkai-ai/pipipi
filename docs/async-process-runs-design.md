@@ -1,12 +1,12 @@
 # 异步 Process Run 设计
 
-状态：设计已确认，尚未实现。
+状态：已实现；默认关闭，按发布与运维手册分阶段启用。
 
 本文面向维护异步执行、任务查询和 Webhook 的开发者。它定义当前 Interface、Module 边界和可靠性约束；完成的实施批次见 [`async-process-runs-development-plan.md`](async-process-runs-development-plan.md)，部署与故障处理见 [`async-process-runs-runbook.md`](async-process-runs-runbook.md)。精确行为仍以代码和测试为准。BullMQ、Redis 与 Webhook 的外部事实见 [`research/async-process-execution.md`](research/async-process-execution.md)。
 
 ## 结论
 
-异步能力应作为新的 **Async Process Runs Module** 加入，而不是把 BullMQ 直接暴露给产品调用方：
+异步能力作为独立的 **Async Process Runs Module** 存在，不把 BullMQ 直接暴露给产品调用方：
 
 - 外部服务通过 HTTP 提交和查询：`POST /process-runs` 返回 `202 Accepted`，`GET /process-runs/{runId}` 返回权威状态与结果。
 - PostgreSQL 保存可查询的 Process Run、幂等键、Attempt 和事件；它是产品状态的唯一事实来源。
@@ -17,18 +17,18 @@
 
 这套边界允许以后替换 Queue Adapter 或 Webhook Delivery Implementation，而不改变外部调用协议。
 
-## 当前起点
+## 实现基线
 
-仓库当前是同步、无状态的 Node.js 服务：
+仓库保留同步入口，并已经实现独立的异步交付链：
 
-| 当前事实 | 对异步能力的影响 |
+| 当前事实 | 设计约束 |
 | --- | --- |
-| `POST /execute` 等待 `ProcessExecutor.execute` 返回终态 | 长任务占用 HTTP 连接；不能在重启后继续查询 |
-| Process Runner 为每次调用生成 `runId` 并负责超时、取消和错误净化 | 异步 Worker 应复用这些治理规则，但必须使用提交时已持久化的 `runId` |
-| Process Registration 的 `start(input, context)` 同时验证输入并启动执行 | 接受与执行必须拆开，才能先验证、持久化，再由另一进程执行 |
-| Run Record 只记录终态，写入失败不影响执行 | 它适合观测，不适合充当异步 Process Run 的权威状态库 |
-| Application 只管理 HTTP server 生命周期 | Worker、Dispatcher 和 Webhook Delivery 需要独立的启动与优雅关闭入口 |
-| 仓库没有数据库、Redis 或 BullMQ 依赖 | 接入前需要迁移、连接管理、集成测试和部署资源 |
+| `POST /execute` 仍等待 `ProcessExecutor.execute` 返回终态 | 同步契约保持兼容，不借用异步状态机 |
+| `POST /process-runs` 在 PostgreSQL durable acceptance 后返回 `202` | 接受路径不等待 Redis，查询始终读取 PostgreSQL |
+| Process Registration 提供 `accept` 与 `run` 两个原子动作 | 输入只在接受时解释一次；Worker 执行准确版本的 accepted input |
+| Run Record 仍是 best-effort 终态观测 | 它不替代异步 Process Run 的权威状态库 |
+| API、Dispatcher、Process Worker、Webhook Worker 与 Retention Cleaner 独立启动和关闭 | 每个角色可以单独扩容、停机和验证 readiness |
+| PostgreSQL migration、Redis 与 BullMQ Adapter 已接入 | 真实依赖行为由 PostgreSQL 和 BullMQ 集成测试覆盖，发布仍默认关闭 |
 
 `ProcessRunRecords` 不应直接改成权威存储。它的 best-effort invariant 与异步执行要求冲突：异步提交只有在 durable transaction 成功后才能返回 `202`，终态写入失败也不能被静默忽略。
 
@@ -233,20 +233,20 @@ flowchart LR
 
 `Async Process Runs` 是 HTTP Adapter 与持久化、队列之间的主 Seam。`Process Work Queue` 只在内部存在，并提供 BullMQ 生产 Adapter 与确定性内存测试 Adapter。任何 BullMQ 类型、Job 状态或 Redis key 都不得越过该 Seam。
 
-### Process Registration 的必要重构
+### Process Registration 的执行 Seam
 
-当前 `start(input, context)` 会同步解析输入并立即启动 Definition。异步提交需要先接受输入，跨进程保存，再执行，因此计划把 Registration 加深为两个原子动作：
+Process Registration 已加深为两个原子动作，使同步与异步入口复用同一业务定义：
 
 1. **accept**：解析一次外部输入，返回与准确 Process 版本绑定、可持久化的 accepted input；拒绝时不执行 Definition。
 2. **run**：只执行由同一 Registration 产生的 accepted input，验证输出并返回 completion。
 
 同步 `POST /execute` 在同一个调用中连续执行 accept 和 run；异步入口在两步之间持久化 accepted input。accepted input 必须是受大小限制的 JSON-safe snapshot，不能包含 closure、凭证或运行时对象。Worker 不应重新解释调用方的原始输入，也不能在不同版本之间回退。
 
-这项重构必须先通过现有同步 Interface 测试，证明输入 transform 仍只发生一次、Process Definition 不会在拒绝后启动，且错误映射不变。
+同步 Interface 与 Registration 测试证明输入 transform 只发生一次、Process Definition 不会在拒绝后启动，且错误映射保持不变。
 
 ## 持久化模型
 
-PostgreSQL 至少需要以下逻辑表；字段名和迁移工具在实现阶段确定：
+当前 PostgreSQL migration 提供以下逻辑表：
 
 | 数据 | 必须保存的事实 | 关键约束 |
 | --- | --- | --- |
@@ -290,7 +290,7 @@ BullMQ 适合当前 Node.js 技术栈中的 Worker 调度、并发、延迟重�
 - 已有 PostgreSQL 终态的重复 Job 直接确认，不再次执行。BullMQ 的 completed/failed Job 只保留短期诊断窗口，长期历史留在 PostgreSQL。
 - Queue Recovery 的 `stale` 和 `all` 模式使用同一修复路径。`all` 用于 Redis 数据丢失后扫描所有非终态 Run；活跃 running lease 只报告并延期，queued 与过期 running 使用稳定 `runId` 检查/补投。只有 Queue Job 已存在或成功加入后才确认 pending Process Outbox。
 - dry-run 不修改 Queue 或 Outbox，但和实际修复一样写 owner-independent operator 审计与逐项分类。每个实际批次返回 missing/existing/terminal、active lease、enqueue、duplicate、Outbox ack 和 failure 指标；terminal Process Run 永不进入重建候选。
-- 当前 BullMQ 不需要已弃用的 `QueueScheduler`。实现时固定准确版本，并按 API、Worker 与 QueueEvents 的角色分别配置 Redis 重连策略。
+- 当前 BullMQ 版本固定在 `package-lock.json`，不使用已弃用的 `QueueScheduler`；API、Worker 与 QueueEvents 角色分别配置 Redis 重连策略。
 
 如果部署环境不能可靠运维 Redis，应保留 `Process Work Queue` Interface，重新评估数据库型 Queue Adapter；外部 API 和 Process Run Store 不需要改变。
 

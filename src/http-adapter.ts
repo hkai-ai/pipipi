@@ -13,7 +13,6 @@ import type {
   ProcessExecutor,
   ProcessRunResult,
 } from "./process-runtime.js";
-import { ProcessRunBacklogLimitError } from "./process-run-store.js";
 
 export const defaultHttpMaxRequestBodyBytes = 262_144;
 export const defaultMaxConcurrentExecutions = 4;
@@ -348,15 +347,18 @@ async function submitProcessRun(
       callerId: caller.callerId,
       idempotencyKey: idempotencyKeyHeader,
     });
-  } catch (error) {
-    if (error instanceof ProcessRunBacklogLimitError) {
-      writeBacklogLimit(response, error, context.logging);
-      return;
-    }
+  } catch {
     writeAsyncUnavailable(response, asyncOptions);
     return;
   }
   if (!submission.accepted) {
+    if (
+      submission.error.code === "CALLER_BACKLOG_LIMIT_REACHED" ||
+      submission.error.code === "ASYNC_SERVICE_CAPACITY_REACHED"
+    ) {
+      writeBacklogLimit(response, submission.error, context.logging);
+      return;
+    }
     const status = {
       INVALID_INPUT: 400,
       PROCESS_NOT_FOUND: 404,
@@ -438,16 +440,25 @@ async function findProcessRun(
 
 function writeBacklogLimit(
   response: ServerResponse,
-  error: ProcessRunBacklogLimitError,
+  error: Extract<
+    Extract<ProcessRunSubmission, { accepted: false }>["error"],
+    {
+      code:
+        | "CALLER_BACKLOG_LIMIT_REACHED"
+        | "ASYNC_SERVICE_CAPACITY_REACHED";
+    }
+  >,
   logging: RequestLoggingContext,
 ): void {
-  const httpStatus = error.scope === "caller" ? 429 : 503;
+  const scope =
+    error.code === "CALLER_BACKLOG_LIMIT_REACHED" ? "caller" : "global";
+  const httpStatus = scope === "caller" ? 429 : 503;
   response.setHeader("retry-after", String(error.retryAfterSeconds));
   response.setHeader("cache-control", "no-store");
   emitLog(logging.logSink, {
     event: "process_run_admission_rejected",
     timestamp: logging.clock.timestamp(),
-    scope: error.scope,
+    scope,
     httpStatus,
     retryAfterSeconds: error.retryAfterSeconds,
     durationMs: elapsedMilliseconds(logging.clock, logging.startedAt),
@@ -455,12 +466,8 @@ function writeBacklogLimit(
   writeFailureJson(
     response,
     httpStatus,
-    error.scope === "caller"
-      ? "CALLER_BACKLOG_LIMIT_REACHED"
-      : "ASYNC_SERVICE_CAPACITY_REACHED",
-    error.scope === "caller"
-      ? "Caller Process Run backlog limit reached"
-      : "Async Process Run capacity is temporarily unavailable",
+    error.code,
+    error.message,
   );
 }
 

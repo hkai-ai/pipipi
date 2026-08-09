@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import {
   emitAsyncOperationalLog,
+  tryOperationalTimestamp,
   type AsyncOperationalLogSink,
 } from "./async-operational-logging.js";
 import type {
@@ -213,12 +214,8 @@ function logProcessWork(
   outcome: "processed" | "ignored" | "retry_scheduled" | "worker_error",
   attemptNumber?: number,
 ): void {
-  let timestamp: string;
-  try {
-    timestamp = clock();
-  } catch {
-    return;
-  }
+  const timestamp = tryOperationalTimestamp(clock);
+  if (!timestamp) return;
   emitAsyncOperationalLog(sink, {
     event: "process_run_work_finished",
     timestamp,
