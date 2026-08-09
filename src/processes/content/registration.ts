@@ -3,6 +3,7 @@ import {
     defineProcessRegistration,
     type ExpectedProcessFailure,
     failProcess,
+    type ProcessExecutionContext,
     type ProcessRegistration,
     type ProcessRetryPolicy,
 } from "../runtime/index.js";
@@ -66,41 +67,104 @@ export function createContentRegistration(
         execute: async (input, context) => {
             const preparedContent = input.content.replace(/\s+/g, " ");
             if (mode === "direct") {
-                try {
-                    return await capability.process(
-                        { content: preparedContent },
-                        {
-                            signal: context.signal,
-                            idempotencyKey: context.runId,
-                        },
-                    );
-                } catch (error) {
-                    if (error instanceof ContentProcessingUnavailable) {
-                        return dependencyFailure();
-                    }
-                    throw error;
-                }
+                return executeDirect(preparedContent, context, capability);
             }
 
             if (!agent) throw new Error("Agent Runtime is unavailable");
-            try {
-                const rawOutput = await agent.optimize({
-                    content: preparedContent,
-                    signal: context.signal,
-                    idempotencyKey: context.runId,
-                    capability,
-                });
-                const output = contentProcessOutputSchema.safeParse(rawOutput);
-                if (!output.success) return agentFailure();
-                return output.data;
-            } catch (error) {
-                if (error instanceof ContentProcessingUnavailable) {
-                    return dependencyFailure();
-                }
-                return agentFailure();
-            }
+            return executeWithAgent(
+                preparedContent,
+                context,
+                capability,
+                agent,
+            );
         },
     });
+}
+
+async function executeDirect(
+    content: string,
+    context: ProcessExecutionContext,
+    capability: ContentProcessingCapability,
+): Promise<{ content: string } | ExpectedProcessFailure> {
+    try {
+        return await capability.process(
+            { content },
+            { signal: context.signal, idempotencyKey: context.runId },
+        );
+    } catch (error) {
+        if (error instanceof ContentProcessingUnavailable) {
+            return dependencyFailure();
+        }
+        throw error;
+    }
+}
+
+async function executeWithAgent(
+    content: string,
+    context: ProcessExecutionContext,
+    capability: ContentProcessingCapability,
+    agent: ContentAgent,
+): Promise<{ content: string } | ExpectedProcessFailure> {
+    const observed: {
+        calls: number;
+        result?: { content: string };
+        dependencyUnavailable: boolean;
+    } = { calls: 0, dependencyUnavailable: false };
+    const permittedCapability: ContentProcessingCapability = {
+        process: async (input, options) => {
+            observed.calls += 1;
+            if (observed.calls !== 1) {
+                throw new Error(
+                    "The Agent must call the Business Capability exactly once",
+                );
+            }
+            try {
+                const result = await capability.process(input, {
+                    signal: AbortSignal.any([context.signal, options.signal]),
+                    idempotencyKey: context.runId,
+                });
+                observed.result = result;
+                return result;
+            } catch (error) {
+                if (error instanceof ContentProcessingUnavailable) {
+                    observed.dependencyUnavailable = true;
+                }
+                throw error;
+            }
+        },
+    };
+
+    try {
+        const rawOutput = await agent.optimize({
+            content,
+            signal: context.signal,
+            idempotencyKey: context.runId,
+            capability: permittedCapability,
+        });
+        if (observed.dependencyUnavailable) return dependencyFailure();
+        if (observed.calls !== 1 || !observed.result) return agentFailure();
+
+        const output = contentProcessOutputSchema.safeParse(rawOutput);
+        const toolResult = contentProcessOutputSchema.safeParse(
+            observed.result,
+        );
+        if (
+            !output.success ||
+            !toolResult.success ||
+            output.data.content !== toolResult.data.content
+        ) {
+            return agentFailure();
+        }
+        return toolResult.data;
+    } catch (error) {
+        if (
+            error instanceof ContentProcessingUnavailable ||
+            observed.dependencyUnavailable
+        ) {
+            return dependencyFailure();
+        }
+        return agentFailure();
+    }
 }
 
 function agentFailure(): ExpectedProcessFailure {

@@ -1,8 +1,18 @@
+import { createHash } from "node:crypto";
+import { readdirSync, readFileSync } from "node:fs";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { createSkillSet } from "../src/processes/content/skills.js";
+import { createSkillSet } from "../src/processes/agent/skills.js";
+import {
+    contentToolName,
+    createContentSkillRefs,
+} from "../src/processes/content/skills.js";
+import {
+    createPosterSkillRefs,
+    posterSkillName,
+} from "../src/processes/poster/skills.js";
 
 const temporaryRoots: string[] = [];
 
@@ -95,23 +105,103 @@ describe("Runtime Skill set", () => {
     });
 
     it("loads the two Skills bound to content-processing/v1", () => {
-        const loaded = createSkillSet(
-            [
-                {
-                    name: "content-optimization",
-                    path: ".pi/skills/content-optimization",
-                },
-                {
-                    name: "content-integrity",
-                    path: ".pi/skills/content-integrity",
-                },
-            ],
-            process.cwd(),
-        ).load();
+        const refs = createContentSkillRefs();
+        const loaded = createSkillSet(refs, process.cwd()).load();
 
         expect(loaded.names).toEqual([
             "content-optimization",
             "content-integrity",
+        ]);
+        expect(loaded.instructions).toContain(contentToolName);
+        expect(loaded.instructions).toContain(
+            "Preserve names, numbers, dates, links, claims, and the author's intent.",
+        );
+
+        const dockerfile = readFileSync("Dockerfile", "utf8");
+        const dockerignore = readFileSync(".dockerignore", "utf8");
+        for (const ref of refs) {
+            expect(dockerfile).toContain(
+                `COPY --chown=node:node ${ref.path} ./${ref.path}`,
+            );
+            expect(dockerignore).toContain(`!${ref.path}/**`);
+        }
+    });
+
+    it("only lets production configuration replace the optimization path", () => {
+        expect(
+            createContentSkillRefs({
+                optimizationPath: "/reviewed/content-optimization",
+            }),
+        ).toEqual([
+            {
+                name: "content-optimization",
+                path: "/reviewed/content-optimization",
+            },
+            {
+                name: "content-integrity",
+                path: ".pi/skills/content-integrity",
+            },
+        ]);
+    });
+
+    it("loads the reviewed prompt-only Skill for minimal-zine-poster/v1", () => {
+        const refs = createPosterSkillRefs();
+        const loaded = createSkillSet(refs, process.cwd()).load();
+
+        expect(loaded.names).toEqual([posterSkillName]);
+        expect(loaded.instructions).toContain(
+            "This Runtime Skill performs prompt compilation only.",
+        );
+        expect(loaded.instructions).toContain(
+            "Do not generate an image, invoke a Tool, read files, access the network",
+        );
+        expect(loaded.instructions).toContain(
+            "exactly four compact paragraphs",
+        );
+
+        const ref = refs[0];
+        expect(ref).toBeDefined();
+        if (!ref) throw new Error("Poster Skill ref is unavailable");
+        expect(readdirSync(ref.path).sort()).toEqual([
+            "LICENSE",
+            "SKILL.md",
+            "SOURCE.md",
+        ]);
+        expect(readFileSync("Dockerfile", "utf8")).toContain(
+            `COPY --chown=node:node ${ref.path} ./${ref.path}`,
+        );
+        expect(readFileSync(".dockerignore", "utf8")).toContain(
+            `!${ref.path}/**`,
+        );
+    });
+
+    it("records the immutable upstream poster Skill hash", () => {
+        const upstream = readFileSync(
+            ".agents/skills/gc-minimal-zine-poster-v0-1/SKILL.md",
+        );
+        const digest = createHash("sha256").update(upstream).digest("hex");
+        const lock = JSON.parse(readFileSync("skills-lock.json", "utf8")) as {
+            skills: Record<string, { computedHash?: string }>;
+        };
+        const provenance = readFileSync(
+            ".pi/skills/minimal-zine-poster-prompt/SOURCE.md",
+            "utf8",
+        );
+
+        expect(lock.skills["gc-minimal-zine-poster-v0-1"]?.computedHash).toBe(
+            digest,
+        );
+        expect(provenance).toContain(digest);
+    });
+
+    it("only lets production configuration replace the poster Skill path", () => {
+        expect(
+            createPosterSkillRefs({ path: "/reviewed/poster-prompt" }),
+        ).toEqual([
+            {
+                name: posterSkillName,
+                path: "/reviewed/poster-prompt",
+            },
         ]);
     });
 });

@@ -4,6 +4,9 @@ import {
     type ContentProcessConfig,
     createContentRegistration,
 } from "./content/registration.js";
+import type { PosterAgent } from "./poster/agent.js";
+import type { PosterRenderingCapability } from "./poster/capability.js";
+import { createPosterRegistration } from "./poster/registration.js";
 import {
     createProcessRegistry,
     createProcessRunner,
@@ -25,6 +28,10 @@ export type ProcessRuntimeOptions = {
         contentProcessing?: ContentProcessConfig;
         titledContentProcessing?: TitledContentConfig;
     };
+    poster?: {
+        agent: PosterAgent;
+        capability: PosterRenderingCapability;
+    };
 };
 
 export type ProcessRuntime = Readonly<{
@@ -42,7 +49,7 @@ export function createProcessRuntime(
     options: ProcessRuntimeOptions,
 ): ProcessRuntime {
     const config = options.processes?.contentProcessing;
-    const registry = createProcessRegistry([
+    const registrations = [
         createContentRegistration({
             capability: options.contentProcessing,
             agent: options.agent,
@@ -53,7 +60,11 @@ export function createProcessRuntime(
             capability: options.contentProcessing,
             ...options.processes?.titledContentProcessing,
         }),
-    ]);
+    ];
+    if (options.poster) {
+        registrations.push(createPosterRegistration(options.poster));
+    }
+    const registry = createProcessRegistry(registrations);
 
     return Object.freeze({
         registry,

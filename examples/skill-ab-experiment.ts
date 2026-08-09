@@ -9,12 +9,10 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { createProcessingApplication } from "../src/api/application.js";
+import { parseOpenAIApiMode } from "../src/processes/agent/pi.js";
 import { createProcessExecutor } from "../src/processes/catalog.js";
-import {
-    PiContentAgent,
-    parseOpenAIApiMode,
-} from "../src/processes/content/agent.js";
 import { HttpContentProcessingCapability } from "../src/processes/content/http.js";
+import { PiContentAgent } from "../src/processes/content/pi.js";
 
 const sourceContent =
     process.env.SKILL_AB_CONTENT ??

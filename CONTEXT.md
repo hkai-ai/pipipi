@@ -30,24 +30,25 @@ Business Processing Service 让产品调用方通过一个稳定的 HTTP Interfa
 
 ## 当前能力
 
-生产 catalog 当前注册两个精确版本：
+生产 catalog 当前注册三个精确版本：
 
 | Business Process | 输入 | 输出 | 实现选择 |
 | --- | --- | --- | --- |
 | `content-processing/v1` | `{ content: string }` | `{ content: string }` | 服务端可选择 Direct 或绑定多个 Runtime Skill 的 Agent 路径 |
 | `titled-content-processing/v1` | `{ title: string, body: string }` | `{ title: string, content: string }` | 复用 Content Processing Capability |
+| `minimal-zine-poster/v1` | `{ brief: string, text?: string }` | `{ prompt, recipe, interpretation, image }` | 无 Tool Agent 编译固定 Runtime Skill；Poster Rendering Capability 生成并持久化图片 |
 
 默认 HTTP 入口公开 `GET /healthz`、`GET /readyz` 和 `POST /execute`。每次执行生成独立 `runId`。显式启用并完整配置 Async Process Runs 后，API 还提供 `POST /process-runs` 和 `GET /process-runs/{runId}`；该功能默认关闭，只有按异步 Runbook 通过容量、恢复、安全、观测和 staged rollout 门禁后才能向外部调用方开放。默认同步生产构造不持久化 Run Record；结构化完成日志只保留运行元数据，不保存 Prompt、Tool 过程、模型消息或隐藏推理。
 
 仓库已实现 Async Process Runs Module。它以 `submit/find` 固定公共状态、owner 隔离和 caller-scoped idempotency；PostgreSQL Adapter 以事务持久化 Run、初始 Event 和 Outbox。Outbox Dispatcher 通过统一的 BullMQ `process-runs` Queue 只发布 `{ schemaVersion, runId }`，Worker 再从 PostgreSQL 读取准确 Registration 与 accepted input。Store 以 claim token 隔离 Attempt；过期租约可被接管，Reconciler 会重投长期 queued 或过期 running Run，停机超时则释放当前 claim。Registration 默认单次执行，也可声明有界错误分类与指数退避；Business Capability 获得稳定 `runId` 幂等键。API、Dispatcher 和 Worker 已有独立 Construction Root、入口、配置与健康检查；真实 PostgreSQL/Redis 集成测试覆盖成功、业务失败、受控重试、Redis 断线、重复 Job、租约接管、有期限停机和 caller 隔离。
 
-图片生成、海报 Skill、对象存储和 Skill A/B 对比目前属于开发实验与集成验证，不属于 `/execute` 的生产 catalog。
+`minimal-zine-poster/v1` 已进入 `/execute` catalog。它返回图片 HTTP(S) URL、媒体类型、尺寸和可选过期时间，不把大体积图片字节写入 Process output。调用方不能选择 Skill、模型、图片供应商或存储。OpenAI Images 与阿里云 OSS 只用于显式真实集成和海报业务验收；Skill A/B 仍是独立实验。
 
 ## 运行与信任模型
 
 当前默认发布形状是无状态、受控、同步的 Node.js HTTP 服务。实例之间不共享 Agent 会话；每个 Agent 请求创建独立的内存会话。异步入口以 PostgreSQL 共享 Process Run，并要求可信网关删除客户端伪造的身份头、注入稳定 caller subject 和网关共享凭证。部署平台负责 TLS、私有入口、调用方认证、实例上限和 Secret 注入。
 
-Agent 只获得 Process Registration 明确绑定的 Runtime Skill 集合与窄 Tool。生产内容处理 Agent 同时加载 `content-optimization` 和 `content-integrity`，只能调用 `process_business_content`，不能使用 Shell、文件读写、代码编辑或任意远程工具。Skill 集合随应用发布；调用方不能选择、增加或排序 Skill。
+Agent 只获得 Process Registration 明确绑定的 Runtime Skill 集合与窄 Tool。生产内容处理 Agent 同时加载 `content-optimization` 和 `content-integrity`，只能调用 `process_business_content`。海报 Agent 只加载 `minimal-zine-poster-prompt`，没有 Tool；它只返回待校验的 Prompt 计划。海报 Registration 校验四段 Prompt、六轴 recipe 和可选原文，再自行调用一次 Poster Rendering Capability。两类 Agent 都不能使用 Shell、文件读写、代码编辑或任意远程工具。Skill 集合随应用发布；调用方不能选择、增加或排序 Skill。
 
 ## 当前不做
 
@@ -57,9 +58,10 @@ Agent 只获得 Process Registration 明确绑定的 Runtime Skill 集合与窄 
 - 通用工作流编排、已开放的生产 Queue、跨请求 Agent 记忆或调用方控制的重试；
 - 应用内用户系统、RBAC、多租户、CORS 或公网匿名调用；
 - 同步 Run Record 的生产查询、聊天历史、跨 caller 管理搜索或通用幂等；
-- 允许 Agent 使用 Coding Tools 的通用 Skill 执行环境。
+- 允许 Agent 使用 Coding Tools 的通用 Skill 执行环境；
+- 海报参考图片输入、生成后视觉检查、跨 Run 变化记忆或自动重绘。
 
-未来若流程产生发布、扣费、发送等副作用，必须先明确幂等、审计和补偿策略。
+`minimal-zine-poster/v1` 会产生模型费用和图片持久化副作用。Registration 默认不重试，并把稳定 `runId` 作为下游幂等键；部署方仍须限制调用权限、并发、超时和费用。新增发布、扣费、发送等副作用前，必须先明确幂等、审计和补偿策略。
 
 异步 Process Run 的持久化提交、owner 查询、HTTP Interface、Outbox 调度、BullMQ Worker、受控 Process 重试和故障恢复已完成。终态事务会为已注册 Endpoint 创建精简 Webhook Delivery；独立 Webhook Worker 使用 Standard Webhooks HMAC 签名，并以 PostgreSQL 管理有界重试、逐次 Attempt 审计、稳定 event ID 和受控人工重放。Endpoint Secret 使用 AES-256-GCM 信封加密；注册和每次投递都重新解析目标、拒绝非公网地址并把连接固定到已检查的 IP，且不跟随重定向。独立 Retention Cleaner 已按 accepted input、公开结果、Run metadata 和 Delivery Attempt 历史的期限分批清理；结果到期不改变终态，metadata 到期删除前还会保护未完成或仍在保留期内的 Delivery 引用。Process Recovery 以 PostgreSQL Run/Outbox 为事实来源，检查 BullMQ 中稳定 `runId` Job 是否仍存在，分批恢复 queued 和租约过期 running Run；全量模式会明确报告仍有活跃租约的 Run，但在租约到期前不抢占。PostgreSQL acceptance 事务还执行 caller/global backlog admission，运维快照和结构化日志覆盖 Run、Outbox、Queue、Worker、Webhook、清理、恢复与存储，API 的 canary/production readiness 固定发布门槛。功能仍默认关闭；启用必须遵循 [`docs/async-process-runs-runbook.md`](docs/async-process-runs-runbook.md)。该设计保留现有 Business Process 模型：外部调用方仍只选择准确 Process 和版本；Queue Job、Endpoint、重试与 Worker 配置由服务端拥有。
 

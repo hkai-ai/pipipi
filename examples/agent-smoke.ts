@@ -1,12 +1,11 @@
 import { createProcessingApplication } from "../src/api/application.js";
+import { parseOpenAIApiMode } from "../src/processes/agent/pi.js";
 import { createProcessExecutor } from "../src/processes/catalog.js";
-import {
-    PiContentAgent,
-    parseOpenAIApiMode,
-} from "../src/processes/content/agent.js";
 import type { ContentProcessingCapability } from "../src/processes/content/capability.js";
 import { parseBusinessApiBaseUrl } from "../src/processes/content/config.js";
 import { HttpContentProcessingCapability } from "../src/processes/content/http.js";
+import { PiContentAgent } from "../src/processes/content/pi.js";
+import { createContentSkillRefs } from "../src/processes/content/skills.js";
 
 const businessApiBaseUrl = parseBusinessApiBaseUrl(
     process.env.BUSINESS_API_BASE_URL,
@@ -14,29 +13,21 @@ const businessApiBaseUrl = parseBusinessApiBaseUrl(
 const remoteContentProcessing = new HttpContentProcessingCapability({
     baseUrl: businessApiBaseUrl,
 });
-const capabilityCalls: string[] = [];
+const capabilityCalls: Array<{ input: string; result: string }> = [];
 const trackedContentProcessing: ContentProcessingCapability = {
     process: async (input, options) => {
-        capabilityCalls.push(input.content);
-        return remoteContentProcessing.process(input, options);
+        const result = await remoteContentProcessing.process(input, options);
+        capabilityCalls.push({ input: input.content, result: result.content });
+        return result;
     },
 };
 
 const executor = createProcessExecutor({
     contentProcessing: trackedContentProcessing,
     agent: new PiContentAgent({
-        skills: [
-            {
-                name: "content-optimization",
-                path:
-                    process.env.PI_SKILL_DIRECTORY ??
-                    ".pi/skills/content-optimization",
-            },
-            {
-                name: "content-integrity",
-                path: ".pi/skills/content-integrity",
-            },
-        ],
+        skills: createContentSkillRefs({
+            optimizationPath: process.env.PI_SKILL_DIRECTORY,
+        }),
         provider: process.env.PI_PROVIDER,
         model: process.env.PI_MODEL,
         openAIBaseUrl: process.env.OPENAI_BASE_URL,
@@ -47,6 +38,10 @@ const executor = createProcessExecutor({
     processes: { contentProcessing: { mode: "agent" } },
 });
 const application = createProcessingApplication({ executor });
+const configuredContent = process.env.AGENT_SMOKE_CONTENT;
+const content =
+    configuredContent ??
+    "On 2026-08-09, Alice approved 3 items at https://example.com/release.";
 
 const { url } = await application.listen();
 try {
@@ -56,11 +51,7 @@ try {
         body: JSON.stringify({
             process: "content-processing",
             version: "v1",
-            input: {
-                content:
-                    process.env.AGENT_SMOKE_CONTENT ??
-                    "Make this controlled release message clear and concise",
-            },
+            input: { content },
         }),
     });
     const result: unknown = await response.json();
@@ -69,10 +60,30 @@ try {
             `Agent smoke execution failed with HTTP ${response.status} (${safeErrorCode(result)})`,
         );
     }
-    if (capabilityCalls.length === 0) {
+    if (capabilityCalls.length !== 1) {
         throw new Error(
-            "Agent smoke completed without calling the Business Capability",
+            "Agent smoke must call the Business Capability exactly once",
         );
+    }
+    if (result.output.content !== capabilityCalls[0].result) {
+        throw new Error("Agent smoke output did not come from the Tool result");
+    }
+    if (!configuredContent) {
+        const protectedLiterals = [
+            "2026-08-09",
+            "Alice",
+            "3",
+            "https://example.com/release",
+        ];
+        if (
+            protectedLiterals.some(
+                (literal) => !capabilityCalls[0].input.includes(literal),
+            )
+        ) {
+            throw new Error(
+                "Agent smoke Tool input did not preserve protected content",
+            );
+        }
     }
     console.log(
         JSON.stringify({

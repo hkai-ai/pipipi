@@ -54,6 +54,8 @@ Codex 先把需求归入一种变化：
 
 如果流程依赖外部 Skill 来源，先按 [`integrating-runtime-skills.md`](integrating-runtime-skills.md) 解析、审查并固定来源，再把一个或多个本地 Runtime Skill 作为完整集合绑定到该流程。Skill 地址不能成为产品输入。
 
+`minimal-zine-poster/v1` 是现有的两阶段示例。调用方只提交 `brief` 和可选 `text`。无 Tool Agent 先按固定 Runtime Skill 编译 Prompt；Registration 验证四段结构、六轴 recipe 和原文保留；Poster Rendering Capability 再生成并持久化图片。公开输出返回图片 URL 和元数据，不返回供应商、模型、Skill 路径、存储配置或原始图片字节。主流程见 [`src/processes/poster/registration.ts`](../src/processes/poster/registration.ts)。
+
 ### 实现和注册
 
 实施遵循 [`development.md` 的“新增 Business Process”步骤](development.md#新增-business-process)。当前稳定形状是：一个 Registration factory 聚合版本契约与获准依赖，`createProcessExecutor` 的显式 catalog 决定它是否进入生产。本文不重复代码步骤。
@@ -65,7 +67,7 @@ Codex 先把需求归入一种变化：
 - Registration 在启动时拒绝无效 identity、Schema 或重复版本；
 - 有效输入只解析一次，并得到符合输出 Schema 的结果；
 - 每个失败分支映射为约定的公开错误；
-- 只调用该流程获准的 Business Capability 或 Tool；
+- 只调用该流程获准的 Business Capability 或 Tool，并验证调用次数、稳定幂等键和最终结果来源；
 - 真实本地 `POST /execute` 保持精确版本和 HTTP 契约；
 - 默认测试不调用模型、真实远端或产生费用的服务。
 

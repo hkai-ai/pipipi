@@ -1,13 +1,16 @@
+import { parseOpenAIApiMode } from "../processes/agent/pi.js";
 import {
     createProcessRuntime,
     type ProcessRuntime,
 } from "../processes/catalog.js";
-import {
-    PiContentAgent,
-    parseOpenAIApiMode,
-} from "../processes/content/agent.js";
+import type { ContentAgent } from "../processes/content/agent.js";
 import { parseBusinessApiBaseUrl } from "../processes/content/config.js";
 import { HttpContentProcessingCapability } from "../processes/content/http.js";
+import { PiContentAgent } from "../processes/content/pi.js";
+import { createContentSkillRefs } from "../processes/content/skills.js";
+import { HttpPosterRenderingCapability } from "../processes/poster/http.js";
+import { PiPosterAgent } from "../processes/poster/pi.js";
+import { createPosterSkillRefs } from "../processes/poster/skills.js";
 import type { ProcessRetryPolicy } from "../processes/runtime/index.js";
 import type { StartupEnvironment } from "./config.js";
 
@@ -15,41 +18,52 @@ export function createProductionRuntime(
     environment: StartupEnvironment,
 ): ProcessRuntime {
     const mode = parseContentMode(environment.CONTENT_PROCESSING_MODE);
+    const baseUrl = parseBusinessApiBaseUrl(environment.BUSINESS_API_BASE_URL);
+    const openAIApiMode = parseOpenAIApiMode(environment.OPENAI_API_MODE);
     const capability = new HttpContentProcessingCapability({
-        baseUrl: parseBusinessApiBaseUrl(environment.BUSINESS_API_BASE_URL),
+        baseUrl,
         timeoutMs: parsePositiveInteger(
             environment.BUSINESS_API_TIMEOUT_MS,
             10_000,
             "BUSINESS_API_TIMEOUT_MS",
         ),
     });
-    const agent =
+    const agent: ContentAgent | undefined =
         mode === "agent"
             ? new PiContentAgent({
-                  skills: [
-                      {
-                          name: "content-optimization",
-                          path:
-                              environment.PI_SKILL_DIRECTORY ??
-                              ".pi/skills/content-optimization",
-                      },
-                      {
-                          name: "content-integrity",
-                          path: ".pi/skills/content-integrity",
-                      },
-                  ],
+                  skills: createContentSkillRefs({
+                      optimizationPath: environment.PI_SKILL_DIRECTORY,
+                  }),
                   provider: environment.PI_PROVIDER,
                   model: environment.PI_MODEL,
                   openAIBaseUrl: environment.OPENAI_BASE_URL,
-                  openAIApiMode: parseOpenAIApiMode(
-                      environment.OPENAI_API_MODE,
-                  ),
+                  openAIApiMode,
                   agentDir: environment.PI_AGENT_DIR,
               })
             : undefined;
     return createProcessRuntime({
         contentProcessing: capability,
         agent,
+        poster: {
+            agent: new PiPosterAgent({
+                skills: createPosterSkillRefs({
+                    path: environment.PI_POSTER_SKILL_DIRECTORY,
+                }),
+                provider: environment.PI_PROVIDER,
+                model: environment.PI_MODEL,
+                openAIBaseUrl: environment.OPENAI_BASE_URL,
+                openAIApiMode,
+                agentDir: environment.PI_AGENT_DIR,
+            }),
+            capability: new HttpPosterRenderingCapability({
+                baseUrl,
+                timeoutMs: parsePositiveInteger(
+                    environment.POSTER_API_TIMEOUT_MS,
+                    90_000,
+                    "POSTER_API_TIMEOUT_MS",
+                ),
+            }),
+        },
         processTimeoutMs: parsePositiveInteger(
             environment.PROCESS_TIMEOUT_MS,
             30_000,

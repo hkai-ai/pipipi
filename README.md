@@ -4,16 +4,50 @@
 
 ## 当前能力
 
-生产 catalog 包含两个 Business Process：
+生产 catalog 包含三个 Business Process：
 
 | Process | 输入 | 输出 |
 | --- | --- | --- |
 | `content-processing/v1` | `{ "content": string }` | `{ "content": string }` |
 | `titled-content-processing/v1` | `{ "title": string, "body": string }` | `{ "title": string, "content": string }` |
+| `minimal-zine-poster/v1` | `{ "brief": string, "text"?: string }` | `{ "prompt", "recipe", "interpretation", "image" }` |
 
-两个流程共享同一个 `POST /execute` Interface。每个明确版本由 Process Registration 绑定业务定义、Schema、依赖和策略，再进入不可变 Process Registry。Process Runner 统一处理 `runId`、精确版本查找、超时、取消、错误净化和可选 Run Record。
+三个流程共享同一个 `POST /execute` Interface。每个明确版本由 Process Registration 绑定业务定义、Schema、依赖和策略，再进入不可变 Process Registry。Process Runner 统一处理 `runId`、精确版本查找、超时、取消、错误净化和可选 Run Record。
 
-`content-processing/v1` 的 Agent 路径会同时加载服务端固定的 `content-optimization` 和 `content-integrity`。两项 Skill 作为一个经过评审的指令集执行，但仍只获得 `process_business_content` Tool；调用方不能提交或覆盖 Skill。
+`content-processing/v1` 的 Agent 路径会同时加载服务端固定的 `content-optimization` 和 `content-integrity`。两项 Skill 作为一个经过评审的指令集执行，但仍只获得 `process_business_content` Tool。Registration 只接受一次 Tool 调用，并要求 Agent 最终结果与 Tool 结果一致；调用方不能提交或覆盖 Skill。
+
+`minimal-zine-poster/v1` 固定加载 `minimal-zine-poster-prompt`。这个 Runtime Skill 只把 brief 编译成四段 Prompt 和六轴 recipe，不获得任何 Tool。Registration 校验 Prompt、recipe 和可选原文后，以 `runId` 为幂等键调用一次 Poster Rendering Capability。Capability 返回 HTTP(S) 图片 URL、类型和尺寸；原始图片字节不进入 `/execute` JSON。
+
+## 在代码中查看流程
+
+海报流程的主线集中在一个目录，不与文本流程混放：
+
+| 想看什么 | 文件 |
+| --- | --- |
+| 流程名称、输入输出、执行顺序和失败 | [`src/processes/poster/registration.ts`](src/processes/poster/registration.ts) |
+| Agent 可做什么 | [`src/processes/poster/agent.ts`](src/processes/poster/agent.ts) 与 [`src/processes/poster/pi.ts`](src/processes/poster/pi.ts) |
+| 图片 Capability 契约与 HTTP Adapter | [`src/processes/poster/capability.ts`](src/processes/poster/capability.ts) 与 [`src/processes/poster/http.ts`](src/processes/poster/http.ts) |
+| 绑定哪个 Runtime Skill | [`src/processes/poster/skills.ts`](src/processes/poster/skills.ts) |
+| Runtime Skill 的准确规则与来源 | [`.pi/skills/minimal-zine-poster-prompt/SKILL.md`](.pi/skills/minimal-zine-poster-prompt/SKILL.md) 与 [`.pi/skills/minimal-zine-poster-prompt/SOURCE.md`](.pi/skills/minimal-zine-poster-prompt/SOURCE.md) |
+| 哪些流程进入生产 catalog | [`src/processes/catalog.ts`](src/processes/catalog.ts) 与 [`src/app/business-processes.ts`](src/app/business-processes.ts) |
+| 真实业务验收 | [`examples/poster-business-acceptance.ts`](examples/poster-business-acceptance.ts) |
+
+实际顺序是：`brief → 无 Tool Agent 编译 → Registration 校验 → Poster Rendering Capability → 图片 URL`。
+
+产品请求只有业务字段：
+
+```json
+{
+  "process": "minimal-zine-poster",
+  "version": "v1",
+  "input": {
+    "brief": "为雨天旧书店做一张安静的海报",
+    "text": "PIPIPI ZINE"
+  }
+}
+```
+
+成功输出中的 `recipe` 固定包含 `layout`、`anchor`、`typography`、`accent`、`texture` 和 `mood`；`image` 包含 `url`、`contentType`、`width`、`height`，短期 URL 还包含 `expiresAt`。
 
 ## 快速开始
 
@@ -24,13 +58,15 @@ npm install
 cp .env.example .env
 ```
 
-`.env` 已被 Git 忽略。Direct 路径不需要模型凭证；只有 Agent 和真实模型实验需要 `OPENAI_API_KEY`。不要把真实凭证提交到仓库。
+`.env` 已被 Git 忽略。文本 Direct 路径不调用模型；执行海报业务验收、文本 Agent 路径或真实模型 smoke 时需要模型凭证。不要把真实凭证提交到仓库。
 
 在第一个终端启动演示 Business Capability：
 
 ```bash
 npm run dev:business-api
 ```
+
+这个演示服务只实现文本用的 `POST /process`。执行海报 Process 时，`BUSINESS_API_BASE_URL` 必须指向实现 `POST /posters` 的受控 Business API。`npm run accept:poster-business` 会临时启动真实图片 Capability 和生产 Composition，再从产品 `POST /execute` 完成一次业务验收；`smoke:poster-process` 与 `test:gpt-image-2` 保留为兼容别名。
 
 在第二个终端启动处理服务：
 
@@ -93,7 +129,7 @@ curl http://127.0.0.1:3000/healthz
 
 仓库内已有 Async Process Runs Module、事务化 PostgreSQL Store、Process/Webhook Outbox，以及相互隔离的 BullMQ Process Queue 和 Webhook Queue。`npm run start:api`、`npm run start:dispatcher`、`npm run start:worker`、`npm run start:webhook-worker` 和 `npm run start:retention-cleaner` 从同一构建产物启动独立角色。Process 默认只执行一次，只有服务端 Registration 明确声明安全错误、次数和退避时才会重试；Webhook 已支持精简终态事件、Standard Webhooks 签名、PostgreSQL 权威的有界重试、Attempt 审计、受控人工重放、加密 Secret 和防 SSRF 的固定目标连接。Retention Cleaner 按固定 cutoff 分批删除到期内容，批次审计和返回游标允许安全续跑。Redis Queue 丢失时，`npm run recover:queue` 默认先做 PostgreSQL 权威的 dry-run，再由运维人员显式 `--apply` 重建所有仍需执行的 Job；终态 Run 永不进入恢复候选。`npm run observe:async` 从 PostgreSQL 和两个 Queue 读取不含业务内容的运维快照，Dashboard/alert 字段固定在 `ops/async-observability.json`。
 
-图片生成、海报 Skill、对象存储和 Skill A/B 对比属于开发实验与集成验证，尚未进入 `/execute` 的生产 catalog。
+`minimal-zine-poster/v1` 已进入 production catalog，但生产 Adapter 只依赖受控 Business API 的 `POST /posters`，不把 OpenAI、OSS 或模型参数暴露给产品调用方。仓库中的 OpenAI Images、阿里云 OSS、业务验收和 Skill A/B 命令都必须显式运行，不进入默认测试。当前海报版本不接收参考图片，也不执行自动看图质检或重绘。
 
 ## 文档导航
 
@@ -109,6 +145,6 @@ curl http://127.0.0.1:3000/healthz
 | [`docs/async-process-runs-development-plan.md`](docs/async-process-runs-development-plan.md) | 开发者 | 异步能力的开发批次、测试门槛和发布顺序 |
 | [`docs/async-process-runs-runbook.md`](docs/async-process-runs-runbook.md) | 发布与运维人员 | 异步 migration、容量、观测、故障演练、灰度与回滚 |
 | [`docs/experiments.md`](docs/experiments.md) | 开发者 | Agent、Skill、图片与对象存储的真实集成验证 |
-| [`docs/mvp-release-runbook.md`](docs/mvp-release-runbook.md) | 发布与运维人员 | 受控文本 MVP 的部署门禁、验收和回滚 |
+| [`docs/mvp-release-runbook.md`](docs/mvp-release-runbook.md) | 发布与运维人员 | 受控 Business Process MVP 的部署门禁、验收和回滚 |
 
 先读 [`CONTEXT.md`](CONTEXT.md) 建立项目语境；准备改代码时再读 [`docs/development.md`](docs/development.md)。

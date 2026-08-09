@@ -343,14 +343,32 @@ describe("business process execution", () => {
 
     it("can enable Agent optimization without changing the product contract", async () => {
         const requests: string[] = [];
+        const capabilityInputs: string[] = [];
+        const contentProcessing: ContentProcessingCapability = {
+            process: async (input) => {
+                capabilityInputs.push(input.content);
+                return { content: `Agent-refined ${input.content}` };
+            },
+        };
         const agent: ContentAgent = {
             optimize: async (request) => {
                 requests.push(request.content);
-                return { content: "  Agent-refined campaign copy  " };
+                return request.capability.process(
+                    {
+                        content: request.content.replace(
+                            "launch offer",
+                            "campaign copy",
+                        ),
+                    },
+                    {
+                        signal: request.signal,
+                        idempotencyKey: request.idempotencyKey,
+                    },
+                );
             },
         };
         const processingService = await startProcessingService({
-            contentProcessing: unusedContentProcessing,
+            contentProcessing,
             agent,
             processes: { contentProcessing: { mode: "agent" } },
         });
@@ -370,13 +388,16 @@ describe("business process execution", () => {
             output: { content: "Agent-refined campaign copy" },
         });
         expect(requests).toEqual(["launch offer"]);
+        expect(capabilityInputs).toEqual(["campaign copy"]);
     });
 
     it("lets the Agent path call the existing business capability as its Tool", async () => {
         const capabilityInputs: string[] = [];
+        let downstreamIdempotencyKey: string | undefined;
         const contentProcessing: ContentProcessingCapability = {
-            process: async (input) => {
+            process: async (input, options) => {
                 capabilityInputs.push(input.content);
+                downstreamIdempotencyKey = options.idempotencyKey;
                 return { content: `Business result: ${input.content}` };
             },
         };
@@ -386,7 +407,7 @@ describe("business process execution", () => {
                     { content: `Optimize ${request.content}` },
                     {
                         signal: request.signal,
-                        idempotencyKey: request.idempotencyKey,
+                        idempotencyKey: "agent-selected-key",
                     },
                 ),
         };
@@ -403,10 +424,116 @@ describe("business process execution", () => {
         });
 
         expect(response.status).toBe(200);
-        expect((await response.json()).output).toEqual({
+        const body = await response.json();
+        expect(body.output).toEqual({
             content: "Business result: Optimize launch offer",
         });
         expect(capabilityInputs).toEqual(["Optimize launch offer"]);
+        expect(downstreamIdempotencyKey).toBe(body.runId);
+    });
+
+    it("rejects an Agent that omits the Business Capability Tool", async () => {
+        const agent: ContentAgent = {
+            optimize: async () => ({ content: "Unverified Agent output" }),
+        };
+        const processingService = await startProcessingService({
+            contentProcessing: unusedContentProcessing,
+            agent,
+            processes: { contentProcessing: { mode: "agent" } },
+        });
+
+        const response = await executeProcess(processingService.url, {
+            process: "content-processing",
+            version: "v1",
+            input: { content: "launch offer" },
+        });
+
+        expect(response.status).toBe(502);
+        expect((await response.json()).error).toEqual({
+            code: "AGENT_FAILURE",
+            message:
+                "The content optimization agent could not complete the request",
+        });
+    });
+
+    it("prevents a second Agent Tool call from reaching the dependency", async () => {
+        const capabilityInputs: string[] = [];
+        const contentProcessing: ContentProcessingCapability = {
+            process: async (input) => {
+                capabilityInputs.push(input.content);
+                return { content: `Business result: ${input.content}` };
+            },
+        };
+        const agent: ContentAgent = {
+            optimize: async (request) => {
+                const first = await request.capability.process(
+                    { content: request.content },
+                    {
+                        signal: request.signal,
+                        idempotencyKey: request.idempotencyKey,
+                    },
+                );
+                try {
+                    await request.capability.process(
+                        { content: "second attempt" },
+                        {
+                            signal: request.signal,
+                            idempotencyKey: request.idempotencyKey,
+                        },
+                    );
+                } catch {
+                    // A misbehaving Agent may swallow a Tool error.
+                }
+                return first;
+            },
+        };
+        const processingService = await startProcessingService({
+            contentProcessing,
+            agent,
+            processes: { contentProcessing: { mode: "agent" } },
+        });
+
+        const response = await executeProcess(processingService.url, {
+            process: "content-processing",
+            version: "v1",
+            input: { content: "launch offer" },
+        });
+
+        expect(response.status).toBe(502);
+        expect((await response.json()).error.code).toBe("AGENT_FAILURE");
+        expect(capabilityInputs).toEqual(["launch offer"]);
+    });
+
+    it("rejects Agent output that differs from the Tool result", async () => {
+        const contentProcessing: ContentProcessingCapability = {
+            process: async () => ({ content: "Approved Tool result" }),
+        };
+        const agent: ContentAgent = {
+            optimize: async (request) => {
+                await request.capability.process(
+                    { content: request.content },
+                    {
+                        signal: request.signal,
+                        idempotencyKey: request.idempotencyKey,
+                    },
+                );
+                return { content: "Different Agent result" };
+            },
+        };
+        const processingService = await startProcessingService({
+            contentProcessing,
+            agent,
+            processes: { contentProcessing: { mode: "agent" } },
+        });
+
+        const response = await executeProcess(processingService.url, {
+            process: "content-processing",
+            version: "v1",
+            input: { content: "launch offer" },
+        });
+
+        expect(response.status).toBe(502);
+        expect((await response.json()).error.code).toBe("AGENT_FAILURE");
     });
 
     it("preserves a Business Capability failure from the Agent Tool path", async () => {
@@ -448,11 +575,23 @@ describe("business process execution", () => {
     });
 
     it("maps invalid structured Agent output to a stable processing error", async () => {
+        const contentProcessing: ContentProcessingCapability = {
+            process: async () => ({ content: "Approved Tool result" }),
+        };
         const agent: ContentAgent = {
-            optimize: async () => ({ unexpected: "not business content" }),
+            optimize: async (request) => {
+                await request.capability.process(
+                    { content: request.content },
+                    {
+                        signal: request.signal,
+                        idempotencyKey: request.idempotencyKey,
+                    },
+                );
+                return { unexpected: "not business content" };
+            },
         };
         const processingService = await startProcessingService({
-            contentProcessing: unusedContentProcessing,
+            contentProcessing,
             agent,
             processes: { contentProcessing: { mode: "agent" } },
         });
@@ -550,7 +689,13 @@ describe("business process execution", () => {
         const agent: ContentAgent = {
             optimize: async (request) => {
                 agentInputs.push(request.content);
-                return { content: `Agent: ${request.content}` };
+                return request.capability.process(
+                    { content: `Agent: ${request.content}` },
+                    {
+                        signal: request.signal,
+                        idempotencyKey: request.idempotencyKey,
+                    },
+                );
             },
         };
         const contentProcessing: ContentProcessingCapability = {
@@ -580,14 +725,14 @@ describe("business process execution", () => {
         });
 
         expect((await firstResponse.json()).output).toEqual({
-            content: "Agent: first",
+            content: "Direct: Agent: first",
         });
         expect((await secondResponse.json()).output).toEqual({
             title: "Second",
             content: "Direct: Second: process",
         });
         expect(agentInputs).toEqual(["first"]);
-        expect(capabilityInputs).toEqual(["Second: process"]);
+        expect(capabilityInputs).toEqual(["Agent: first", "Second: process"]);
     });
 
     it("enforces the second process input schema independently", async () => {

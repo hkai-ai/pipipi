@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
     configureOpenAI,
     parseOpenAIApiMode,
-} from "../src/processes/content/agent.js";
+} from "../src/processes/agent/pi.js";
 
 describe("OpenAI-compatible provider configuration", () => {
     it("routes the selected model through Chat Completions with reasoning off", async () => {

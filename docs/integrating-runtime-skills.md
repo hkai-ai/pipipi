@@ -11,7 +11,7 @@
 | Development Skill | `.agents/skills/<name>/` | Codex | 规范开发、测试、发布或文档维护流程 |
 | Runtime Skill | `.pi/skills/<name>/` | 服务端受限 Agent | 完成某个 Business Process 内的模型任务 |
 
-两类 Skill 都可以采用包含 `SKILL.md` 和可选资源的目录结构，但权限和发布方式不同。Development Skill 可以指导 Codex 修改仓库；Runtime Skill 只能获得 Process Registration 明确授权的窄 Tool。把第三方目录复制到 `.pi/skills/` 不会自动让它适合生产。
+两类 Skill 都可以采用包含 `SKILL.md` 和可选资源的目录结构，但权限和发布方式不同。Development Skill 可以指导 Codex 修改仓库；Runtime Skill 只能获得 Process Registration 明确授权的 Tool，也可以完全没有 Tool。把第三方目录复制到 `.pi/skills/` 不会自动让它适合生产。
 
 ## 可以怎样提供来源
 
@@ -84,14 +84,14 @@ Runtime Skill 必须服务于一个明确的 Process Registration。集成步骤
 
 1. 把审查后的固定快照放入 `.pi/skills/<name>/`；
 2. 确认 Runtime 能加载 Skill 需要的全部资源；
-3. 为该任务建立或复用受限 Agent Runtime，只授予窄 Business Capability Tool；
-4. 在 Registration factory 中绑定一个经过整体评审的本地 Skill 集合、Agent、Schema 和稳定策略；
+3. 为该任务建立或复用受限 Agent Runtime；只授予必要的窄 Business Capability Tool，不需要 Tool 时保持空集合；
+4. 在流程 Module 中定义一个经过整体评审的本地 Skill/Tool 集合，并由 Registration factory 绑定 Agent、Schema、调用 invariant 和稳定策略；
 5. 把 Registration 显式加入 production catalog；
 6. 更新 Dockerfile 或其他发布清单，确保快照进入不可变制品；
 7. 用 mock Agent 做确定性契约测试，再按需运行单独的真实模型 smoke；
 8. 记录来源、不可变 ref、内容哈希、适配改动和回滚版本。
 
-当前 Pi Agent 路径接受非空 `SkillRef[]`。每项引用固定 Skill 名称和本地路径；名称必须唯一，并且必须精确解析一次。Runtime 按声明顺序读取所有 `SKILL.md`，把正文作为同一个经过评审的指令集交给 Agent，同时只暴露 Registration 已授权的 Tool。Runtime 不自动读取附加 reference、运行 Skill script 或连接 MCP。需要这些能力的 Skill 不能直接接入；应先设计窄 Runtime Interface、权限和测试，再扩展实现。当前限制和真实验证方法见 [`experiments.md`](experiments.md)。
+当前 Pi Agent 路径接受非空 `SkillRef[]`。具体 Process 的 `skills.ts` 固定 Skill 名称、顺序、默认本地路径和 Tool 名称；通用 [`src/processes/agent/skills.ts`](../src/processes/agent/skills.ts) 只负责精确加载。名称必须唯一，并且必须精确解析一次。Runtime 按声明顺序读取所有 `SKILL.md`，把正文作为一个经过评审的指令集交给 Agent，同时只暴露 Registration 已授权的 Tool。`content-processing/v1` 最多让一次 Tool 调用触达 Business Capability，并要求成功输出与 Tool 结果一致。`minimal-zine-poster/v1` 不给 Agent Tool；Registration 先验证 Agent 编译结果，再自行调用 Poster Rendering Capability。Runtime 不自动读取附加 reference、运行 Skill script 或连接 MCP。需要这些能力的 Skill 不能直接接入；应先设计窄 Runtime Interface、权限和测试，再扩展实现。当前限制和真实验证方法见 [`experiments.md`](experiments.md)。
 
 ## 线上边界
 
@@ -109,7 +109,9 @@ Runtime Skill 必须服务于一个明确的 Process Registration。集成步骤
 
 ## 当前能力与提案
 
-当前 `content-processing/v1` 绑定 `content-optimization` 和 `content-integrity`。`PI_SKILL_DIRECTORY` 只替换前者的本地路径；后者仍使用随应用发布的固定快照。Runtime 会拒绝空集合、重名绑定和无法精确解析的名称。项目仍没有 Git/URL 下载、来源 provenance、revision pin、digest lock 或通用 Runtime Skill catalog。
+当前 `content-processing/v1` 在 `src/processes/content/skills.ts` 绑定 `content-optimization` 和 `content-integrity`；`minimal-zine-poster/v1` 在 `src/processes/poster/skills.ts` 绑定 `minimal-zine-poster-prompt`。生产组装、确定性测试和真实业务验收共用这些事实来源。`PI_SKILL_DIRECTORY` 与 `PI_POSTER_SKILL_DIRECTORY` 各自只替换一个固定路径，不改变绑定名称或集合。Runtime 会拒绝空集合、重名绑定和无法精确解析的名称。
+
+海报 Runtime Skill 是上游 `gc-minimal-zine-poster-v0-1` 的受限适配。`.pi/skills/minimal-zine-poster-prompt/SOURCE.md` 记录上游仓库、原始 `SKILL.md` SHA-256、许可证、审查清单、适配差异和回滚方式；`skills-lock.json` 固定同一上游哈希。快照不包含仅供展示的 JPEG，也移除了内置图片生成权限。项目仍没有通用 Git/URL 下载器、自动 revision 解析或 Runtime Skill catalog；单项 provenance 记录不等于通用安装机制。
 
 若后续要把多个外部来源自动化为生产快照，新增开发期 `Skill Installer` 和只读 `Installed Skill Catalog`。前者把 path、Git 或 archive URL 解析为经过验证、带固定 revision 和 digest 的本地快照；后者让 Startup Construction 和 Process Registration 只绑定准确的 installed Skill。两者都不进入 `/execute` 请求路径。该设计目前是提案，不是已实现能力。
 

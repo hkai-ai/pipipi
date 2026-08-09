@@ -7,6 +7,7 @@ import {
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ProcessingApplication } from "../src/api/application.js";
 import { constructProcessingService } from "../src/app/api.js";
+import { createProductionRuntime } from "../src/app/business-processes.js";
 
 type RunningServer = {
     url: string;
@@ -26,6 +27,28 @@ afterEach(async () => {
 });
 
 describe("Startup Construction", () => {
+    it("registers minimal-zine-poster/v1 in the production catalog", () => {
+        const runtime = createProductionRuntime({
+            BUSINESS_API_BASE_URL: "https://business.example",
+        });
+
+        const registration = runtime.registry.find({
+            id: "minimal-zine-poster",
+            version: "v1",
+        });
+
+        expect(registration?.identity).toEqual({
+            id: "minimal-zine-poster",
+            version: "v1",
+        });
+        expect(
+            registration?.accept({
+                brief: "A quiet rainy bookstore",
+                text: "PIPIPI ZINE",
+            }),
+        ).toMatchObject({ accepted: true });
+    });
+
     it("constructs the default direct service from an explicit environment", async () => {
         const businessInputs: unknown[] = [];
         const businessApi = await startServer(async (request, response) => {
@@ -365,7 +388,7 @@ describe("Startup Construction", () => {
         },
     );
 
-    it("keeps Agent-mode health checks isolated from external dependencies", async () => {
+    it("keeps Agent-backed health checks isolated from external dependencies", async () => {
         const externalRequests: string[] = [];
         const externalSentinel = await startServer((request, response) => {
             externalRequests.push(request.url ?? "");
@@ -378,6 +401,7 @@ describe("Startup Construction", () => {
             PI_MODEL: "gpt-5.6-terra",
             PI_AGENT_DIR: "/must-not-be-read/pi-agent",
             PI_SKILL_DIRECTORY: "/must-not-be-read/content-optimization",
+            PI_POSTER_SKILL_DIRECTORY: "/must-not-be-read/poster-prompt",
             OPENAI_BASE_URL: `${externalSentinel.url}/v1`,
             OPENAI_API_MODE: "responses",
             OPENAI_API_KEY: "must-not-be-read",
@@ -405,7 +429,7 @@ describe("Startup Construction", () => {
         },
     );
 
-    it("rejects an unknown OpenAI API mode in Agent mode", () => {
+    it("rejects an unknown OpenAI API mode used by an Agent process", () => {
         expect(() =>
             constructProcessingService({
                 BUSINESS_API_BASE_URL: "https://business.example",
@@ -415,7 +439,7 @@ describe("Startup Construction", () => {
         ).toThrow("OPENAI_API_MODE must be responses or chat-completions");
     });
 
-    it("preserves compatible-gateway validation in Agent mode", () => {
+    it("preserves compatible-gateway validation for Agent processes", () => {
         expect(() =>
             constructProcessingService({
                 BUSINESS_API_BASE_URL: "https://business.example",
@@ -435,6 +459,7 @@ describe("Startup Construction", () => {
             PI_MODEL: "gpt-5.6-terra",
             PI_AGENT_DIR: "/tmp/pi-agent",
             PI_SKILL_DIRECTORY: "/tmp/content-optimization",
+            PI_POSTER_SKILL_DIRECTORY: "/tmp/poster-prompt",
             OPENAI_BASE_URL: "https://gateway.example/v1",
             OPENAI_API_MODE: "responses",
         });
@@ -442,7 +467,7 @@ describe("Startup Construction", () => {
         expect(constructed.port).toBe(3000);
     });
 
-    it("executes direct mode while invalid Agent configuration stays inert", async () => {
+    it("executes direct content without invoking the poster Agent", async () => {
         const businessInputs: unknown[] = [];
         const businessApi = await startServer(async (request, response) => {
             businessInputs.push(await readJson(request));
@@ -451,11 +476,13 @@ describe("Startup Construction", () => {
         const constructed = constructProcessingService({
             BUSINESS_API_BASE_URL: businessApi.url,
             CONTENT_PROCESSING_MODE: "direct",
-            PI_PROVIDER: "unpaired-provider",
+            PI_PROVIDER: "openai",
+            PI_MODEL: "gpt-5.6-terra",
             PI_AGENT_DIR: "/must-not-be-read/pi-agent",
             PI_SKILL_DIRECTORY: "/must-not-be-read/content-optimization",
+            PI_POSTER_SKILL_DIRECTORY: "/must-not-be-read/poster-prompt",
             OPENAI_BASE_URL: "https://gateway.example/v1",
-            OPENAI_API_MODE: "legacy-completions",
+            OPENAI_API_MODE: "responses",
         });
         runningApplications.push(constructed.application);
         const { url } = await constructed.application.listen();
@@ -591,6 +618,7 @@ describe("Startup Construction", () => {
 
     it.each([
         "BUSINESS_API_TIMEOUT_MS",
+        "POSTER_API_TIMEOUT_MS",
         "PROCESS_TIMEOUT_MS",
         "CONTENT_PROCESSING_RETRY_MAX_ATTEMPTS",
         "CONTENT_PROCESSING_RETRY_INITIAL_DELAY_MS",

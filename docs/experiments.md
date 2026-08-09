@@ -1,6 +1,6 @@
 # 实验与真实集成验证
 
-本文面向验证 Agent、Skill、图片生成、对象存储和已部署环境的开发者。这些命令位于生产 HTTP catalog 之外，可能访问外部系统、产生费用或写入远端存储；默认测试套件不运行它们。
+本文面向验证 Agent、Skill、图片生成、对象存储和已部署环境的开发者。这些命令是 production Process 的真实 smoke 或独立实验，可能访问外部系统、产生费用或写入远端存储；默认测试套件不运行它们。
 
 ## 安全约束
 
@@ -19,7 +19,7 @@
 | `npm run smoke:agent` | Pi Agent 确实调用唯一获准 Business Capability | 模型调用、业务请求 | 终端判据 |
 | `SKILL_AB_DRY_RUN=1 npm run test:skill-ab` | 三组实验结构和 Skill 装载预检 | 无模型调用 | 终端判据 |
 | `npm run test:skill-ab` | Direct、控制 Skill、候选 Skill 的行为差异 | 多次模型调用、业务请求 | `artifacts/skill-ab/latest.*` |
-| `npm run test:gpt-image-2` | Skill Prompt 编译与真实图片生成 | 模型和 Images 请求，可选 OSS PUT | `artifacts/gpt-image-2/latest.*` |
+| `npm run accept:poster-business`（兼容别名：`smoke:poster-process`、`test:gpt-image-2`） | 从产品 HTTP Interface 验收 `minimal-zine-poster/v1` | Agent、Images 请求，可选 OSS PUT | `artifacts/gpt-image-2/latest.*` |
 | `npm run smoke:oss` | 已有文件的上传、URL 生成和首字节读取 | OSS PUT 与 GET | `artifacts/object-storage/latest.json` |
 | `npm run smoke:staging` | 已部署环境的健康、成功与拒绝契约 | 受控环境请求 | 终端判据 |
 
@@ -31,7 +31,7 @@
 CONTENT_PROCESSING_MODE=agent npm run dev
 ```
 
-Agent 每次请求创建独立内存会话，并把 `.pi/skills/content-optimization/SKILL.md` 与 `.pi/skills/content-integrity/SKILL.md` 作为一个固定 Skill 集合加载。Agent 只允许调用 `process_business_content`。这个 Tool 包装现有 Content Processing Capability；Shell、文件读写和代码编辑不会暴露给 Agent。
+Agent 每次请求创建独立内存会话，并按流程 Module 的准确绑定加载 `.pi/skills/content-optimization/SKILL.md` 与 `.pi/skills/content-integrity/SKILL.md`。Agent 只允许调用 `process_business_content`。这个 Tool 包装现有 Content Processing Capability；Registration 最多让一次调用触达下游，并只接受与 Tool 结果一致的 Agent 输出。Shell、文件读写和代码编辑不会暴露给 Agent。
 
 默认从 `.env` 读取 Pi 模型与 OpenAI 兼容配置。`PI_PROVIDER` 和 `PI_MODEL` 必须同时设置。`OPENAI_API_MODE` 可以是 `chat-completions` 或 `responses`；兼容网关还可通过 `OPENAI_BASE_URL` 配置。
 
@@ -41,13 +41,13 @@ Agent 每次请求创建独立内存会话，并把 `.pi/skills/content-optimiza
 BUSINESS_API_BASE_URL=http://127.0.0.1:4000 npm run smoke:agent
 ```
 
-Smoke 会临时启动 Agent 模式服务，完成一次 `/execute` 请求，并确认 Agent 实际调用了 Business Capability。它不输出业务内容或 Tool 入参，但可能产生模型费用。
+Smoke 会临时启动 Agent 模式服务，完成一次 `/execute` 请求，并确认 Agent 恰好调用一次 Business Capability、最终输出来自 Tool 结果。未设置 `AGENT_SMOKE_CONTENT` 时，它还检查姓名、日期、数字和链接在 Tool 输入中保持不变。它不输出业务内容或 Tool 入参，但可能产生模型费用。
 
 ### 当前 Skill 执行范围
 
 生产 Agent 可以按服务端声明顺序加载多个单文件 Skill，要求名称唯一且每项精确解析一次。它适合规则、分类、抽取、改写、Prompt 编译和少量受控 Tool，但不会自动读取 Skill 的附加参考文件、运行 Skill 脚本、使用 MCP、保存持久记忆或看图后重试。
 
-海报实验只让 Agent 编译 Prompt；图片生成、视觉判据和对象存储由代码控制。要把完整视觉质量门加入生产流程，应另行增加窄图片生成 Capability、视觉检查、有限重试和持久化产物。不要为了运行复杂 Skill 直接开放 Coding Tools。
+海报流程只让 Agent 编译 Prompt；Registration 校验结果后调用窄 Poster Rendering Capability。生产 HTTP Adapter 要求该 Capability 返回已持久化图片的 URL。业务验收会临时启动受控 `POST /posters` Capability，由它调用 OpenAI Images 和可选 OSS。当前流程仍没有自动视觉检查、有限重绘或跨 Run 变化记忆；不要为了补齐这些能力直接开放 Coding Tools。
 
 ## Skill A/B 对比
 
@@ -88,32 +88,39 @@ npm run test:skill-ab
 
 Dry run 不覆盖最近一次真实报告。实验只在临时目录生成 Skill 适配文件，结束后删除；第三方 Skill 原文件保持不变。
 
-## GPT Image 2 与海报 Skill
+## 海报 Process 与 GPT Image 2
 
-图片实验按固定顺序执行：Pi Agent 读取 `gc-minimal-zine-poster-v0-1` Skill，把业务主题编译成四段图片 Prompt；代码随后调用 Images Interface；最后检查 raster bytes、尺寸和 Prompt 判据。启用对象存储后，同一命令还会通过 `ObjectStorageCapability` 上传图片。
+`minimal-zine-poster/v1` 的顺序由 [`src/processes/poster/registration.ts`](../src/processes/poster/registration.ts) 固定：Pi Agent 读取 `minimal-zine-poster-prompt`，返回四段 Prompt、六轴 recipe 和解释；Registration 完成结构与原文校验；Poster Rendering Capability 再生成并持久化图片。产品输入不包含 Skill、模型、Tool 或存储配置。
 
-运行真实测试：
+Runtime Skill 位于 `.pi/skills/minimal-zine-poster-prompt/`。它从上游 `gc-minimal-zine-poster-v0-1` 的固定哈希适配而来，只保留 Prompt 编译规则。`SOURCE.md` 记录来源、许可、审查清单、适配差异和回滚方式。Agent 没有 Tool；图片生成不属于 Skill 权限。
+
+业务验收启动生产 Composition，通过产品 `POST /execute` 提交请求。生产 catalog 解析 Process 后，Pi Agent 编译 Prompt，生产 HTTP Adapter 再调用临时启动的受控 `POST /posters` Business Capability。该 Capability 调用 GPT Image 并写入本地 raster；配置对象存储时上传并返回远端 URL，否则启动临时图片 endpoint。验收会下载 Process 返回的 URL，并逐字节比较下载结果与生成产物：
 
 ```bash
+npm run accept:poster-business
+# 兼容命令仍指向同一验收入口
+npm run smoke:poster-process
 npm run test:gpt-image-2
 ```
 
 默认配置来自 `.env.example`。图片生成可能运行数分钟并产生费用；可用本地 `.env` 覆盖主题、尺寸、质量、格式和超时。不要把 API Key 写入主题、Skill 或测试输入。
 
-实验检查：
+业务验收检查：
 
-- Skill 文件哈希和 Prompt 来源；
+- 产品请求从 `POST /execute` 进入并返回 HTTP 200；
+- production HTTP Adapter 恰好调用一次 `POST /posters`，并以 Process `runId` 作为幂等键；
+- Process identity、`runId`、成功状态和 Runtime Skill 哈希；
 - 四段 Prompt 结构、六轴 recipe 和 3:5 画幅；
 - 留白、纸张、印刷细节和颜色锚点；
-- 实际图片字节、格式和尺寸。
+- 实际图片字节、格式、尺寸，以及从 Process 图片 URL 下载后的字节一致性。
 
 结果写入：
 
-- `artifacts/gpt-image-2/latest.png`
+- `artifacts/gpt-image-2/latest.<format>`
 - `artifacts/gpt-image-2/latest.json`
 - `artifacts/gpt-image-2/latest.md`
 
-若 Agent 阶段失败，命令仍使用代码内的基准 Prompt 调用 Images Interface，以区分 Agent/Skill 故障与图片 Adapter 故障；这种降级只用于诊断，最终结果仍为 `FAIL`。
+若 Agent 编译失败或输出不符合 Registration，Process 返回 `AGENT_FAILURE`，不会调用 Images Interface。若图片生成或持久化失败，Process 返回 `DEPENDENCY_FAILURE`。报告保留净化后的 Process 错误和仅供本地诊断的图片错误链；验收不使用代码 Prompt 或直接 Executor 绕过失败阶段。
 
 ## 阿里云 OSS 上传
 
@@ -131,7 +138,7 @@ OSS_SIGNED_URL_TTL_SECONDS=3600
 
 优先使用 STS 临时凭证，并同时设置 `OSS_STS_TOKEN`。私有对象默认返回短期 GET 签名 URL；签名 URL 本身是 bearer credential，不要复制到 issue、聊天或公开报告。若 bucket 要求绑定的自定义域名，再设置 `OSS_ENDPOINT` 和 `OSS_CNAME=true`。公共或 CDN 分发使用 `OSS_URL_ACCESS=public` 与 `OSS_PUBLIC_BASE_URL`，代码不会修改 bucket ACL 或 CDN 权限。
 
-图片实验启用 OSS 后，终端和报告会记录 bucket、object key、URL 访问方式、过期时间、ETag 和 Request ID。对象键基于图片内容哈希；重复上传相同图片会使用同一地址。
+海报业务验收启用 OSS 后，终端和报告会记录 bucket、object key、URL 访问方式和过期时间。对象键包含 Process `runId`；同一 Process Run 重试会写同一地址。独立 OSS smoke 另行记录 ETag 和 Request ID。
 
 只验证 OSS、不重新调用模型时，先确认本地文件存在：
 
@@ -158,7 +165,7 @@ npm run smoke:staging
 
 ## 解释结果
 
-实验报告是一次运行的证据，不是生产能力声明。判断是否把实验能力加入 production catalog 前，还要明确：
+真实集成或业务验收报告只证明记录中的一次运行，不证明目标部署已正确配置。`minimal-zine-poster/v1` 已进入 production catalog；上线前仍要确认：
 
 - 产品需要的 Business Process 与稳定输入输出；
 - Agent 或外部 Adapter 的超时、取消、错误和费用上限；
@@ -166,4 +173,4 @@ npm run smoke:staging
 - 可通过窄 Interface 完成的确定性测试；
 - 部署平台的认证、容量、观测和回滚方式。
 
-满足这些条件后，新能力仍应通过 Process Registration 显式进入 catalog，不能由实验命令自动注册。
+新的实验能力仍须通过 Process Registration 显式进入 catalog；实验命令不能注册或改写生产流程。

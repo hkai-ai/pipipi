@@ -1,6 +1,6 @@
-# 受控文本 MVP 发布手册
+# 受控 Business Process MVP 发布手册
 
-本手册面向发布与运维人员，用于发布现有同步文本处理服务。它不发布图片、OSS、异步作业或公网匿名接口。项目范围以
+本手册面向发布与运维人员，用于发布现有同步 Business Process 服务，包括文本处理与 `minimal-zine-poster/v1`。生产服务通过受控 Poster Rendering Capability 获取图片 URL；供应商专用的 OpenAI Images 和 OSS Adapter 只用于显式真实集成与本地业务验收。本文不发布异步作业或公网匿名接口。项目范围以
 [`CONTEXT.md`](../CONTEXT.md) 为准；文档维护要求见 [`docs/README.md`](README.md)。
 
 ## 发布边界
@@ -17,6 +17,7 @@
 | 最大实例数 | 2–5 | 在平台设置硬上限，形成模型费用上限 |
 | 请求体 | 262144 字节 | 用 `HTTP_MAX_REQUEST_BODY_BYTES` 调整 |
 | Business Capability 超时 | 10 秒 | `BUSINESS_API_TIMEOUT_MS=10000` |
+| Poster Rendering Capability 超时 | 90 秒 | `POSTER_API_TIMEOUT_MS=90000` |
 | Process Run 超时 | 120 秒 | 本发布显式设置 `PROCESS_TIMEOUT_MS=120000`；代码默认 30 秒 |
 | 平台请求超时 | 150–180 秒 | 必须长于 Process Run 超时 |
 
@@ -28,20 +29,22 @@
 
 | 变量 | 要求 |
 | --- | --- |
-| `BUSINESS_API_BASE_URL` | 必填；必须指向容器可达的真实 Business Capability，禁止使用 `localhost` 演示地址 |
+| `BUSINESS_API_BASE_URL` | 必填；必须指向容器可达且实现 `POST /process` 与 `POST /posters` 的真实 Business API，禁止使用 `localhost` 演示地址 |
 | `PORT` | 可选；默认 `3000` |
 | `CONTENT_PROCESSING_MODE` | `direct` 或 `agent`；默认 `direct` |
 | `HTTP_MAX_REQUEST_BODY_BYTES` | 正整数；默认 `262144` |
 | `MAX_CONCURRENT_EXECUTIONS` | 正整数；默认 `4` |
 | `BUSINESS_API_TIMEOUT_MS` | 正整数；代码默认 `10000`，本发布显式设置 `10000` |
+| `POSTER_API_TIMEOUT_MS` | 正整数；代码默认 `90000`，本发布显式设置 `90000` |
 | `PROCESS_TIMEOUT_MS` | 正整数；代码默认 `30000`，本发布必须显式设置 `120000` |
 | `ASYNC_PROCESS_RUNS_ENABLED` | 本同步 MVP 必须保持 `false`；异步生产发布使用独立 Runbook |
-| `PI_PROVIDER`、`PI_MODEL` | Agent 模式下按组设置 |
+| `PI_PROVIDER`、`PI_MODEL` | 按组设置；海报流程始终使用 Agent |
 | `OPENAI_BASE_URL`、`OPENAI_API_MODE` | 使用 OpenAI 或兼容网关时设置 |
 | `PI_SKILL_DIRECTORY` | 可选；只覆盖固定的 `content-optimization` 路径，不改变 Skill 集合 |
-| `OPENAI_API_KEY` | 仅通过平台 Secret 注入；禁止写入镜像、仓库或普通配置 |
+| `PI_POSTER_SKILL_DIRECTORY` | 可选；只覆盖固定的 `minimal-zine-poster-prompt` 路径 |
+| `OPENAI_API_KEY` | 执行使用 OpenAI 的 Agent 时由平台 Secret 注入；禁止写入镜像、仓库或普通配置 |
 
-若 Business Capability 需要认证，优先使用私网身份、工作负载身份或服务网格。当前 HTTP Adapter 不发送调用方提供的任意认证头。
+若 Business Capability 需要认证，优先使用私网身份、工作负载身份或服务网格。当前 HTTP Adapter 不发送调用方提供的任意认证头。`POST /posters` 必须以 `Idempotency-Key: <runId>` 去重，并返回在声明期限内可访问的 HTTP(S) 图片 URL；短期签名 URL 必须返回 `expiresAt`。
 
 `PROCESS_TIMEOUT_MS=120000` 是本手册的受控发布覆盖值，不改变代码的 30 秒默认值。候选镜像、部署平台和回滚配置都必须显式保留该覆盖值。
 
@@ -61,7 +64,7 @@ Vercel Functions、Netlify Functions 和 Cloudflare Workers 不能直接运行�
 
 1. 默认只保存运行元数据，不保存输入和输出。
 2. 保存业务内容前，先确定授权、租户隔离、加密、脱敏和保留期限。
-3. 不保存系统 Prompt、Tool 过程、模型消息、隐藏推理、无效请求内容或内部错误详情。
+3. 不保存系统 Prompt、Tool 过程、模型消息、隐藏推理、无效请求内容或内部错误详情；图片 URL 可能是 bearer credential，保存前必须纳入内容授权与保留期评审。
 4. Adapter 写入失败不得改变 Process Run 的返回结果。
 5. 对外查询记录前，另行增加受鉴权的查询接口；本次发布不包含该接口。
 
@@ -79,7 +82,7 @@ docker image inspect pi-business-processing-service:rc --format '{{.Id}}'
 ```bash
 docker run --rm --entrypoint id pi-business-processing-service:rc -u
 docker run --rm --entrypoint sh pi-business-processing-service:rc -c \
-  'test -f .pi/skills/content-optimization/SKILL.md && test -f .pi/skills/content-integrity/SKILL.md && test ! -d node_modules/typescript && test ! -d node_modules/vitest'
+  'test -f .pi/skills/content-optimization/SKILL.md && test -f .pi/skills/content-integrity/SKILL.md && test -f .pi/skills/minimal-zine-poster-prompt/SKILL.md && test ! -d node_modules/typescript && test ! -d node_modules/vitest'
 ```
 
 用生产形状的非秘密配置启动候选镜像。健康检查不得访问模型或 Business Capability：
@@ -89,6 +92,7 @@ docker run --rm -d --name pi-business-processing-rc \
   -p 127.0.0.1:3000:3000 \
   -e BUSINESS_API_BASE_URL=http://business-capability.internal \
   -e BUSINESS_API_TIMEOUT_MS=10000 \
+  -e POSTER_API_TIMEOUT_MS=90000 \
   -e PROCESS_TIMEOUT_MS=120000 \
   -e HTTP_MAX_REQUEST_BODY_BYTES=262144 \
   -e MAX_CONCURRENT_EXECUTIONS=4 \
@@ -120,9 +124,10 @@ docker build -t pi-business-processing-service:rc .
 4. 平台实例并发不得高于应用并发闸门；平台必须设置最大实例数。
 5. 日志系统必须收到单行 JSON，并能按 `runId`、`process`、`status` 和 `errorCode` 检索。
 6. `BUSINESS_API_BASE_URL` 必须连接真实 Business Capability。
-7. 若候选版本注入了 Run Record Adapter，必须验证成功和失败记录可按 `runId` 查询，并验证存储故障不影响 `/execute` 结果。
+7. `POST /posters` 必须按 `runId` 去重，并验证图片 URL 的访问控制、有效期、媒体类型和尺寸。
+8. 若候选版本注入了 Run Record Adapter，必须验证成功和失败记录可按 `runId` 查询，并验证存储故障不影响 `/execute` 结果。
 
-Agent 模式启用后，先在受控发布 runner 中连接真实模型和 Business Capability。该命令强制使用 Agent 模式；若 Agent 没有实际调用 Business Capability，命令会失败。它可能产生模型费用：
+Agent 模式启用后，先在受控发布 runner 中连接真实模型和 Business Capability。该命令强制使用 Agent 模式；若 Agent 未恰好调用一次 Business Capability、最终输出并非来自 Tool 结果，或默认受保护内容在 Tool 输入中发生变化，命令会失败。它可能产生模型费用：
 
 ```bash
 BUSINESS_API_BASE_URL=https://business-capability.staging.internal \
@@ -137,7 +142,15 @@ STAGING_AUTHORIZATION='Bearer replace-with-short-lived-token' \
 npm run smoke:staging
 ```
 
-第一条命令证明真实 Agent 和 Business Capability 都参与执行。第二条命令检查健康状态、一次结构化成功结果和一个字段严格受限的 `INVALID_INPUT` 失败响应。两条命令都不比较精确文案，也不输出业务内容、Tool 输入或认证值。
+第一条命令证明真实 Agent 和 Business Capability 都参与执行，并检查 Tool 调用次数、结果来源与默认受保护内容。第二条命令检查健康状态、一次结构化成功结果和一个字段严格受限的 `INVALID_INPUT` 失败响应。两条命令都不比较精确文案，也不输出业务内容、Tool 输入或认证值。
+
+海报候选还必须运行本地业务验收。它会从产品 `POST /execute` 进入 production catalog，调用真实 Agent、production HTTP Adapter、受控 `POST /posters` Capability 与 Images API；配置 OSS 时还会写远端对象。先确认测试主题、凭证、bucket、对象前缀和费用范围：
+
+```bash
+npm run accept:poster-business
+```
+
+通过后检查报告中的 `POST /execute` HTTP 200、单次 `POST /posters`、`runId` 幂等键、`minimal-zine-poster/v1`、四段 Prompt、六轴 recipe、图片字节、3:5 尺寸和 URL 下载哈希。该命令使用本地受控 Business API，不替代目标部署对 `POST /posters` 容量、权限和 URL 生命周期的验收。
 
 ## 发布与回滚
 
@@ -147,4 +160,4 @@ npm run smoke:staging
 
 ## 本次不发布
 
-本次 MVP 不增加应用用户系统、RBAC、多租户、数据库、持久化或跨实例执行历史、Run Record 查询接口、通用幂等、队列、自动重试、CORS、图片生成、OSS 生产链路或全量基础设施即代码。未来流程一旦产生发布、扣费、发送或其他副作用，必须先补幂等决策。
+本次 MVP 不增加应用用户系统、RBAC、多租户、数据库、持久化或跨实例执行历史、Run Record 查询接口、通用幂等、队列、自动重试、CORS、应用内 OSS Adapter、参考图片输入、生成后视觉质检、自动重绘或全量基础设施即代码。海报流程已有模型费用和图片持久化副作用，必须保持调用权限、`runId` 幂等、并发和费用门禁。
