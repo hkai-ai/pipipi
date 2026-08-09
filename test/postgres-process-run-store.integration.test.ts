@@ -11,7 +11,7 @@ import { createAsyncProcessRuns } from "../src/process-runs/index.js";
 import {
     createPostgresAsyncOperations,
     createPostgresAsyncReleaseReadiness,
-} from "../src/process-runs/ops/index.js";
+} from "../src/process-runs/ops/postgres.js";
 import { createPostgresRetentionCleanup } from "../src/process-runs/retention/postgres.js";
 import {
     ProcessRunBacklogLimitError,

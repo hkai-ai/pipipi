@@ -3,7 +3,7 @@ import {
     createProcessRunReconciler,
     type ProcessRunReconciler,
 } from "../process-runs/recovery/index.js";
-import { createPostgresProcessRunRecoverySource } from "../process-runs/store/postgres.js";
+import { createPostgresProcessRunRecoverySource } from "../process-runs/recovery/postgres.js";
 import {
     parseBoundedPositiveInteger,
     parsePositiveInteger,

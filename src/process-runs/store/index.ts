@@ -119,11 +119,6 @@ export type ProcessRunStore = Readonly<{
         claimToken: string;
         releasedAt: string;
     }) => Promise<boolean>;
-    findRecoverable: (request: {
-        asOf: string;
-        queuedBefore: string;
-        limit: number;
-    }) => Promise<readonly Readonly<{ runId: string }>[]>;
 }>;
 
 export class ProcessRunStoreCapacityError extends Error {
@@ -322,31 +317,6 @@ export function createInMemoryProcessRunStore(
             runs.set(run.runId, clone(released));
             return true;
         },
-
-        findRecoverable: async (request) => {
-            const limit = recoveryLimit(request.limit);
-            return [...runs.values()]
-                .filter(
-                    (run) =>
-                        (run.status === "queued" &&
-                            compareTimestamps(
-                                run.updatedAt,
-                                request.queuedBefore,
-                            ) <= 0) ||
-                        (run.status === "running" &&
-                            compareTimestamps(
-                                run.claimExpiresAt,
-                                request.asOf,
-                            ) <= 0),
-                )
-                .sort((left, right) =>
-                    left.updatedAt === right.updatedAt
-                        ? left.runId.localeCompare(right.runId)
-                        : left.updatedAt.localeCompare(right.updatedAt),
-                )
-                .slice(0, limit)
-                .map((run) => Object.freeze({ runId: run.runId }));
-        },
     });
 }
 
@@ -367,14 +337,6 @@ function positiveInteger(value: number, label: string): number {
         throw new Error(`${label} must be a positive safe integer`);
     }
     return value;
-}
-
-function recoveryLimit(value: number): number {
-    const limit = positiveInteger(value, "Process Run recovery limit");
-    if (limit > 100) {
-        throw new Error("Process Run recovery limit must not exceed 100");
-    }
-    return limit;
 }
 
 function addMilliseconds(timestamp: string, durationMs: number): string {

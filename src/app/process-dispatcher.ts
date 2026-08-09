@@ -5,7 +5,7 @@ import { createOutboxDispatcher } from "../process-runs/outbox/dispatcher.js";
 import { createPostgresProcessOutbox } from "../process-runs/outbox/postgres.js";
 import { createBullMqProcessWorkQueue } from "../process-runs/queue/bullmq.js";
 import { createProcessRunReconciler } from "../process-runs/recovery/index.js";
-import { createPostgresProcessRunRecoverySource } from "../process-runs/store/postgres.js";
+import { createPostgresProcessRunRecoverySource } from "../process-runs/recovery/postgres.js";
 import {
     parseBoundedPositiveInteger,
     parsePort,

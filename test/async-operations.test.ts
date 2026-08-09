@@ -4,7 +4,7 @@ import { constructAsyncOperationsCommand } from "../src/app/async-operations.js"
 import {
     createPostgresAsyncOperations,
     createPostgresAsyncReleaseReadiness,
-} from "../src/process-runs/ops/index.js";
+} from "../src/process-runs/ops/postgres.js";
 import { readBullMqQueueSnapshot } from "../src/process-runs/queue/observability.js";
 
 describe("Async operations observability", () => {

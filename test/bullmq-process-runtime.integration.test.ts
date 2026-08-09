@@ -33,10 +33,8 @@ import {
 } from "../src/process-runs/queue/bullmq.js";
 import type { ProcessWorkJob } from "../src/process-runs/queue/index.js";
 import { createProcessRunReconciler } from "../src/process-runs/recovery/index.js";
-import {
-    createPostgresProcessRunRecoverySource,
-    createPostgresProcessRunStore,
-} from "../src/process-runs/store/postgres.js";
+import { createPostgresProcessRunRecoverySource } from "../src/process-runs/recovery/postgres.js";
+import { createPostgresProcessRunStore } from "../src/process-runs/store/postgres.js";
 import type { ProcessWorker } from "../src/process-runs/worker/index.js";
 import { createProcessWorker } from "../src/process-runs/worker/index.js";
 import {

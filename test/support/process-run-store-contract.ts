@@ -158,7 +158,7 @@ export function processRunStoreContract(
             });
         });
 
-        it("releases a current claim to queued and exposes it for reconciliation", async () => {
+        it("releases a current claim back to queued", async () => {
             const store = createStore();
             const run = acceptedRun({ runId: runId(8) });
             await store.accept(run);
@@ -182,13 +182,6 @@ export function processRunStoreContract(
                     releasedAt: "2026-08-09T10:00:03.000Z",
                 }),
             ).resolves.toBe(false);
-            await expect(
-                store.findRecoverable({
-                    asOf: "2026-08-09T10:00:03.000Z",
-                    queuedBefore: "2026-08-09T10:00:02.000Z",
-                    limit: 10,
-                }),
-            ).resolves.toEqual([{ runId: run.runId }]);
             await expect(
                 store.findOwned(run.runId, run.ownerId),
             ).resolves.toMatchObject({

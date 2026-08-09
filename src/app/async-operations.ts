@@ -2,7 +2,7 @@ import { Pool } from "pg";
 import {
     createPostgresAsyncOperations,
     type PostgresAsyncOperationsSnapshot,
-} from "../process-runs/ops/index.js";
+} from "../process-runs/ops/postgres.js";
 import {
     type BullMqProcessWorkQueue,
     createBullMqProcessWorkQueue,

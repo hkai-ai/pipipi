@@ -13,7 +13,7 @@ import { createAsyncProcessRuns } from "../process-runs/index.js";
 import {
     type AsyncReleaseStage,
     createPostgresAsyncReleaseReadiness,
-} from "../process-runs/ops/index.js";
+} from "../process-runs/ops/postgres.js";
 import { createPostgresProcessRunStore } from "../process-runs/store/postgres.js";
 import type { ProcessRegistry } from "../processes/runtime/index.js";
 import { constructBusinessProcessRuntime } from "./business-processes.js";

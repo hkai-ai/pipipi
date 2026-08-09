@@ -233,6 +233,8 @@ flowchart LR
 
 `Async Process Runs` 是 HTTP Adapter 与持久化、队列之间的主 Seam。`Process Work Queue` 只在内部存在，并提供 BullMQ 生产 Adapter 与确定性内存测试 Adapter。任何 BullMQ 类型、Job 状态或 Redis key 都不得越过该 Seam。
 
+`Process Run Store` 不公开恢复扫描。Recovery Module 通过独立的 `ProcessRunRecoverySource` 读取 PostgreSQL 候选，使普通提交、查询和 Worker 调用方不需要了解恢复规则。
+
 ### Process Registration 的执行 Seam
 
 Process Registration 已加深为两个原子动作，使同步与异步入口复用同一业务定义：
