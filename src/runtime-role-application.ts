@@ -4,7 +4,10 @@ import {
   type ServerResponse,
 } from "node:http";
 
-export type RuntimeRoleName = "process-dispatcher" | "process-worker";
+export type RuntimeRoleName =
+  | "process-dispatcher"
+  | "process-worker"
+  | "webhook-worker";
 
 export type BackgroundRuntime = Readonly<{
   start: () => Promise<void>;

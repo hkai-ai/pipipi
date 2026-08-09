@@ -89,7 +89,7 @@ curl http://127.0.0.1:3000/healthz
 
 默认发布仍是受控、同步、无状态的 MVP。部署平台必须提供 TLS、私有入口、调用方认证、Secret 注入和实例上限。异步角色只供完成 migration、身份、Redis 和运维门禁的内部环境使用；当前发布不提供应用用户系统、RBAC、多租户、CORS、通用幂等或动态流程注册。
 
-仓库内已有 Async Process Runs Module、有界内存 Store/Queue、确定性 Worker、事务化 PostgreSQL Store、Outbox Dispatcher，以及固定版本的 BullMQ Queue/Worker Adapter。`npm run start:api`、`npm run start:dispatcher` 和 `npm run start:worker` 从同一构建产物启动独立角色；默认只执行一次，只有服务端 Registration 明确声明安全错误、次数和退避时才会重试。完整观测和 Webhook 仍按开发计划推进。
+仓库内已有 Async Process Runs Module、事务化 PostgreSQL Store、Process/Webhook Outbox，以及相互隔离的 BullMQ Process Queue 和 Webhook Queue。`npm run start:api`、`npm run start:dispatcher`、`npm run start:worker` 和 `npm run start:webhook-worker` 从同一构建产物启动独立角色。Process 默认只执行一次，只有服务端 Registration 明确声明安全错误、次数和退避时才会重试；Webhook 已支持精简终态事件、Standard Webhooks 签名和持久化首轮结果，重试、重放与完整 egress 安全仍按开发计划推进。
 
 图片生成、海报 Skill、对象存储和 Skill A/B 对比属于开发实验与集成验证，尚未进入 `/execute` 的生产 catalog。
 

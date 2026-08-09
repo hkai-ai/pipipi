@@ -16,6 +16,10 @@ import {
   constructProcessWorkerService,
 } from "../src/async-runtime-construction.js";
 import {
+  defaultWebhookWorkQueueName,
+  defaultWebhookWorkQueuePrefix,
+} from "../src/bullmq-webhook-work-queue.js";
+import {
   createBullMqProcessWorker,
   createBullMqProcessWorkQueue,
   defaultProcessWorkQueueName,
@@ -25,9 +29,12 @@ import {
   callerIdentityHeader,
   gatewayAuthenticationHeader,
 } from "../src/caller-identity.js";
-import { createOutboxDispatcher } from "../src/outbox-dispatcher.js";
+import {
+  createOutboxDispatcher,
+} from "../src/outbox-dispatcher.js";
 import { createPostgresProcessOutbox } from "../src/postgres-process-outbox.js";
 import { createPostgresProcessRunStore } from "../src/postgres-process-run-store.js";
+import { createPostgresWebhookDeliveryStore } from "../src/postgres-webhook-delivery-store.js";
 import { createProcessRunReconciler } from "../src/process-run-reconciler.js";
 import {
   createProcessAttemptRunner,
@@ -39,6 +46,8 @@ import { createProcessWorker } from "../src/process-worker.js";
 import type { ProcessWorker } from "../src/process-worker.js";
 import type { ProcessWorkJob } from "../src/process-work-queue.js";
 import { constructProcessingService } from "../src/startup-construction.js";
+import { signStandardWebhook } from "../src/webhook-delivery.js";
+import { constructWebhookWorkerService } from "../src/webhook-runtime-construction.js";
 import { z } from "zod";
 
 const databaseUrl = process.env.POSTGRES_TEST_DATABASE_URL;
@@ -71,7 +80,7 @@ integrationDescribe("BullMQ Process Runtime", () => {
   }, 30_000);
 
   beforeEach(async () => {
-    await pool.query("TRUNCATE process_runs CASCADE");
+    await pool.query("TRUNCATE webhook_endpoints, process_runs CASCADE");
     await redis.flushdb();
   });
 
@@ -270,6 +279,144 @@ integrationDescribe("BullMQ Process Runtime", () => {
       ]);
     } finally {
       await Promise.allSettled([worker.close(), queue.close()]);
+    }
+  }, 20_000);
+
+  it("delivers signed success and failure events through an isolated Webhook Queue", async () => {
+    const received: Array<{
+      body: string;
+      headers: Record<string, string | string[] | undefined>;
+    }> = [];
+    const receiver = createHttpServer(async (request, response) => {
+      const chunks: Buffer[] = [];
+      for await (const chunk of request) chunks.push(Buffer.from(chunk));
+      received.push({
+        body: Buffer.concat(chunks).toString("utf8"),
+        headers: request.headers,
+      });
+      response.writeHead(204).end();
+    });
+    const receiverUrl = await listenHttpServer(receiver);
+    const secret = `whsec_${Buffer.alloc(32, 9).toString("base64")}`;
+    const registry = testRegistry();
+    const processStore = createPostgresProcessRunStore({ pool, retention: RETENTION });
+    const deliveryStore = createPostgresWebhookDeliveryStore({ pool });
+    await deliveryStore.provisionEndpoint({
+      endpointId: "20000000-0000-4000-8000-000000000010",
+      ownerId: "caller-webhook",
+      url: receiverUrl,
+      secret,
+      createdAt: "2026-08-09T10:00:00.000Z",
+      allowInsecureHttp: true,
+    });
+    const runs = createAsyncProcessRuns({ registry, store: processStore });
+    const processQueue = createBullMqProcessWorkQueue({
+      redisUrl: redisUrl as string,
+    });
+    const processDispatcher = createOutboxDispatcher({
+      outbox: createPostgresProcessOutbox({ pool }),
+      queue: processQueue,
+    });
+    const processWorker = createBullMqProcessWorker({
+      redisUrl: redisUrl as string,
+      worker: createProcessWorker({
+        registry,
+        store: processStore,
+        attemptRunner: createProcessAttemptRunner({ processTimeoutMs: 5_000 }),
+      }),
+    });
+    const webhookService = constructWebhookWorkerService({
+      DATABASE_URL: databaseUrl,
+      REDIS_URL: redisUrl,
+      WEBHOOK_ALLOW_INSECURE_HTTP: "true",
+      WEBHOOK_REQUEST_TIMEOUT_MS: "1000",
+      WEBHOOK_DELIVERY_CLAIM_LEASE_MS: "2000",
+      WEBHOOK_OUTBOX_DISPATCH_INTERVAL_MS: "20",
+    });
+    await webhookService.application.listen();
+
+    try {
+      const succeeded = await runs.submit(
+        {
+          process: "test-success",
+          version: "v1",
+          input: { value: "webhook-success-secret" },
+        },
+        { callerId: "caller-webhook", idempotencyKey: "webhook-success" },
+      );
+      const failed = await runs.submit(
+        {
+          process: "test-failure",
+          version: "v2",
+          input: { value: "webhook-failure-secret" },
+        },
+        { callerId: "caller-webhook", idempotencyKey: "webhook-failure" },
+      );
+      if (!succeeded.accepted || !failed.accepted) throw new Error("Expected Runs");
+      await processDispatcher.dispatchOnce();
+      await processWorker.start();
+      await Promise.all([
+        waitForTerminal(runs, succeeded.runId, "caller-webhook"),
+        waitForTerminal(runs, failed.runId, "caller-webhook"),
+      ]);
+
+      await waitForSuccessfulDeliveries(deliveryStore, [
+        succeeded.runId,
+        failed.runId,
+      ]);
+      const delivered = await deliveryStore.findByRun({
+        ownerId: "caller-webhook",
+        runIds: [succeeded.runId, failed.runId],
+      });
+      const webhookInspector = new Queue(defaultWebhookWorkQueueName, {
+        connection: { url: redisUrl as string },
+        prefix: defaultWebhookWorkQueuePrefix,
+      });
+      try {
+        const jobs = await Promise.all(
+          delivered.map((delivery) => webhookInspector.getJob(delivery.deliveryId)),
+        );
+        expect(jobs.every((job) => job?.queueName === defaultWebhookWorkQueueName)).toBe(
+          true,
+        );
+      } finally {
+        await webhookInspector.close();
+      }
+      expect(received).toHaveLength(2);
+      expect(received.map((entry) => JSON.parse(entry.body).type).sort()).toEqual([
+        "process_run.failed",
+        "process_run.succeeded",
+      ]);
+      for (const entry of received) {
+        const payload = JSON.parse(entry.body) as {
+          eventId: string;
+          data: { runId: string; resultLocation: string };
+        };
+        const eventId = entry.headers["webhook-id"];
+        const timestamp = entry.headers["webhook-timestamp"];
+        expect(eventId).toBe(payload.eventId);
+        expect(entry.headers["webhook-signature"]).toBe(
+          signStandardWebhook({
+            messageId: String(eventId),
+            timestamp: String(timestamp),
+            payload: entry.body,
+            secret,
+          }),
+        );
+        expect(payload.data.resultLocation).toBe(
+          `/process-runs/${payload.data.runId}`,
+        );
+        expect(entry.body).not.toContain("webhook-success-secret");
+        expect(entry.body).not.toContain("webhook-failure-secret");
+        expect(entry.body).not.toContain("output");
+      }
+    } finally {
+      await Promise.allSettled([
+        processWorker.close(),
+        processQueue.close(),
+        webhookService.application.close(),
+      ]);
+      await closeHttpServer(receiver);
     }
   }, 20_000);
 
@@ -750,6 +897,40 @@ async function waitForStoredRun(
     await delay(20);
   }
   throw new Error(`Process Run ${runIdValue} did not reach the expected state`);
+}
+
+async function waitForSuccessfulDeliveries(
+  store: ReturnType<typeof createPostgresWebhookDeliveryStore>,
+  runIds: readonly string[],
+): Promise<void> {
+  const deadline = Date.now() + 5_000;
+  while (Date.now() < deadline) {
+    const deliveries = await store.findByRun({
+      ownerId: "caller-webhook",
+      runIds,
+    });
+    if (
+      deliveries.length === runIds.length &&
+      deliveries.every((delivery) => delivery.status === "succeeded")
+    ) {
+      return;
+    }
+    await delay(20);
+  }
+  throw new Error("Webhook Deliveries did not succeed");
+}
+
+async function listenHttpServer(server: Server): Promise<string> {
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", () => {
+      server.off("error", reject);
+      resolve();
+    });
+  });
+  const address = server.address();
+  if (!address || typeof address === "string") throw new Error("Expected address");
+  return `http://127.0.0.1:${address.port}`;
 }
 
 async function waitForJobState(

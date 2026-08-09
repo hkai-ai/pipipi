@@ -57,6 +57,7 @@ curl --fail -X POST http://127.0.0.1:3000/execute \
 | `npm run dev:api` | 与 `dev` 相同，显式启动 API 角色 | 运行请求时访问配置的 Business Capability |
 | `npm run dev:dispatcher` | 启动 Outbox Dispatcher 与 Reconciler 角色 | 是，访问 PostgreSQL 与 Redis |
 | `npm run dev:worker` | 启动 Process Worker 角色 | 是，访问 PostgreSQL、Redis 与业务依赖 |
+| `npm run dev:webhook-worker` | 启动 Webhook Outbox 与 Delivery Worker 角色 | 是，访问 PostgreSQL、Redis 与已注册 Endpoint |
 | `npm run dev:business-api` | 启动本地演示 Business Capability | 否 |
 | `npm run typecheck` | 严格 TypeScript 检查 | 否 |
 | `npm test` | 运行确定性测试 | 否 |
@@ -121,25 +122,30 @@ docker compose -f compose.integration.yaml down
 
 ### 异步运行角色
 
-同一构建产物提供三个命令：`npm run start:api`、`npm run start:dispatcher` 和 `npm run start:worker`。三个角色应部署为独立进程或工作负载；API 不消费 Job，Dispatcher 不加载 Business Process 或 caller Secret，Worker 不加载网关身份配置。启动 Dispatcher 或 Worker 命令本身就是启用该内部角色的部署选择；`ASYNC_PROCESS_RUNS_ENABLED` 只控制 API 是否公开异步路由。
+同一构建产物提供四个命令：`npm run start:api`、`npm run start:dispatcher`、`npm run start:worker` 和 `npm run start:webhook-worker`。四个角色应部署为独立进程或工作负载；API 不消费 Job，Dispatcher 不加载 Business Process 或 caller Secret，Process Worker 不加载网关身份配置，Webhook Worker 不加载 production catalog。启动后台命令本身就是启用该内部角色的部署选择；`ASYNC_PROCESS_RUNS_ENABLED` 只控制 API 是否公开异步路由。
 
-| 配置 | API | Dispatcher | Worker |
-| --- | --- | --- | --- |
-| `BUSINESS_API_BASE_URL` 与 Process 配置 | 必需 | 不读取 | 必需 |
-| `ASYNC_PROCESS_RUNS_ENABLED` | 控制异步路由 | 不读取 | 不读取 |
-| `ASYNC_GATEWAY_SHARED_SECRET` | 异步路由启用时必需 | 不读取 | 不读取 |
-| `DATABASE_URL`、PostgreSQL Pool 配置 | 异步路由启用时必需 | 必需 | 必需 |
-| 三个 `PROCESS_RUN_*_RETENTION_MS` | 异步路由启用时必需 | 不读取 | 必需 |
-| `REDIS_URL`、Queue name/prefix | 不读取 | 必需 | 必需，且必须与 Dispatcher 相同 |
-| `OUTBOX_*`、`PROCESS_RUN_RECONCILE_*` | 不读取 | 可选覆盖 | 不读取 |
-| `PROCESS_WORKER_*` | 不读取 | 不读取 | 可选覆盖 |
-| `PORT`、`RUNTIME_ROLE_READINESS_TIMEOUT_MS` | `PORT` | 两者 | 两者 |
+| 配置 | API | Dispatcher | Process Worker | Webhook Worker |
+| --- | --- | --- | --- | --- |
+| `BUSINESS_API_BASE_URL` 与 Process 配置 | 必需 | 不读取 | 必需 | 不读取 |
+| `ASYNC_PROCESS_RUNS_ENABLED` | 控制异步路由 | 不读取 | 不读取 | 不读取 |
+| `ASYNC_GATEWAY_SHARED_SECRET` | 异步路由启用时必需 | 不读取 | 不读取 | 不读取 |
+| `DATABASE_URL`、PostgreSQL Pool 配置 | 异步路由启用时必需 | 必需 | 必需 | 必需 |
+| 三个 `PROCESS_RUN_*_RETENTION_MS` | 异步路由启用时必需 | 不读取 | 必需 | 不读取 |
+| `REDIS_URL` | 不读取 | 必需 | 必需 | 必需 |
+| `PROCESS_QUEUE_*` | 不读取 | 必需 | 必须与 Dispatcher 相同 | 不读取 |
+| `WEBHOOK_QUEUE_*` | 不读取 | 不读取 | 不读取 | 可选覆盖 |
+| `OUTBOX_*`、`PROCESS_RUN_RECONCILE_*` | 不读取 | 可选覆盖 | 不读取 | 不读取 |
+| `PROCESS_WORKER_*` | 不读取 | 不读取 | 可选覆盖 | 不读取 |
+| `WEBHOOK_*` | 不读取 | 不读取 | 不读取 | 可选覆盖 |
+| `PORT`、`RUNTIME_ROLE_READINESS_TIMEOUT_MS` | `PORT` | 两者 | 两者 | 两者 |
 
 部署前先执行 migration。`PROCESS_RUN_CLAIM_LEASE_MS` 必须大于 `PROCESS_TIMEOUT_MS`，避免正常 Attempt 在超时治理结束前被接管。每个环境使用独立 `PROCESS_QUEUE_PREFIX`；调用方不能提交 queue name、concurrency、retry 或 Redis 配置。
 
 `content-processing/v1` 默认 `CONTENT_PROCESSING_RETRY_MAX_ATTEMPTS=1`。只有确认下游按 `Idempotency-Key: <runId>` 去重后，才可把该值提高到 `2`–`5`；当前只把稳定的 `DEPENDENCY_FAILURE` 分类为可重试。`CONTENT_PROCESSING_RETRY_INITIAL_DELAY_MS` 和 `CONTENT_PROCESSING_RETRY_MAX_DELAY_MS` 控制指数退避，最大延迟不超过 300 秒。等待重试时公开状态仍是 `queued`，请求 body 不能覆盖这些策略。
 
-三个角色都提供 `GET /healthz` 和 `GET /readyz`。liveness 只确认进程工作，不访问下游；readiness 检查该角色实际使用的 migration、PostgreSQL 和 Redis，并在有界时间内返回 `503`，不暴露连接地址或内部错误。默认同步 API 保持原样，启用异步路由也不会删除 `POST /execute`。
+四个角色都提供 `GET /healthz` 和 `GET /readyz`。liveness 只确认进程工作，不访问下游；readiness 检查该角色实际使用的 migration、PostgreSQL 和 Redis，并在有界时间内返回 `503`，不暴露连接地址或内部错误。默认同步 API 保持原样，启用异步路由也不会删除 `POST /execute`。
+
+Webhook Endpoint 由运维侧预注册并绑定 caller；Process 提交不能携带 callback URL。Webhook Worker 只发送包含 `eventId`、`runId`、准确 Process/version、终态、完成时间和相对查询位置的 payload，不复制输入、输出或内部错误。`WEBHOOK_ALLOW_INSECURE_HTTP=true` 只供隔离的本地测试；正常环境仅允许 HTTPS。Issue #19 和 #20 完成前，不要向真实接收方启用该角色。
 
 ## 代码地图
 
@@ -148,6 +154,7 @@ docker compose -f compose.integration.yaml down
 | `src/main.ts` | 监听端口、启动日志、关闭信号和退出状态 |
 | `src/startup-construction.ts` | 配置翻译、校验、Adapter 选择和生产组装 |
 | `src/async-runtime-construction.ts` | Dispatcher/Worker 的角色专属配置、Adapter 和 production catalog 组装 |
+| `src/webhook-runtime-construction.ts` | Webhook Outbox、Queue、Sender 和 Worker 的独立生产组装 |
 | `src/application.ts` | HTTP server 的 `listen` 与 `close` 生命周期 |
 | `src/runtime-role-application.ts` | 后台角色的 liveness、readiness、监听与关闭生命周期 |
 | `src/http-adapter.ts` | 路由、传输校验、请求体上限、并发准入、状态码和结构化日志 |
@@ -162,10 +169,12 @@ docker compose -f compose.integration.yaml down
 | `src/process-run-store.ts` | 权威 Process Run Store Seam、状态转换和有界内存 Adapter |
 | `src/postgres-process-run-store.ts` | PostgreSQL 事务、Attempt fencing、初始 Event 与 Outbox Adapter |
 | `src/process-outbox.ts`、`src/postgres-process-outbox.ts` | Outbox claim、publish ack 与失败 release Seam/Adapter |
-| `src/outbox-dispatcher.ts` | 从 PostgreSQL Outbox 向内部 Process Work Queue 转发最小 Job |
+| `src/outbox-dispatcher.ts` | 从 PostgreSQL Outbox 向 Process/Webhook Queue 转发各自最小 Job |
 | `src/process-run-reconciler.ts` | 扫描长期 queued 或过期 running Run，并通过 Queue Seam 重投 |
 | `src/process-dispatcher-runtime.ts` | 以不重叠的周期运行 Outbox 与 Reconciler，并隔离可恢复错误 |
 | `src/bullmq-process-work-queue.ts` | 固定版本 BullMQ Queue、Worker、Redis 连接策略与有界 Job retention |
+| `src/webhook-delivery.ts`、`src/postgres-webhook-delivery-store.ts` | 终态 Delivery、原始 body 签名、HTTP 投递和持久化结果 |
+| `src/bullmq-webhook-work-queue.ts` | 独立 Webhook Queue/Worker、Redis 生命周期和有界 Job retention |
 | `src/caller-identity.ts` | 网关注入 caller subject 的认证与 HTTP 身份 Resolver |
 | `migrations/` | 受版本和 advisory lock 管理的 PostgreSQL schema 变化 |
 | `src/object-storage*.ts`、`src/aliyun-oss-storage.ts` | 通用对象存储 Seam、配置和 OSS Adapter |

@@ -146,10 +146,11 @@ Async Process Runs 默认关闭。显式启用时，Construction Root 复用同�
 Application 在关闭 HTTP server 后释放 Pool。数据库 migration 由部署步骤完成，启动过程不会
 隐式修改 schema。独立的 Async Role Construction 分别组装 Dispatcher 与 Worker：Dispatcher
 只连接 PostgreSQL/Redis，Worker 复用同一 production Registry 并连接执行所需 Business
-Capability。三个角色的 liveness 不访问下游，readiness 只检查本角色依赖；生产观测和发布门禁
+Capability。独立 Webhook Construction 只组装 Delivery Store、Webhook Outbox、专用 Queue 和
+HTTP Sender，不加载 Business Process。四个角色的 liveness 不访问下游，readiness 只检查本角色依赖；生产观测和发布门禁
 完成前，异步 feature flag 只用于受控内部环境。
 
-`main.ts`、`process-dispatcher-main.ts` 和 `process-worker-main.ts` 只把 `process.env` 传给各自
+`main.ts`、`process-dispatcher-main.ts`、`process-worker-main.ts` 和 `webhook-worker-main.ts` 只把 `process.env` 传给各自
 Construction Seam，然后监听端口、写启动日志并处理 `SIGINT` 和 `SIGTERM`。入口不翻译配置，
 也不直接组装 Adapter、Executor 或 Application。
 

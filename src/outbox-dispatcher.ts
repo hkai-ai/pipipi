@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto";
 import type { ProcessOutbox } from "./process-outbox.js";
 import type { ProcessWorkQueue } from "./process-work-queue.js";
+import type { WebhookOutbox } from "./webhook-outbox.js";
+import type { WebhookWorkQueue } from "./webhook-work-queue.js";
 
 export type OutboxDispatchResult = Readonly<{
   claimed: number;
@@ -20,6 +22,65 @@ export function createOutboxDispatcher(options: {
   clock?: () => string;
   createClaimToken?: () => string;
 }): OutboxDispatcher {
+  return createOutboxRelay({
+    claim: options.outbox.claimProcessWork,
+    enqueue: (message) => options.queue.enqueue(message.job),
+    markPublished: options.outbox.markPublished,
+    release: options.outbox.release,
+    batchSize: options.batchSize,
+    claimLeaseMs: options.claimLeaseMs,
+    clock: options.clock,
+    createClaimToken: options.createClaimToken,
+  });
+}
+
+export function createWebhookOutboxDispatcher(options: {
+  outbox: WebhookOutbox;
+  queue: WebhookWorkQueue;
+  batchSize?: number;
+  claimLeaseMs?: number;
+  clock?: () => string;
+  createClaimToken?: () => string;
+}): OutboxDispatcher {
+  return createOutboxRelay({
+    claim: options.outbox.claimWebhookWork,
+    enqueue: (message) => options.queue.enqueue(message.job),
+    markPublished: options.outbox.markPublished,
+    release: options.outbox.release,
+    batchSize: options.batchSize,
+    claimLeaseMs: options.claimLeaseMs,
+    clock: options.clock,
+    createClaimToken: options.createClaimToken,
+  });
+}
+
+function createOutboxRelay<
+  Message extends Readonly<{
+    messageId: string;
+    claimToken: string;
+  }>,
+>(options: {
+  claim: (request: {
+    limit: number;
+    claimToken: string;
+    claimedAt: string;
+    claimExpiresAt: string;
+  }) => Promise<readonly Message[]>;
+  enqueue: (message: Message) => Promise<unknown>;
+  markPublished: (request: {
+    messageId: string;
+    claimToken: string;
+    publishedAt: string;
+  }) => Promise<boolean>;
+  release: (request: {
+    messageId: string;
+    claimToken: string;
+  }) => Promise<boolean>;
+  batchSize?: number;
+  claimLeaseMs?: number;
+  clock?: () => string;
+  createClaimToken?: () => string;
+}): OutboxDispatcher {
   const batchSize = positiveInteger(options.batchSize ?? 25, "Outbox batch size");
   if (batchSize > 100) {
     throw new Error("Outbox batch size must not exceed 100");
@@ -34,7 +95,7 @@ export function createOutboxDispatcher(options: {
   return Object.freeze({
     dispatchOnce: async () => {
       const claimedAt = clock();
-      const messages = await options.outbox.claimProcessWork({
+      const messages = await options.claim({
         limit: batchSize,
         claimToken: createClaimToken(),
         claimedAt,
@@ -44,8 +105,8 @@ export function createOutboxDispatcher(options: {
       let failed = 0;
       for (const message of messages) {
         try {
-          await options.queue.enqueue(message.job);
-          const marked = await options.outbox.markPublished({
+          await options.enqueue(message);
+          const marked = await options.markPublished({
             messageId: message.messageId,
             claimToken: message.claimToken,
             publishedAt: clock(),
@@ -54,7 +115,7 @@ export function createOutboxDispatcher(options: {
           published += 1;
         } catch {
           failed += 1;
-          await options.outbox.release({
+          await options.release({
             messageId: message.messageId,
             claimToken: message.claimToken,
           });

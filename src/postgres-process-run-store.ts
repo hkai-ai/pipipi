@@ -28,6 +28,7 @@ export function createPostgresProcessRunStore(options: {
   claimLeaseMs?: number;
   createEventId?: () => string;
   createOutboxMessageId?: () => string;
+  createWebhookDeliveryId?: () => string;
 }): PostgresProcessRunStore {
   const retention = validateRetention(options.retention);
   const claimLeaseMs = positiveInteger(
@@ -36,6 +37,8 @@ export function createPostgresProcessRunStore(options: {
   );
   const createEventId = options.createEventId ?? randomUUID;
   const createOutboxMessageId = options.createOutboxMessageId ?? randomUUID;
+  const createWebhookDeliveryId =
+    options.createWebhookDeliveryId ?? randomUUID;
   const recovery = createPostgresProcessRunRecoverySource({ pool: options.pool });
 
   return Object.freeze({
@@ -289,7 +292,12 @@ export function createPostgresProcessRunStore(options: {
       );
 
       return transaction(options.pool, async (client) => {
-        const completed = await client.query<Pick<ProcessRunRow, "attempt_count">>(
+        const completed = await client.query<
+          Pick<
+            ProcessRunRow,
+            "attempt_count" | "caller_id" | "process_id" | "process_version"
+          >
+        >(
           `
             UPDATE process_runs
             SET
@@ -310,7 +318,7 @@ export function createPostgresProcessRunStore(options: {
               run_id = $1
               AND status = 'running'
               AND claim_token = $2
-            RETURNING attempt_count
+            RETURNING attempt_count, caller_id, process_id, process_version
           `,
           [
             request.runId,
@@ -349,6 +357,101 @@ export function createPostgresProcessRunStore(options: {
         );
         if (attempt.rowCount !== 1) {
           throw new Error("Process Run Attempt state is inconsistent");
+        }
+
+        const eventId = createEventId();
+        const eventType = `process_run.${completion.status}` as const;
+        const payload = serializeJson({
+          schemaVersion: 1,
+          eventId,
+          type: eventType,
+          createdAt: request.completedAt,
+          data: {
+            runId: request.runId,
+            process: row.process_id,
+            version: row.process_version,
+            status: completion.status,
+            resultLocation: `/process-runs/${request.runId}`,
+          },
+        });
+        await client.query(
+          `
+            INSERT INTO process_events (
+              event_id,
+              run_id,
+              event_type,
+              deduplication_key,
+              payload,
+              created_at
+            )
+            VALUES ($1, $2, $3, $4, $5::jsonb, $6)
+          `,
+          [
+            eventId,
+            request.runId,
+            eventType,
+            `process-run:${request.runId}:${completion.status}`,
+            payload,
+            request.completedAt,
+          ],
+        );
+        const endpoints = await client.query<{ endpoint_id: string }>(
+          `
+            SELECT endpoint_id
+            FROM webhook_endpoints
+            WHERE caller_id = $1 AND status = 'enabled'
+            ORDER BY endpoint_id
+          `,
+          [row.caller_id],
+        );
+        for (const endpoint of endpoints.rows) {
+          const deliveryId = createWebhookDeliveryId();
+          await client.query(
+            `
+              INSERT INTO webhook_deliveries (
+                delivery_id,
+                event_id,
+                endpoint_id,
+                run_id,
+                caller_id,
+                event_type,
+                payload,
+                next_attempt_at,
+                created_at,
+                updated_at
+              )
+              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8, $8)
+            `,
+            [
+              deliveryId,
+              eventId,
+              endpoint.endpoint_id,
+              request.runId,
+              row.caller_id,
+              eventType,
+              payload,
+              request.completedAt,
+            ],
+          );
+          await client.query(
+            `
+              INSERT INTO outbox_messages (
+                message_id,
+                event_id,
+                topic,
+                payload,
+                created_at,
+                available_at
+              )
+              VALUES ($1, $2, 'webhook-deliveries', $3::jsonb, $4, $4)
+            `,
+            [
+              createOutboxMessageId(),
+              eventId,
+              serializeJson({ schemaVersion: 1, deliveryId }),
+              request.completedAt,
+            ],
+          );
         }
         return true;
       });
@@ -496,10 +599,18 @@ export function createPostgresProcessRunStore(options: {
     findRecoverable: recovery.findRecoverable,
 
     ready: async () => {
-      const result = await options.pool.query<{ process_runs: string | null }>(
-        "SELECT to_regclass('public.process_runs')::text AS process_runs",
-      );
-      if (result.rows[0]?.process_runs !== "process_runs") {
+      const result = await options.pool.query<{
+        process_runs: string | null;
+        webhook_endpoints: string | null;
+      }>(`
+        SELECT
+          to_regclass('public.process_runs')::text AS process_runs,
+          to_regclass('public.webhook_endpoints')::text AS webhook_endpoints
+      `);
+      if (
+        result.rows[0]?.process_runs !== "process_runs" ||
+        result.rows[0]?.webhook_endpoints !== "webhook_endpoints"
+      ) {
         throw new Error("Process Run database migration is not ready");
       }
     },

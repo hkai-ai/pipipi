@@ -7,6 +7,7 @@ import {
   gatewayAuthenticationHeader,
 } from "../src/caller-identity.js";
 import { createPostgresProcessRunStore } from "../src/postgres-process-run-store.js";
+import { createPostgresWebhookDeliveryStore } from "../src/postgres-webhook-delivery-store.js";
 import type { ProcessRunStore } from "../src/process-run-store.js";
 import { constructProcessingService } from "../src/startup-construction.js";
 import { processRunStoreContract } from "./support/process-run-store-contract.js";
@@ -40,7 +41,7 @@ postgresDescribe("PostgreSQL Process Run Store", () => {
   }, 30_000);
 
   beforeEach(async () => {
-    await primaryPool.query("TRUNCATE process_runs CASCADE");
+    await primaryPool.query("TRUNCATE webhook_endpoints, process_runs CASCADE");
   });
 
   afterAll(async () => {
@@ -210,6 +211,129 @@ postgresDescribe("PostgreSQL Process Run Store", () => {
       },
     ]);
     expect(JSON.stringify(outbox.rows)).not.toContain("sensitive business input");
+  });
+
+  it("atomically creates thin terminal Webhook Deliveries and persists a 2xx result", async () => {
+    const webhooks = createPostgresWebhookDeliveryStore({ pool: primaryPool });
+    await webhooks.provisionEndpoint({
+      endpointId: "20000000-0000-4000-8000-000000000001",
+      ownerId: "caller-webhook",
+      url: "https://hooks.example/process-runs",
+      secret: `whsec_${Buffer.alloc(32, 5).toString("base64")}`,
+      createdAt: "2026-08-09T10:00:00.000Z",
+    });
+    const succeeded = acceptedRun(51, {
+      ownerId: "caller-webhook",
+      idempotencyKey: "webhook-success",
+      inputValue: "sensitive-success-input",
+    });
+    const failed = acceptedRun(52, {
+      ownerId: "caller-webhook",
+      idempotencyKey: "webhook-failure",
+      inputValue: "sensitive-failure-input",
+    });
+    await primaryStore.accept(succeeded);
+    await primaryStore.accept(failed);
+    const successClaim = await primaryStore.claim({
+      runId: succeeded.runId,
+      claimToken: claimToken(51),
+      claimedAt: "2026-08-09T10:00:01.000Z",
+    });
+    const failureClaim = await primaryStore.claim({
+      runId: failed.runId,
+      claimToken: claimToken(52),
+      claimedAt: "2026-08-09T10:00:01.000Z",
+    });
+    if (!successClaim || !failureClaim) throw new Error("Expected claims");
+    await primaryStore.complete({
+      runId: succeeded.runId,
+      claimToken: successClaim.claimToken,
+      completedAt: "2026-08-09T10:00:02.000Z",
+      completion: {
+        status: "succeeded",
+        output: { content: "sensitive-success-output" },
+      },
+    });
+    await primaryStore.complete({
+      runId: failed.runId,
+      claimToken: failureClaim.claimToken,
+      completedAt: "2026-08-09T10:00:03.000Z",
+      completion: {
+        status: "failed",
+        error: { code: "DEPENDENCY_FAILURE", message: "Stable public failure" },
+      },
+    });
+
+    const deliveries = await webhooks.findByRun({
+      ownerId: "caller-webhook",
+      runIds: [succeeded.runId, failed.runId],
+    });
+    expect(deliveries).toHaveLength(2);
+    expect(deliveries.map((delivery) => delivery.eventType).sort()).toEqual([
+      "process_run.failed",
+      "process_run.succeeded",
+    ]);
+    const persisted = await primaryPool.query<{
+      delivery_id: string;
+      payload: string;
+      topic: string;
+      outbox_payload: unknown;
+    }>(`
+      SELECT
+        deliveries.delivery_id,
+        deliveries.payload,
+        messages.topic,
+        messages.payload AS outbox_payload
+      FROM webhook_deliveries AS deliveries
+      JOIN outbox_messages AS messages
+        ON messages.payload->>'deliveryId' = deliveries.delivery_id::text
+      ORDER BY deliveries.created_at
+    `);
+    expect(persisted.rows).toHaveLength(2);
+    for (const row of persisted.rows) {
+      expect(row.topic).toBe("webhook-deliveries");
+      expect(row.outbox_payload).toEqual({
+        schemaVersion: 1,
+        deliveryId: row.delivery_id,
+      });
+      expect(row.payload).toContain('"resultLocation":"/process-runs/');
+      expect(row.payload).not.toContain("sensitive-");
+      expect(row.payload).not.toContain("output");
+    }
+
+    const delivery = deliveries[0];
+    if (!delivery) throw new Error("Expected Delivery");
+    const claim = await webhooks.claim({
+      deliveryId: delivery.deliveryId,
+      claimToken: "30000000-0000-4000-8000-000000000001",
+      claimedAt: "2026-08-09T10:00:04.000Z",
+    });
+    expect(claim).toMatchObject({
+      deliveryId: delivery.deliveryId,
+      endpointUrl: "https://hooks.example/process-runs",
+      attemptNumber: 1,
+    });
+    await expect(
+      webhooks.complete({
+        deliveryId: delivery.deliveryId,
+        claimToken: "30000000-0000-4000-8000-000000000001",
+        completedAt: "2026-08-09T10:00:05.000Z",
+        result: { outcome: "succeeded", httpStatus: 204, latencyMs: 12 },
+      }),
+    ).resolves.toBe(true);
+    await expect(
+      webhooks.findByRun({
+        ownerId: "caller-webhook",
+        runIds: [delivery.runId],
+      }),
+    ).resolves.toEqual([
+      expect.objectContaining({
+        deliveryId: delivery.deliveryId,
+        status: "succeeded",
+        attemptCount: 1,
+        lastHttpStatus: 204,
+      }),
+    ]);
   });
 
   it("rejects an illegal terminal transition at the database boundary", async () => {

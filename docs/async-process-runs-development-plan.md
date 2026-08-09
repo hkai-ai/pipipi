@@ -35,7 +35,7 @@ flowchart LR
 | M2 内存异步纵切 | 已完成 | Async Process Runs Module 与状态机可测试 | 不组装进生产入口 |
 | M3 PostgreSQL 与查询 | 已完成 | durable Run、幂等提交和查询路由 | feature flag 关闭 |
 | M4 Outbox 与 BullMQ Worker | 进行中 | 一个 Process Queue 端到端执行 | 先向内部调用方开放 |
-| M5 Webhook Delivery | 未开始 | 签名通知、重试、审计和重放 | 按 endpoint 灰度 |
+| M5 Webhook Delivery | 进行中 | 签名通知已完成；重试、审计、重放与 egress 安全待补齐 | 仅隔离测试 |
 | M6 生产硬化与发布 | 未开始 | 容量、恢复、保留、Runbook 和正式发布 | 受控发布 |
 
 每个里程碑必须让主分支保持可构建、可测试和可部署。后续代码不能依赖尚未合并的隐藏分支；数据库迁移只做向前兼容的 additive change，删除和收紧约束留到所有旧进程退出之后。
@@ -245,6 +245,8 @@ type AsyncProcessRuns = Readonly<{
 ## M5：实现可靠 Webhook Delivery
 
 目标是增加不影响 Process Run 终态的完成通知。
+
+实现进度：Issue #18 已完成 additive migration、终态 Event/Delivery/Outbox 原子写入、独立 `webhook-deliveries` Queue 与 Webhook Worker、Standard Webhooks HMAC 签名、精简 payload 和持久化首轮投递结果。真实 PostgreSQL/Redis/HTTP 测试覆盖成功与失败 Run，且证明 Webhook Queue 不占用 Process Worker。Issue #19 和 #20 继续完成重试、重放、Secret 保护与 SSRF 边界。
 
 ### 实现任务
 
