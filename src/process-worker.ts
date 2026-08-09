@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto";
 import type {
+  ProcessErrorCode,
   ProcessAttemptRunner,
+  ProcessRegistration,
   ProcessRegistry,
   ProcessRunResult,
 } from "./process-runtime.js";
@@ -10,7 +12,11 @@ import {
   type ProcessWorkSource,
 } from "./process-work-queue.js";
 
-export type ProcessWorkResult = "processed" | "ignored" | "invalid-job";
+export type ProcessWorkResult =
+  | "processed"
+  | "ignored"
+  | "invalid-job"
+  | Readonly<{ outcome: "retry-scheduled"; delayMs: number }>;
 
 export type ProcessWorker = Readonly<{
   process: (
@@ -91,6 +97,32 @@ export function createProcessWorker(options: {
           return "ignored";
         }
 
+        if (
+          registration &&
+          result.status === "failed" &&
+          shouldRetry(
+            registration.retryPolicy,
+            result.error.code,
+            claim.attemptNumber,
+          )
+        ) {
+          const scheduled = await options.store.scheduleRetry({
+            runId: claim.runId,
+            claimToken: claim.claimToken,
+            scheduledAt: clock(),
+            failure: result.error,
+          });
+          return scheduled
+            ? {
+                outcome: "retry-scheduled",
+                delayMs: retryDelay(
+                  registration.retryPolicy,
+                  claim.attemptNumber,
+                ),
+              }
+            : "ignored";
+        }
+
         const completed = await options.store.complete({
           runId: claim.runId,
           claimToken: claim.claimToken,
@@ -120,6 +152,27 @@ export function createProcessWorker(options: {
       return released.filter(Boolean).length;
     },
   });
+}
+
+function shouldRetry(
+  policy: ProcessRegistration["retryPolicy"],
+  errorCode: ProcessErrorCode,
+  attemptNumber: number,
+): boolean {
+  return (
+    attemptNumber < policy.maximumAttempts &&
+    policy.retryableErrorCodes.some((code) => code === errorCode)
+  );
+}
+
+function retryDelay(
+  policy: ProcessRegistration["retryPolicy"],
+  attemptNumber: number,
+): number {
+  return Math.min(
+    policy.backoff.initialDelayMs * 2 ** (attemptNumber - 1),
+    policy.backoff.maximumDelayMs,
+  );
 }
 
 export type ProcessWorkerDrain = Readonly<{

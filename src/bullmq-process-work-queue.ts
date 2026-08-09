@@ -1,4 +1,4 @@
-import { Queue, Worker, type Job } from "bullmq";
+import { DelayedError, Queue, Worker, type Job } from "bullmq";
 import type { ProcessWorker, ProcessWorkResult } from "./process-worker.js";
 import {
   parseProcessWorkJob,
@@ -134,7 +134,7 @@ export function createBullMqProcessWorker(options: {
     typeof processWorkJobName
   >(
     queueName,
-    async (job: Job<ProcessWorkJob>, _token, signal) => {
+    async (job: Job<ProcessWorkJob>, token, signal) => {
       activeCount += 1;
       try {
         const parsed = parseProcessWorkJob(job.data);
@@ -142,6 +142,10 @@ export function createBullMqProcessWorker(options: {
         const result = await options.worker.process(parsed, { signal });
         if (result === "invalid-job") {
           throw new Error("Process Work Job is invalid");
+        }
+        if (typeof result === "object") {
+          await job.moveToDelayed(Date.now() + result.delayMs, token);
+          throw new DelayedError();
         }
         return result;
       } finally {

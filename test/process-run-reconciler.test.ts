@@ -89,6 +89,7 @@ function fakeStore(overrides: Partial<ProcessRunStore> = {}): ProcessRunStore {
     findOwned: async () => undefined,
     claim: async () => undefined,
     complete: async () => false,
+    scheduleRetry: async () => false,
     releaseClaim: async () => false,
     findRecoverable: async () => [],
     ...overrides,

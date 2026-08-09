@@ -1,7 +1,7 @@
 export type ContentProcessingCapability = {
   process: (
     input: { content: string },
-    options: { signal: AbortSignal },
+    options: { signal: AbortSignal; idempotencyKey: string },
   ) => Promise<{ content: string }>;
 };
 

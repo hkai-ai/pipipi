@@ -66,6 +66,7 @@ describe("business process execution", () => {
   });
 
   it("returns validated content from the direct business API process", async () => {
+    let downstreamIdempotencyKey: string | undefined;
     const businessApi = await startServer(async (request, response) => {
       if (request.method !== "POST" || request.url !== "/process") {
         response.writeHead(404).end();
@@ -73,6 +74,10 @@ describe("business process execution", () => {
       }
 
       const requestBody = await readJson(request);
+      const idempotencyHeader = request.headers["idempotency-key"];
+      downstreamIdempotencyKey = Array.isArray(idempotencyHeader)
+        ? idempotencyHeader[0]
+        : idempotencyHeader;
       const expectedBody = { content: "launch offer" };
       if (JSON.stringify(requestBody) !== JSON.stringify(expectedBody)) {
         response.writeHead(422).end();
@@ -97,6 +102,7 @@ describe("business process execution", () => {
       status: "succeeded",
       output: { content: "Refined campaign copy" },
     });
+    expect(downstreamIdempotencyKey).toMatch(/^[0-9a-f-]{36}$/);
   });
 
   it("maps invalid Process Definition output to a stable error", async () => {
@@ -374,7 +380,10 @@ describe("business process execution", () => {
       optimize: async (request) =>
         request.contentProcessing.process(
           { content: `Optimize ${request.content}` },
-          { signal: request.signal },
+          {
+            signal: request.signal,
+            idempotencyKey: request.idempotencyKey,
+          },
         ),
     };
     const processingService = await startProcessingService({
@@ -406,7 +415,10 @@ describe("business process execution", () => {
       optimize: async (request) =>
         request.contentProcessing.process(
           { content: request.content },
-          { signal: request.signal },
+          {
+            signal: request.signal,
+            idempotencyKey: request.idempotencyKey,
+          },
         ),
     };
     const processingService = await startProcessingService({

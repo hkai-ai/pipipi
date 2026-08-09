@@ -39,7 +39,7 @@ Business Processing Service 让产品调用方通过一个稳定的 HTTP Interfa
 
 默认 HTTP 入口公开 `GET /healthz`、`GET /readyz` 和 `POST /execute`。每次执行生成独立 `runId`。显式启用并完整配置 Async Process Runs 后，API 还提供 `POST /process-runs` 和 `GET /process-runs/{runId}`；该功能默认关闭，在生产观测和发布门禁完成前不得向外部调用方开放。默认同步生产构造不持久化 Run Record；结构化完成日志只保留运行元数据，不保存 Prompt、Tool 过程、模型消息或隐藏推理。
 
-仓库已实现 Async Process Runs Module。它以 `submit/find` 固定公共状态、owner 隔离和 caller-scoped idempotency；PostgreSQL Adapter 以事务持久化 Run、初始 Event 和 Outbox。Outbox Dispatcher 通过统一的 BullMQ `process-runs` Queue 只发布 `{ schemaVersion, runId }`，Worker 再从 PostgreSQL 读取准确 Registration 与 accepted input。Store 以 claim token 隔离 Attempt；过期租约可被接管，Reconciler 会重投长期 queued 或过期 running Run，停机超时则释放当前 claim。API、Dispatcher 和 Worker 已有独立 Construction Root、入口、配置与健康检查；真实 PostgreSQL/Redis 集成测试覆盖成功、业务失败、Redis 断线、重复 Job、租约接管、有期限停机和 caller 隔离。
+仓库已实现 Async Process Runs Module。它以 `submit/find` 固定公共状态、owner 隔离和 caller-scoped idempotency；PostgreSQL Adapter 以事务持久化 Run、初始 Event 和 Outbox。Outbox Dispatcher 通过统一的 BullMQ `process-runs` Queue 只发布 `{ schemaVersion, runId }`，Worker 再从 PostgreSQL 读取准确 Registration 与 accepted input。Store 以 claim token 隔离 Attempt；过期租约可被接管，Reconciler 会重投长期 queued 或过期 running Run，停机超时则释放当前 claim。Registration 默认单次执行，也可声明有界错误分类与指数退避；Business Capability 获得稳定 `runId` 幂等键。API、Dispatcher 和 Worker 已有独立 Construction Root、入口、配置与健康检查；真实 PostgreSQL/Redis 集成测试覆盖成功、业务失败、受控重试、Redis 断线、重复 Job、租约接管、有期限停机和 caller 隔离。
 
 图片生成、海报 Skill、对象存储和 Skill A/B 对比目前属于开发实验与集成验证，不属于 `/execute` 的生产 catalog。
 
@@ -54,7 +54,7 @@ Agent 只获得 Process Registration 明确授权的窄 Tool。生产内容处�
 项目当前不提供：
 
 - 动态 Process Definition、运行时注册、自动发现、默认版本或版本回退；
-- 通用工作流编排、已开放的生产 Queue、跨请求 Agent 记忆或自动重试；
+- 通用工作流编排、已开放的生产 Queue、跨请求 Agent 记忆或调用方控制的重试；
 - 应用内用户系统、RBAC、多租户、CORS 或公网匿名调用；
 - 生产 Run Record 查询、聊天历史、持久化执行历史或通用幂等；
 - 允许 Agent 使用 Coding Tools 的通用 Skill 执行环境。
@@ -73,7 +73,7 @@ Agent 只获得 Process Registration 明确授权的窄 Tool。生产内容处�
 | Async Role Construction | `constructProcessDispatcherService`、`constructProcessWorkerService` | 角色专属配置、依赖和生命周期组装 |
 | Processing Application | `listen`、`close` | Node HTTP 生命周期 |
 | Process Executor | `execute(request)` | 查找、超时、取消、错误转换和 Run Record |
-| Process Registration | `identity`、`accept(input)`、`run(acceptedInput, context)` | Schema、JSON-safe accepted input、Process Definition、依赖、策略和输出验证 |
+| Process Registration | `identity`、`retryPolicy`、`accept(input)`、`run(acceptedInput, context)` | Schema、JSON-safe accepted input、Process Definition、依赖、服务端重试策略和输出验证 |
 | Process Attempt Runner | `run({ runId, registration, acceptedInput })` | 预分配 runId、超时、取消和公开错误净化 |
 | Async Process Runs | `submit(request, context)`、`find(runId, context)` | 输入接受、owner、幂等摘要和公共状态投影 |
 | Process Run Store | 接受 Run、owner 查询、claim、终态转换 | accepted input、attempt、revision 和 fencing；提供内存与 PostgreSQL Adapter |

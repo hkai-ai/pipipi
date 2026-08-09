@@ -9,6 +9,7 @@ import {
   failProcess,
   type ExpectedProcessFailure,
   type ProcessRegistration,
+  type ProcessRetryPolicy,
 } from "./process-runtime.js";
 
 const contentProcessInputSchema = z.strictObject({
@@ -29,10 +30,12 @@ export type ContentProcessingRegistrationOptions = {
   contentProcessing: ContentProcessingCapability;
   agentRuntime?: ContentOptimizationAgentRuntime;
   mode?: "direct" | "agent";
+  retryPolicy?: ProcessRetryPolicy;
 };
 
 export type ContentProcessingProcessConfig = {
   mode?: "direct" | "agent";
+  retryPolicy?: ProcessRetryPolicy;
 };
 
 export function createContentProcessingRegistration(
@@ -65,13 +68,14 @@ export function createContentProcessingRegistration(
     version: "v1",
     inputSchema: contentProcessInputSchema,
     outputSchema: contentProcessOutputSchema,
+    retryPolicy: options.retryPolicy,
     execute: async (input, context) => {
       const preparedContent = input.content.replace(/\s+/g, " ");
       if (mode === "direct") {
         try {
           return await contentProcessing.process(
             { content: preparedContent },
-            { signal: context.signal },
+            { signal: context.signal, idempotencyKey: context.runId },
           );
         } catch (error) {
           if (error instanceof ContentProcessingUnavailable) {
@@ -86,6 +90,7 @@ export function createContentProcessingRegistration(
         const rawOutput = await agentRuntime.optimize({
           content: preparedContent,
           signal: context.signal,
+          idempotencyKey: context.runId,
           contentProcessing,
         });
         const output = contentProcessOutputSchema.safeParse(rawOutput);
@@ -128,12 +133,15 @@ export class HttpContentProcessingCapability
 
   async process(
     input: { content: string },
-    options: { signal: AbortSignal },
+    options: { signal: AbortSignal; idempotencyKey: string },
   ): Promise<{ content: string }> {
     try {
       const response = await fetch(this.#endpoint, {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: {
+          "content-type": "application/json",
+          "idempotency-key": options.idempotencyKey,
+        },
         body: JSON.stringify(input),
         signal: AbortSignal.any([
           options.signal,

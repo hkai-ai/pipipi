@@ -590,7 +590,10 @@ describe("controlled MVP HTTP boundary", () => {
           );
           return request.contentProcessing.process(
             { content: `Tool input ${request.content}` },
-            { signal: request.signal },
+            {
+              signal: request.signal,
+              idempotencyKey: request.idempotencyKey,
+            },
           );
         },
       },

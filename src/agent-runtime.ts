@@ -17,6 +17,7 @@ const contentOptimizationSkillName = "content-optimization";
 export type ContentOptimizationAgentRequest = {
   content: string;
   signal: AbortSignal;
+  idempotencyKey: string;
   contentProcessing: ContentProcessingCapability;
 };
 
@@ -128,6 +129,7 @@ export class PiContentOptimizationAgentRuntime
           : request.signal;
         const result = await request.contentProcessing.process(input, {
           signal,
+          idempotencyKey: request.idempotencyKey,
         });
         return {
           content: [{ type: "text" as const, text: JSON.stringify(result) }],

@@ -76,6 +76,7 @@ export type ClaimedProcessRun = Readonly<{
   version: string;
   acceptedInput: AcceptedProcessInput;
   claimToken: string;
+  attemptNumber: number;
 }>;
 
 export type ProcessRunAttemptCompletion =
@@ -98,6 +99,12 @@ export type ProcessRunStore = Readonly<{
     claimToken: string;
     completedAt: string;
     completion: ProcessRunAttemptCompletion;
+  }) => Promise<boolean>;
+  scheduleRetry: (request: {
+    runId: string;
+    claimToken: string;
+    scheduledAt: string;
+    failure: ProcessRunFailure;
   }) => Promise<boolean>;
   releaseClaim: (request: {
     runId: string;
@@ -204,6 +211,7 @@ export function createInMemoryProcessRunStore(
         version: claimed.version,
         acceptedInput: claimed.acceptedInput,
         claimToken: claimed.claimToken,
+        attemptNumber: claimed.attemptCount,
       });
     },
 
@@ -236,6 +244,26 @@ export function createInMemoryProcessRunStore(
               revision: run.revision + 1,
             };
       runs.set(run.runId, clone(terminal));
+      return true;
+    },
+
+    scheduleRetry: async (request) => {
+      const run = runs.get(request.runId);
+      if (
+        !run ||
+        run.status !== "running" ||
+        run.claimToken !== request.claimToken
+      ) {
+        return false;
+      }
+      timestampMilliseconds(request.scheduledAt);
+      const queued: StoredProcessRun = {
+        ...withoutClaim(run),
+        status: "queued",
+        updatedAt: request.scheduledAt,
+        revision: run.revision + 1,
+      };
+      runs.set(run.runId, clone(queued));
       return true;
     },
 
@@ -319,6 +347,12 @@ function compareTimestamps(left: string, right: string): number {
     throw new Error("Process Run timestamp is invalid");
   }
   return leftTime - rightTime;
+}
+
+function timestampMilliseconds(timestamp: string): number {
+  const time = new Date(timestamp).getTime();
+  if (!Number.isFinite(time)) throw new Error("Process Run timestamp is invalid");
+  return time;
 }
 
 function clone<Value>(value: Value): Value {

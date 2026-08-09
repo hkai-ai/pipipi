@@ -354,6 +354,91 @@ export function createPostgresProcessRunStore(options: {
       });
     },
 
+    scheduleRetry: async (request) => {
+      if (!isUuid(request.runId) || !isUuid(request.claimToken)) return false;
+      timestampMilliseconds(request.scheduledAt);
+
+      return transaction(options.pool, async (client) => {
+        const retried = await client.query<
+          Pick<ProcessRunRow, "attempt_count" | "process_id" | "process_version">
+        >(
+          `
+            UPDATE process_runs
+            SET
+              status = 'queued',
+              claim_token = NULL,
+              claim_expires_at = NULL,
+              updated_at = $3,
+              revision = revision + 1
+            WHERE
+              run_id = $1
+              AND status = 'running'
+              AND claim_token = $2
+            RETURNING attempt_count, process_id, process_version
+          `,
+          [request.runId, request.claimToken, request.scheduledAt],
+        );
+        const row = retried.rows[0];
+        if (!row) return false;
+
+        const attempt = await client.query(
+          `
+            UPDATE process_run_attempts
+            SET status = 'failed', finished_at = $4, result_code = $5
+            WHERE
+              run_id = $1
+              AND attempt_number = $2
+              AND claim_token = $3
+              AND status = 'running'
+          `,
+          [
+            request.runId,
+            row.attempt_count,
+            request.claimToken,
+            request.scheduledAt,
+            request.failure.code,
+          ],
+        );
+        if (attempt.rowCount !== 1) {
+          throw new Error("Retried Process Run Attempt is inconsistent");
+        }
+
+        const eventId = createEventId();
+        await client.query(
+          `
+            INSERT INTO process_events (
+              event_id,
+              run_id,
+              event_type,
+              deduplication_key,
+              payload,
+              created_at
+            )
+            VALUES ($1, $2, 'process_run.queued', $3, $4::jsonb, $5)
+          `,
+          [
+            eventId,
+            request.runId,
+            `process-run:${request.runId}:queued:${row.attempt_count}`,
+            serializeJson({
+              schemaVersion: 1,
+              eventId,
+              type: "process_run.queued",
+              createdAt: request.scheduledAt,
+              data: {
+                runId: request.runId,
+                process: row.process_id,
+                version: row.process_version,
+                status: "queued",
+              },
+            }),
+            request.scheduledAt,
+          ],
+        );
+        return true;
+      });
+    },
+
     releaseClaim: async (request) => {
       if (!isUuid(request.runId) || !isUuid(request.claimToken)) return false;
       timestampMilliseconds(request.releasedAt);
@@ -580,6 +665,7 @@ function claimedProcessRunFromRow(row: ProcessRunRow): ClaimedProcessRun {
     version: run.version,
     acceptedInput: structuredClone(run.acceptedInput),
     claimToken: run.claimToken,
+    attemptNumber: run.attemptCount,
   };
 }
 

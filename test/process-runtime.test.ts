@@ -14,6 +14,46 @@ import {
 } from "../src/process-runtime.js";
 
 describe("Process Runtime", () => {
+  it("captures and validates a server-owned retry policy", () => {
+    const process = defineProcessRegistration({
+      id: "retry-safe-processing",
+      version: "v1",
+      inputSchema: z.strictObject({ value: z.string() }),
+      outputSchema: z.strictObject({ value: z.string() }),
+      retryPolicy: {
+        maximumAttempts: 3,
+        retryableErrorCodes: ["DEPENDENCY_FAILURE"],
+        backoff: { initialDelayMs: 100, maximumDelayMs: 400 },
+      },
+      execute: async (input) => input,
+    });
+
+    expect(process.retryPolicy).toEqual({
+      maximumAttempts: 3,
+      retryableErrorCodes: ["DEPENDENCY_FAILURE"],
+      backoff: { initialDelayMs: 100, maximumDelayMs: 400 },
+    });
+    expect(Object.isFrozen(process.retryPolicy)).toBe(true);
+    expect(Object.isFrozen(process.retryPolicy.retryableErrorCodes)).toBe(true);
+    expect(Object.isFrozen(process.retryPolicy.backoff)).toBe(true);
+    expect(registration("v1").retryPolicy.maximumAttempts).toBe(1);
+
+    expect(() =>
+      defineProcessRegistration({
+        id: "unsafe-retry",
+        version: "v1",
+        inputSchema: z.string(),
+        outputSchema: z.string(),
+        retryPolicy: {
+          maximumAttempts: 0,
+          retryableErrorCodes: ["DEPENDENCY_FAILURE"],
+          backoff: { initialDelayMs: 100, maximumDelayMs: 400 },
+        },
+        execute: async (input) => input,
+      }),
+    ).toThrow("Process retry maximum attempts must be between 1 and 5");
+  });
+
   it("builds an immutable catalog with exact Business Process versions", async () => {
     const v1 = registration("v1");
     const v2 = registration("v2");

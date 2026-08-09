@@ -309,7 +309,7 @@ BullMQ 只有在 processor 抛出异常时才调度自动重试。Queue Adapter 
 
 BullMQ 和网络只能提供至少一次执行。流程若会扣费、发布、发送或修改远端状态，Business Capability 必须接受由 `runId` 派生的幂等键，或使用自身事务/outbox。Worker 在远端副作用完成后、数据库写终态前崩溃时，仍可能再次执行；仅靠 BullMQ Job ID 无法消除这段窗口。
 
-初始重试只覆盖已经分类的瞬时基础设施失败。`INVALID_INPUT`、`PROCESS_NOT_FOUND` 和 `INVALID_OUTPUT` 不重试；其他错误是否重试由具体 Registration 明确声明。当前 Business Capability 尚未接收幂等键，因此在补齐下游契约前，不应自动重试可能产生副作用的 Process。
+重试只覆盖已经分类的瞬时基础设施失败。`INVALID_INPUT`、`PROCESS_NOT_FOUND` 和 `INVALID_OUTPUT` 不重试；其他错误是否重试由具体 Registration 明确声明。Content Processing Capability 现在接收稳定的 `Idempotency-Key: <runId>`；其自动重试仍默认关闭，只有确认下游实际按该键去重后，部署配置才可提高最大 Attempt 数。
 
 ### 事件与 Webhook
 

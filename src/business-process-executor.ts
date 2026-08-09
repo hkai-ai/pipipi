@@ -47,6 +47,7 @@ export function createBusinessProcessRuntime(
       contentProcessing: options.contentProcessing,
       agentRuntime: options.agentRuntime,
       mode: contentProcessingConfig?.mode,
+      retryPolicy: contentProcessingConfig?.retryPolicy,
     }),
     createTitledContentProcessingRegistration({
       contentProcessing: options.contentProcessing,

@@ -177,6 +177,54 @@ export function processRunStoreContract(
       });
     });
 
+    it("records a retryable Attempt while keeping the public Run queued", async () => {
+      const store = createStore();
+      const run = acceptedRun({ runId: runId(9) });
+      await store.accept(run);
+      const first = await store.claim({
+        runId: run.runId,
+        claimToken: claimToken(10),
+        claimedAt: "2026-08-09T10:00:01.000Z",
+      });
+      expect(first).toMatchObject({ attemptNumber: 1 });
+
+      await expect(
+        store.scheduleRetry({
+          runId: run.runId,
+          claimToken: claimToken(10),
+          scheduledAt: "2026-08-09T10:00:02.000Z",
+          failure: {
+            code: "DEPENDENCY_FAILURE",
+            message: "A required business service is unavailable",
+          },
+        }),
+      ).resolves.toBe(true);
+      await expect(
+        store.scheduleRetry({
+          runId: run.runId,
+          claimToken: claimToken(10),
+          scheduledAt: "2026-08-09T10:00:03.000Z",
+          failure: {
+            code: "DEPENDENCY_FAILURE",
+            message: "A required business service is unavailable",
+          },
+        }),
+      ).resolves.toBe(false);
+      await expect(store.findOwned(run.runId, run.ownerId)).resolves.toMatchObject({
+        status: "queued",
+        attemptCount: 1,
+        revision: 2,
+      });
+
+      await expect(
+        store.claim({
+          runId: run.runId,
+          claimToken: claimToken(11),
+          claimedAt: "2026-08-09T10:00:04.000Z",
+        }),
+      ).resolves.toMatchObject({ attemptNumber: 2 });
+    });
+
     it("returns defensive snapshots from every read boundary", async () => {
       const store = createStore();
       const run = acceptedRun({ runId: runId(6) });

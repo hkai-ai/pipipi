@@ -122,10 +122,26 @@ export type ProcessRegistrationAcceptance =
       acceptedInput: AcceptedProcessInput;
     }>;
 
+export type ProcessRetryPolicy = Readonly<{
+  maximumAttempts: number;
+  retryableErrorCodes: readonly ExpectedProcessErrorCode[];
+  backoff: Readonly<{
+    initialDelayMs: number;
+    maximumDelayMs: number;
+  }>;
+}>;
+
+const noRetryPolicy: ProcessRetryPolicy = Object.freeze({
+  maximumAttempts: 1,
+  retryableErrorCodes: Object.freeze([]),
+  backoff: Object.freeze({ initialDelayMs: 1_000, maximumDelayMs: 1_000 }),
+});
+
 const processRegistrationBrand: unique symbol = Symbol("ProcessRegistration");
 
 export type ProcessRegistration = Readonly<{
   identity: ProcessIdentity;
+  retryPolicy: ProcessRetryPolicy;
   accept: (input: unknown) => ProcessRegistrationAcceptance;
   run: (
     acceptedInput: AcceptedProcessInput,
@@ -142,6 +158,7 @@ export function defineProcessRegistration<
   version: string;
   inputSchema: InputSchema;
   outputSchema: OutputSchema;
+  retryPolicy?: ProcessRetryPolicy;
   execute: (
     input: z.output<InputSchema>,
     context: ProcessExecutionContext,
@@ -151,6 +168,7 @@ export function defineProcessRegistration<
   const inputSchema = definition.inputSchema;
   const outputSchema = definition.outputSchema;
   const execute = definition.execute;
+  const retryPolicy = normalizeRetryPolicy(definition.retryPolicy);
 
   const identity = Object.freeze({
     id: definition.id,
@@ -243,10 +261,60 @@ export function defineProcessRegistration<
 
   return Object.freeze({
     identity,
+    retryPolicy,
     accept,
     run,
     [processRegistrationBrand]: true as const,
   });
+}
+
+function normalizeRetryPolicy(
+  policy: ProcessRetryPolicy | undefined,
+): ProcessRetryPolicy {
+  if (policy === undefined) return noRetryPolicy;
+  if (
+    !Number.isSafeInteger(policy.maximumAttempts) ||
+    policy.maximumAttempts < 1 ||
+    policy.maximumAttempts > 5
+  ) {
+    throw new Error("Process retry maximum attempts must be between 1 and 5");
+  }
+  if (
+    !Array.isArray(policy.retryableErrorCodes) ||
+    policy.retryableErrorCodes.some(
+      (code) => code !== "AGENT_FAILURE" && code !== "DEPENDENCY_FAILURE",
+    ) ||
+    new Set(policy.retryableErrorCodes).size !==
+      policy.retryableErrorCodes.length ||
+    (policy.maximumAttempts > 1 && policy.retryableErrorCodes.length === 0)
+  ) {
+    throw new Error("Process retry error codes must be unique expected failures");
+  }
+  const initialDelayMs = positiveSafeInteger(
+    policy.backoff?.initialDelayMs,
+    "Process retry initial delay",
+  );
+  const maximumDelayMs = positiveSafeInteger(
+    policy.backoff?.maximumDelayMs,
+    "Process retry maximum delay",
+  );
+  if (maximumDelayMs < initialDelayMs || maximumDelayMs > 300_000) {
+    throw new Error(
+      "Process retry maximum delay must be between the initial delay and 300000",
+    );
+  }
+  return Object.freeze({
+    maximumAttempts: policy.maximumAttempts,
+    retryableErrorCodes: Object.freeze([...policy.retryableErrorCodes]),
+    backoff: Object.freeze({ initialDelayMs, maximumDelayMs }),
+  });
+}
+
+function positiveSafeInteger(value: number, label: string): number {
+  if (!Number.isSafeInteger(value) || value < 1) {
+    throw new Error(`${label} must be a positive safe integer`);
+  }
+  return value;
 }
 
 function isExpectedProcessFailure(

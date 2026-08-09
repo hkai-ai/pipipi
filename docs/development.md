@@ -137,6 +137,8 @@ docker compose -f compose.integration.yaml down
 
 部署前先执行 migration。`PROCESS_RUN_CLAIM_LEASE_MS` 必须大于 `PROCESS_TIMEOUT_MS`，避免正常 Attempt 在超时治理结束前被接管。每个环境使用独立 `PROCESS_QUEUE_PREFIX`；调用方不能提交 queue name、concurrency、retry 或 Redis 配置。
 
+`content-processing/v1` 默认 `CONTENT_PROCESSING_RETRY_MAX_ATTEMPTS=1`。只有确认下游按 `Idempotency-Key: <runId>` 去重后，才可把该值提高到 `2`–`5`；当前只把稳定的 `DEPENDENCY_FAILURE` 分类为可重试。`CONTENT_PROCESSING_RETRY_INITIAL_DELAY_MS` 和 `CONTENT_PROCESSING_RETRY_MAX_DELAY_MS` 控制指数退避，最大延迟不超过 300 秒。等待重试时公开状态仍是 `queued`，请求 body 不能覆盖这些策略。
+
 三个角色都提供 `GET /healthz` 和 `GET /readyz`。liveness 只确认进程工作，不访问下游；readiness 检查该角色实际使用的 migration、PostgreSQL 和 Redis，并在有界时间内返回 `503`，不暴露连接地址或内部错误。默认同步 API 保持原样，启用异步路由也不会删除 `POST /execute`。
 
 ## 代码地图

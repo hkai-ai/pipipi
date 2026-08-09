@@ -55,7 +55,7 @@ export function createTitledContentProcessingRegistration(
       try {
         const processed = await contentProcessing.process(
           { content: `${title}${separator}${body}` },
-          { signal: context.signal },
+          { signal: context.signal, idempotencyKey: context.runId },
         );
         return { title, content: processed.content };
       } catch (error) {

@@ -20,7 +20,10 @@ import {
   type ProcessingHttpOptions,
 } from "./http-adapter.js";
 import { createPostgresProcessRunStore } from "./postgres-process-run-store.js";
-import type { ProcessRegistry } from "./process-runtime.js";
+import type {
+  ProcessRegistry,
+  ProcessRetryPolicy,
+} from "./process-runtime.js";
 import { parseBusinessApiBaseUrl } from "./service-config.js";
 
 export type StartupEnvironment = Readonly<
@@ -94,7 +97,10 @@ export function constructBusinessProcessRuntime(
       "PROCESS_TIMEOUT_MS",
     ),
     processes: {
-      contentProcessing: { mode: contentProcessingMode },
+      contentProcessing: {
+        mode: contentProcessingMode,
+        retryPolicy: parseContentProcessingRetryPolicy(environment),
+      },
       titledContentProcessing: {
         separator: environment.TITLED_CONTENT_SEPARATOR,
       },
@@ -280,4 +286,37 @@ function parseContentProcessingMode(
   if (value === undefined || value === "direct") return "direct";
   if (value === "agent") return "agent";
   throw new Error("CONTENT_PROCESSING_MODE must be direct or agent");
+}
+
+function parseContentProcessingRetryPolicy(
+  environment: StartupEnvironment,
+): ProcessRetryPolicy {
+  const maximumAttempts = parsePositiveInteger(
+    environment.CONTENT_PROCESSING_RETRY_MAX_ATTEMPTS,
+    1,
+    "CONTENT_PROCESSING_RETRY_MAX_ATTEMPTS",
+  );
+  if (maximumAttempts > 5) {
+    throw new Error(
+      "CONTENT_PROCESSING_RETRY_MAX_ATTEMPTS must not exceed 5",
+    );
+  }
+  return Object.freeze({
+    maximumAttempts,
+    retryableErrorCodes: Object.freeze(
+      maximumAttempts > 1 ? (["DEPENDENCY_FAILURE"] as const) : [],
+    ),
+    backoff: Object.freeze({
+      initialDelayMs: parsePositiveInteger(
+        environment.CONTENT_PROCESSING_RETRY_INITIAL_DELAY_MS,
+        1_000,
+        "CONTENT_PROCESSING_RETRY_INITIAL_DELAY_MS",
+      ),
+      maximumDelayMs: parsePositiveInteger(
+        environment.CONTENT_PROCESSING_RETRY_MAX_DELAY_MS,
+        30_000,
+        "CONTENT_PROCESSING_RETRY_MAX_DELAY_MS",
+      ),
+    }),
+  });
 }

@@ -185,6 +185,94 @@ integrationDescribe("BullMQ Process Runtime", () => {
     }
   }, 20_000);
 
+  it("delays a declared transient retry and persists one successful terminal Run", async () => {
+    const seenRunIds: string[] = [];
+    let executionCount = 0;
+    const process = defineProcessRegistration({
+      id: "test-retry-safe",
+      version: "v1",
+      inputSchema: z.strictObject({ value: z.string() }),
+      outputSchema: z.strictObject({ value: z.string() }),
+      retryPolicy: {
+        maximumAttempts: 3,
+        retryableErrorCodes: ["DEPENDENCY_FAILURE"],
+        backoff: { initialDelayMs: 500, maximumDelayMs: 1_000 },
+      },
+      execute: async (input, context) => {
+        seenRunIds.push(context.runId);
+        executionCount += 1;
+        return executionCount === 1
+          ? failProcess(
+              "DEPENDENCY_FAILURE",
+              "The test dependency is unavailable",
+            )
+          : { value: `recovered:${input.value}` };
+      },
+    });
+    const registry = createProcessRegistry([process]);
+    const store = createPostgresProcessRunStore({ pool, retention: RETENTION });
+    const runs = createAsyncProcessRuns({ registry, store });
+    const queue = createBullMqProcessWorkQueue({ redisUrl: redisUrl as string });
+    const dispatcher = createOutboxDispatcher({
+      outbox: createPostgresProcessOutbox({ pool }),
+      queue,
+    });
+    const worker = createBullMqProcessWorker({
+      redisUrl: redisUrl as string,
+      worker: createProcessWorker({
+        registry,
+        store,
+        attemptRunner: createProcessAttemptRunner({ processTimeoutMs: 5_000 }),
+      }),
+    });
+
+    try {
+      const submitted = await runs.submit(
+        {
+          process: "test-retry-safe",
+          version: "v1",
+          input: { value: "request" },
+        },
+        { callerId: "caller-retry", idempotencyKey: "safe-retry" },
+      );
+      if (!submitted.accepted) throw new Error("Expected accepted Process Run");
+      await dispatcher.dispatchOnce();
+      await worker.start();
+
+      await expect(
+        waitForStoredRun(store, submitted.runId, "caller-retry", (run) =>
+          run.status === "queued" && run.attemptCount === 1,
+        ),
+      ).resolves.toMatchObject({ status: "queued", attemptCount: 1 });
+      await expect(
+        waitForTerminal(runs, submitted.runId, "caller-retry"),
+      ).resolves.toMatchObject({
+        status: "succeeded",
+        output: { value: "recovered:request" },
+      });
+      expect(seenRunIds).toEqual([submitted.runId, submitted.runId]);
+      const attempts = await pool.query<{
+        attempt_number: number;
+        status: string;
+        result_code: string;
+      }>(`
+        SELECT attempt_number, status, result_code
+        FROM process_run_attempts
+        ORDER BY attempt_number
+      `);
+      expect(attempts.rows).toEqual([
+        {
+          attempt_number: 1,
+          status: "failed",
+          result_code: "DEPENDENCY_FAILURE",
+        },
+        { attempt_number: 2, status: "succeeded", result_code: "SUCCEEDED" },
+      ]);
+    } finally {
+      await Promise.allSettled([worker.close(), queue.close()]);
+    }
+  }, 20_000);
+
   it("deduplicates a repeated outbox publication by runId", async () => {
     const queue = createBullMqProcessWorkQueue({ redisUrl: redisUrl as string });
     const job = { schemaVersion: 1 as const, runId: runId(9) };
@@ -645,6 +733,23 @@ async function waitForTerminal(
     await new Promise((resolve) => setTimeout(resolve, 20));
   }
   throw new Error(`Process Run ${runIdValue} did not reach a terminal state`);
+}
+
+async function waitForStoredRun(
+  store: ReturnType<typeof createPostgresProcessRunStore>,
+  runIdValue: string,
+  callerId: string,
+  predicate: (
+    run: NonNullable<Awaited<ReturnType<typeof store.findOwned>>>,
+  ) => boolean,
+) {
+  const deadline = Date.now() + 5_000;
+  while (Date.now() < deadline) {
+    const run = await store.findOwned(runIdValue, callerId);
+    if (run && predicate(run)) return run;
+    await delay(20);
+  }
+  throw new Error(`Process Run ${runIdValue} did not reach the expected state`);
 }
 
 async function waitForJobState(

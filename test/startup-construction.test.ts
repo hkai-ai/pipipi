@@ -580,6 +580,9 @@ describe("Startup Construction", () => {
   it.each([
     "BUSINESS_API_TIMEOUT_MS",
     "PROCESS_TIMEOUT_MS",
+    "CONTENT_PROCESSING_RETRY_MAX_ATTEMPTS",
+    "CONTENT_PROCESSING_RETRY_INITIAL_DELAY_MS",
+    "CONTENT_PROCESSING_RETRY_MAX_DELAY_MS",
     "HTTP_MAX_REQUEST_BODY_BYTES",
     "MAX_CONCURRENT_EXECUTIONS",
   ])("rejects invalid positive-integer values for %s", (name) => {
@@ -591,6 +594,25 @@ describe("Startup Construction", () => {
         }),
       ).toThrow(`${name} must be a positive integer`);
     }
+  });
+
+  it("bounds the server-owned content-processing retry policy", () => {
+    expect(() =>
+      constructProcessingService({
+        BUSINESS_API_BASE_URL: "https://business.example",
+        CONTENT_PROCESSING_RETRY_MAX_ATTEMPTS: "6",
+      }),
+    ).toThrow("CONTENT_PROCESSING_RETRY_MAX_ATTEMPTS must not exceed 5");
+    expect(() =>
+      constructProcessingService({
+        BUSINESS_API_BASE_URL: "https://business.example",
+        CONTENT_PROCESSING_RETRY_MAX_ATTEMPTS: "2",
+        CONTENT_PROCESSING_RETRY_INITIAL_DELAY_MS: "2000",
+        CONTENT_PROCESSING_RETRY_MAX_DELAY_MS: "1000",
+      }),
+    ).toThrow(
+      "Process retry maximum delay must be between the initial delay and 300000",
+    );
   });
 
   it("keeps invalid async-only configuration inert while the feature is off", () => {

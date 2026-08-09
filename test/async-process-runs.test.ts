@@ -108,6 +108,127 @@ describe("Async Process Runs", () => {
     });
   });
 
+  it("retries only a declared transient failure and keeps one public terminal state", async () => {
+    const seenRunIds: string[] = [];
+    let attempts = 0;
+    const process = defineProcessRegistration({
+      id: "test-processing",
+      version: "v1",
+      inputSchema: z.strictObject({ value: z.string() }),
+      outputSchema: z.strictObject({ value: z.string() }),
+      retryPolicy: {
+        maximumAttempts: 3,
+        retryableErrorCodes: ["DEPENDENCY_FAILURE"],
+        backoff: { initialDelayMs: 100, maximumDelayMs: 400 },
+      },
+      execute: async (input, context) => {
+        seenRunIds.push(context.runId);
+        attempts += 1;
+        return attempts === 1
+          ? failProcess(
+              "DEPENDENCY_FAILURE",
+              "A required business service is unavailable",
+            )
+          : { value: input.value.toUpperCase() };
+      },
+    });
+    const fixture = createFixture([process]);
+    await fixture.runs.submit(request("v1", "request"), {
+      callerId: "caller-a",
+      idempotencyKey: "retry-safe",
+    });
+
+    await expect(fixture.drain.drainOne()).resolves.toEqual({
+      outcome: "retry-scheduled",
+      delayMs: 100,
+    });
+    await expect(
+      fixture.runs.find(RUN_IDS[0], caller("caller-a")),
+    ).resolves.toMatchObject({ status: "queued" });
+
+    await expect(
+      fixture.worker.process({ schemaVersion: 1, runId: RUN_IDS[0] }),
+    ).resolves.toBe("processed");
+    await expect(
+      fixture.runs.find(RUN_IDS[0], caller("caller-a")),
+    ).resolves.toMatchObject({
+      status: "succeeded",
+      output: { value: "REQUEST" },
+    });
+    expect(seenRunIds).toEqual([RUN_IDS[0], RUN_IDS[0]]);
+  });
+
+  it("does not retry permanent errors and fails after the declared limit", async () => {
+    const permanent = defineProcessRegistration({
+      id: "permanent-processing",
+      version: "v1",
+      inputSchema: z.strictObject({ value: z.string() }),
+      outputSchema: z.strictObject({ value: z.string() }),
+      retryPolicy: {
+        maximumAttempts: 3,
+        retryableErrorCodes: ["DEPENDENCY_FAILURE"],
+        backoff: { initialDelayMs: 100, maximumDelayMs: 400 },
+      },
+      execute: async () =>
+        failProcess("AGENT_FAILURE", "The agent rejected the request"),
+    });
+    const exhausted = defineProcessRegistration({
+      id: "exhausted-processing",
+      version: "v1",
+      inputSchema: z.strictObject({ value: z.string() }),
+      outputSchema: z.strictObject({ value: z.string() }),
+      retryPolicy: {
+        maximumAttempts: 2,
+        retryableErrorCodes: ["DEPENDENCY_FAILURE"],
+        backoff: { initialDelayMs: 100, maximumDelayMs: 400 },
+      },
+      execute: async () =>
+        failProcess(
+          "DEPENDENCY_FAILURE",
+          "A required business service is unavailable",
+        ),
+    });
+    const store = createInMemoryProcessRunStore({ maxRuns: 10 });
+    const registry = createProcessRegistry([permanent, exhausted]);
+    const worker = createProcessWorker({
+      registry,
+      store,
+      attemptRunner: createProcessAttemptRunner(),
+      clock: sequenceClock([
+        "2026-08-09T10:00:01.000Z",
+        "2026-08-09T10:00:02.000Z",
+        "2026-08-09T10:00:03.000Z",
+        "2026-08-09T10:00:04.000Z",
+        "2026-08-09T10:00:05.000Z",
+        "2026-08-09T10:00:06.000Z",
+      ]),
+      createClaimToken: () => "claim-token",
+    });
+    await store.accept(acceptedRunFor(permanent, RUN_IDS[0], "permanent"));
+    await store.accept(acceptedRunFor(exhausted, RUN_IDS[1], "exhausted"));
+
+    await expect(
+      worker.process({ schemaVersion: 1, runId: RUN_IDS[0] }),
+    ).resolves.toBe("processed");
+    await expect(store.findOwned(RUN_IDS[0], "caller-a")).resolves.toMatchObject({
+      status: "failed",
+      attemptCount: 1,
+      error: { code: "AGENT_FAILURE" },
+    });
+
+    await expect(
+      worker.process({ schemaVersion: 1, runId: RUN_IDS[1] }),
+    ).resolves.toEqual({ outcome: "retry-scheduled", delayMs: 100 });
+    await expect(
+      worker.process({ schemaVersion: 1, runId: RUN_IDS[1] }),
+    ).resolves.toBe("processed");
+    await expect(store.findOwned(RUN_IDS[1], "caller-a")).resolves.toMatchObject({
+      status: "failed",
+      attemptCount: 2,
+      error: { code: "DEPENDENCY_FAILURE" },
+    });
+  });
+
   it("rejects invalid requests before allocating a run or queue job", async () => {
     const createRunId = vi.fn(() => RUN_IDS[0]);
     const fixture = createFixture([registration("v1")], { createRunId });
@@ -397,7 +518,36 @@ function createFixture(
   return {
     runs,
     queue,
+    worker,
     drain: createProcessWorkerDrain({ source: queue, worker }),
+  };
+}
+
+function acceptedRunFor(
+  registration: ProcessRegistration,
+  runId: string,
+  idempotencyKey: string,
+) {
+  const acceptance = registration.accept({ value: "request" });
+  if (!acceptance.accepted) throw new Error("Expected accepted input");
+  return {
+    runId,
+    ownerId: "caller-a",
+    idempotencyKey,
+    requestFingerprint: idempotencyKey.padEnd(64, "0").slice(0, 64),
+    process: registration.identity.id,
+    version: registration.identity.version,
+    acceptedInput: acceptance.acceptedInput,
+    createdAt: "2026-08-09T10:00:00.000Z",
+  };
+}
+
+function sequenceClock(values: readonly string[]): () => string {
+  const remaining = [...values];
+  return () => {
+    const value = remaining.shift();
+    if (!value) throw new Error("Fixture clock exhausted");
+    return value;
   };
 }
 
