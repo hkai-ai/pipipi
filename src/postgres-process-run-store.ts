@@ -187,6 +187,48 @@ export function createPostgresProcessRunStore(options: {
       );
 
       return transaction(options.pool, async (client) => {
+        const selected = await client.query<ProcessRunRow>(
+          "SELECT * FROM process_runs WHERE run_id = $1 FOR UPDATE",
+          [request.runId],
+        );
+        const candidate = selected.rows[0];
+        if (
+          !candidate ||
+          (candidate.status !== "queued" &&
+            (candidate.status !== "running" ||
+              !candidate.claim_expires_at ||
+              candidate.claim_expires_at.getTime() >
+                timestampMilliseconds(request.claimedAt)))
+        ) {
+          return undefined;
+        }
+
+        if (candidate.status === "running") {
+          const abandoned = await client.query(
+            `
+              UPDATE process_run_attempts
+              SET
+                status = 'abandoned',
+                finished_at = $4,
+                result_code = 'CLAIM_EXPIRED'
+              WHERE
+                run_id = $1
+                AND attempt_number = $2
+                AND claim_token = $3
+                AND status = 'running'
+            `,
+            [
+              candidate.run_id,
+              candidate.attempt_count,
+              candidate.claim_token,
+              request.claimedAt,
+            ],
+          );
+          if (abandoned.rowCount !== 1) {
+            throw new Error("Expired Process Run Attempt is inconsistent");
+          }
+        }
+
         const claimed = await client.query<ProcessRunRow>(
           `
             UPDATE process_runs
@@ -198,7 +240,7 @@ export function createPostgresProcessRunStore(options: {
               updated_at = $3,
               attempt_count = attempt_count + 1,
               revision = revision + 1
-            WHERE run_id = $1 AND status = 'queued'
+            WHERE run_id = $1
             RETURNING *
           `,
           [
@@ -310,6 +352,84 @@ export function createPostgresProcessRunStore(options: {
       });
     },
 
+    releaseClaim: async (request) => {
+      if (!isUuid(request.runId) || !isUuid(request.claimToken)) return false;
+      timestampMilliseconds(request.releasedAt);
+
+      return transaction(options.pool, async (client) => {
+        const released = await client.query<
+          Pick<ProcessRunRow, "attempt_count">
+        >(
+          `
+            UPDATE process_runs
+            SET
+              status = 'queued',
+              claim_token = NULL,
+              claim_expires_at = NULL,
+              updated_at = $3,
+              revision = revision + 1
+            WHERE
+              run_id = $1
+              AND status = 'running'
+              AND claim_token = $2
+            RETURNING attempt_count
+          `,
+          [request.runId, request.claimToken, request.releasedAt],
+        );
+        const row = released.rows[0];
+        if (!row) return false;
+
+        const attempt = await client.query(
+          `
+            UPDATE process_run_attempts
+            SET
+              status = 'abandoned',
+              finished_at = $4,
+              result_code = 'CLAIM_RELEASED'
+            WHERE
+              run_id = $1
+              AND attempt_number = $2
+              AND claim_token = $3
+              AND status = 'running'
+          `,
+          [
+            request.runId,
+            row.attempt_count,
+            request.claimToken,
+            request.releasedAt,
+          ],
+        );
+        if (attempt.rowCount !== 1) {
+          throw new Error("Released Process Run Attempt is inconsistent");
+        }
+        return true;
+      });
+    },
+
+    findRecoverable: async (request) => {
+      const limit = recoveryLimit(request.limit);
+      timestampMilliseconds(request.asOf);
+      timestampMilliseconds(request.queuedBefore);
+      const result = await options.pool.query<{ run_id: string }>(
+        `
+          SELECT run_id
+          FROM process_runs
+          WHERE
+            (status = 'queued' AND updated_at <= $1)
+            OR (status = 'running' AND claim_expires_at <= $2)
+          ORDER BY
+            CASE
+              WHEN status = 'running' THEN claim_expires_at
+              ELSE updated_at
+            END,
+            run_id
+          LIMIT $3
+        `,
+        [request.queuedBefore, request.asOf, limit],
+      );
+      return result.rows.map((row) => Object.freeze({ runId: row.run_id }));
+    },
+
     ready: async () => {
       const result = await options.pool.query<{ process_runs: string | null }>(
         "SELECT to_regclass('public.process_runs')::text AS process_runs",
@@ -359,6 +479,7 @@ interface ProcessRunRow extends QueryResultRow {
   attempt_count: number;
   revision: string;
   claim_token: string | null;
+  claim_expires_at: Date | null;
   created_at: Date;
   started_at: Date | null;
   finished_at: Date | null;
@@ -387,15 +508,20 @@ function processRunFromRow(row: ProcessRunRow): StoredProcessRun {
 
   switch (row.status) {
     case "queued":
-      return { ...base, status: "queued" };
+      return {
+        ...base,
+        status: "queued",
+        ...(row.started_at ? { startedAt: iso(row.started_at) } : {}),
+      };
     case "running":
-      if (!row.claim_token || !row.started_at) {
+      if (!row.claim_token || !row.claim_expires_at || !row.started_at) {
         throw new Error("Persisted running Process Run is inconsistent");
       }
       return {
         ...base,
         status: "running",
         claimToken: row.claim_token,
+        claimExpiresAt: iso(row.claim_expires_at),
         startedAt: iso(row.started_at),
       };
     case "succeeded":
@@ -470,10 +596,23 @@ function positiveInteger(value: number, label: string): number {
   return value;
 }
 
+function recoveryLimit(value: number): number {
+  const limit = positiveInteger(value, "Process Run recovery limit");
+  if (limit > 100) {
+    throw new Error("Process Run recovery limit must not exceed 100");
+  }
+  return limit;
+}
+
 function addMilliseconds(timestamp: string, durationMs: number): string {
+  const time = timestampMilliseconds(timestamp);
+  return new Date(time + durationMs).toISOString();
+}
+
+function timestampMilliseconds(timestamp: string): number {
   const time = new Date(timestamp).getTime();
   if (!Number.isFinite(time)) throw new Error("Process Run timestamp is invalid");
-  return new Date(time + durationMs).toISOString();
+  return time;
 }
 
 function serializeJson(value: unknown): string {

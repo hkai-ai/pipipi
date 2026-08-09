@@ -30,11 +30,13 @@ type StoredProcessRunBase = Readonly<{
 }>;
 
 export type StoredProcessRun =
-  | (StoredProcessRunBase & Readonly<{ status: "queued" }>)
+  | (StoredProcessRunBase &
+      Readonly<{ status: "queued"; startedAt?: string }>)
   | (StoredProcessRunBase &
       Readonly<{
         status: "running";
         claimToken: string;
+        claimExpiresAt: string;
         startedAt: string;
       }>)
   | (StoredProcessRunBase &
@@ -97,6 +99,16 @@ export type ProcessRunStore = Readonly<{
     completedAt: string;
     completion: ProcessRunAttemptCompletion;
   }) => Promise<boolean>;
+  releaseClaim: (request: {
+    runId: string;
+    claimToken: string;
+    releasedAt: string;
+  }) => Promise<boolean>;
+  findRecoverable: (request: {
+    asOf: string;
+    queuedBefore: string;
+    limit: number;
+  }) => Promise<readonly Readonly<{ runId: string }>[]>;
 }>;
 
 export class ProcessRunStoreCapacityError extends Error {
@@ -107,12 +119,16 @@ export class ProcessRunStoreCapacityError extends Error {
 }
 
 export function createInMemoryProcessRunStore(
-  options: { maxRuns?: number } = {},
+  options: { maxRuns?: number; claimLeaseMs?: number } = {},
 ): ProcessRunStore {
   const maxRuns = options.maxRuns ?? 100;
   if (!Number.isInteger(maxRuns) || maxRuns < 1) {
     throw new Error("Process Run Store capacity must be a positive integer");
   }
+  const claimLeaseMs = positiveInteger(
+    options.claimLeaseMs ?? 60_000,
+    "Process Run claim lease",
+  );
 
   const runs = new Map<string, StoredProcessRun>();
   const runIdsByOwnerAndKey = new Map<string, Map<string, string>>();
@@ -162,13 +178,21 @@ export function createInMemoryProcessRunStore(
 
     claim: async (request) => {
       const run = runs.get(request.runId);
-      if (!run || run.status !== "queued") return undefined;
+      if (
+        !run ||
+        (run.status !== "queued" &&
+          (run.status !== "running" ||
+            compareTimestamps(run.claimExpiresAt, request.claimedAt) > 0))
+      ) {
+        return undefined;
+      }
 
       const claimed: StoredProcessRun = {
         ...run,
         status: "running",
         claimToken: request.claimToken,
-        startedAt: request.claimedAt,
+        claimExpiresAt: addMilliseconds(request.claimedAt, claimLeaseMs),
+        startedAt: run.startedAt ?? request.claimedAt,
         updatedAt: request.claimedAt,
         attemptCount: run.attemptCount + 1,
         revision: run.revision + 1,
@@ -214,14 +238,87 @@ export function createInMemoryProcessRunStore(
       runs.set(run.runId, clone(terminal));
       return true;
     },
+
+    releaseClaim: async (request) => {
+      const run = runs.get(request.runId);
+      if (
+        !run ||
+        run.status !== "running" ||
+        run.claimToken !== request.claimToken
+      ) {
+        return false;
+      }
+      const released: StoredProcessRun = {
+        ...withoutClaim(run),
+        status: "queued",
+        updatedAt: request.releasedAt,
+        revision: run.revision + 1,
+      };
+      runs.set(run.runId, clone(released));
+      return true;
+    },
+
+    findRecoverable: async (request) => {
+      const limit = recoveryLimit(request.limit);
+      return [...runs.values()]
+        .filter(
+          (run) =>
+            (run.status === "queued" &&
+              compareTimestamps(run.updatedAt, request.queuedBefore) <= 0) ||
+            (run.status === "running" &&
+              compareTimestamps(run.claimExpiresAt, request.asOf) <= 0),
+        )
+        .sort((left, right) =>
+          left.updatedAt === right.updatedAt
+            ? left.runId.localeCompare(right.runId)
+            : left.updatedAt.localeCompare(right.updatedAt),
+        )
+        .slice(0, limit)
+        .map((run) => Object.freeze({ runId: run.runId }));
+    },
   });
 }
 
 function withoutClaim(
   run: Extract<StoredProcessRun, { status: "running" }>,
-): Omit<typeof run, "status" | "claimToken"> {
-  const { status: _status, claimToken: _claimToken, ...rest } = run;
+): Omit<typeof run, "status" | "claimToken" | "claimExpiresAt"> {
+  const {
+    status: _status,
+    claimToken: _claimToken,
+    claimExpiresAt: _claimExpiresAt,
+    ...rest
+  } = run;
   return rest;
+}
+
+function positiveInteger(value: number, label: string): number {
+  if (!Number.isSafeInteger(value) || value < 1) {
+    throw new Error(`${label} must be a positive safe integer`);
+  }
+  return value;
+}
+
+function recoveryLimit(value: number): number {
+  const limit = positiveInteger(value, "Process Run recovery limit");
+  if (limit > 100) {
+    throw new Error("Process Run recovery limit must not exceed 100");
+  }
+  return limit;
+}
+
+function addMilliseconds(timestamp: string, durationMs: number): string {
+  const time = new Date(timestamp).getTime();
+  if (!Number.isFinite(time)) throw new Error("Process Run timestamp is invalid");
+  return new Date(time + durationMs).toISOString();
+}
+
+function compareTimestamps(left: string, right: string): number {
+  const leftTime = new Date(left).getTime();
+  const rightTime = new Date(right).getTime();
+  if (!Number.isFinite(leftTime) || !Number.isFinite(rightTime)) {
+    throw new Error("Process Run timestamp is invalid");
+  }
+  return leftTime - rightTime;
 }
 
 function clone<Value>(value: Value): Value {

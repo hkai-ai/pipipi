@@ -101,7 +101,7 @@ npm run test:integration:async
 docker compose -f compose.integration.yaml down
 ```
 
-测试证明 Outbox 在 PostgreSQL commit 后才进入统一 `process-runs` Queue，Job 只含 `schemaVersion` 和 `runId`，Worker 仍能从数据库选择准确 Registration。Compose Redis 使用 `noeviction` 和临时数据目录；它只用于测试，不代表生产高可用配置。
+测试证明 Outbox 在 PostgreSQL commit 后才进入统一 `process-runs` Queue，Job 只含 `schemaVersion` 和 `runId`，Worker 仍能从数据库选择准确 Registration。故障用例还覆盖 Dispatcher claim 过期、Redis 断线、重复 completed Job、Worker claim 过期接管、旧 token fencing 和停机超时 release。Compose Redis 使用 `noeviction` 和临时数据目录；它只用于测试，不代表生产高可用配置。
 
 ### 异步 HTTP 开发入口
 
@@ -114,7 +114,7 @@ docker compose -f compose.integration.yaml down
 
 可信网关必须先验证 service principal，删除外部请求中的 `x-pipipi-caller-id` 和 `x-pipipi-gateway-token`，再分别注入稳定 subject 与共享凭证。应用不接受请求 body 中的 owner，也不把身份头、共享凭证或数据库错误写入响应。`GET /healthz` 始终只做 liveness；`GET /readyz` 在异步功能启用时检查数据库连接和 `process_runs` migration。
 
-当前已验证提交、查询、Outbox 调度和基础 BullMQ Worker。Worker/Dispatcher 尚未进入生产启动角色，恢复、监控与运维门禁也未完成；即使配置齐全也不要向生产流量启用该 feature flag。
+当前已验证提交、查询、Outbox 调度、BullMQ Worker 和基础故障恢复。Worker/Dispatcher 尚未进入生产启动角色，监控与运维门禁也未完成；即使配置齐全也不要向生产流量启用该 feature flag。
 
 ## 代码地图
 
@@ -136,6 +136,7 @@ docker compose -f compose.integration.yaml down
 | `src/postgres-process-run-store.ts` | PostgreSQL 事务、Attempt fencing、初始 Event 与 Outbox Adapter |
 | `src/process-outbox.ts`、`src/postgres-process-outbox.ts` | Outbox claim、publish ack 与失败 release Seam/Adapter |
 | `src/outbox-dispatcher.ts` | 从 PostgreSQL Outbox 向内部 Process Work Queue 转发最小 Job |
+| `src/process-run-reconciler.ts` | 扫描长期 queued 或过期 running Run，并通过 Queue Seam 重投 |
 | `src/bullmq-process-work-queue.ts` | 固定版本 BullMQ Queue、Worker、Redis 连接策略与有界 Job retention |
 | `src/caller-identity.ts` | 网关注入 caller subject 的认证与 HTTP 身份 Resolver |
 | `migrations/` | 受版本和 advisory lock 管理的 PostgreSQL schema 变化 |

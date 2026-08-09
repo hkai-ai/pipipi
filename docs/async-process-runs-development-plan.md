@@ -210,7 +210,7 @@ type AsyncProcessRuns = Readonly<{
 
 目标是让所有 Business Process 通过一个内部 Queue 可靠执行，并让 Redis 故障不会丢失已接受 Run。
 
-实现进度：Issue #14 已完成 Outbox claim/ack、统一 BullMQ Queue、最小 Job envelope、基础 Worker 生命周期、有界 Job retention，以及真实 PostgreSQL/Redis 的成功与业务失败集成测试。Issue #15 继续实现过期租约恢复、reconciliation、故障注入和有期限的优雅停机；Issue #16 再把 API、Dispatcher、Worker 组装成独立生产角色。
+实现进度：Issue #14 已完成 Outbox claim/ack、统一 BullMQ Queue、最小 Job envelope、基础 Worker 生命周期和有界 Job retention。Issue #15 已完成过期租约接管、旧 token fencing、Reconciler、Redis/Dispatcher 故障恢复，以及有期限的优雅停机。真实 PostgreSQL/Redis 集成测试覆盖成功、业务失败和上述故障窗口；Issue #16 再把 API、Dispatcher、Worker 组装成独立生产角色。
 
 ### 实现任务
 

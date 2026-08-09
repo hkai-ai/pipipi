@@ -458,6 +458,7 @@ export type ProcessAttemptRequest = Readonly<{
   runId: string;
   registration: ProcessRegistration;
   acceptedInput: AcceptedProcessInput;
+  signal?: AbortSignal;
 }>;
 
 export type ProcessAttemptRunner = Readonly<{
@@ -480,11 +481,27 @@ export function createProcessAttemptRunner(
       };
       const controller = new AbortController();
       let timeout: NodeJS.Timeout | undefined;
+      let externallyCancelled = false;
+      let removeCancellationListener: (() => void) | undefined;
       const timeoutFailure = new Promise<never>((_resolve, reject) => {
         timeout = setTimeout(() => {
           controller.abort();
           reject(new ProcessTimeoutFailure());
         }, processTimeoutMs);
+      });
+      const cancellationFailure = new Promise<never>((_resolve, reject) => {
+        const cancel = () => {
+          externallyCancelled = true;
+          controller.abort(attempt.signal?.reason);
+          reject(new ProcessAttemptCancelledFailure());
+        };
+        if (attempt.signal?.aborted) {
+          cancel();
+          return;
+        }
+        attempt.signal?.addEventListener("abort", cancel, { once: true });
+        removeCancellationListener = () =>
+          attempt.signal?.removeEventListener("abort", cancel);
       });
 
       try {
@@ -494,6 +511,7 @@ export function createProcessAttemptRunner(
             signal: controller.signal,
           }),
           timeoutFailure,
+          cancellationFailure,
         ]);
         return completion.status === "succeeded"
           ? {
@@ -509,22 +527,37 @@ export function createProcessAttemptRunner(
               identity,
             );
       } catch (error) {
-        return controller.signal.aborted ||
+        if (
+          externallyCancelled ||
+          error instanceof ProcessAttemptCancelledFailure
+        ) {
+          return failure(
+            attempt.runId,
+            "INTERNAL_ERROR",
+            "The process could not be completed",
+            identity,
+          );
+        }
+        if (
+          controller.signal.aborted ||
           error instanceof ProcessTimeoutFailure
-          ? failure(
-              attempt.runId,
-              "PROCESS_TIMEOUT",
-              "The process exceeded its time limit",
-              identity,
-            )
-          : failure(
-              attempt.runId,
-              "INTERNAL_ERROR",
-              "The process could not be completed",
-              identity,
-            );
+        ) {
+          return failure(
+            attempt.runId,
+            "PROCESS_TIMEOUT",
+            "The process exceeded its time limit",
+            identity,
+          );
+        }
+        return failure(
+          attempt.runId,
+          "INTERNAL_ERROR",
+          "The process could not be completed",
+          identity,
+        );
       } finally {
         if (timeout) clearTimeout(timeout);
+        removeCancellationListener?.();
       }
     },
   });
@@ -645,6 +678,8 @@ function completeProcessRun(
 }
 
 class ProcessTimeoutFailure extends Error {}
+
+class ProcessAttemptCancelledFailure extends Error {}
 
 function failure(
   runId: string,

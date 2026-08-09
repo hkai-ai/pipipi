@@ -98,6 +98,85 @@ export function processRunStoreContract(
       });
     });
 
+    it("recovers an expired claim and fences the previous worker", async () => {
+      const store = createStore();
+      const run = acceptedRun({ runId: runId(7) });
+      await store.accept(run);
+      await store.claim({
+        runId: run.runId,
+        claimToken: claimToken(7),
+        claimedAt: "2026-08-09T10:00:01.000Z",
+      });
+
+      const recovered = await store.claim({
+        runId: run.runId,
+        claimToken: claimToken(8),
+        claimedAt: "2026-08-09T10:01:01.000Z",
+      });
+      expect(recovered).toMatchObject({ claimToken: claimToken(8) });
+      await expect(
+        store.complete({
+          runId: run.runId,
+          claimToken: claimToken(7),
+          completedAt: "2026-08-09T10:01:02.000Z",
+          completion: { status: "succeeded", output: { value: "stale" } },
+        }),
+      ).resolves.toBe(false);
+      await expect(
+        store.complete({
+          runId: run.runId,
+          claimToken: claimToken(8),
+          completedAt: "2026-08-09T10:01:03.000Z",
+          completion: { status: "succeeded", output: { value: "recovered" } },
+        }),
+      ).resolves.toBe(true);
+      await expect(store.findOwned(run.runId, run.ownerId)).resolves.toMatchObject({
+        status: "succeeded",
+        output: { value: "recovered" },
+        attemptCount: 2,
+        revision: 3,
+      });
+    });
+
+    it("releases a current claim to queued and exposes it for reconciliation", async () => {
+      const store = createStore();
+      const run = acceptedRun({ runId: runId(8) });
+      await store.accept(run);
+      await store.claim({
+        runId: run.runId,
+        claimToken: claimToken(9),
+        claimedAt: "2026-08-09T10:00:01.000Z",
+      });
+
+      await expect(
+        store.releaseClaim({
+          runId: run.runId,
+          claimToken: claimToken(9),
+          releasedAt: "2026-08-09T10:00:02.000Z",
+        }),
+      ).resolves.toBe(true);
+      await expect(
+        store.releaseClaim({
+          runId: run.runId,
+          claimToken: claimToken(9),
+          releasedAt: "2026-08-09T10:00:03.000Z",
+        }),
+      ).resolves.toBe(false);
+      await expect(
+        store.findRecoverable({
+          asOf: "2026-08-09T10:00:03.000Z",
+          queuedBefore: "2026-08-09T10:00:02.000Z",
+          limit: 10,
+        }),
+      ).resolves.toEqual([{ runId: run.runId }]);
+      await expect(store.findOwned(run.runId, run.ownerId)).resolves.toMatchObject({
+        status: "queued",
+        startedAt: "2026-08-09T10:00:01.000Z",
+        attemptCount: 1,
+        revision: 2,
+      });
+    });
+
     it("returns defensive snapshots from every read boundary", async () => {
       const store = createStore();
       const run = acceptedRun({ runId: runId(6) });

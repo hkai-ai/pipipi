@@ -267,6 +267,87 @@ describe("Async Process Runs", () => {
       ].sort(),
     );
   });
+
+  it("releases an active claim on cancellation and safely executes a later attempt", async () => {
+    let attemptNumber = 0;
+    let markStarted: (() => void) | undefined;
+    const started = new Promise<void>((resolve) => {
+      markStarted = resolve;
+    });
+    const process = defineProcessRegistration({
+      id: "test-recovery",
+      version: "v1",
+      inputSchema: z.strictObject({ value: z.string() }),
+      outputSchema: z.strictObject({ value: z.string() }),
+      execute: async (input, context) => {
+        attemptNumber += 1;
+        if (attemptNumber === 1) {
+          markStarted?.();
+          await new Promise<void>((resolve) =>
+            context.signal.addEventListener("abort", () => resolve(), {
+              once: true,
+            }),
+          );
+          return { value: "late-result" };
+        }
+        return { value: `recovered:${input.value}` };
+      },
+    });
+    const acceptance = process.accept({ value: "request" });
+    if (!acceptance.accepted) throw new Error("Expected accepted input");
+    const store = createInMemoryProcessRunStore({ claimLeaseMs: 60_000 });
+    await store.accept({
+      runId: RUN_IDS[0],
+      ownerId: "caller-a",
+      idempotencyKey: "shutdown",
+      requestFingerprint: "a".repeat(64),
+      process: process.identity.id,
+      version: process.identity.version,
+      acceptedInput: acceptance.acceptedInput,
+      createdAt: "2026-08-09T10:00:00.000Z",
+    });
+    const times = [
+      "2026-08-09T10:00:01.000Z",
+      "2026-08-09T10:00:03.000Z",
+      "2026-08-09T10:00:04.000Z",
+      "2026-08-09T10:00:05.000Z",
+    ];
+    const tokens = ["claim-first", "claim-second"];
+    const worker = createProcessWorker({
+      registry: createProcessRegistry([process]),
+      store,
+      attemptRunner: createProcessAttemptRunner(),
+      clock: () => times.shift() ?? "unexpected",
+      createClaimToken: () => tokens.shift() ?? "unexpected",
+    });
+    const controller = new AbortController();
+    const firstAttempt = worker.process(
+      { schemaVersion: 1, runId: RUN_IDS[0] },
+      { signal: controller.signal },
+    );
+    await started;
+
+    await expect(
+      worker.releaseActive({ releasedAt: "2026-08-09T10:00:02.000Z" }),
+    ).resolves.toBe(1);
+    controller.abort();
+    await expect(firstAttempt).resolves.toBe("ignored");
+    await expect(store.findOwned(RUN_IDS[0], "caller-a")).resolves.toMatchObject({
+      status: "queued",
+      attemptCount: 1,
+      revision: 2,
+    });
+
+    await expect(
+      worker.process({ schemaVersion: 1, runId: RUN_IDS[0] }),
+    ).resolves.toBe("processed");
+    await expect(store.findOwned(RUN_IDS[0], "caller-a")).resolves.toMatchObject({
+      status: "succeeded",
+      output: { value: "recovered:request" },
+      attemptCount: 2,
+      revision: 4,
+    });
+  });
 });
 
 function createFixture(

@@ -7,6 +7,7 @@ import type { ProcessWorker } from "../src/process-worker.js";
 
 const unusedWorker: ProcessWorker = {
   process: async () => "ignored",
+  releaseActive: async () => 0,
 };
 
 describe("BullMQ Process Work adapters", () => {

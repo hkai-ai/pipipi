@@ -29,6 +29,7 @@ export function createBullMqProcessWorkQueue(options: {
   redisUrl: string;
   queueName?: string;
   prefix?: string;
+  connectTimeoutMs?: number;
   onError?: (error: Error) => void;
 }): BullMqProcessWorkQueue {
   const queueName = parseQueueName(options.queueName);
@@ -39,6 +40,10 @@ export function createBullMqProcessWorkQueue(options: {
       connection: {
         url: parseRedisUrl(options.redisUrl),
         maxRetriesPerRequest: 1,
+        connectTimeout: positiveInteger(
+          options.connectTimeoutMs ?? 5_000,
+          "Redis connection timeout",
+        ),
       },
       prefix,
       skipWaitingForReady: true,
@@ -59,7 +64,15 @@ export function createBullMqProcessWorkQueue(options: {
       if (closed) throw new Error("Process Work Queue is closed");
       const job = parseProcessWorkJob(rawJob);
       if (!job) throw new Error("Process Work Job is invalid");
-      if (await queue.getJob(job.runId)) return "duplicate";
+      const existing = await queue.getJob(job.runId);
+      if (existing) {
+        const state = await existing.getState();
+        if (state === "completed" || state === "failed") {
+          await existing.remove();
+        } else {
+          return "duplicate";
+        }
+      }
       await queue.add(processWorkJobName, job, { jobId: job.runId });
       return "enqueued";
     },
@@ -83,6 +96,11 @@ export function createBullMqProcessWorker(options: {
   prefix?: string;
   concurrency?: number;
   workerName?: string;
+  shutdownGraceMs?: number;
+  lockDurationMs?: number;
+  stalledIntervalMs?: number;
+  maxStalledCount?: number;
+  clock?: () => string;
   onError?: (error: Error) => void;
 }): BullMqProcessWorker {
   const queueName = parseQueueName(options.queueName);
@@ -91,20 +109,48 @@ export function createBullMqProcessWorker(options: {
     options.concurrency ?? 1,
     "Process Worker concurrency",
   );
+  const shutdownGraceMs = positiveInteger(
+    options.shutdownGraceMs ?? 30_000,
+    "Process Worker shutdown grace",
+  );
+  const lockDuration = positiveInteger(
+    options.lockDurationMs ?? 30_000,
+    "Process Worker lock duration",
+  );
+  const stalledInterval = positiveInteger(
+    options.stalledIntervalMs ?? 30_000,
+    "Process Worker stalled interval",
+  );
+  const maxStalledCount = positiveInteger(
+    options.maxStalledCount ?? 1,
+    "Process Worker max stalled count",
+  );
+  const clock = options.clock ?? (() => new Date().toISOString());
+  const activeDrainedWaiters = new Set<() => void>();
+  let activeCount = 0;
   const worker = new Worker<
     ProcessWorkJob,
     ProcessWorkResult,
     typeof processWorkJobName
   >(
     queueName,
-    async (job: Job<ProcessWorkJob>) => {
-      const parsed = parseProcessWorkJob(job.data);
-      if (!parsed) throw new Error("Process Work Job is invalid");
-      const result = await options.worker.process(parsed);
-      if (result === "invalid-job") {
-        throw new Error("Process Work Job is invalid");
+    async (job: Job<ProcessWorkJob>, _token, signal) => {
+      activeCount += 1;
+      try {
+        const parsed = parseProcessWorkJob(job.data);
+        if (!parsed) throw new Error("Process Work Job is invalid");
+        const result = await options.worker.process(parsed, { signal });
+        if (result === "invalid-job") {
+          throw new Error("Process Work Job is invalid");
+        }
+        return result;
+      } finally {
+        activeCount -= 1;
+        if (activeCount === 0) {
+          for (const resolve of activeDrainedWaiters) resolve();
+          activeDrainedWaiters.clear();
+        }
       }
-      return result;
     },
     {
       connection: {
@@ -115,7 +161,9 @@ export function createBullMqProcessWorker(options: {
       autorun: false,
       concurrency,
       name: options.workerName,
-      maxStalledCount: 1,
+      maxStalledCount,
+      lockDuration,
+      stalledInterval,
       removeOnComplete: defaultCompletedRetention,
       removeOnFail: defaultFailedRetention,
     },
@@ -140,11 +188,63 @@ export function createBullMqProcessWorker(options: {
     close: async () => {
       if (closed) return;
       closed = true;
-      await worker.close();
-      worker.off("error", reportError);
-      await runPromise;
+      let forced = false;
+      let failure: unknown;
+      try {
+        if (runPromise) {
+          await worker.pause(true);
+          forced = !(await waitForActiveToDrain(
+            () => activeCount,
+            activeDrainedWaiters,
+            shutdownGraceMs,
+          ));
+          if (forced) {
+            await options.worker.releaseActive({
+              releasedAt: clock(),
+            });
+            worker.cancelAllJobs("Process Worker shutdown grace expired");
+          }
+        }
+      } catch (error) {
+        failure = error;
+        forced = true;
+        worker.cancelAllJobs("Process Worker shutdown failed");
+      }
+      try {
+        await worker.close(forced || !runPromise);
+        if (!forced) await runPromise;
+      } catch (error) {
+        failure ??= error;
+      } finally {
+        worker.off("error", reportError);
+      }
+      if (failure) throw failure;
     },
   });
+}
+
+async function waitForActiveToDrain(
+  activeCount: () => number,
+  waiters: Set<() => void>,
+  graceMs: number,
+): Promise<boolean> {
+  if (activeCount() === 0) return true;
+  let resolveDrained: (() => void) | undefined;
+  const drained = new Promise<true>((resolve) => {
+    resolveDrained = () => resolve(true);
+    waiters.add(resolveDrained);
+    if (activeCount() === 0) resolveDrained();
+  });
+  let timeout: NodeJS.Timeout | undefined;
+  const expired = new Promise<false>((resolve) => {
+    timeout = setTimeout(() => resolve(false), graceMs);
+  });
+  try {
+    return await Promise.race([drained, expired]);
+  } finally {
+    if (timeout) clearTimeout(timeout);
+    if (resolveDrained) waiters.delete(resolveDrained);
+  }
 }
 
 function parseRedisUrl(value: string): string {

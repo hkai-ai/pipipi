@@ -1,4 +1,5 @@
 import path from "node:path";
+import { createServer } from "node:net";
 import { Queue } from "bullmq";
 import { Redis } from "ioredis";
 import { runner } from "node-pg-migrate";
@@ -14,6 +15,7 @@ import {
 import { createOutboxDispatcher } from "../src/outbox-dispatcher.js";
 import { createPostgresProcessOutbox } from "../src/postgres-process-outbox.js";
 import { createPostgresProcessRunStore } from "../src/postgres-process-run-store.js";
+import { createProcessRunReconciler } from "../src/process-run-reconciler.js";
 import {
   createProcessAttemptRunner,
   createProcessRegistry,
@@ -21,6 +23,7 @@ import {
   failProcess,
 } from "../src/process-runtime.js";
 import { createProcessWorker } from "../src/process-worker.js";
+import type { ProcessWorker } from "../src/process-worker.js";
 import type { ProcessWorkJob } from "../src/process-work-queue.js";
 import { z } from "zod";
 
@@ -179,7 +182,275 @@ integrationDescribe("BullMQ Process Runtime", () => {
       await queue.close();
     }
   });
+
+  it("retains accepted work across an abandoned dispatcher claim and unavailable Redis", async () => {
+    const registry = testRegistry();
+    const store = createPostgresProcessRunStore({ pool, retention: RETENTION });
+    const runs = createAsyncProcessRuns({ registry, store });
+    const outbox = createPostgresProcessOutbox({ pool });
+    const submitted = await runs.submit(
+      {
+        process: "test-success",
+        version: "v1",
+        input: { value: "recover-after-redis" },
+      },
+      { callerId: "caller-recovery", idempotencyKey: "redis-down" },
+    );
+    if (!submitted.accepted) throw new Error("Expected accepted Process Run");
+
+    const claimedAt = new Date().toISOString();
+    const abandoned = await outbox.claimProcessWork({
+      limit: 1,
+      claimToken: claimToken(1),
+      claimedAt,
+      claimExpiresAt: new Date(Date.now() + 50).toISOString(),
+    });
+    expect(abandoned).toHaveLength(1);
+    await expect(
+      outbox.claimProcessWork({
+        limit: 1,
+        claimToken: claimToken(2),
+        claimedAt: new Date().toISOString(),
+        claimExpiresAt: new Date(Date.now() + 50).toISOString(),
+      }),
+    ).resolves.toEqual([]);
+    await delay(70);
+
+    const unavailableQueue = createBullMqProcessWorkQueue({
+      redisUrl: await unusedRedisUrl(),
+      connectTimeoutMs: 50,
+      onError: () => {},
+    });
+    try {
+      const failedDispatcher = createOutboxDispatcher({
+        outbox,
+        queue: unavailableQueue,
+      });
+      await expect(failedDispatcher.dispatchOnce()).resolves.toEqual({
+        claimed: 1,
+        published: 0,
+        failed: 1,
+      });
+    } finally {
+      await unavailableQueue.close();
+    }
+    const pending = await pool.query<{
+      published_at: Date | null;
+      claim_token: string | null;
+    }>("SELECT published_at, claim_token FROM outbox_messages");
+    expect(pending.rows).toEqual([{ published_at: null, claim_token: null }]);
+
+    const queue = createBullMqProcessWorkQueue({ redisUrl: redisUrl as string });
+    const worker = runtimeWorker(registry, store);
+    try {
+      await queue.ready();
+      await expect(
+        createOutboxDispatcher({ outbox, queue }).dispatchOnce(),
+      ).resolves.toEqual({ claimed: 1, published: 1, failed: 0 });
+      await worker.start();
+      await expect(
+        waitForTerminal(runs, submitted.runId, "caller-recovery"),
+      ).resolves.toMatchObject({
+        status: "succeeded",
+        output: { value: "completed:recover-after-redis" },
+      });
+    } finally {
+      await Promise.allSettled([worker.close(), queue.close()]);
+    }
+  }, 20_000);
+
+  it("reconciles an expired claim after a duplicate job was already completed", async () => {
+    const registry = testRegistry();
+    const store = createPostgresProcessRunStore({
+      pool,
+      retention: RETENTION,
+      claimLeaseMs: 75,
+    });
+    const runs = createAsyncProcessRuns({ registry, store });
+    const queue = createBullMqProcessWorkQueue({ redisUrl: redisUrl as string });
+    const inspector = new Queue<ProcessWorkJob>(defaultProcessWorkQueueName, {
+      connection: { url: redisUrl as string },
+      prefix: defaultProcessWorkQueuePrefix,
+    });
+    const submitted = await runs.submit(
+      {
+        process: "test-success",
+        version: "v1",
+        input: { value: "lease-recovery" },
+      },
+      { callerId: "caller-lease", idempotencyKey: "lease-recovery" },
+    );
+    if (!submitted.accepted) throw new Error("Expected accepted Process Run");
+    const staleToken = claimToken(3);
+    const duplicateConsumer = createBullMqProcessWorker({
+      redisUrl: redisUrl as string,
+      worker: ignoredWorker,
+      onError: () => {},
+    });
+    const recoveryWorker = runtimeWorker(registry, store);
+
+    try {
+      await queue.ready();
+      await createOutboxDispatcher({
+        outbox: createPostgresProcessOutbox({ pool }),
+        queue,
+      }).dispatchOnce();
+      await store.claim({
+        runId: submitted.runId,
+        claimToken: staleToken,
+        claimedAt: new Date().toISOString(),
+      });
+      await duplicateConsumer.start();
+      await waitForJobState(inspector, submitted.runId, "completed");
+      await duplicateConsumer.close();
+      await delay(100);
+
+      await expect(
+        createProcessRunReconciler({
+          store,
+          queue,
+          queuedAgeMs: 1,
+        }).reconcileOnce(),
+      ).resolves.toEqual({
+        found: 1,
+        enqueued: 1,
+        duplicates: 0,
+        failed: 0,
+      });
+      await recoveryWorker.start();
+      await expect(
+        waitForTerminal(runs, submitted.runId, "caller-lease"),
+      ).resolves.toMatchObject({
+        status: "succeeded",
+        output: { value: "completed:lease-recovery" },
+      });
+      await expect(
+        store.complete({
+          runId: submitted.runId,
+          claimToken: staleToken,
+          completedAt: new Date().toISOString(),
+          completion: { status: "succeeded", output: { value: "stale" } },
+        }),
+      ).resolves.toBe(false);
+      const attempts = await pool.query<{
+        attempt_number: number;
+        status: string;
+        result_code: string;
+      }>(`
+        SELECT attempt_number, status, result_code
+        FROM process_run_attempts
+        ORDER BY attempt_number
+      `);
+      expect(attempts.rows).toEqual([
+        { attempt_number: 1, status: "abandoned", result_code: "CLAIM_EXPIRED" },
+        { attempt_number: 2, status: "succeeded", result_code: "SUCCEEDED" },
+      ]);
+    } finally {
+      await Promise.allSettled([
+        duplicateConsumer.close(),
+        recoveryWorker.close(),
+        queue.close(),
+        inspector.close(),
+      ]);
+    }
+  }, 20_000);
+
+  it("stops fetching and releases active claims when shutdown grace expires", async () => {
+    let markStarted: (() => void) | undefined;
+    const started = new Promise<void>((resolve) => {
+      markStarted = resolve;
+    });
+    const registration = defineProcessRegistration({
+      id: "test-shutdown",
+      version: "v1",
+      inputSchema: z.strictObject({ value: z.string() }),
+      outputSchema: z.strictObject({ value: z.string() }),
+      execute: async (_input, context) => {
+        markStarted?.();
+        await new Promise<void>((resolve) =>
+          context.signal.addEventListener("abort", () => resolve(), {
+            once: true,
+          }),
+        );
+        return { value: "late" };
+      },
+    });
+    const registry = createProcessRegistry([registration]);
+    const store = createPostgresProcessRunStore({
+      pool,
+      retention: RETENTION,
+      claimLeaseMs: 5_000,
+    });
+    const runs = createAsyncProcessRuns({ registry, store });
+    const queue = createBullMqProcessWorkQueue({ redisUrl: redisUrl as string });
+    const worker = createBullMqProcessWorker({
+      redisUrl: redisUrl as string,
+      worker: createProcessWorker({
+        registry,
+        store,
+        attemptRunner: createProcessAttemptRunner({ processTimeoutMs: 5_000 }),
+      }),
+      shutdownGraceMs: 50,
+      lockDurationMs: 250,
+      stalledIntervalMs: 100,
+      onError: () => {},
+    });
+    const submitted = await runs.submit(
+      {
+        process: "test-shutdown",
+        version: "v1",
+        input: { value: "shutdown" },
+      },
+      { callerId: "caller-shutdown", idempotencyKey: "shutdown" },
+    );
+    if (!submitted.accepted) throw new Error("Expected accepted Process Run");
+
+    try {
+      await queue.ready();
+      await createOutboxDispatcher({
+        outbox: createPostgresProcessOutbox({ pool }),
+        queue,
+      }).dispatchOnce();
+      await worker.start();
+      await started;
+      const closeStartedAt = Date.now();
+      await worker.close();
+      expect(Date.now() - closeStartedAt).toBeLessThan(1_000);
+      await expect(
+        store.findOwned(submitted.runId, "caller-shutdown"),
+      ).resolves.toMatchObject({ status: "queued", revision: 2 });
+      const attempt = await pool.query<{
+        status: string;
+        result_code: string;
+      }>("SELECT status, result_code FROM process_run_attempts");
+      expect(attempt.rows).toEqual([
+        { status: "abandoned", result_code: "CLAIM_RELEASED" },
+      ]);
+    } finally {
+      await Promise.allSettled([worker.close(), queue.close()]);
+    }
+  }, 20_000);
 });
+
+const ignoredWorker: ProcessWorker = {
+  process: async () => "ignored",
+  releaseActive: async () => 0,
+};
+
+function runtimeWorker(
+  registry: ReturnType<typeof testRegistry>,
+  store: ReturnType<typeof createPostgresProcessRunStore>,
+) {
+  return createBullMqProcessWorker({
+    redisUrl: redisUrl as string,
+    worker: createProcessWorker({
+      registry,
+      store,
+      attemptRunner: createProcessAttemptRunner({ processTimeoutMs: 5_000 }),
+    }),
+    onError: () => {},
+  });
+}
 
 function testRegistry() {
   const inputSchema = z.strictObject({ value: z.string() });
@@ -220,6 +491,40 @@ async function waitForTerminal(
   throw new Error(`Process Run ${runIdValue} did not reach a terminal state`);
 }
 
+async function waitForJobState(
+  queue: Queue<ProcessWorkJob>,
+  jobId: string,
+  expectedState: string,
+): Promise<void> {
+  const deadline = Date.now() + 5_000;
+  while (Date.now() < deadline) {
+    const job = await queue.getJob(jobId);
+    if (job && (await job.getState()) === expectedState) return;
+    await delay(20);
+  }
+  throw new Error(`Queue Job ${jobId} did not reach ${expectedState}`);
+}
+
+async function unusedRedisUrl(): Promise<string> {
+  const server = createServer();
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", () => resolve());
+  });
+  const address = server.address();
+  if (!address || typeof address === "string") {
+    throw new Error("Expected an ephemeral TCP port");
+  }
+  await new Promise<void>((resolve, reject) =>
+    server.close((error) => (error ? reject(error) : resolve())),
+  );
+  return `redis://127.0.0.1:${address.port}/15`;
+}
+
+function delay(milliseconds: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
 async function migrate(url: string) {
   return runner({
     databaseUrl: url,
@@ -257,6 +562,10 @@ function assertTestRedis(urlValue: string): void {
 
 function runId(index: number): string {
   return `00000000-0000-4000-8000-${index.toString().padStart(12, "0")}`;
+}
+
+function claimToken(index: number): string {
+  return `10000000-0000-4000-8000-${index.toString().padStart(12, "0")}`;
 }
 
 const RETENTION = {
