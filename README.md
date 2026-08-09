@@ -72,7 +72,7 @@ curl http://127.0.0.1:3000/healthz
 
 ## 异步开发 Interface
 
-仓库已提供资源式的 `POST /process-runs` 和 `GET /process-runs/{runId}`。它要求网关验证身份、注入固定 caller 头与共享凭证，并要求每次提交携带 `Idempotency-Key`。成功提交返回 `202`、`Location`、`Retry-After` 和 queued Run；查询只向 owner 返回 queued、running、succeeded 或 failed。
+仓库已提供资源式的 `POST /process-runs` 和 `GET /process-runs/{runId}`。它要求网关验证身份、注入固定 caller 头与共享凭证，并要求每次提交携带 `Idempotency-Key`。成功提交返回 `202`、`Location`、`Retry-After` 和 queued Run；查询只向 owner 返回 queued、running、succeeded 或 failed。结果内容到期后，终态和完成时间仍在 metadata 保留期内可查，并返回 `resultAvailability: "expired"` 与 `resultExpiredAt`，不会把内容缺失伪装成空结果。
 
 该 Interface 由 `ASYNC_PROCESS_RUNS_ENABLED=true` 显式启用，默认关闭。仓库已经实现 transactional Outbox Dispatcher、统一 BullMQ Queue、租约恢复和有期限停机，并把 API、Dispatcher、Worker 组装成三个独立角色。真实 PostgreSQL/Redis 测试已覆盖 HTTP 提交、准确版本执行、查询、业务失败与调用方隔离；生产观测和发布门禁完成前仍不得向外部调用方开放。完整契约和配置见 [`docs/async-process-runs-design.md`](docs/async-process-runs-design.md) 与 [`docs/development.md`](docs/development.md)。
 
@@ -89,7 +89,7 @@ curl http://127.0.0.1:3000/healthz
 
 默认发布仍是受控、同步、无状态的 MVP。部署平台必须提供 TLS、私有入口、调用方认证、Secret 注入和实例上限。异步角色只供完成 migration、身份、Redis 和运维门禁的内部环境使用；当前发布不提供应用用户系统、RBAC、多租户、CORS、通用幂等或动态流程注册。
 
-仓库内已有 Async Process Runs Module、事务化 PostgreSQL Store、Process/Webhook Outbox，以及相互隔离的 BullMQ Process Queue 和 Webhook Queue。`npm run start:api`、`npm run start:dispatcher`、`npm run start:worker` 和 `npm run start:webhook-worker` 从同一构建产物启动独立角色。Process 默认只执行一次，只有服务端 Registration 明确声明安全错误、次数和退避时才会重试；Webhook 已支持精简终态事件、Standard Webhooks 签名、PostgreSQL 权威的有界重试、Attempt 审计、受控人工重放、加密 Secret 和防 SSRF 的固定目标连接。
+仓库内已有 Async Process Runs Module、事务化 PostgreSQL Store、Process/Webhook Outbox，以及相互隔离的 BullMQ Process Queue 和 Webhook Queue。`npm run start:api`、`npm run start:dispatcher`、`npm run start:worker`、`npm run start:webhook-worker` 和 `npm run start:retention-cleaner` 从同一构建产物启动独立角色。Process 默认只执行一次，只有服务端 Registration 明确声明安全错误、次数和退避时才会重试；Webhook 已支持精简终态事件、Standard Webhooks 签名、PostgreSQL 权威的有界重试、Attempt 审计、受控人工重放、加密 Secret 和防 SSRF 的固定目标连接。Retention Cleaner 按固定 cutoff 分批删除到期内容，批次审计和返回游标允许安全续跑。
 
 图片生成、海报 Skill、对象存储和 Skill A/B 对比属于开发实验与集成验证，尚未进入 `/execute` 的生产 catalog。
 

@@ -7,7 +7,8 @@ import {
 export type RuntimeRoleName =
   | "process-dispatcher"
   | "process-worker"
-  | "webhook-worker";
+  | "webhook-worker"
+  | "retention-cleaner";
 
 export type BackgroundRuntime = Readonly<{
   start: () => Promise<void>;

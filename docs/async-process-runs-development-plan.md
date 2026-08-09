@@ -35,8 +35,8 @@ flowchart LR
 | M2 内存异步纵切 | 已完成 | Async Process Runs Module 与状态机可测试 | 不组装进生产入口 |
 | M3 PostgreSQL 与查询 | 已完成 | durable Run、幂等提交和查询路由 | feature flag 关闭 |
 | M4 Outbox 与 BullMQ Worker | 进行中 | 一个 Process Queue 端到端执行 | 先向内部调用方开放 |
-| M5 Webhook Delivery | 进行中 | 签名通知已完成；重试、审计、重放与 egress 安全待补齐 | 仅隔离测试 |
-| M6 生产硬化与发布 | 未开始 | 容量、恢复、保留、Runbook 和正式发布 | 受控发布 |
+| M5 Webhook Delivery | 已完成 | 签名、重试、审计、重放与 egress 安全 | 仅隔离测试 |
+| M6 生产硬化与发布 | 进行中 | 保留已完成；容量、Queue 重建、Runbook 和正式发布待完成 | 受控发布 |
 
 每个里程碑必须让主分支保持可构建、可测试和可部署。后续代码不能依赖尚未合并的隐藏分支；数据库迁移只做向前兼容的 additive change，删除和收紧约束留到所有旧进程退出之后。
 
@@ -74,7 +74,7 @@ flowchart LR
 | Process Queue | 一个 `process-runs` Queue；默认 key prefix 为 `pipipi` | 两个不同 Process 通过同一 Queue 选择准确 Registration |
 | 本地 Redis | `compose.integration.yaml` 的 Redis 7.4、`noeviction`、临时数据目录 | `REDIS_TEST_URL` 必须指向本机非零 database |
 
-生产 Redis 高可用、生产 retention、字段级加密和 retry matrix 仍由后续批次固定，因此 M0 继续保持“进行中”。
+生产 Redis 高可用、业务内容字段级加密和完整 retry/idempotency matrix 仍由后续批次固定。Retention 已采用 input 1 天、result 7 天、metadata 30 天、Delivery Attempt 30 天的可覆盖模板值，因此 M0 仍因其余门禁保持“进行中”。
 
 ### 完成门槛
 
@@ -277,6 +277,8 @@ type AsyncProcessRuns = Readonly<{
 - 消费者验签、去重和轮询回退文档已经完成。
 
 ## M6：生产硬化与发布
+
+实现进度：Issue #21 已增加分层到期字段语义、`005_retention_cleanup` migration、PostgreSQL 批次清理与审计、明确的结果过期响应，以及独立 Retention Cleaner 角色。真实 PostgreSQL 测试覆盖边界时间、失败回滚、游标续跑、并发查询、重复清理和 Delivery 引用保护。Issue #22 继续完成 Queue 全量重建与 stuck Run 修复，Issue #23 完成容量、可观测性和受控发布。
 
 ### 实现任务
 

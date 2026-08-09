@@ -690,13 +690,18 @@ interface ProcessRunRow extends QueryResultRow {
   started_at: Date | null;
   finished_at: Date | null;
   updated_at: Date;
+  input_expired_at: Date | null;
+  result_expired_at: Date | null;
 }
 
 function processRunFromRow(row: ProcessRunRow): StoredProcessRun {
   if (row.schema_version !== 1) {
     throw new Error("Unsupported persisted Process Run schema version");
   }
-  const acceptedInput = row.accepted_input as AcceptedProcessInput;
+  const acceptedInput =
+    row.accepted_input === null
+      ? undefined
+      : (row.accepted_input as AcceptedProcessInput);
   const base = {
     schemaVersion: 1 as const,
     runId: row.run_id,
@@ -705,46 +710,77 @@ function processRunFromRow(row: ProcessRunRow): StoredProcessRun {
     requestFingerprint: row.request_fingerprint,
     process: row.process_id,
     version: row.process_version,
-    acceptedInput: structuredClone(acceptedInput),
+    ...(acceptedInput === undefined
+      ? {}
+      : { acceptedInput: structuredClone(acceptedInput) }),
     createdAt: iso(row.created_at),
     updatedAt: iso(row.updated_at),
     attemptCount: row.attempt_count,
     revision: safeInteger(row.revision, "Process Run revision"),
   };
-
   switch (row.status) {
-    case "queued":
+    case "queued": {
+      if (!acceptedInput) {
+        throw new Error("Persisted runnable Process Run input is unavailable");
+      }
       return {
         ...base,
         status: "queued",
+        acceptedInput: structuredClone(acceptedInput),
         ...(row.started_at ? { startedAt: iso(row.started_at) } : {}),
       };
-    case "running":
-      if (!row.claim_token || !row.claim_expires_at || !row.started_at) {
+    }
+    case "running": {
+      if (
+        !acceptedInput ||
+        !row.claim_token ||
+        !row.claim_expires_at ||
+        !row.started_at
+      ) {
         throw new Error("Persisted running Process Run is inconsistent");
       }
       return {
         ...base,
         status: "running",
+        acceptedInput: structuredClone(acceptedInput),
         claimToken: row.claim_token,
         claimExpiresAt: iso(row.claim_expires_at),
         startedAt: iso(row.started_at),
       };
+    }
     case "succeeded":
       if (!row.started_at || !row.finished_at) {
         throw new Error("Persisted succeeded Process Run is inconsistent");
       }
-      return {
-        ...base,
-        status: "succeeded",
-        startedAt: iso(row.started_at),
-        finishedAt: iso(row.finished_at),
-        output: structuredClone(row.output),
-      };
+      return row.result_expired_at
+        ? {
+            ...base,
+            status: "succeeded",
+            startedAt: iso(row.started_at),
+            finishedAt: iso(row.finished_at),
+            resultExpiredAt: iso(row.result_expired_at),
+          }
+        : {
+            ...base,
+            status: "succeeded",
+            startedAt: iso(row.started_at),
+            finishedAt: iso(row.finished_at),
+            output: structuredClone(row.output),
+          };
     case "failed":
+      if (!row.started_at || !row.finished_at) {
+        throw new Error("Persisted failed Process Run is inconsistent");
+      }
+      if (row.result_expired_at) {
+        return {
+          ...base,
+          status: "failed",
+          startedAt: iso(row.started_at),
+          finishedAt: iso(row.finished_at),
+          resultExpiredAt: iso(row.result_expired_at),
+        };
+      }
       if (
-        !row.started_at ||
-        !row.finished_at ||
         !isProcessErrorCode(row.error_code) ||
         row.public_error_message === null
       ) {

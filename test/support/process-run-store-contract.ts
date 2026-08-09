@@ -231,7 +231,7 @@ export function processRunStoreContract(
       await store.accept(run);
 
       const found = await store.findOwned(run.runId, run.ownerId);
-      if (!found) throw new Error("Expected Process Run");
+      if (!found?.acceptedInput) throw new Error("Expected Process Run input");
       (found.acceptedInput.input as { value: string }).value = "mutated read";
 
       const claim = await store.claim({

@@ -58,6 +58,7 @@ curl --fail -X POST http://127.0.0.1:3000/execute \
 | `npm run dev:dispatcher` | 启动 Outbox Dispatcher 与 Reconciler 角色 | 是，访问 PostgreSQL 与 Redis |
 | `npm run dev:worker` | 启动 Process Worker 角色 | 是，访问 PostgreSQL、Redis 与业务依赖 |
 | `npm run dev:webhook-worker` | 启动 Webhook Outbox 与 Delivery Worker 角色 | 是，访问 PostgreSQL、Redis 与已注册 Endpoint |
+| `npm run dev:retention-cleaner` | 启动分批内容清理角色 | 是，会删除 PostgreSQL 中已到期内容 |
 | `npm run dev:business-api` | 启动本地演示 Business Capability | 否 |
 | `npm run typecheck` | 严格 TypeScript 检查 | 否 |
 | `npm test` | 运行确定性测试 | 否 |
@@ -124,29 +125,38 @@ docker compose -f compose.integration.yaml down
 
 ### 异步运行角色
 
-同一构建产物提供四个命令：`npm run start:api`、`npm run start:dispatcher`、`npm run start:worker` 和 `npm run start:webhook-worker`。四个角色应部署为独立进程或工作负载；API 不消费 Job，Dispatcher 不加载 Business Process 或 caller Secret，Process Worker 不加载网关身份配置，Webhook Worker 不加载 production catalog。启动后台命令本身就是启用该内部角色的部署选择；`ASYNC_PROCESS_RUNS_ENABLED` 只控制 API 是否公开异步路由。
+同一构建产物提供五个命令：`npm run start:api`、`npm run start:dispatcher`、`npm run start:worker`、`npm run start:webhook-worker` 和 `npm run start:retention-cleaner`。五个角色应部署为独立进程或工作负载；API 不消费 Job，Dispatcher 不加载 Business Process 或 caller Secret，Process Worker 不加载网关身份配置，Webhook Worker 不加载 production catalog，Retention Cleaner 只连接 PostgreSQL。启动后台命令本身就是启用该内部角色的部署选择；`ASYNC_PROCESS_RUNS_ENABLED` 只控制 API 是否公开异步路由。
 
-| 配置 | API | Dispatcher | Process Worker | Webhook Worker |
-| --- | --- | --- | --- | --- |
-| `BUSINESS_API_BASE_URL` 与 Process 配置 | 必需 | 不读取 | 必需 | 不读取 |
-| `ASYNC_PROCESS_RUNS_ENABLED` | 控制异步路由 | 不读取 | 不读取 | 不读取 |
-| `ASYNC_GATEWAY_SHARED_SECRET` | 异步路由启用时必需 | 不读取 | 不读取 | 不读取 |
-| `DATABASE_URL`、PostgreSQL Pool 配置 | 异步路由启用时必需 | 必需 | 必需 | 必需 |
-| 三个 `PROCESS_RUN_*_RETENTION_MS` | 异步路由启用时必需 | 不读取 | 必需 | 不读取 |
-| `REDIS_URL` | 不读取 | 必需 | 必需 | 必需 |
-| `PROCESS_QUEUE_*` | 不读取 | 必需 | 必须与 Dispatcher 相同 | 不读取 |
-| `WEBHOOK_QUEUE_*` | 不读取 | 不读取 | 不读取 | 可选覆盖 |
-| `OUTBOX_*`、`PROCESS_RUN_RECONCILE_*` | 不读取 | 可选覆盖 | 不读取 | 不读取 |
-| `PROCESS_WORKER_*` | 不读取 | 不读取 | 可选覆盖 | 不读取 |
-| `WEBHOOK_SECRET_ENCRYPTION_KEY` | 不读取 | 不读取 | 不读取 | 必需，32-byte base64 key |
-| 其他 `WEBHOOK_*` | 不读取 | 不读取 | 不读取 | 可选覆盖 |
-| `PORT`、`RUNTIME_ROLE_READINESS_TIMEOUT_MS` | `PORT` | 两者 | 两者 | 两者 |
+| 配置 | API | Dispatcher | Process Worker | Webhook Worker | Retention Cleaner |
+| --- | --- | --- | --- | --- | --- |
+| `BUSINESS_API_BASE_URL` 与 Process 配置 | 必需 | 不读取 | 必需 | 不读取 | 不读取 |
+| `ASYNC_PROCESS_RUNS_ENABLED` | 控制异步路由 | 不读取 | 不读取 | 不读取 | 不读取 |
+| `ASYNC_GATEWAY_SHARED_SECRET` | 异步路由启用时必需 | 不读取 | 不读取 | 不读取 | 不读取 |
+| `DATABASE_URL`、PostgreSQL Pool 配置 | 异步路由启用时必需 | 必需 | 必需 | 必需 | 必需 |
+| 三个 `PROCESS_RUN_*_RETENTION_MS` | 异步路由启用时必需 | 不读取 | 必需 | 不读取 | 不读取；读取已持久化到期时间 |
+| `REDIS_URL` | 不读取 | 必需 | 必需 | 必需 | 不读取 |
+| `PROCESS_QUEUE_*` | 不读取 | 必需 | 必须与 Dispatcher 相同 | 不读取 | 不读取 |
+| `WEBHOOK_QUEUE_*` | 不读取 | 不读取 | 不读取 | 可选覆盖 | 不读取 |
+| `OUTBOX_*`、`PROCESS_RUN_RECONCILE_*` | 不读取 | 可选覆盖 | 不读取 | 不读取 | 不读取 |
+| `PROCESS_WORKER_*` | 不读取 | 不读取 | 可选覆盖 | 不读取 | 不读取 |
+| `WEBHOOK_SECRET_ENCRYPTION_KEY` | 不读取 | 不读取 | 不读取 | 必需，32-byte base64 key | 不读取 |
+| Delivery retry 的 `WEBHOOK_*` | 不读取 | 不读取 | 不读取 | 可选覆盖 | 不读取 |
+| `WEBHOOK_DELIVERY_HISTORY_RETENTION_MS`、`RETENTION_CLEANUP_*` | 不读取 | 不读取 | 不读取 | 不读取 | 可选覆盖 |
+| `PORT`、`RUNTIME_ROLE_READINESS_TIMEOUT_MS` | `PORT` | 两者 | 两者 | 两者 | 两者 |
 
 部署前先执行 migration。`PROCESS_RUN_CLAIM_LEASE_MS` 必须大于 `PROCESS_TIMEOUT_MS`，避免正常 Attempt 在超时治理结束前被接管。每个环境使用独立 `PROCESS_QUEUE_PREFIX`；调用方不能提交 queue name、concurrency、retry 或 Redis 配置。
 
 `content-processing/v1` 默认 `CONTENT_PROCESSING_RETRY_MAX_ATTEMPTS=1`。只有确认下游按 `Idempotency-Key: <runId>` 去重后，才可把该值提高到 `2`–`5`；当前只把稳定的 `DEPENDENCY_FAILURE` 分类为可重试。`CONTENT_PROCESSING_RETRY_INITIAL_DELAY_MS` 和 `CONTENT_PROCESSING_RETRY_MAX_DELAY_MS` 控制指数退避，最大延迟不超过 300 秒。等待重试时公开状态仍是 `queued`，请求 body 不能覆盖这些策略。
 
-四个角色都提供 `GET /healthz` 和 `GET /readyz`。liveness 只确认进程工作，不访问下游；readiness 检查该角色实际使用的 migration、PostgreSQL 和 Redis，并在有界时间内返回 `503`，不暴露连接地址或内部错误。默认同步 API 保持原样，启用异步路由也不会删除 `POST /execute`。
+五个角色都提供 `GET /healthz` 和 `GET /readyz`。liveness 只确认进程工作，不访问下游；readiness 检查该角色实际使用的 migration、PostgreSQL 和 Redis，并在有界时间内返回 `503`，不暴露连接地址或内部错误。默认同步 API 保持原样，启用异步路由也不会删除 `POST /execute`。
+
+### 内容保留与清理
+
+模板采用以下安全起点：accepted input 1 天、成功 output 或稳定 error 7 天、Run metadata 30 天、已完成 Webhook Delivery Attempt 历史 30 天。前三项通过 `PROCESS_RUN_ACCEPTED_INPUT_RETENTION_MS`、`PROCESS_RUN_RESULT_RETENTION_MS` 和 `PROCESS_RUN_METADATA_RETENTION_MS` 显式配置，并在接受或完成 Run 时写成绝对到期时间；Delivery 历史通过 `WEBHOOK_DELIVERY_HISTORY_RETENTION_MS` 配置，未填写时 Retention Cleaner 使用 30 天。缩短内容期限可降低隐私暴露和数据库体积，但必须覆盖调用方正常轮询、故障恢复和争议处理窗口；延长期限前应完成数据授权、容量与删除 SLA 评审。
+
+`npm run start:retention-cleaner` 每小时默认启动一次 sweep，每批最多 25 个 Run、每个 sweep 最多 100 批；分别用 `RETENTION_CLEANUP_INTERVAL_MS`、`RETENTION_CLEANUP_BATCH_SIZE` 和 `RETENTION_CLEANUP_MAX_BATCHES_PER_SWEEP` 调整。每个 sweep 固定一个 `asOf`，每批独立事务并写 `retention_cleanup_batches` 计数、输入游标和下一游标。收到关闭信号时，角色等待当前批次提交或回滚，再停止下一批；人工调用 `RetentionCleaner.runSweep({ asOf, cursor, signal })` 可用返回的 `nextCursor` 继续同一 cutoff。失败批次整体回滚，重复同一范围是幂等的。
+
+清理器绝不删除 queued/running Run 的 accepted input。终态 input 到期后只移除输入；结果到期后保留 `status`、`startedAt` 和 `finishedAt`，查询返回 `resultAvailability: "expired"` 与 `resultExpiredAt`。Run metadata 只有在 input/result 均到期、Webhook outbox 不再待发布，而且关联 Delivery 已终态并超过 Delivery 历史期限后才删除；删除 Run 时由外键一起删除 Attempt、Event、已发布 Outbox、Delivery 和 caller-scoped 幂等记录，不留下悬空引用。因此 metadata 的实际保留时间可能长于配置下限。`005_retention_cleanup` 的回滚会在已经清除内容时拒绝执行；此时应从备份恢复内容或继续使用新 schema，不能把缺失内容伪装成旧版非空字段。
 
 Webhook Endpoint 由运维侧预注册并绑定 caller；Process 提交不能携带 callback URL。Webhook Worker 只发送包含 `eventId`、`runId`、准确 Process/version、终态、完成时间和相对查询位置的 payload，不复制输入、输出或内部错误。Endpoint 注册、URL 修改、Secret 轮换、停用和审计目前是受信运维代码调用的内部 Store Interface，不是产品请求路由；调用方身份必须先由控制面认证，再作为 `ownerId` 与 `actorId` 传入。
 
@@ -164,7 +174,7 @@ Webhook 重试状态以 PostgreSQL 为准，不依赖 BullMQ 的 Job attempts。
 | --- | --- |
 | `src/main.ts` | 监听端口、启动日志、关闭信号和退出状态 |
 | `src/startup-construction.ts` | 配置翻译、校验、Adapter 选择和生产组装 |
-| `src/async-runtime-construction.ts` | Dispatcher/Worker 的角色专属配置、Adapter 和 production catalog 组装 |
+| `src/async-runtime-construction.ts` | Dispatcher/Worker/Retention Cleaner 的角色专属配置、Adapter 和 production catalog 组装 |
 | `src/webhook-runtime-construction.ts` | Webhook Outbox、Queue、Sender 和 Worker 的独立生产组装 |
 | `src/application.ts` | HTTP server 的 `listen` 与 `close` 生命周期 |
 | `src/runtime-role-application.ts` | 后台角色的 liveness、readiness、监听与关闭生命周期 |
@@ -183,6 +193,7 @@ Webhook 重试状态以 PostgreSQL 为准，不依赖 BullMQ 的 Job attempts。
 | `src/outbox-dispatcher.ts` | 从 PostgreSQL Outbox 向 Process/Webhook Queue 转发各自最小 Job |
 | `src/process-run-reconciler.ts` | 扫描长期 queued 或过期 running Run，并通过 Queue Seam 重投 |
 | `src/process-dispatcher-runtime.ts` | 以不重叠的周期运行 Outbox 与 Reconciler，并隔离可恢复错误 |
+| `src/postgres-retention-cleanup.ts`、`src/retention-cleaner-runtime.ts` | 分层内容清理、引用保护、批次审计、游标 sweep 与安全中断 |
 | `src/bullmq-process-work-queue.ts` | 固定版本 BullMQ Queue、Worker、Redis 连接策略与有界 Job retention |
 | `src/webhook-delivery.ts`、`src/postgres-webhook-delivery-store.ts` | 终态 Delivery、原始 body 签名、HTTP 投递和持久化结果 |
 | `src/bullmq-webhook-work-queue.ts` | 独立 Webhook Queue/Worker、Redis 生命周期和有界 Job retention |

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   constructProcessDispatcherService,
   constructProcessWorkerService,
+  constructRetentionCleanerService,
 } from "../src/async-runtime-construction.js";
 
 describe("Async runtime role construction", () => {
@@ -66,6 +67,23 @@ describe("Async runtime role construction", () => {
     ).toThrow(
       "PROCESS_RUN_CLAIM_LEASE_MS must exceed PROCESS_TIMEOUT_MS",
     );
+  });
+
+  it("constructs the Retention Cleaner from role-owned PostgreSQL settings", async () => {
+    expect(() => constructRetentionCleanerService({})).toThrow(
+      "DATABASE_URL is required for this runtime role",
+    );
+    expect(() =>
+      constructRetentionCleanerService({
+        DATABASE_URL,
+        RETENTION_CLEANUP_BATCH_SIZE: "101",
+      }),
+    ).toThrow("RETENTION_CLEANUP_BATCH_SIZE must not exceed 100");
+    const service = constructRetentionCleanerService({
+      DATABASE_URL,
+      WEBHOOK_DELIVERY_HISTORY_RETENTION_MS: "2592000000",
+    });
+    await service.application.close();
   });
 });
 

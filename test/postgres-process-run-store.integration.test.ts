@@ -2,11 +2,13 @@ import path from "node:path";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { runner } from "node-pg-migrate";
 import { Pool } from "pg";
+import { createAsyncProcessRuns } from "../src/async-process-runs.js";
 import {
   callerIdentityHeader,
   gatewayAuthenticationHeader,
 } from "../src/caller-identity.js";
 import { createPostgresProcessRunStore } from "../src/postgres-process-run-store.js";
+import { createPostgresRetentionCleanup } from "../src/postgres-retention-cleanup.js";
 import { createPostgresWebhookDeliveryStore } from "../src/postgres-webhook-delivery-store.js";
 import { createWebhookSecretCipher } from "../src/webhook-secret-cipher.js";
 import { createWebhookTargetPolicy } from "../src/webhook-target-policy.js";
@@ -15,6 +17,7 @@ import {
   createWebhookDeliveryWorker,
 } from "../src/webhook-delivery.js";
 import type { ProcessRunStore } from "../src/process-run-store.js";
+import { createProcessRegistry } from "../src/process-runtime.js";
 import { constructProcessingService } from "../src/startup-construction.js";
 import { processRunStoreContract } from "./support/process-run-store-contract.js";
 
@@ -47,7 +50,9 @@ postgresDescribe("PostgreSQL Process Run Store", () => {
   }, 30_000);
 
   beforeEach(async () => {
-    await primaryPool.query("TRUNCATE webhook_endpoints, process_runs CASCADE");
+    await primaryPool.query(
+      "TRUNCATE retention_cleanup_batches, webhook_endpoints, process_runs CASCADE",
+    );
   });
 
   afterAll(async () => {
@@ -905,6 +910,379 @@ postgresDescribe("PostgreSQL Process Run Store", () => {
         reasonCode: "WEBHOOK_TARGET_FORBIDDEN_ADDRESS",
       }),
     ]);
+  });
+
+  it("expires input, result, and metadata independently without changing terminal status", async () => {
+    const retentionStore = createPostgresProcessRunStore({
+      pool: primaryPool,
+      retention: {
+        acceptedInputMs: 1_000,
+        resultMs: 2_000,
+        metadataMs: 10_000,
+      },
+    });
+    const cleanup = createPostgresRetentionCleanup({
+      pool: primaryPool,
+      webhookDeliveryHistoryMs: 30_000,
+    });
+    const terminal = acceptedRun(61, {
+      ownerId: "caller-retention",
+      idempotencyKey: "terminal-retention",
+      inputValue: "private-input",
+    });
+    const queued = acceptedRun(62, {
+      ownerId: "caller-retention",
+      idempotencyKey: "queued-retention",
+      inputValue: "still-runnable",
+    });
+    await retentionStore.accept(terminal);
+    await retentionStore.accept(queued);
+    const claim = await retentionStore.claim({
+      runId: terminal.runId,
+      claimToken: claimToken(61),
+      claimedAt: "2026-08-09T10:00:00.100Z",
+    });
+    if (!claim) throw new Error("Expected Process Run claim");
+    await retentionStore.complete({
+      runId: terminal.runId,
+      claimToken: claim.claimToken,
+      completedAt: "2026-08-09T10:00:00.500Z",
+      completion: {
+        status: "succeeded",
+        output: { value: "private-output" },
+      },
+    });
+
+    await expect(
+      cleanup.cleanupBatch({
+        asOf: "2026-08-09T10:00:00.999Z",
+        batchSize: 10,
+      }),
+    ).resolves.toMatchObject({ examined: 0 });
+    await expect(
+      cleanup.cleanupBatch({
+        asOf: "2026-08-09T10:00:01.000Z",
+        batchSize: 10,
+      }),
+    ).resolves.toMatchObject({
+      inputContentsDeleted: 1,
+      resultsDeleted: 0,
+      runsDeleted: 0,
+    });
+    await expect(
+      retentionStore.findOwned(terminal.runId, terminal.ownerId),
+    ).resolves.toMatchObject({
+      status: "succeeded",
+      finishedAt: "2026-08-09T10:00:00.500Z",
+      output: { value: "private-output" },
+    });
+    expect(
+      (await retentionStore.findOwned(terminal.runId, terminal.ownerId))
+        ?.acceptedInput,
+    ).toBeUndefined();
+    await expect(
+      retentionStore.findOwned(queued.runId, queued.ownerId),
+    ).resolves.toMatchObject({
+      status: "queued",
+      acceptedInput: expect.objectContaining({
+        input: { value: "still-runnable" },
+      }),
+    });
+
+    await expect(
+      cleanup.cleanupBatch({
+        asOf: "2026-08-09T10:00:02.499Z",
+        batchSize: 10,
+      }),
+    ).resolves.toMatchObject({ resultsDeleted: 0 });
+    await expect(
+      cleanup.cleanupBatch({
+        asOf: "2026-08-09T10:00:02.500Z",
+        batchSize: 10,
+      }),
+    ).resolves.toMatchObject({ resultsDeleted: 1, runsDeleted: 0 });
+    const publicRuns = createAsyncProcessRuns({
+      registry: createProcessRegistry([]),
+      store: retentionStore,
+    });
+    await expect(
+      publicRuns.find(terminal.runId, { callerId: terminal.ownerId }),
+    ).resolves.toEqual({
+      runId: terminal.runId,
+      process: terminal.process,
+      version: terminal.version,
+      status: "succeeded",
+      createdAt: terminal.createdAt,
+      startedAt: "2026-08-09T10:00:00.100Z",
+      finishedAt: "2026-08-09T10:00:00.500Z",
+      resultAvailability: "expired",
+      resultExpiredAt: "2026-08-09T10:00:02.500Z",
+    });
+    await expect(
+      cleanup.cleanupBatch({
+        asOf: "2026-08-09T10:00:02.500Z",
+        batchSize: 10,
+      }),
+    ).resolves.toMatchObject({
+      inputContentsDeleted: 0,
+      resultsDeleted: 0,
+      runsDeleted: 0,
+    });
+
+    await expect(
+      cleanup.cleanupBatch({
+        asOf: "2026-08-09T10:00:10.000Z",
+        batchSize: 10,
+      }),
+    ).resolves.toMatchObject({ runsDeleted: 1 });
+    await expect(
+      retentionStore.findOwned(terminal.runId, terminal.ownerId),
+    ).resolves.toBeUndefined();
+    await expect(
+      retentionStore.findOwned(queued.runId, queued.ownerId),
+    ).resolves.toMatchObject({ status: "queued" });
+  });
+
+  it("rolls back a failed cleanup batch and resumes from its durable cursor", async () => {
+    const retentionStore = createPostgresProcessRunStore({
+      pool: primaryPool,
+      retention: {
+        acceptedInputMs: 1,
+        resultMs: 1,
+        metadataMs: 60_000,
+      },
+    });
+    const runs = [
+      acceptedRun(63, {
+        ownerId: "caller-cleanup-resume",
+        idempotencyKey: "cleanup-resume-1",
+      }),
+      acceptedRun(64, {
+        ownerId: "caller-cleanup-resume",
+        idempotencyKey: "cleanup-resume-2",
+      }),
+    ];
+    for (const [index, run] of runs.entries()) {
+      await retentionStore.accept(run);
+      const claim = await retentionStore.claim({
+        runId: run.runId,
+        claimToken: claimToken(63 + index),
+        claimedAt: "2026-08-09T10:00:00.001Z",
+      });
+      if (!claim) throw new Error("Expected Process Run claim");
+      await retentionStore.complete({
+        runId: run.runId,
+        claimToken: claim.claimToken,
+        completedAt: "2026-08-09T10:00:00.002Z",
+        completion: { status: "succeeded", output: { value: run.runId } },
+      });
+    }
+    const duplicateAuditId = "40000000-0000-4000-8000-000000000001";
+    const cleanup = createPostgresRetentionCleanup({
+      pool: primaryPool,
+      webhookDeliveryHistoryMs: 30_000,
+      createCleanupId: () => duplicateAuditId,
+    });
+    const first = await cleanup.cleanupBatch({
+      asOf: "2026-08-09T10:00:01.000Z",
+      batchSize: 1,
+    });
+    expect(first).toMatchObject({
+      examined: 1,
+      inputContentsDeleted: 1,
+      resultsDeleted: 1,
+      nextCursor: runs[0]?.runId,
+    });
+    await expect(
+      cleanup.cleanupBatch({
+        asOf: "2026-08-09T10:00:01.000Z",
+        batchSize: 1,
+        cursor: first.nextCursor,
+      }),
+    ).rejects.toMatchObject({ code: "23505" });
+    await expect(
+      retentionStore.findOwned(runs[1]!.runId, runs[1]!.ownerId),
+    ).resolves.toMatchObject({
+      acceptedInput: expect.any(Object),
+      output: { value: runs[1]!.runId },
+    });
+
+    const resumed = await createPostgresRetentionCleanup({
+      pool: primaryPool,
+      webhookDeliveryHistoryMs: 30_000,
+      createCleanupId: () =>
+        "40000000-0000-4000-8000-000000000002",
+    }).cleanupBatch({
+      asOf: "2026-08-09T10:00:01.000Z",
+      batchSize: 1,
+      cursor: first.nextCursor,
+    });
+    expect(resumed).toMatchObject({
+      examined: 1,
+      inputContentsDeleted: 1,
+      resultsDeleted: 1,
+    });
+    expect(resumed.nextCursor).toBeUndefined();
+    const audit = await primaryPool.query<{
+      cleanup_id: string;
+      cursor_run_id: string | null;
+      next_cursor_run_id: string | null;
+    }>(
+      "SELECT cleanup_id, cursor_run_id, next_cursor_run_id FROM retention_cleanup_batches ORDER BY cleanup_id",
+    );
+    expect(audit.rows).toEqual([
+      {
+        cleanup_id: duplicateAuditId,
+        cursor_run_id: null,
+        next_cursor_run_id: runs[0]?.runId,
+      },
+      {
+        cleanup_id: "40000000-0000-4000-8000-000000000002",
+        cursor_run_id: runs[0]?.runId,
+        next_cursor_run_id: null,
+      },
+    ]);
+  });
+
+  it("makes concurrent cleanup idempotent while owner queries remain valid", async () => {
+    const retentionStore = createPostgresProcessRunStore({
+      pool: primaryPool,
+      retention: { acceptedInputMs: 1, resultMs: 1, metadataMs: 60_000 },
+    });
+    const run = acceptedRun(65, {
+      ownerId: "caller-cleanup-concurrent",
+      idempotencyKey: "cleanup-concurrent",
+    });
+    await retentionStore.accept(run);
+    const claim = await retentionStore.claim({
+      runId: run.runId,
+      claimToken: claimToken(65),
+      claimedAt: "2026-08-09T10:00:00.001Z",
+    });
+    if (!claim) throw new Error("Expected Process Run claim");
+    await retentionStore.complete({
+      runId: run.runId,
+      claimToken: claim.claimToken,
+      completedAt: "2026-08-09T10:00:00.002Z",
+      completion: { status: "failed", error: {
+        code: "DEPENDENCY_FAILURE",
+        message: "The dependency is unavailable",
+      } },
+    });
+    const cleanups = [1, 2].map((index) =>
+      createPostgresRetentionCleanup({
+        pool: index === 1 ? primaryPool : secondaryPool,
+        webhookDeliveryHistoryMs: 30_000,
+        createCleanupId: () =>
+          `40000000-0000-4000-8000-${index.toString().padStart(12, "0")}`,
+      }),
+    );
+    const [left, right, queried] = await Promise.all([
+      cleanups[0]!.cleanupBatch({
+        asOf: "2026-08-09T10:00:01.000Z",
+        batchSize: 10,
+      }),
+      cleanups[1]!.cleanupBatch({
+        asOf: "2026-08-09T10:00:01.000Z",
+        batchSize: 10,
+      }),
+      retentionStore.findOwned(run.runId, run.ownerId),
+    ]);
+    expect(left.inputContentsDeleted + right.inputContentsDeleted).toBe(1);
+    expect(left.resultsDeleted + right.resultsDeleted).toBe(1);
+    expect(["failed"]).toContain(queried?.status);
+    await expect(
+      retentionStore.findOwned(run.runId, run.ownerId),
+    ).resolves.toMatchObject({
+      status: "failed",
+      resultExpiredAt: "2026-08-09T10:00:01.000Z",
+    });
+  });
+
+  it("retains Delivery records while deleting their attempt history at its own boundary", async () => {
+    const webhooks = postgresWebhookStore(primaryPool);
+    await webhooks.provisionEndpoint({
+      endpointId: "20000000-0000-4000-8000-000000000041",
+      ownerId: "caller-delivery-retention",
+      actorId: "operator:retention-test",
+      url: "https://hooks.example/retention",
+      secret: `whsec_${Buffer.alloc(32, 41).toString("base64")}`,
+      createdAt: "2026-08-09T10:00:00.000Z",
+    });
+    const run = acceptedRun(66, {
+      ownerId: "caller-delivery-retention",
+      idempotencyKey: "delivery-retention",
+    });
+    await primaryStore.accept(run);
+    const runClaim = await primaryStore.claim({
+      runId: run.runId,
+      claimToken: claimToken(66),
+      claimedAt: "2026-08-09T10:00:01.000Z",
+    });
+    if (!runClaim) throw new Error("Expected Process Run claim");
+    await primaryStore.complete({
+      runId: run.runId,
+      claimToken: runClaim.claimToken,
+      completedAt: "2026-08-09T10:00:02.000Z",
+      completion: { status: "succeeded", output: { value: "complete" } },
+    });
+    const [delivery] = await webhooks.findByRun({
+      ownerId: run.ownerId,
+      runIds: [run.runId],
+    });
+    if (!delivery) throw new Error("Expected Webhook Delivery");
+    const deliveryClaimToken = "30000000-0000-4000-8000-000000000041";
+    await webhooks.claim({
+      deliveryId: delivery.deliveryId,
+      claimToken: deliveryClaimToken,
+      claimedAt: "2026-08-09T10:00:03.000Z",
+    });
+    await webhooks.complete({
+      deliveryId: delivery.deliveryId,
+      claimToken: deliveryClaimToken,
+      completedAt: "2026-08-09T10:00:04.000Z",
+      result: { outcome: "succeeded", httpStatus: 204, latencyMs: 10 },
+    });
+    const cleanup = createPostgresRetentionCleanup({
+      pool: primaryPool,
+      webhookDeliveryHistoryMs: 1_000,
+    });
+
+    await expect(
+      cleanup.cleanupBatch({
+        asOf: "2026-08-09T10:00:04.999Z",
+        batchSize: 10,
+      }),
+    ).resolves.toMatchObject({ deliveryAttemptsDeleted: 0 });
+    await expect(
+      cleanup.cleanupBatch({
+        asOf: "2026-08-09T10:00:05.000Z",
+        batchSize: 10,
+      }),
+    ).resolves.toMatchObject({
+      deliveryAttemptsDeleted: 1,
+      runsDeleted: 0,
+    });
+    await expect(
+      webhooks.findAttempts({
+        ownerId: run.ownerId,
+        deliveryId: delivery.deliveryId,
+      }),
+    ).resolves.toEqual([]);
+    await expect(
+      webhooks.findByRun({ ownerId: run.ownerId, runIds: [run.runId] }),
+    ).resolves.toEqual([
+      expect.objectContaining({
+        deliveryId: delivery.deliveryId,
+        status: "succeeded",
+      }),
+    ]);
+    await expect(
+      cleanup.cleanupBatch({
+        asOf: "2026-08-09T10:00:05.000Z",
+        batchSize: 10,
+      }),
+    ).resolves.toMatchObject({ examined: 0 });
   });
 
   it("rejects an illegal terminal transition at the database boundary", async () => {

@@ -144,7 +144,7 @@ Authorization: Bearer replace-with-short-lived-token
 }
 ```
 
-终态成功响应在调用方有内容访问权且结果仍在保留期内时增加 `output`；终态失败响应增加现有稳定的公开 `error`。响应不包含 Attempt 栈、BullMQ 状态、Prompt、Tool 过程、模型消息、内部错误或 Webhook secret。
+终态成功响应在调用方有内容访问权且结果仍在保留期内时增加 `output`；终态失败响应增加现有稳定的公开 `error`。结果内容到期后仍返回终态、开始与完成时间，并以 `resultAvailability: "expired"` 和 `resultExpiredAt` 明确表达内容不可用；它不返回 `output: null` 或虚构错误。响应不包含 Attempt 栈、BullMQ 状态、Prompt、Tool 过程、模型消息、内部错误或 Webhook secret。
 
 初始公开状态只包含：
 
@@ -214,6 +214,7 @@ flowchart LR
     Events --> Delivery["Webhook Delivery"]
     Delivery --> HookQueue["Webhook Queue"]
     HookQueue --> Endpoint["Registered Webhook Endpoint"]
+    Cleaner["Retention Cleaner"] --> Store
 ```
 
 | Module | 外部 Interface | 隐藏的 Implementation |
@@ -225,6 +226,7 @@ flowchart LR
 | Process Attempt Runner | 执行一个已 claim 的 Attempt | 超时、AbortSignal、错误净化、retry classification 和 fencing |
 | Process Events | 在状态事务中追加不可变事件 | outbox 扫描、重复发布和 reconciliation |
 | Webhook Delivery | 为事件创建 Delivery、签名、投递、重试和重放 | endpoint 策略、HTTP、secret、backoff 和审计 |
+| Retention Cleaner | `runSweep({ asOf, cursor, signal })` | 到期选择、引用保护、短事务批次、审计与游标续跑 |
 
 `Async Process Runs` 是 HTTP Adapter 与持久化、队列之间的主 Seam。`Process Work Queue` 只在内部存在，并提供 BullMQ 生产 Adapter 与确定性内存测试 Adapter。任何 BullMQ 类型、Job 状态或 Redis key 都不得越过该 Seam。
 
@@ -258,7 +260,9 @@ Process Run Store 是权威状态机，不是通用日志库：
 - accepted input 是异步恢复所必需的业务内容。它必须加密、按 owner 授权，并在明确保留期后删除或转为不可执行的元数据记录。
 - output 使用独立内容访问策略。Webhook 和普通日志默认不复制内容。
 - Prompt、Tool 过程、模型消息、隐藏推理、Secret 和远端原始错误不进入这些表。
-- metadata、input、output、Attempt 和 Webhook Delivery 可以使用不同保留期；上线前必须确定具体期限和删除流程。
+- accepted input、公开 result、Run metadata 和 Webhook Delivery Attempt 历史分别使用 1 天、7 天、30 天和 30 天的部署模板值。前三项在写入时固化绝对到期时间；Delivery 历史在清理时按完成时间计算。所有值可由服务端环境配置，产品请求不能覆盖。
+- 清理只处理终态 Run。input 与 result 到期可独立清除；metadata 删除还必须等待两者到期、Webhook outbox 已发布、Delivery 已终态且超出其独立历史期限。Run 删除通过外键一起移除 Attempt、Event、Delivery 和幂等记录，不留下失效引用。
+- 清理 sweep 固定一个 cutoff，使用最多 100 行的短事务批次，并把计数与前后游标写入审计表。重复批次安全；失败批次回滚；关闭信号只在当前批次边界生效，返回的下一游标可继续同一 cutoff。
 - 大对象若以后转存 Object Storage，数据库只保存受授权的引用和完整性摘要；首个版本继续受 HTTP body 与输出大小上限约束。
 
 ## BullMQ 适用性与约束
@@ -340,6 +344,7 @@ BullMQ 和网络只能提供至少一次执行。流程若会扣费、发布、�
 | API | `/healthz`、`POST /execute`、异步提交与查询 | HTTP 延迟和请求量 |
 | Process Dispatcher/Worker | outbox 入队和执行 Process Attempt | Queue depth、oldest Job age、下游配额 |
 | Webhook Dispatcher/Worker | 创建并投递 Webhook Delivery | Delivery backlog 和 endpoint latency |
+| Retention Cleaner | 分批删除已到期内容与 metadata | 到期候选量、删除量、deferred 数和 sweep 延迟 |
 | Migration Job | 在新代码接流量前执行数据库迁移 | 每个版本一次，不水平扩容 |
 
 初期可以在一个 Worker 进程内运行 Dispatcher 与 Process Worker，也可以在一个 Delivery 进程内组合 Webhook Dispatcher 与 Worker；Interface 和数据表仍保持分离，便于随后独立扩容。API 进程不应在后台偷偷消费 Job。
@@ -355,6 +360,7 @@ BullMQ 和网络只能提供至少一次执行。流程若会扣费、发布、�
 | PostgreSQL Adapter | transaction、唯一约束、compare-and-set、outbox claim 和迁移 | 临时 PostgreSQL |
 | BullMQ Adapter | 重复 Job、retry/backoff、stalled recovery、concurrency 和 graceful shutdown | 临时 Redis，不用 mock 代替关键语义 |
 | Webhook Delivery | 原始 body 签名、重复、超时、状态码策略、secret 轮换和 SSRF 拒绝 | 受控本地 HTTP endpoint |
+| Retention cleanup | 边界时间、重复清理、并发查询、部分失败、游标续跑和引用保护 | 临时 PostgreSQL |
 | 故障注入 | API commit 后 Redis 断线、发布后未标记、Worker 崩溃、过期 claim、Webhook 断线 | 集成测试与 staging |
 
 所有现有同步测试必须继续通过。真实 Redis/PostgreSQL 集成测试可放入独立命令和 CI job，但状态机与 HTTP contract 的确定性测试不能依赖外部服务。

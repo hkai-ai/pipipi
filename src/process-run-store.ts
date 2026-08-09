@@ -22,7 +22,6 @@ type StoredProcessRunBase = Readonly<{
   requestFingerprint: string;
   process: string;
   version: string;
-  acceptedInput: AcceptedProcessInput;
   createdAt: string;
   updatedAt: string;
   attemptCount: number;
@@ -31,10 +30,15 @@ type StoredProcessRunBase = Readonly<{
 
 export type StoredProcessRun =
   | (StoredProcessRunBase &
-      Readonly<{ status: "queued"; startedAt?: string }>)
+      Readonly<{
+        status: "queued";
+        acceptedInput: AcceptedProcessInput;
+        startedAt?: string;
+      }>)
   | (StoredProcessRunBase &
       Readonly<{
         status: "running";
+        acceptedInput: AcceptedProcessInput;
         claimToken: string;
         claimExpiresAt: string;
         startedAt: string;
@@ -42,17 +46,25 @@ export type StoredProcessRun =
   | (StoredProcessRunBase &
       Readonly<{
         status: "succeeded";
+        acceptedInput?: AcceptedProcessInput;
         startedAt: string;
         finishedAt: string;
-        output: unknown;
-      }>)
+      }> &
+      (
+        | Readonly<{ output: unknown; resultExpiredAt?: never }>
+        | Readonly<{ output?: never; resultExpiredAt: string }>
+      ))
   | (StoredProcessRunBase &
       Readonly<{
         status: "failed";
+        acceptedInput?: AcceptedProcessInput;
         startedAt: string;
         finishedAt: string;
-        error: ProcessRunFailure;
-      }>);
+      }> &
+      (
+        | Readonly<{ error: ProcessRunFailure; resultExpiredAt?: never }>
+        | Readonly<{ error?: never; resultExpiredAt: string }>
+      ));
 
 export type AcceptedProcessRun = Readonly<{
   runId: string;

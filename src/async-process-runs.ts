@@ -46,6 +46,17 @@ export type ProcessRunView =
       runId: string;
       process: string;
       version: string;
+      status: "succeeded";
+      createdAt: string;
+      startedAt: string;
+      finishedAt: string;
+      resultAvailability: "expired";
+      resultExpiredAt: string;
+    }>
+  | Readonly<{
+      runId: string;
+      process: string;
+      version: string;
       status: "failed";
       createdAt: string;
       startedAt: string;
@@ -54,6 +65,17 @@ export type ProcessRunView =
         code: ProcessErrorCode;
         message: string;
       }>;
+    }>
+  | Readonly<{
+      runId: string;
+      process: string;
+      version: string;
+      status: "failed";
+      createdAt: string;
+      startedAt: string;
+      finishedAt: string;
+      resultAvailability: "expired";
+      resultExpiredAt: string;
     }>;
 
 export type ProcessRunSubmission =
@@ -197,21 +219,39 @@ function toProcessRunView(run: StoredProcessRun): ProcessRunView {
     case "running":
       return { ...identity, status: "running", startedAt: run.startedAt };
     case "succeeded":
-      return {
-        ...identity,
-        status: "succeeded",
-        startedAt: run.startedAt,
-        finishedAt: run.finishedAt,
-        output: structuredClone(run.output),
-      };
+      return run.resultExpiredAt === undefined
+        ? {
+            ...identity,
+            status: "succeeded",
+            startedAt: run.startedAt,
+            finishedAt: run.finishedAt,
+            output: structuredClone(run.output),
+          }
+        : {
+            ...identity,
+            status: "succeeded",
+            startedAt: run.startedAt,
+            finishedAt: run.finishedAt,
+            resultAvailability: "expired",
+            resultExpiredAt: run.resultExpiredAt,
+          };
     case "failed":
-      return {
-        ...identity,
-        status: "failed",
-        startedAt: run.startedAt,
-        finishedAt: run.finishedAt,
-        error: structuredClone(run.error),
-      };
+      return run.resultExpiredAt === undefined
+        ? {
+            ...identity,
+            status: "failed",
+            startedAt: run.startedAt,
+            finishedAt: run.finishedAt,
+            error: structuredClone(run.error),
+          }
+        : {
+            ...identity,
+            status: "failed",
+            startedAt: run.startedAt,
+            finishedAt: run.finishedAt,
+            resultAvailability: "expired",
+            resultExpiredAt: run.resultExpiredAt,
+          };
   }
 }
 

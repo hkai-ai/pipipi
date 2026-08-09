@@ -61,7 +61,7 @@ Agent 只获得 Process Registration 明确授权的窄 Tool。生产内容处�
 
 未来若流程产生发布、扣费、发送等副作用，必须先明确幂等、审计和补偿策略。
 
-异步 Process Run 的持久化提交、owner 查询、HTTP Interface、Outbox 调度、BullMQ Worker、受控 Process 重试和基础故障恢复已完成。终态事务会为已注册 Endpoint 创建精简 Webhook Delivery；独立 Webhook Worker 使用 Standard Webhooks HMAC 签名，并以 PostgreSQL 管理有界重试、逐次 Attempt 审计、稳定 event ID 和受控人工重放。Endpoint Secret 使用 AES-256-GCM 信封加密；注册和每次投递都重新解析目标、拒绝非公网地址并把连接固定到已检查的 IP，且不跟随重定向。功能默认关闭，容量、保留和完整观测仍按开发计划推进。该设计保留现有 Business Process 模型：外部调用方仍只选择准确 Process 和版本；Queue Job、Endpoint、重试与 Worker 配置由服务端拥有。详见 [`docs/async-process-runs-design.md`](docs/async-process-runs-design.md) 和 [`docs/async-process-runs-development-plan.md`](docs/async-process-runs-development-plan.md)。
+异步 Process Run 的持久化提交、owner 查询、HTTP Interface、Outbox 调度、BullMQ Worker、受控 Process 重试和基础故障恢复已完成。终态事务会为已注册 Endpoint 创建精简 Webhook Delivery；独立 Webhook Worker 使用 Standard Webhooks HMAC 签名，并以 PostgreSQL 管理有界重试、逐次 Attempt 审计、稳定 event ID 和受控人工重放。Endpoint Secret 使用 AES-256-GCM 信封加密；注册和每次投递都重新解析目标、拒绝非公网地址并把连接固定到已检查的 IP，且不跟随重定向。独立 Retention Cleaner 已按 accepted input、公开结果、Run metadata 和 Delivery Attempt 历史的期限分批清理；结果到期不改变终态，metadata 到期删除前还会保护未完成或仍在保留期内的 Delivery 引用。功能默认关闭，容量保护、Queue 全量重建和完整观测仍按开发计划推进。该设计保留现有 Business Process 模型：外部调用方仍只选择准确 Process 和版本；Queue Job、Endpoint、重试与 Worker 配置由服务端拥有。详见 [`docs/async-process-runs-design.md`](docs/async-process-runs-design.md) 和 [`docs/async-process-runs-development-plan.md`](docs/async-process-runs-development-plan.md)。
 
 ## Module 模型
 
@@ -70,7 +70,7 @@ Agent 只获得 Process Registration 明确授权的窄 Tool。生产内容处�
 | Module | 外部 Interface | 隐藏的 Implementation |
 | --- | --- | --- |
 | Startup Construction | `constructProcessingService(environment)` | 配置翻译、校验、Adapter 选择和完整生产组装 |
-| Async Role Construction | `constructProcessDispatcherService`、`constructProcessWorkerService` | 角色专属配置、依赖和生命周期组装 |
+| Async Role Construction | `constructProcessDispatcherService`、`constructProcessWorkerService`、`constructRetentionCleanerService` | 角色专属配置、依赖和生命周期组装 |
 | Processing Application | `listen`、`close` | Node HTTP 生命周期 |
 | Process Executor | `execute(request)` | 查找、超时、取消、错误转换和 Run Record |
 | Process Registration | `identity`、`retryPolicy`、`accept(input)`、`run(acceptedInput, context)` | Schema、JSON-safe accepted input、Process Definition、依赖、服务端重试策略和输出验证 |
@@ -83,6 +83,7 @@ Agent 只获得 Process Registration 明确授权的窄 Tool。生产内容处�
 | Process Worker | `process(job)` | exact Registration 查找、Attempt 执行和受控状态转换 |
 | Runtime Role Application | `listen`、`close` | Dispatcher/Worker liveness、readiness 和 HTTP 生命周期 |
 | Webhook Delivery | `claim`、`reschedule`、`complete`、`replay` | 加密 Endpoint、固定公网目标、Standard Webhooks 签名、Attempt 审计和重放 |
+| Retention Cleaner | `runSweep({ asOf, cursor, signal })` | 分层期限、短事务批次、引用保护、审计和游标续跑 |
 | Business Capability | 窄业务方法 | 远程协议、认证、超时和供应商细节 |
 
 Startup Construction 是生产组装 Seam；Process Executor 是同步传输与 Process Runtime 之间的主 Seam；Async Process Runs 是计划中异步 HTTP 与权威 Store 之间的主 Seam；Process Registration 是编写一个 Business Process 版本的 Seam；Process Attempt Runner 让同步入口和异步 Worker 复用同一执行治理。Adapter 只有在 Seam 上存在真实替换需求时才引入。
