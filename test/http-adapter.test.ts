@@ -11,8 +11,8 @@ import {
     type ProcessingHttpOptions,
 } from "../src/api/http.js";
 import {
-    type BusinessProcessExecutorOptions,
-    createBusinessProcessExecutor,
+    createProcessExecutor,
+    type ProcessRuntimeOptions,
 } from "../src/processes/catalog.js";
 import { ContentProcessingUnavailable } from "../src/processes/content/capability.js";
 
@@ -598,7 +598,7 @@ describe("controlled MVP HTTP boundary", () => {
                     return { content: `Result for ${input.content}` };
                 },
             },
-            agentRuntime: {
+            agent: {
                 optimize: async (request) => {
                     agentInputs.push(request.content);
                     await new Promise((resolve) =>
@@ -607,7 +607,7 @@ describe("controlled MVP HTTP boundary", () => {
                             request.content.endsWith("alpha") ? 15 : 5,
                         ),
                     );
-                    return request.contentProcessing.process(
+                    return request.capability.process(
                         { content: `Tool input ${request.content}` },
                         {
                             signal: request.signal,
@@ -673,11 +673,11 @@ describe("controlled MVP HTTP boundary", () => {
 });
 
 async function startProcessingService(
-    options: BusinessProcessExecutorOptions & { http?: ProcessingHttpOptions },
+    options: ProcessRuntimeOptions & { http?: ProcessingHttpOptions },
 ): Promise<RunningService> {
     const { http, ...executorOptions } = options;
     const application = createProcessingApplication({
-        executor: createBusinessProcessExecutor(executorOptions),
+        executor: createProcessExecutor(executorOptions),
         http,
     });
     const { url } = await application.listen();

@@ -1,9 +1,9 @@
 import {
-    type BusinessProcessRuntime,
-    createBusinessProcessRuntime,
+    createProcessRuntime,
+    type ProcessRuntime,
 } from "../processes/catalog.js";
 import {
-    PiContentOptimizationAgentRuntime,
+    PiContentAgent,
     parseOpenAIApiMode,
 } from "../processes/content/agent.js";
 import { parseBusinessApiBaseUrl } from "../processes/content/config.js";
@@ -11,13 +11,11 @@ import { HttpContentProcessingCapability } from "../processes/content/http.js";
 import type { ProcessRetryPolicy } from "../processes/runtime/index.js";
 import type { StartupEnvironment } from "./config.js";
 
-export function constructBusinessProcessRuntime(
+export function createProductionRuntime(
     environment: StartupEnvironment,
-): BusinessProcessRuntime {
-    const contentProcessingMode = parseContentProcessingMode(
-        environment.CONTENT_PROCESSING_MODE,
-    );
-    const contentProcessing = new HttpContentProcessingCapability({
+): ProcessRuntime {
+    const mode = parseContentMode(environment.CONTENT_PROCESSING_MODE);
+    const capability = new HttpContentProcessingCapability({
         baseUrl: parseBusinessApiBaseUrl(environment.BUSINESS_API_BASE_URL),
         timeoutMs: parsePositiveInteger(
             environment.BUSINESS_API_TIMEOUT_MS,
@@ -25,9 +23,21 @@ export function constructBusinessProcessRuntime(
             "BUSINESS_API_TIMEOUT_MS",
         ),
     });
-    const agentRuntime =
-        contentProcessingMode === "agent"
-            ? new PiContentOptimizationAgentRuntime({
+    const agent =
+        mode === "agent"
+            ? new PiContentAgent({
+                  skills: [
+                      {
+                          name: "content-optimization",
+                          path:
+                              environment.PI_SKILL_DIRECTORY ??
+                              ".pi/skills/content-optimization",
+                      },
+                      {
+                          name: "content-integrity",
+                          path: ".pi/skills/content-integrity",
+                      },
+                  ],
                   provider: environment.PI_PROVIDER,
                   model: environment.PI_MODEL,
                   openAIBaseUrl: environment.OPENAI_BASE_URL,
@@ -35,12 +45,11 @@ export function constructBusinessProcessRuntime(
                       environment.OPENAI_API_MODE,
                   ),
                   agentDir: environment.PI_AGENT_DIR,
-                  skillDirectory: environment.PI_SKILL_DIRECTORY,
               })
             : undefined;
-    return createBusinessProcessRuntime({
-        contentProcessing,
-        agentRuntime,
+    return createProcessRuntime({
+        contentProcessing: capability,
+        agent,
         processTimeoutMs: parsePositiveInteger(
             environment.PROCESS_TIMEOUT_MS,
             30_000,
@@ -48,8 +57,8 @@ export function constructBusinessProcessRuntime(
         ),
         processes: {
             contentProcessing: {
-                mode: contentProcessingMode,
-                retryPolicy: parseContentProcessingRetryPolicy(environment),
+                mode,
+                retryPolicy: parseContentRetry(environment),
             },
             titledContentProcessing: {
                 separator: environment.TITLED_CONTENT_SEPARATOR,
@@ -58,15 +67,13 @@ export function constructBusinessProcessRuntime(
     });
 }
 
-function parseContentProcessingMode(
-    value: string | undefined,
-): "direct" | "agent" {
+function parseContentMode(value: string | undefined): "direct" | "agent" {
     if (value === undefined || value === "direct") return "direct";
     if (value === "agent") return "agent";
     throw new Error("CONTENT_PROCESSING_MODE must be direct or agent");
 }
 
-function parseContentProcessingRetryPolicy(
+function parseContentRetry(
     environment: StartupEnvironment,
 ): ProcessRetryPolicy {
     const maximumAttempts = parsePositiveInteger(

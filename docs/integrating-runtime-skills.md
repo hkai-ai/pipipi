@@ -85,17 +85,17 @@ Runtime Skill 必须服务于一个明确的 Process Registration。集成步骤
 1. 把审查后的固定快照放入 `.pi/skills/<name>/`；
 2. 确认 Runtime 能加载 Skill 需要的全部资源；
 3. 为该任务建立或复用受限 Agent Runtime，只授予窄 Business Capability Tool；
-4. 在 Registration factory 中绑定本地 Skill、Agent、Schema 和稳定策略；
+4. 在 Registration factory 中绑定一个经过整体评审的本地 Skill 集合、Agent、Schema 和稳定策略；
 5. 把 Registration 显式加入 production catalog；
 6. 更新 Dockerfile 或其他发布清单，确保快照进入不可变制品；
 7. 用 mock Agent 做确定性契约测试，再按需运行单独的真实模型 smoke；
 8. 记录来源、不可变 ref、内容哈希、适配改动和回滚版本。
 
-当前 Pi Agent 路径只显式读取一个 `SKILL.md`，不自动加载附加 reference、运行 Skill script 或连接 MCP。需要这些能力的 Skill 不能直接接入；应先设计窄 Runtime Interface、权限和测试，再扩展实现。当前限制和真实验证方法见 [`experiments.md`](experiments.md)。
+当前 Pi Agent 路径接受非空 `SkillRef[]`。每项引用固定 Skill 名称和本地路径；名称必须唯一，并且必须精确解析一次。Runtime 按声明顺序读取所有 `SKILL.md`，把正文作为同一个经过评审的指令集交给 Agent，同时只暴露 Registration 已授权的 Tool。Runtime 不自动读取附加 reference、运行 Skill script 或连接 MCP。需要这些能力的 Skill 不能直接接入；应先设计窄 Runtime Interface、权限和测试，再扩展实现。当前限制和真实验证方法见 [`experiments.md`](experiments.md)。
 
 ## 线上边界
 
-生产 `/execute` 请求不能包含 Skill 名称、路径、URL、Git ref 或 Tool 配置。请求只选择准确的 Business Process 和版本；服务端 Registration 决定使用哪个已发布 Skill。
+生产 `/execute` 请求不能包含 Skill 名称、路径、URL、Git ref 或 Tool 配置。请求只选择准确的 Business Process 和版本；服务端 Registration 决定使用哪个已发布 Skill 集合。
 
 因此，以下模式不进入本项目：
 
@@ -109,9 +109,9 @@ Runtime Skill 必须服务于一个明确的 Process Registration。集成步骤
 
 ## 当前能力与提案
 
-当前 `PI_SKILL_DIRECTORY` 只能替换固定名称 `content-optimization` 的本地 Skill；项目没有 Git/URL 下载、来源 provenance、revision pin、digest lock 或通用 Runtime Skill catalog。
+当前 `content-processing/v1` 绑定 `content-optimization` 和 `content-integrity`。`PI_SKILL_DIRECTORY` 只替换前者的本地路径；后者仍使用随应用发布的固定快照。Runtime 会拒绝空集合、重名绑定和无法精确解析的名称。项目仍没有 Git/URL 下载、来源 provenance、revision pin、digest lock 或通用 Runtime Skill catalog。
 
-若后续确实要把多个来源自动化为生产快照，新增开发期 `Skill Installer` 和只读 `Installed Skill Catalog`。前者把 path、Git 或 archive URL 解析为经过验证、带固定 revision 和 digest 的本地快照；后者让 Startup Construction 和 Process Registration 只绑定准确的 installed Skill。两者都不进入 `/execute` 请求路径。该设计目前是提案，不是已实现能力。
+若后续要把多个外部来源自动化为生产快照，新增开发期 `Skill Installer` 和只读 `Installed Skill Catalog`。前者把 path、Git 或 archive URL 解析为经过验证、带固定 revision 和 digest 的本地快照；后者让 Startup Construction 和 Process Registration 只绑定准确的 installed Skill。两者都不进入 `/execute` 请求路径。该设计目前是提案，不是已实现能力。
 
 ## 更新与回滚
 

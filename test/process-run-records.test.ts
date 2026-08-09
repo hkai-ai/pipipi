@@ -3,7 +3,7 @@ import {
     createProcessingApplication,
     type ProcessingApplication,
 } from "../src/api/application.js";
-import { createBusinessProcessExecutor } from "../src/processes/catalog.js";
+import { createProcessExecutor } from "../src/processes/catalog.js";
 import type { ProcessRunResult } from "../src/processes/runtime/index.js";
 import {
     createInMemoryProcessRunRecords,
@@ -182,7 +182,7 @@ async function startApplication(
     runRecords: ProcessRunRecords,
 ): Promise<{ url: string }> {
     const application = createProcessingApplication({
-        executor: createBusinessProcessExecutor({
+        executor: createProcessExecutor({
             contentProcessing: {
                 process: async (input) => ({
                     content: `Processed: ${input.content}`,

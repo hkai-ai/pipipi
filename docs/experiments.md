@@ -31,7 +31,7 @@
 CONTENT_PROCESSING_MODE=agent npm run dev
 ```
 
-Agent 每次请求创建独立内存会话，显式加载 `.pi/skills/content-optimization/SKILL.md`，并且只允许调用 `process_business_content`。这个 Tool 包装现有 Content Processing Capability；Shell、文件读写和代码编辑不会暴露给 Agent。
+Agent 每次请求创建独立内存会话，并把 `.pi/skills/content-optimization/SKILL.md` 与 `.pi/skills/content-integrity/SKILL.md` 作为一个固定 Skill 集合加载。Agent 只允许调用 `process_business_content`。这个 Tool 包装现有 Content Processing Capability；Shell、文件读写和代码编辑不会暴露给 Agent。
 
 默认从 `.env` 读取 Pi 模型与 OpenAI 兼容配置。`PI_PROVIDER` 和 `PI_MODEL` 必须同时设置。`OPENAI_API_MODE` 可以是 `chat-completions` 或 `responses`；兼容网关还可通过 `OPENAI_BASE_URL` 配置。
 
@@ -45,7 +45,7 @@ Smoke 会临时启动 Agent 模式服务，完成一次 `/execute` 请求，并�
 
 ### 当前 Skill 执行范围
 
-生产 Agent 适合单文件规则、分类、抽取、改写、Prompt 编译和少量受控 Tool。它目前不会自动读取 Skill 的附加参考文件、运行 Skill 脚本、使用 MCP、保存持久记忆或看图后重试。
+生产 Agent 可以按服务端声明顺序加载多个单文件 Skill，要求名称唯一且每项精确解析一次。它适合规则、分类、抽取、改写、Prompt 编译和少量受控 Tool，但不会自动读取 Skill 的附加参考文件、运行 Skill 脚本、使用 MCP、保存持久记忆或看图后重试。
 
 海报实验只让 Agent 编译 Prompt；图片生成、视觉判据和对象存储由代码控制。要把完整视觉质量门加入生产流程，应另行增加窄图片生成 Capability、视觉检查、有限重试和持久化产物。不要为了运行复杂 Skill 直接开放 Coding Tools。
 
@@ -58,6 +58,8 @@ Smoke 会临时启动 Agent 模式服务，完成一次 `/execute` 请求，并�
 3. 使用候选 `writing-clearly-and-concisely` Skill 的 Agent。
 
 三组使用同一输入和 Business Capability。实验记录 Business Capability 实际收到的 Tool 入参，并检查候选 Skill canary、目标冗余短语、文本长度、Tool 调用次数和最终输出来源。
+
+A/B 实验故意为每个 Agent arm 只绑定一个候选 Skill，以隔离变量；生产 `content-processing/v1` 使用前述两个 Skill。
 
 先运行不调用模型的结构预检：
 

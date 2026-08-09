@@ -1,7 +1,7 @@
 import { createProcessingApplication } from "../src/api/application.js";
-import { createBusinessProcessExecutor } from "../src/processes/catalog.js";
+import { createProcessExecutor } from "../src/processes/catalog.js";
 import {
-    PiContentOptimizationAgentRuntime,
+    PiContentAgent,
     parseOpenAIApiMode,
 } from "../src/processes/content/agent.js";
 import type { ContentProcessingCapability } from "../src/processes/content/capability.js";
@@ -22,15 +22,26 @@ const trackedContentProcessing: ContentProcessingCapability = {
     },
 };
 
-const executor = createBusinessProcessExecutor({
+const executor = createProcessExecutor({
     contentProcessing: trackedContentProcessing,
-    agentRuntime: new PiContentOptimizationAgentRuntime({
+    agent: new PiContentAgent({
+        skills: [
+            {
+                name: "content-optimization",
+                path:
+                    process.env.PI_SKILL_DIRECTORY ??
+                    ".pi/skills/content-optimization",
+            },
+            {
+                name: "content-integrity",
+                path: ".pi/skills/content-integrity",
+            },
+        ],
         provider: process.env.PI_PROVIDER,
         model: process.env.PI_MODEL,
         openAIBaseUrl: process.env.OPENAI_BASE_URL,
         openAIApiMode: parseOpenAIApiMode(process.env.OPENAI_API_MODE),
         agentDir: process.env.PI_AGENT_DIR,
-        skillDirectory: process.env.PI_SKILL_DIRECTORY,
     }),
     processTimeoutMs: 120_000,
     processes: { contentProcessing: { mode: "agent" } },

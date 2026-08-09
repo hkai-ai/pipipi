@@ -4,31 +4,30 @@ import {
     DefaultResourceLoader,
     defineTool,
     getAgentDir,
-    loadSkillsFromDir,
     ModelRuntime,
     SessionManager,
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import type { ContentProcessingCapability } from "./capability.js";
+import { createSkillSet, type SkillRef, type SkillSet } from "./skills.js";
 
-const businessContentToolName = "process_business_content";
-const contentOptimizationSkillName = "content-optimization";
+const toolName = "process_business_content";
 
-export type ContentOptimizationAgentRequest = {
+export type ContentAgentRequest = {
     content: string;
     signal: AbortSignal;
     idempotencyKey: string;
-    contentProcessing: ContentProcessingCapability;
+    capability: ContentProcessingCapability;
 };
 
-export type ContentOptimizationAgentRuntime = {
-    optimize: (request: ContentOptimizationAgentRequest) => Promise<unknown>;
+export type ContentAgent = {
+    optimize: (request: ContentAgentRequest) => Promise<unknown>;
 };
 
-export type PiContentOptimizationAgentRuntimeOptions = {
+export type PiContentAgentOptions = {
+    skills: readonly SkillRef[];
     cwd?: string;
     agentDir?: string;
-    skillDirectory?: string;
     provider?: string;
     model?: string;
     openAIBaseUrl?: string;
@@ -42,20 +41,18 @@ export type OpenAIApiMode = "responses" | "chat-completions";
  * The production Agent adapter. Conversation state is deliberately request-local;
  * the model/auth runtime may be shared because it carries no business messages.
  */
-export class PiContentOptimizationAgentRuntime
-    implements ContentOptimizationAgentRuntime
-{
+export class PiContentAgent implements ContentAgent {
     readonly #cwd: string;
     readonly #agentDir: string;
-    readonly #skillDirectory: string;
+    readonly #skills: SkillSet;
     readonly #provider: string | undefined;
     readonly #model: string | undefined;
     readonly #openAIBaseUrl: string | undefined;
     readonly #openAIApiMode: OpenAIApiMode;
-    readonly #providedModelRuntime: ModelRuntime | undefined;
-    #modelRuntimePromise: Promise<ModelRuntime> | undefined;
+    readonly #models: ModelRuntime | undefined;
+    #modelsPromise: Promise<ModelRuntime> | undefined;
 
-    constructor(options: PiContentOptimizationAgentRuntimeOptions = {}) {
+    constructor(options: PiContentAgentOptions) {
         if (
             (options.provider === undefined) !==
             (options.model === undefined)
@@ -67,10 +64,7 @@ export class PiContentOptimizationAgentRuntime
 
         this.#cwd = resolve(options.cwd ?? process.cwd());
         this.#agentDir = options.agentDir ?? getAgentDir();
-        this.#skillDirectory = resolve(
-            options.skillDirectory ??
-                resolve(this.#cwd, ".pi/skills/content-optimization"),
-        );
+        this.#skills = createSkillSet(options.skills, this.#cwd);
         this.#provider = options.provider;
         this.#model = options.model;
         this.#openAIBaseUrl = options.openAIBaseUrl?.trim() || undefined;
@@ -86,39 +80,28 @@ export class PiContentOptimizationAgentRuntime
                 "OpenAI Chat Completions mode requires PI_PROVIDER=openai and PI_MODEL",
             );
         }
-        this.#providedModelRuntime = options.modelRuntime;
+        this.#models = options.modelRuntime;
     }
 
-    async optimize(request: ContentOptimizationAgentRequest): Promise<unknown> {
-        const loadedSkills = loadSkillsFromDir({
-            dir: this.#skillDirectory,
-            source: "business-processing-service",
-        });
-        const optimizationSkills = loadedSkills.skills.filter(
-            (skill) => skill.name === contentOptimizationSkillName,
-        );
-        if (optimizationSkills.length !== 1) {
-            throw new Error("The content optimization Skill is unavailable");
-        }
-
+    async optimize(request: ContentAgentRequest): Promise<unknown> {
+        const loaded = this.#skills.load();
         const resourceLoader = new DefaultResourceLoader({
             cwd: this.#cwd,
             agentDir: this.#agentDir,
             noExtensions: true,
+            noSkills: true,
             noPromptTemplates: true,
             noThemes: true,
             noContextFiles: true,
-            systemPrompt:
-                "You are a business content optimization agent. Follow the loaded Skill and return only the requested structured result.",
-            skillsOverride: () => ({
-                skills: optimizationSkills,
-                diagnostics: loadedSkills.diagnostics,
-            }),
+            systemPrompt: [
+                "You are a business content agent. Follow every bound Runtime Skill and return only the requested structured result.",
+                loaded.instructions,
+            ].join("\n\n"),
         });
         await resourceLoader.reload();
 
         const businessContentTool = defineTool({
-            name: businessContentToolName,
+            name: toolName,
             label: "Process business content",
             description:
                 "Run content through the service's existing Business Capability.",
@@ -132,7 +115,7 @@ export class PiContentOptimizationAgentRuntime
                 const signal = toolSignal
                     ? AbortSignal.any([request.signal, toolSignal])
                     : request.signal;
-                const result = await request.contentProcessing.process(input, {
+                const result = await request.capability.process(input, {
                     signal,
                     idempotencyKey: request.idempotencyKey,
                 });
@@ -145,7 +128,7 @@ export class PiContentOptimizationAgentRuntime
             },
         });
 
-        const modelRuntime = await this.#getModelRuntime();
+        const modelRuntime = await this.#getModels();
         const selectedModel =
             this.#provider && this.#model
                 ? modelRuntime.getModel(this.#provider, this.#model)
@@ -166,7 +149,7 @@ export class PiContentOptimizationAgentRuntime
             resourceLoader,
             sessionManager: SessionManager.inMemory(this.#cwd),
             customTools: [businessContentTool],
-            tools: [businessContentToolName],
+            tools: [toolName],
         });
         const abortSession = () => {
             void session.abort();
@@ -177,25 +160,23 @@ export class PiContentOptimizationAgentRuntime
             if (request.signal.aborted)
                 throw new Error("Agent request was aborted");
             await session.prompt(
-                `/skill:${contentOptimizationSkillName} Optimize this content: ${JSON.stringify(request.content)}\n` +
-                    `Call ${businessContentToolName} as directed by the Skill. ` +
+                `Optimize this content: ${JSON.stringify(request.content)}\n` +
+                    `Call ${toolName} as directed by the Skills. ` +
                     'Return only JSON matching {"content":"non-empty string"}.',
             );
-            return parseLastAssistantJson(session.messages);
+            return parseAgentJson(session.messages);
         } finally {
             request.signal.removeEventListener("abort", abortSession);
             session.dispose();
         }
     }
 
-    #getModelRuntime(): Promise<ModelRuntime> {
-        this.#modelRuntimePromise ??= (
-            this.#providedModelRuntime
-                ? Promise.resolve(this.#providedModelRuntime)
-                : ModelRuntime.create()
+    #getModels(): Promise<ModelRuntime> {
+        this.#modelsPromise ??= (
+            this.#models ? Promise.resolve(this.#models) : ModelRuntime.create()
         ).then((runtime) => {
             if (this.#openAIBaseUrl) {
-                configureOpenAIProvider(runtime, {
+                configureOpenAI(runtime, {
                     baseUrl: this.#openAIBaseUrl,
                     apiMode: this.#openAIApiMode,
                     modelId: this.#model,
@@ -203,7 +184,7 @@ export class PiContentOptimizationAgentRuntime
             }
             return runtime;
         });
-        return this.#modelRuntimePromise;
+        return this.#modelsPromise;
     }
 }
 
@@ -215,7 +196,7 @@ export function parseOpenAIApiMode(value: string | undefined): OpenAIApiMode {
     throw new Error("OPENAI_API_MODE must be responses or chat-completions");
 }
 
-export function configureOpenAIProvider(
+export function configureOpenAI(
     runtime: ModelRuntime,
     options: {
         baseUrl: string;
@@ -257,7 +238,7 @@ export function configureOpenAIProvider(
     });
 }
 
-function parseLastAssistantJson(messages: readonly unknown[]): unknown {
+function parseAgentJson(messages: readonly unknown[]): unknown {
     const message = messages.findLast(isAssistantMessage);
     if (
         !message ||

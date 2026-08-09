@@ -3,7 +3,7 @@ import { createBullMqProcessWorker } from "../process-runs/queue/bullmq.js";
 import { createPostgresProcessRunStore } from "../process-runs/store/postgres.js";
 import { createProcessWorker } from "../process-runs/worker/index.js";
 import { createProcessAttemptRunner } from "../processes/runtime/index.js";
-import { constructBusinessProcessRuntime } from "./business-processes.js";
+import { createProductionRuntime } from "./business-processes.js";
 import {
     optionalNonEmpty,
     parsePort,
@@ -22,7 +22,7 @@ import {
 export function constructProcessWorkerService(
     environment: StartupEnvironment,
 ): ConstructedRuntimeRoleService {
-    const businessRuntime = constructBusinessProcessRuntime(environment);
+    const processRuntime = createProductionRuntime(environment);
     const port = parsePort(environment.PORT);
     const readinessTimeoutMs = parsePositiveInteger(
         environment.RUNTIME_ROLE_READINESS_TIMEOUT_MS,
@@ -108,7 +108,7 @@ export function constructProcessWorkerService(
         stalledIntervalMs,
         maxStalledCount,
         worker: createProcessWorker({
-            registry: businessRuntime.registry,
+            registry: processRuntime.registry,
             store,
             attemptRunner: createProcessAttemptRunner({ processTimeoutMs }),
             logSink: writeAsyncOperationalLog,

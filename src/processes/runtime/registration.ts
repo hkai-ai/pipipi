@@ -1,13 +1,11 @@
 import type { z } from "zod";
 
-const acceptedProcessInputPayloadMaxBytes = 262_144;
-const acceptedProcessOutputMaxBytes = 262_144;
-const acceptedProcessInputMetadataMaxBytes = 4_096;
-const acceptedProcessInputEnvelopeOverheadBytes = 27;
-const acceptedProcessInputMaxBytes =
-    acceptedProcessInputPayloadMaxBytes +
-    acceptedProcessInputMetadataMaxBytes +
-    acceptedProcessInputEnvelopeOverheadBytes;
+const inputMaxBytes = 262_144;
+const outputMaxBytes = 262_144;
+const identityMaxBytes = 4_096;
+const snapshotOverheadBytes = 27;
+const acceptedMaxBytes =
+    inputMaxBytes + identityMaxBytes + snapshotOverheadBytes;
 
 export type ProcessIdentity = Readonly<{
     id: string;
@@ -137,7 +135,7 @@ export function defineProcessRegistration<
 
         const inputSnapshot = createJsonSnapshot(
             acceptedInput.data,
-            acceptedProcessInputPayloadMaxBytes,
+            inputMaxBytes,
         );
         if (!inputSnapshot.success) {
             return Object.freeze({ accepted: false });
@@ -149,7 +147,7 @@ export function defineProcessRegistration<
                 version: identity.version,
                 input: inputSnapshot.value,
             },
-            acceptedProcessInputMaxBytes,
+            acceptedMaxBytes,
         );
         if (!snapshot.success) {
             return Object.freeze({ accepted: false });
@@ -174,7 +172,7 @@ export function defineProcessRegistration<
             .then(() => {
                 const snapshot = createJsonSnapshot(
                     acceptedInput,
-                    acceptedProcessInputMaxBytes,
+                    acceptedMaxBytes,
                 );
                 const acceptedSnapshot = snapshot.success
                     ? parseAcceptedProcessInput(snapshot.value, identity)
@@ -203,7 +201,7 @@ export function defineProcessRegistration<
                 }
                 const outputSnapshot = createJsonSnapshot(
                     output.data,
-                    acceptedProcessOutputMaxBytes,
+                    outputMaxBytes,
                 );
                 if (!outputSnapshot.success) {
                     return {
@@ -394,10 +392,7 @@ function parseAcceptedProcessInput(
     ) {
         return undefined;
     }
-    const inputSnapshot = createJsonSnapshot(
-        value.input,
-        acceptedProcessInputPayloadMaxBytes,
-    );
+    const inputSnapshot = createJsonSnapshot(value.input, inputMaxBytes);
     if (!inputSnapshot.success) return undefined;
     return value as AcceptedProcessInput;
 }
@@ -434,10 +429,7 @@ export function assertProcessIdentity(identity: ProcessIdentity): void {
         process: identity.id,
         version: identity.version,
     });
-    if (
-        Buffer.byteLength(serializedIdentity, "utf8") >
-        acceptedProcessInputMetadataMaxBytes
-    ) {
+    if (Buffer.byteLength(serializedIdentity, "utf8") > identityMaxBytes) {
         throw new Error(
             "Business Process identity must not exceed 4096 UTF-8 bytes",
         );

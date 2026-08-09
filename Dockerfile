@@ -22,6 +22,7 @@ COPY --from=production-dependencies --chown=node:node /app/node_modules ./node_m
 COPY --from=build --chown=node:node /app/dist ./dist
 COPY --chown=node:node package.json package-lock.json ./
 COPY --chown=node:node .pi/skills/content-optimization ./.pi/skills/content-optimization
+COPY --chown=node:node .pi/skills/content-integrity ./.pi/skills/content-integrity
 
 USER node
 EXPOSE 3000

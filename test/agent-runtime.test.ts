@@ -1,7 +1,7 @@
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it } from "vitest";
 import {
-    configureOpenAIProvider,
+    configureOpenAI,
     parseOpenAIApiMode,
 } from "../src/processes/content/agent.js";
 
@@ -12,7 +12,7 @@ describe("OpenAI-compatible provider configuration", () => {
             refreshOnCreate: false,
         });
 
-        configureOpenAIProvider(runtime, {
+        configureOpenAI(runtime, {
             baseUrl: "https://gateway.example/v1",
             apiMode: "chat-completions",
             modelId: "gpt-5.6-terra",

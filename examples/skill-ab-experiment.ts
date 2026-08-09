@@ -9,9 +9,9 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { createProcessingApplication } from "../src/api/application.js";
-import { createBusinessProcessExecutor } from "../src/processes/catalog.js";
+import { createProcessExecutor } from "../src/processes/catalog.js";
 import {
-    PiContentOptimizationAgentRuntime,
+    PiContentAgent,
     parseOpenAIApiMode,
 } from "../src/processes/content/agent.js";
 import { HttpContentProcessingCapability } from "../src/processes/content/http.js";
@@ -92,13 +92,13 @@ try {
         const control = await runArm({
             arm: "agent-control",
             businessApi,
-            skillDirectory: skills.control,
+            skillPath: skills.control,
             modelRuntime,
         });
         const candidate = await runArm({
             arm: "agent-candidate",
             businessApi,
-            skillDirectory: skills.candidate,
+            skillPath: skills.candidate,
             modelRuntime,
         });
         const checks = evaluateExperiment({ direct, control, candidate });
@@ -218,33 +218,38 @@ async function createCheckedModelRuntime(
 async function runArm(options: {
     arm: ArmResult["arm"];
     businessApi: ObservableBusinessApi;
-    skillDirectory?: string;
+    skillPath?: string;
     modelRuntime?: ModelRuntime;
 }): Promise<ArmResult> {
     const inputStart = options.businessApi.inputs.length;
     const agentMode = options.arm !== "direct";
     let agentError: string | undefined;
-    const piAgentRuntime =
-        agentMode && options.skillDirectory && options.modelRuntime
-            ? new PiContentOptimizationAgentRuntime({
+    const agent =
+        agentMode && options.skillPath && options.modelRuntime
+            ? new PiContentAgent({
+                  skills: [
+                      {
+                          name: "content-optimization",
+                          path: options.skillPath,
+                      },
+                  ],
                   provider,
                   model,
                   openAIBaseUrl: process.env.OPENAI_BASE_URL,
                   openAIApiMode,
-                  skillDirectory: options.skillDirectory,
                   modelRuntime: options.modelRuntime,
               })
             : undefined;
-    const executor = createBusinessProcessExecutor({
+    const executor = createProcessExecutor({
         contentProcessing: new HttpContentProcessingCapability({
             baseUrl: options.businessApi.url,
         }),
-        ...(piAgentRuntime
+        ...(agent
             ? {
-                  agentRuntime: {
+                  agent: {
                       optimize: async (request) => {
                           try {
-                              return await piAgentRuntime.optimize(request);
+                              return await agent.optimize(request);
                           } catch (error) {
                               agentError = formatErrorChain(error);
                               throw error;

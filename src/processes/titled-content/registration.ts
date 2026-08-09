@@ -19,27 +19,26 @@ const titledContentOutputSchema = z.strictObject({
     content: z.string().trim().min(1),
 });
 
-export type TitledContentProcessingConfig = {
+export type TitledContentConfig = {
     separator?: string;
 };
 
-export type TitledContentProcessingRegistrationOptions =
-    TitledContentProcessingConfig & {
-        contentProcessing: ContentProcessingCapability;
-    };
+type RegistrationOptions = TitledContentConfig & {
+    capability: ContentProcessingCapability;
+};
 
-export function createTitledContentProcessingRegistration(
-    options: TitledContentProcessingRegistrationOptions,
+export function createTitledContentRegistration(
+    options: RegistrationOptions,
 ): ProcessRegistration {
     if (
-        typeof options.contentProcessing !== "object" ||
-        options.contentProcessing === null ||
-        typeof options.contentProcessing.process !== "function"
+        typeof options.capability !== "object" ||
+        options.capability === null ||
+        typeof options.capability.process !== "function"
     ) {
         throw new Error("Content Processing Capability is required");
     }
     const separator = options.separator ?? "\n\n";
-    const contentProcessing = options.contentProcessing;
+    const capability = options.capability;
     if (separator.length === 0) {
         throw new Error("The titled content separator cannot be empty");
     }
@@ -53,7 +52,7 @@ export function createTitledContentProcessingRegistration(
             const title = normalizeWhitespace(input.title);
             const body = normalizeWhitespace(input.body);
             try {
-                const processed = await contentProcessing.process(
+                const processed = await capability.process(
                     { content: `${title}${separator}${body}` },
                     { signal: context.signal, idempotencyKey: context.runId },
                 );

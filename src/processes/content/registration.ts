@@ -6,7 +6,7 @@ import {
     type ProcessRegistration,
     type ProcessRetryPolicy,
 } from "../runtime/index.js";
-import type { ContentOptimizationAgentRuntime } from "./agent.js";
+import type { ContentAgent } from "./agent.js";
 import {
     type ContentProcessingCapability,
     ContentProcessingUnavailable,
@@ -20,25 +20,25 @@ const contentProcessOutputSchema = z.strictObject({
     content: z.string().trim().min(1),
 });
 
-export type ContentProcessingRegistrationOptions = {
-    contentProcessing: ContentProcessingCapability;
-    agentRuntime?: ContentOptimizationAgentRuntime;
+type RegistrationOptions = {
+    capability: ContentProcessingCapability;
+    agent?: ContentAgent;
     mode?: "direct" | "agent";
     retryPolicy?: ProcessRetryPolicy;
 };
 
-export type ContentProcessingProcessConfig = {
+export type ContentProcessConfig = {
     mode?: "direct" | "agent";
     retryPolicy?: ProcessRetryPolicy;
 };
 
-export function createContentProcessingRegistration(
-    options: ContentProcessingRegistrationOptions,
+export function createContentRegistration(
+    options: RegistrationOptions,
 ): ProcessRegistration {
     if (
-        typeof options.contentProcessing !== "object" ||
-        options.contentProcessing === null ||
-        typeof options.contentProcessing.process !== "function"
+        typeof options.capability !== "object" ||
+        options.capability === null ||
+        typeof options.capability.process !== "function"
     ) {
         throw new Error("Content Processing Capability is required");
     }
@@ -46,13 +46,13 @@ export function createContentProcessingRegistration(
     if (mode !== "direct" && mode !== "agent") {
         throw new Error("Content processing mode must be direct or agent");
     }
-    const contentProcessing = options.contentProcessing;
-    const agentRuntime = options.agentRuntime;
+    const capability = options.capability;
+    const agent = options.agent;
     if (
         mode === "agent" &&
-        (typeof agentRuntime !== "object" ||
-            agentRuntime === null ||
-            typeof agentRuntime.optimize !== "function")
+        (typeof agent !== "object" ||
+            agent === null ||
+            typeof agent.optimize !== "function")
     ) {
         throw new Error("Agent Runtime is required when Agent mode is enabled");
     }
@@ -67,7 +67,7 @@ export function createContentProcessingRegistration(
             const preparedContent = input.content.replace(/\s+/g, " ");
             if (mode === "direct") {
                 try {
-                    return await contentProcessing.process(
+                    return await capability.process(
                         { content: preparedContent },
                         {
                             signal: context.signal,
@@ -82,13 +82,13 @@ export function createContentProcessingRegistration(
                 }
             }
 
-            if (!agentRuntime) throw new Error("Agent Runtime is unavailable");
+            if (!agent) throw new Error("Agent Runtime is unavailable");
             try {
-                const rawOutput = await agentRuntime.optimize({
+                const rawOutput = await agent.optimize({
                     content: preparedContent,
                     signal: context.signal,
                     idempotencyKey: context.runId,
-                    contentProcessing,
+                    capability,
                 });
                 const output = contentProcessOutputSchema.safeParse(rawOutput);
                 if (!output.success) return agentFailure();

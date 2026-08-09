@@ -34,6 +34,9 @@ flowchart LR
     Attempt --> Registration
     Registration --> Definition["Process Definition<br/>business behavior"]
     Definition --> Capability["Business Capability Adapter"]
+    Definition --> Agent["Content Agent<br/>request-local Session"]
+    Agent --> Skills["Runtime Skill Set<br/>exact local refs"]
+    Agent --> Capability
     Runner --> Records["Process Run Records<br/>best-effort recording"]
 ```
 
@@ -63,6 +66,7 @@ Process Definition、依赖、策略和输出验证都留在 Module 内。生产
 | Process Registration | `identity`、`accept(input)` 与 `run(acceptedInput, context)` | 单次输入解析、JSON-safe 快照、Process Definition、依赖、策略和输出验证 |
 | Process Registry | `find({ id, version })` | nominal 校验、重复检测、输入集合复制和二级 Map |
 | Process Attempt Runner | `run({ runId, registration, acceptedInput })` | 总超时、AbortSignal、公共结果和错误净化 |
+| Runtime Skill Set | `createSkillSet(refs, cwd)`、`load()` | 非空与重名校验、准确名称解析、顺序、首次读取、缓存和 Prompt 编译 |
 | Content Processing Capability | `process(input, { signal })` | 远程协议、超时、响应校验和依赖错误转换 |
 | Process Run Records | `record(completion)` 与 `find(runId)` | 内容保留策略、防御性复制、容量和存储 Adapter |
 
@@ -155,13 +159,13 @@ HTTP Sender，不加载 Business Process。四个角色的 liveness 不访问下
 `SIGINT` 和 `SIGTERM`。入口不翻译配置，也不直接组装 Adapter、Executor 或 Application。
 
 Production catalog 由
-[`createBusinessProcessExecutor`](../src/processes/catalog.ts)
+[`createProcessExecutor`](../src/processes/catalog.ts)
 定义，也是唯一知道全部具体 Business Process 的位置。它创建两个 Registration、不可变
 Registry 和 Process Runner，再向 Application 返回 ready `ProcessExecutor`。
 
 每个 Registration factory 只捕获该流程获准使用的依赖：
 
-- `content-processing/v1` 捕获 Content Processing Capability、可选 Agent Runtime 和 `mode`。
+- `content-processing/v1` 捕获 Content Processing Capability、可选 Agent 和 `mode`。生产 Agent 由 Composition Root 绑定两个准确 Runtime Skill；Agent 只加载该集合，不扫描或启用其他 Skill。路径在构造时固定；空集合或重复引用会阻止启动。文件在首次 Agent 请求时读取并缓存，缺失、重复解析或空正文会映射为 `AGENT_FAILURE`。
 - `titled-content-processing/v1` 捕获 Content Processing Capability 和 `separator`。
 - Execution Context 只携带请求级的 `runId` 与 `AbortSignal`。
 
@@ -174,6 +178,7 @@ Registry 和 Process Runner，再向 Application 返回 ready `ProcessExecutor`�
 | Zod Schema、Registry Map、结果映射 | in-process | 留在深 Module 内，不增加 Adapter |
 | 受控 Business API | remote but owned | `ContentProcessingCapability` port；生产使用 HTTP Adapter，测试使用内存 Adapter |
 | Pi Agent Runtime | true external | 注入窄 port；生产使用 Pi Adapter，测试使用 mock Adapter |
+| Runtime Skill 快照 | bundled resource | `SkillRef[]` 固定名称与本地路径；不自动发现或扩大 Tool 权限 |
 | Run Record 存储 | 可替换存储 Seam | disabled、内存和持久化 Adapter 共用 `ProcessRunRecordAdapter` |
 
 <!-- markdownlint-enable MD013 -->
@@ -190,6 +195,7 @@ Interface 就是测试面：
   超时和记录语义。
 - Application 测试注入 fake ready Process Executor，证明 Application 不依赖具体流程。
 - 远程依赖测试使用受控 Adapter 或 mock Adapter，不访问真实凭证与远端系统。
+- Runtime Skill Set 测试多项顺序、未绑定项隔离、重名拒绝和准确名称解析。
 - 确定性测试不调用真实模型；真实 Agent 冒烟和 Skill A/B 组合仍由独立命令执行。
 
 测试不读取私有 Map，不断言 key 编码，也不依赖内部 helper 的调用顺序。Implementation
@@ -213,6 +219,7 @@ Runtime registration、自动发现、动态 Process Definition 和版本回退�
 - `createProcessAttemptRunner` 隐藏预分配 `runId` 的执行治理，让同步与异步调用方共享
   同一结果、超时、取消和错误净化语义。
 - `createProcessRunner` 隐藏同步 envelope、查找、接受、Attempt 调用和记录顺序。
+- `createSkillSet` 隐藏多目录读取、名称去重、准确匹配、顺序和 Prompt 编译。
 - Registration factory 把一个流程的 Schema、行为、依赖和策略放在同一文件，形成 Locality。
 
 这些 Module 为调用方提供 Leverage：调用方学习少量 Interface，便能复用完整治理行为。
@@ -227,6 +234,7 @@ Runtime registration、自动发现、动态 Process Definition 和版本回退�
   失败净化。
 - 删除 Process Runner，HTTP Adapter 必须重新实现 envelope、查找、接受、Attempt 调用和 Run
   Records 顺序。
+- 删除 Runtime Skill Set，Agent Adapter 必须自行处理重名、准确匹配、顺序、文件读取和正文编译。
 - 删除显式 production catalog，Application 将重新知道所有具体 Business Process。
 
 删除这些 Module 会让复杂度扩散到多个调用方，因此它们通过 deletion test，并为当前

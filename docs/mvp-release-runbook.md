@@ -38,6 +38,7 @@
 | `ASYNC_PROCESS_RUNS_ENABLED` | 本同步 MVP 必须保持 `false`；异步生产发布使用独立 Runbook |
 | `PI_PROVIDER`、`PI_MODEL` | Agent 模式下按组设置 |
 | `OPENAI_BASE_URL`、`OPENAI_API_MODE` | 使用 OpenAI 或兼容网关时设置 |
+| `PI_SKILL_DIRECTORY` | 可选；只覆盖固定的 `content-optimization` 路径，不改变 Skill 集合 |
 | `OPENAI_API_KEY` | 仅通过平台 Secret 注入；禁止写入镜像、仓库或普通配置 |
 
 若 Business Capability 需要认证，优先使用私网身份、工作负载身份或服务网格。当前 HTTP Adapter 不发送调用方提供的任意认证头。
@@ -78,7 +79,7 @@ docker image inspect pi-business-processing-service:rc --format '{{.Id}}'
 ```bash
 docker run --rm --entrypoint id pi-business-processing-service:rc -u
 docker run --rm --entrypoint sh pi-business-processing-service:rc -c \
-  'test -f .pi/skills/content-optimization/SKILL.md && test ! -d node_modules/typescript && test ! -d node_modules/vitest'
+  'test -f .pi/skills/content-optimization/SKILL.md && test -f .pi/skills/content-integrity/SKILL.md && test ! -d node_modules/typescript && test ! -d node_modules/vitest'
 ```
 
 用生产形状的非秘密配置启动候选镜像。健康检查不得访问模型或 Business Capability：

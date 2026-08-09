@@ -1,8 +1,8 @@
-import type { ContentOptimizationAgentRuntime } from "./content/agent.js";
+import type { ContentAgent } from "./content/agent.js";
 import type { ContentProcessingCapability } from "./content/capability.js";
 import {
-    type ContentProcessingProcessConfig,
-    createContentProcessingRegistration,
+    type ContentProcessConfig,
+    createContentRegistration,
 } from "./content/registration.js";
 import {
     createProcessRegistry,
@@ -12,45 +12,45 @@ import {
 } from "./runtime/index.js";
 import type { ProcessRunRecords } from "./runtime/records.js";
 import {
-    createTitledContentProcessingRegistration,
-    type TitledContentProcessingConfig,
+    createTitledContentRegistration,
+    type TitledContentConfig,
 } from "./titled-content/registration.js";
 
-export type BusinessProcessExecutorOptions = {
+export type ProcessRuntimeOptions = {
     contentProcessing: ContentProcessingCapability;
-    agentRuntime?: ContentOptimizationAgentRuntime;
+    agent?: ContentAgent;
     processTimeoutMs?: number;
     runRecords?: ProcessRunRecords;
     processes?: {
-        contentProcessing?: ContentProcessingProcessConfig;
-        titledContentProcessing?: TitledContentProcessingConfig;
+        contentProcessing?: ContentProcessConfig;
+        titledContentProcessing?: TitledContentConfig;
     };
 };
 
-export type BusinessProcessRuntime = Readonly<{
+export type ProcessRuntime = Readonly<{
     registry: ProcessRegistry;
     executor: ProcessExecutor;
 }>;
 
-export function createBusinessProcessExecutor(
-    options: BusinessProcessExecutorOptions,
+export function createProcessExecutor(
+    options: ProcessRuntimeOptions,
 ): ProcessExecutor {
-    return createBusinessProcessRuntime(options).executor;
+    return createProcessRuntime(options).executor;
 }
 
-export function createBusinessProcessRuntime(
-    options: BusinessProcessExecutorOptions,
-): BusinessProcessRuntime {
-    const contentProcessingConfig = options.processes?.contentProcessing;
+export function createProcessRuntime(
+    options: ProcessRuntimeOptions,
+): ProcessRuntime {
+    const config = options.processes?.contentProcessing;
     const registry = createProcessRegistry([
-        createContentProcessingRegistration({
-            contentProcessing: options.contentProcessing,
-            agentRuntime: options.agentRuntime,
-            mode: contentProcessingConfig?.mode,
-            retryPolicy: contentProcessingConfig?.retryPolicy,
+        createContentRegistration({
+            capability: options.contentProcessing,
+            agent: options.agent,
+            mode: config?.mode,
+            retryPolicy: config?.retryPolicy,
         }),
-        createTitledContentProcessingRegistration({
-            contentProcessing: options.contentProcessing,
+        createTitledContentRegistration({
+            capability: options.contentProcessing,
             ...options.processes?.titledContentProcessing,
         }),
     ]);

@@ -230,6 +230,7 @@ Webhook 重试状态以 PostgreSQL 为准，不依赖 BullMQ 的 Job attempts。
 | `src/app/webhook-worker.ts` | Webhook Worker 的 Delivery、Outbox、Queue 和 HTTP Sender 组装 |
 | `src/processes/runtime/` | Registration、Registry、同步 Runner、Attempt Runner、Run Record、公共结果和错误治理 |
 | `src/processes/catalog.ts` | 显式 production catalog 和 Process Runtime 组装 |
+| `src/processes/content/skills.ts` | 固定 Runtime Skill 集合的去重、精确加载和正文编译 |
 | `src/process-runs/index.ts` | 异步提交、owner 隔离、caller-scoped idempotency 和公共状态投影 |
 | `src/process-runs/store/index.ts`、`src/process-runs/store/postgres.ts` | 权威状态转换，以及内存和 PostgreSQL Adapter |
 | `src/process-runs/queue/index.ts`、`src/process-runs/queue/bullmq.ts` | 最小 Job Interface，以及内存和 BullMQ Adapter |
@@ -245,6 +246,47 @@ Webhook 重试状态以 PostgreSQL 为准，不依赖 BullMQ 的 Job attempts。
 顶层目录使用明确的领域名，子目录对应实际 Module。父目录已经提供的上下文不在文件名中重复，例如使用 `src/process-runs/store/postgres.ts`，不用 `src/process-runs/store/postgres-process-run-store.ts`；Adapter 文件只保留 `postgres.ts`、`bullmq.ts`、`http.ts` 等技术名称。不要新增 `common/`、`shared/`、`utils/` 或横向的 `controllers/services/repositories` 目录。无法明确归属的代码应先重新检查 Module 和 Seam。
 
 完整 Module 关系见 [`process-runtime-design.md`](process-runtime-design.md)。图片与对象存储实现只由 `examples/` 使用，没有进入 HTTP production catalog 或生产构建。
+
+## 命名规则
+
+名称应在使用点直接表达角色，并尽可能短。不要把目录、类型和调用链重复拼进同一个标识符。新代码和本次触达的旧代码遵守以下规则；其他旧名在相关 Module 发生修改时逐步整理。
+
+### 利用作用域
+
+- 目录和文件已经表达的领域不在私有名称中重复。`content/registration.ts` 使用 `RegistrationOptions`，不用 `ContentProcessingRegistrationOptions`。
+- 跨 Module 导出保留“必要领域词 + 角色”。例如 `PiContentAgent` 同时说明 Adapter 和角色；`Agent` 太宽，`PiContentOptimizationAgentRuntime` 重复过多。
+- 同一文件内优先使用 `mode`、`config`、`inputMaxBytes` 等短名。出现导入冲突时在导入处使用别名，不给所有声明添加前缀。
+- 集合使用复数名，布尔值使用 `is`、`has`、`can` 或 `should` 前缀。名称必须描述值，不描述它的历史来源。
+
+### 使用准确动词
+
+| 动词 | 用途 |
+| --- | --- |
+| `create` | 在内存中创建并返回 Module、Adapter 或值 |
+| `load` | 从文件、环境或远端读取数据 |
+| `parse` | 校验并转换外部表示，失败时抛出明确错误 |
+| `find` | 查询可能不存在的值 |
+| `require` | 查询必需值，缺失时失败 |
+| `run`、`execute` | 执行业务或运行时行为 |
+
+避免用 `construct`、`handle`、`manage`、`do` 或 `process` 掩盖更具体的动作；领域本身把 `process` 定义为动作时可以保留。Factory 统一使用 `create`，不要只靠 `build`、`make`、`construct` 的细微差别区分相邻函数。
+
+### 控制长度
+
+- 私有或局部名称超过 24 个字符、导出名称超过 32 个字符时必须复核。这个长度是评审触发线，不是硬限制。
+- 删除不能帮助当前调用点区分含义的词。若删除后产生歧义，优先调整 Module 或导入别名，再考虑增加限定词。
+- 可以使用行业通用缩写：`id`、`url`、`http`、`api`、`json`、`sql`、`db`、`ms`。禁止使用 `mgr`、`cfg`、`proc` 等需要猜测的自造缩写。
+- `Options`、`Config`、`Result`、`Adapter` 等后缀只有在表达真实角色时保留。文件内只使用一次的参数类型可以保持私有并命名为 `Options` 或 `RegistrationOptions`。
+
+本次整理提供以下基准：
+
+| 原名称 | 新名称 | 理由 |
+| --- | --- | --- |
+| `PiContentOptimizationAgentRuntime` | `PiContentAgent` | 文件和 Interface 已表达优化与 Runtime 上下文 |
+| `constructBusinessProcessRuntime` | `createProductionRuntime` | 直接说明它创建生产 Runtime |
+| `createBusinessProcessRuntime` | `createProcessRuntime` | `Process` 已是仓库共同语言 |
+| `createContentProcessingRegistration` | `createContentRegistration` | 返回角色保留，目录上下文删除 |
+| `acceptedProcessInputPayloadMaxBytes` | `inputMaxBytes` | 私有常量无需重复 Registration 上下文 |
 
 ## 设计改动的工作方式
 
@@ -275,13 +317,13 @@ JSON-safe snapshot。业务 input payload 默认上限为 262144 UTF-8 bytes，�
 1. 新建 `create…Registration` factory，通过 `defineProcessRegistration` 声明固定 `id`、`version`、输入 Schema、输出 Schema 和 Process Definition。
 2. 把该流程获准使用的窄 Business Capability 和稳定策略传给 factory，并由闭包捕获。Execution Context 只携带 `runId` 和 `AbortSignal` 等请求级信息。
 3. 用 `failProcess` 返回预期的 `AGENT_FAILURE` 或 `DEPENDENCY_FAILURE`。让意外异常继续抛出，由 Process Runner 转换为安全的 `INTERNAL_ERROR`。
-4. 在 `createBusinessProcessExecutor` 的显式 production catalog 中加入 Registration。每项只代表一个准确 `(id, version)`。
+4. 在 `createProcessExecutor` 的显式 production catalog 中加入 Registration。每项只代表一个准确 `(id, version)`。
 5. 通过 Registration Seam 测试接受、JSON 往返、单次解析、策略和输出；通过 Process Attempt Runner 测试预分配 `runId`、超时与错误净化；通过真实本地 `/execute` 测试产品行为和 HTTP 映射。
 6. 更新 README 的当前能力、`CONTEXT.md` 的产品契约，以及受影响的设计或发布文档。
 
 [`src/processes/titled-content/registration.ts`](../src/processes/titled-content/registration.ts) 是最小示例。新版本必须新建 Registration 并显式加入 catalog；不要加入 `latest`、默认版本、自动发现或回退。
 
-流程需要外部 Skill 时，先按 [`integrating-runtime-skills.md`](integrating-runtime-skills.md) 在开发期解析、审查和固定来源。Process Registration 只绑定随应用发布的本地 Runtime Skill，不接收路径或 URL。
+流程需要外部 Skill 时，先按 [`integrating-runtime-skills.md`](integrating-runtime-skills.md) 在开发期解析、审查和固定来源。Process Registration 可以绑定一个或多个随应用发布的本地 Runtime Skill；完整集合必须一起评审。产品请求不接收 Skill 名称、路径或 URL。
 
 ## 修改外部依赖
 
@@ -301,11 +343,11 @@ JSON-safe snapshot。业务 input payload 默认上限为 262144 UTF-8 bytes，�
 
 ```ts
 import { createProcessingApplication } from "./src/api/application.js";
-import { createBusinessProcessExecutor } from "./src/processes/catalog.js";
+import { createProcessExecutor } from "./src/processes/catalog.js";
 import { createInMemoryProcessRunRecords } from "./src/processes/runtime/records.js";
 
 const runRecords = createInMemoryProcessRunRecords({ maxRecords: 100 });
-const executor = createBusinessProcessExecutor({
+const executor = createProcessExecutor({
   contentProcessing,
   runRecords,
 });

@@ -11,7 +11,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { z } from "zod";
 import {
-    configureOpenAIProvider,
+    configureOpenAI,
     type OpenAIApiMode,
     parseOpenAIApiMode,
 } from "../src/processes/content/agent.js";
@@ -343,7 +343,7 @@ async function compilePosterWithSkill(options: {
 }): Promise<CompiledPoster> {
     const modelRuntime = await ModelRuntime.create({ refreshOnCreate: false });
     if (process.env.OPENAI_BASE_URL) {
-        configureOpenAIProvider(modelRuntime, {
+        configureOpenAI(modelRuntime, {
             baseUrl: process.env.OPENAI_BASE_URL,
             apiMode: options.apiMode,
             modelId: agentModel,

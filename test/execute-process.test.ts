@@ -8,10 +8,10 @@ import {
 import { afterEach, describe, expect, it } from "vitest";
 import { createProcessingApplication } from "../src/api/application.js";
 import {
-    type BusinessProcessExecutorOptions,
-    createBusinessProcessExecutor,
+    createProcessExecutor,
+    type ProcessRuntimeOptions,
 } from "../src/processes/catalog.js";
-import type { ContentOptimizationAgentRuntime } from "../src/processes/content/agent.js";
+import type { ContentAgent } from "../src/processes/content/agent.js";
 import {
     type ContentProcessingCapability,
     ContentProcessingUnavailable,
@@ -37,13 +37,13 @@ afterEach(async () => {
 describe("business process execution", () => {
     it("rejects incomplete Process Registration composition at startup", () => {
         expect(() =>
-            createBusinessProcessExecutor({
+            createProcessExecutor({
                 contentProcessing:
                     undefined as unknown as ContentProcessingCapability,
             }),
         ).toThrow("Content Processing Capability is required");
         expect(() =>
-            createBusinessProcessExecutor({
+            createProcessExecutor({
                 contentProcessing: unusedContentProcessing,
                 processes: {
                     contentProcessing: {
@@ -53,13 +53,13 @@ describe("business process execution", () => {
             }),
         ).toThrow("Content processing mode must be direct or agent");
         expect(() =>
-            createBusinessProcessExecutor({
+            createProcessExecutor({
                 contentProcessing: unusedContentProcessing,
                 processes: { contentProcessing: { mode: "agent" } },
             }),
         ).toThrow("Agent Runtime is required when Agent mode is enabled");
         expect(() =>
-            createBusinessProcessExecutor({
+            createProcessExecutor({
                 contentProcessing: unusedContentProcessing,
                 processes: { titledContentProcessing: { separator: "" } },
             }),
@@ -343,7 +343,7 @@ describe("business process execution", () => {
 
     it("can enable Agent optimization without changing the product contract", async () => {
         const requests: string[] = [];
-        const agentRuntime: ContentOptimizationAgentRuntime = {
+        const agent: ContentAgent = {
             optimize: async (request) => {
                 requests.push(request.content);
                 return { content: "  Agent-refined campaign copy  " };
@@ -351,7 +351,7 @@ describe("business process execution", () => {
         };
         const processingService = await startProcessingService({
             contentProcessing: unusedContentProcessing,
-            agentRuntime,
+            agent,
             processes: { contentProcessing: { mode: "agent" } },
         });
 
@@ -380,9 +380,9 @@ describe("business process execution", () => {
                 return { content: `Business result: ${input.content}` };
             },
         };
-        const agentRuntime: ContentOptimizationAgentRuntime = {
+        const agent: ContentAgent = {
             optimize: async (request) =>
-                request.contentProcessing.process(
+                request.capability.process(
                     { content: `Optimize ${request.content}` },
                     {
                         signal: request.signal,
@@ -392,7 +392,7 @@ describe("business process execution", () => {
         };
         const processingService = await startProcessingService({
             contentProcessing,
-            agentRuntime,
+            agent,
             processes: { contentProcessing: { mode: "agent" } },
         });
 
@@ -415,9 +415,9 @@ describe("business process execution", () => {
                 throw new ContentProcessingUnavailable();
             },
         };
-        const agentRuntime: ContentOptimizationAgentRuntime = {
+        const agent: ContentAgent = {
             optimize: async (request) =>
-                request.contentProcessing.process(
+                request.capability.process(
                     { content: request.content },
                     {
                         signal: request.signal,
@@ -427,7 +427,7 @@ describe("business process execution", () => {
         };
         const processingService = await startProcessingService({
             contentProcessing,
-            agentRuntime,
+            agent,
             processes: { contentProcessing: { mode: "agent" } },
         });
 
@@ -448,12 +448,12 @@ describe("business process execution", () => {
     });
 
     it("maps invalid structured Agent output to a stable processing error", async () => {
-        const agentRuntime: ContentOptimizationAgentRuntime = {
+        const agent: ContentAgent = {
             optimize: async () => ({ unexpected: "not business content" }),
         };
         const processingService = await startProcessingService({
             contentProcessing: unusedContentProcessing,
-            agentRuntime,
+            agent,
             processes: { contentProcessing: { mode: "agent" } },
         });
 
@@ -478,14 +478,14 @@ describe("business process execution", () => {
     });
 
     it("maps Agent execution failures without leaking internal details", async () => {
-        const agentRuntime: ContentOptimizationAgentRuntime = {
+        const agent: ContentAgent = {
             optimize: async () => {
                 throw new Error("provider key abc-secret was rejected");
             },
         };
         const processingService = await startProcessingService({
             contentProcessing: unusedContentProcessing,
-            agentRuntime,
+            agent,
             processes: { contentProcessing: { mode: "agent" } },
         });
 
@@ -547,7 +547,7 @@ describe("business process execution", () => {
     it("keeps each process configuration isolated", async () => {
         const agentInputs: string[] = [];
         const capabilityInputs: string[] = [];
-        const agentRuntime: ContentOptimizationAgentRuntime = {
+        const agent: ContentAgent = {
             optimize: async (request) => {
                 agentInputs.push(request.content);
                 return { content: `Agent: ${request.content}` };
@@ -561,7 +561,7 @@ describe("business process execution", () => {
         };
         const processingService = await startProcessingService({
             contentProcessing,
-            agentRuntime,
+            agent,
             processes: {
                 contentProcessing: { mode: "agent" },
                 titledContentProcessing: { separator: ": " },
@@ -641,10 +641,10 @@ async function startHttpBackedService(
 }
 
 async function startProcessingService(
-    options: BusinessProcessExecutorOptions,
+    options: ProcessRuntimeOptions,
 ): Promise<RunningServer> {
     const application = createProcessingApplication({
-        executor: createBusinessProcessExecutor(options),
+        executor: createProcessExecutor(options),
     });
     const service = await application.listen();
     const runningService = { url: service.url, close: application.close };

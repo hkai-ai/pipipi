@@ -34,7 +34,7 @@ Business Processing Service 让产品调用方通过一个稳定的 HTTP Interfa
 
 | Business Process | 输入 | 输出 | 实现选择 |
 | --- | --- | --- | --- |
-| `content-processing/v1` | `{ content: string }` | `{ content: string }` | 服务端可选择 Direct 或 Agent 路径 |
+| `content-processing/v1` | `{ content: string }` | `{ content: string }` | 服务端可选择 Direct 或绑定多个 Runtime Skill 的 Agent 路径 |
 | `titled-content-processing/v1` | `{ title: string, body: string }` | `{ title: string, content: string }` | 复用 Content Processing Capability |
 
 默认 HTTP 入口公开 `GET /healthz`、`GET /readyz` 和 `POST /execute`。每次执行生成独立 `runId`。显式启用并完整配置 Async Process Runs 后，API 还提供 `POST /process-runs` 和 `GET /process-runs/{runId}`；该功能默认关闭，只有按异步 Runbook 通过容量、恢复、安全、观测和 staged rollout 门禁后才能向外部调用方开放。默认同步生产构造不持久化 Run Record；结构化完成日志只保留运行元数据，不保存 Prompt、Tool 过程、模型消息或隐藏推理。
@@ -47,7 +47,7 @@ Business Processing Service 让产品调用方通过一个稳定的 HTTP Interfa
 
 当前默认发布形状是无状态、受控、同步的 Node.js HTTP 服务。实例之间不共享 Agent 会话；每个 Agent 请求创建独立的内存会话。异步入口以 PostgreSQL 共享 Process Run，并要求可信网关删除客户端伪造的身份头、注入稳定 caller subject 和网关共享凭证。部署平台负责 TLS、私有入口、调用方认证、实例上限和 Secret 注入。
 
-Agent 只获得 Process Registration 明确授权的窄 Tool。生产内容处理 Agent 只能调用 `process_business_content`，不能使用 Shell、文件读写、代码编辑或任意远程工具。
+Agent 只获得 Process Registration 明确绑定的 Runtime Skill 集合与窄 Tool。生产内容处理 Agent 同时加载 `content-optimization` 和 `content-integrity`，只能调用 `process_business_content`，不能使用 Shell、文件读写、代码编辑或任意远程工具。Skill 集合随应用发布；调用方不能选择、增加或排序 Skill。
 
 ## 当前不做
 

@@ -16,7 +16,7 @@ import {
 } from "../process-runs/ops/postgres.js";
 import { createPostgresProcessRunStore } from "../process-runs/store/postgres.js";
 import type { ProcessRegistry } from "../processes/runtime/index.js";
-import { constructBusinessProcessRuntime } from "./business-processes.js";
+import { createProductionRuntime } from "./business-processes.js";
 import type { StartupEnvironment } from "./config.js";
 
 export type { StartupEnvironment } from "./config.js";
@@ -31,7 +31,7 @@ export function constructProcessingService(
 ): ConstructedProcessingService {
     const port = parsePort(environment.PORT);
     const httpConfiguration = loadHttpConfiguration(environment);
-    const runtime = constructBusinessProcessRuntime(environment);
+    const runtime = createProductionRuntime(environment);
     const asyncProcessRuns = constructAsyncProcessRuns(
         environment,
         runtime.registry,

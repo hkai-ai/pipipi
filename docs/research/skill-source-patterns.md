@@ -189,23 +189,24 @@ host、防止本地路径越过允许根目录、限制 bundle 大小和文件�
 
 ### 当前能力
 
-本项目已经有一个最小的本地路径入口：Startup Construction 可把
-`PI_SKILL_DIRECTORY` 传给 [`PiContentOptimizationAgentRuntime`](../../src/processes/content/agent.ts)，
-后者从该目录加载 Skill，并只保留准确名为 `content-optimization` 的一项。默认路径仍是
-`.pi/skills/content-optimization`，Docker image 也只复制这一项
-[`Dockerfile`](../../Dockerfile)。
+本项目已经有一个显式的多 Skill 本地入口：Startup Construction 为
+[`PiContentAgent`](../../src/processes/content/agent.ts) 提供固定 `SkillRef[]`。当前
+`content-processing/v1` 绑定 `content-optimization` 与 `content-integrity`，Runtime 要求名称唯一、
+每项精确解析一次，并按声明顺序把全部 `SKILL.md` 正文交给同一个 Agent Session。Docker image
+显式复制这两个 Skill [`Dockerfile`](../../Dockerfile)。
 
-所以当前“给一个本地路径即可用”只在以下约束下成立：
+所以当前多 Skill 能力只在以下约束下成立：
 
 - 路径对服务进程或容器可见；
 - 目录能被现有 Pi loader 读取；
-- Skill 名必须仍是 `content-optimization`；
-- 它只替换现有 Agent-backed Process 的 Skill Implementation，不会自动创建新的 Business
-  Process；
+- 每个 Skill 名和本地路径都必须由服务端绑定；`PI_SKILL_DIRECTORY` 只覆盖固定的
+  `content-optimization` 路径；
+- 增加或替换 Skill 只改变现有 Agent-backed Process 的 Implementation，不会自动创建新的
+  Business Process；
 - Agent 仍只能使用当前明确暴露的 `process_business_content` Tool。
 
 当前没有 Git/URL 下载、来源 provenance、revision pin、digest lock、同名 catalog 或受审更新
-流程。也不应为了远端来源把这些职责直接塞进 `PiContentOptimizationAgentRuntime.optimize`；
+流程。也不应为了远端来源把这些职责直接塞进 `PiContentAgent.optimize`；
 否则网络、认证、缓存、校验和业务执行会失去 Locality。
 
 ### 推荐的 Module 与 Seam

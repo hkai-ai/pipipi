@@ -52,11 +52,11 @@ Codex 先把需求归入一种变化：
 
 每个版本由一个 Registration factory 聚合 Schema、Process Definition、获准依赖和稳定策略。优先复用现有 Business Capability；远程协议、认证和供应商错误留在 Adapter 内。只有两个真实 Adapter 或确定的替换需求才能证明需要新 Seam。
 
-如果流程依赖外部 Skill 来源，先按 [`integrating-runtime-skills.md`](integrating-runtime-skills.md) 解析、审查并固定来源，再把本地 Runtime Skill 绑定到该流程。Skill 地址不能成为产品输入。
+如果流程依赖外部 Skill 来源，先按 [`integrating-runtime-skills.md`](integrating-runtime-skills.md) 解析、审查并固定来源，再把一个或多个本地 Runtime Skill 作为完整集合绑定到该流程。Skill 地址不能成为产品输入。
 
 ### 实现和注册
 
-实施遵循 [`development.md` 的“新增 Business Process”步骤](development.md#新增-business-process)。当前稳定形状是：一个 Registration factory 聚合版本契约与获准依赖，`createBusinessProcessExecutor` 的显式 catalog 决定它是否进入生产。本文不重复代码步骤。
+实施遵循 [`development.md` 的“新增 Business Process”步骤](development.md#新增-business-process)。当前稳定形状是：一个 Registration factory 聚合版本契约与获准依赖，`createProcessExecutor` 的显式 catalog 决定它是否进入生产。本文不重复代码步骤。
 
 ### 跨 Interface 验证
 
