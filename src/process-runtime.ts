@@ -6,6 +6,7 @@ import {
 } from "./process-run-records.js";
 
 const acceptedProcessInputPayloadMaxBytes = 262_144;
+const acceptedProcessOutputMaxBytes = 262_144;
 const acceptedProcessInputMetadataMaxBytes = 4_096;
 const acceptedProcessInputEnvelopeOverheadBytes = 27;
 const acceptedProcessInputMaxBytes =
@@ -224,7 +225,20 @@ export function defineProcessRegistration<
             },
           };
         }
-        return { status: "succeeded", output: output.data };
+        const outputSnapshot = createJsonSnapshot(
+          output.data,
+          acceptedProcessOutputMaxBytes,
+        );
+        if (!outputSnapshot.success) {
+          return {
+            status: "failed",
+            error: {
+              code: "INVALID_OUTPUT",
+              publicMessage: "The process produced an invalid output",
+            },
+          };
+        }
+        return { status: "succeeded", output: outputSnapshot.value };
       });
 
   return Object.freeze({

@@ -87,7 +87,8 @@ Process Definition、依赖、策略和输出验证都留在 Module 内。生产
 6. Process Runner 把自己的 `runId`、准确 Registration 和 accepted input 交给 Process Attempt
    Runner。Attempt Runner 创建 `AbortSignal` 并用总超时与执行竞争。
 7. Registration 的 `run` 重新检查快照版本和 Process identity，但不重新运行输入 Schema；随后
-   执行 Definition 并验证成功输出。
+   执行 Definition，并把通过输出 Schema 的值收敛为最大 262144 UTF-8 bytes 的 JSON-safe
+   snapshot。无法可靠持久化或通过 HTTP 表达的值按无效输出处理。
 8. Process Attempt Runner 构造唯一的公共 `ProcessRunResult`。Process Runner 再执行 best-effort
    记录；记录语义仍使用原始 accepted request。
 
@@ -103,7 +104,7 @@ Registration 会捕获 Definition 的 Schema 与执行函数，Registry 会复�
 | HTTP Adapter | `UNSUPPORTED_MEDIA_TYPE`、`REQUEST_TOO_LARGE`、`SERVICE_BUSY` | 在进入 Process Executor 前拒绝请求 |
 | Process Runner | `INVALID_INPUT`、`PROCESS_NOT_FOUND` | 校验 envelope、精确查找和输入接受 |
 | Process Attempt Runner | `PROCESS_TIMEOUT`、`INTERNAL_ERROR` | 统一治理 Attempt，并净化超时、异常和无效快照 |
-| Process Registration | `INVALID_OUTPUT` | 输出 Schema 拒绝成功值时产生 |
+| Process Registration | `INVALID_OUTPUT` | 输出 Schema 拒绝成功值，或成功值不是受限 JSON-safe snapshot 时产生 |
 | Process Definition | `AGENT_FAILURE`、`DEPENDENCY_FAILURE` | 只能通过 `failProcess` 返回预期失败值 |
 
 <!-- markdownlint-enable MD013 -->

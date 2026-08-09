@@ -38,7 +38,7 @@ Business Processing Service 让产品调用方通过一个稳定的 HTTP Interfa
 
 HTTP 入口只公开 `GET /healthz` 和 `POST /execute`。每次执行生成独立 `runId`。默认生产构造不持久化 Run Record；结构化完成日志只保留运行元数据，不保存 Prompt、Tool 过程、模型消息或隐藏推理。
 
-仓库已实现尚未组装进 Startup Construction 的 Async Process Runs Module。它以 `submit/find` 固定公共状态、owner 隔离和 caller-scoped idempotency，并通过有界内存 Store、统一内存 Queue 与确定性测试 Worker 验证第一条异步纵切；它不是当前生产 Interface，也不提供跨进程持久性。
+仓库已实现尚未组装进 Startup Construction 的 Async Process Runs Module。它以 `submit/find` 固定公共状态、owner 隔离和 caller-scoped idempotency，并通过有界内存 Store、统一内存 Queue 与确定性测试 Worker 验证第一条异步纵切。PostgreSQL Adapter 已能以事务持久化 Run、初始 Event 和 Outbox，并通过真实 PostgreSQL contract tests 验证跨实例查询、幂等和 fencing；这些能力仍不是当前生产 Interface。
 
 图片生成、海报 Skill、对象存储和 Skill A/B 对比目前属于开发实验与集成验证，不属于 `/execute` 的生产 catalog。
 
@@ -74,7 +74,7 @@ Agent 只获得 Process Registration 明确授权的窄 Tool。生产内容处�
 | Process Registration | `identity`、`accept(input)`、`run(acceptedInput, context)` | Schema、JSON-safe accepted input、Process Definition、依赖、策略和输出验证 |
 | Process Attempt Runner | `run({ runId, registration, acceptedInput })` | 预分配 runId、超时、取消和公开错误净化 |
 | Async Process Runs | `submit(request, context)`、`find(runId, context)` | 输入接受、owner、幂等摘要和公共状态投影 |
-| Process Run Store | 接受 Run、owner 查询、claim、终态转换 | accepted input、attempt、revision 和 fencing；当前只有内存 Adapter |
+| Process Run Store | 接受 Run、owner 查询、claim、终态转换 | accepted input、attempt、revision 和 fencing；提供内存与 PostgreSQL Adapter |
 | Process Work Queue | `enqueue({ schemaVersion, runId })`、`close()` | 去重、容量和调度；当前只有确定性内存 Adapter |
 | Process Worker | `process(job)` | exact Registration 查找、Attempt 执行和受控状态转换 |
 | Business Capability | 窄业务方法 | 远程协议、认证、超时和供应商细节 |

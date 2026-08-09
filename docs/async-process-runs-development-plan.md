@@ -33,7 +33,7 @@ flowchart LR
 | M0 决策门禁 | 进行中 | 配置、身份、保留和 retry 决策固定 | 无变化 |
 | M1 Runtime Seam | 已完成 | Registration 可先接受、后执行 | `/execute` 行为不变 |
 | M2 内存异步纵切 | 已完成 | Async Process Runs Module 与状态机可测试 | 不组装进生产入口 |
-| M3 PostgreSQL 与查询 | 未开始 | durable Run、幂等提交和查询路由 | feature flag 关闭 |
+| M3 PostgreSQL 与查询 | 进行中 | durable Run、幂等提交和查询路由 | feature flag 关闭 |
 | M4 Outbox 与 BullMQ Worker | 未开始 | 一个 Process Queue 端到端执行 | 先向内部调用方开放 |
 | M5 Webhook Delivery | 未开始 | 签名通知、重试、审计和重放 | 按 endpoint 灰度 |
 | M6 生产硬化与发布 | 未开始 | 容量、恢复、保留、Runbook 和正式发布 | 受控发布 |
@@ -60,6 +60,17 @@ flowchart LR
 - caller identity 未接入可信来源前，不启用异步 HTTP 路由。
 - retention 未批准前，只使用非敏感测试内容，不向生产持久化业务 input/output。
 - Webhook Endpoint 管理和 egress 隔离未完成前，不发送真实 Webhook。
+
+### 已固定的实施选择
+
+| 决策 | 当前值 | 验证方式 |
+| --- | --- | --- |
+| PostgreSQL driver | `pg 8.23.x`，只在 Adapter 内使用 | Pool、参数化 SQL、跨 Pool contract tests |
+| migration 工具 | `node-pg-migrate 9.x`，默认事务与 advisory lock | 空库执行后再次执行不产生 migration |
+| 本地 PostgreSQL | `compose.integration.yaml` 的 PostgreSQL 17 临时实例 | `npm run test:integration:postgres` |
+| migration 配置 | `DATABASE_URL`；测试单独使用 `POSTGRES_TEST_DATABASE_URL` | 测试数据库名必须以 `_test` 结尾 |
+
+Redis、可信 caller identity、生产 retention、字段级加密和 retry matrix 仍由后续批次固定，因此 M0 继续保持“进行中”。
 
 ### 完成门槛
 
@@ -155,6 +166,8 @@ type AsyncProcessRuns = Readonly<{
 ## M3：接入 PostgreSQL 与异步 HTTP
 
 目标是让 Process Run 在进程和实例之间持久存在，并固定提交、查询和授权契约。
+
+实现进度：Issue #12 已完成第一批 migration、PostgreSQL Store、事务 Outbox、跨实例 contract tests 和内容过期字段；异步 HTTP、可信 caller identity、feature flag 与 readiness 由 Issue #13 完成。
 
 ### 数据库任务
 

@@ -25,7 +25,7 @@ export function processRunStoreContract(
         store.accept({
           ...original,
           runId: runId(3),
-          requestFingerprint: "different",
+          requestFingerprint: "b".repeat(64),
         }),
       ).resolves.toEqual({ outcome: "conflict" });
 
@@ -48,24 +48,24 @@ export function processRunStoreContract(
 
       const claim = await store.claim({
         runId: run.runId,
-        claimToken: "claim-current",
+        claimToken: claimToken(1),
         claimedAt: "2026-08-09T10:00:01.000Z",
       });
       expect(claim).toMatchObject({
         runId: run.runId,
-        claimToken: "claim-current",
+        claimToken: claimToken(1),
       });
       await expect(
         store.claim({
           runId: run.runId,
-          claimToken: "claim-duplicate",
+          claimToken: claimToken(2),
           claimedAt: "2026-08-09T10:00:02.000Z",
         }),
       ).resolves.toBeUndefined();
       await expect(
         store.complete({
           runId: run.runId,
-          claimToken: "claim-stale",
+          claimToken: claimToken(3),
           completedAt: "2026-08-09T10:00:03.000Z",
           completion: { status: "succeeded", output: { value: "stale" } },
         }),
@@ -73,7 +73,7 @@ export function processRunStoreContract(
       await expect(
         store.complete({
           runId: run.runId,
-          claimToken: "claim-current",
+          claimToken: claimToken(1),
           completedAt: "2026-08-09T10:00:04.000Z",
           completion: { status: "succeeded", output: { value: "current" } },
         }),
@@ -81,7 +81,7 @@ export function processRunStoreContract(
       await expect(
         store.complete({
           runId: run.runId,
-          claimToken: "claim-current",
+          claimToken: claimToken(1),
           completedAt: "2026-08-09T10:00:05.000Z",
           completion: {
             status: "failed",
@@ -109,7 +109,7 @@ export function processRunStoreContract(
 
       const claim = await store.claim({
         runId: run.runId,
-        claimToken: "claim-defensive",
+        claimToken: claimToken(4),
         claimedAt: "2026-08-09T10:00:01.000Z",
       });
       if (!claim) throw new Error("Expected Process Run claim");
@@ -155,7 +155,7 @@ function acceptedRun(overrides: {
     runId: overrides.runId,
     ownerId: overrides.ownerId ?? "caller-a",
     idempotencyKey: "shared-key",
-    requestFingerprint: "same-request",
+    requestFingerprint: "a".repeat(64),
     process,
     version,
     acceptedInput,
@@ -165,4 +165,8 @@ function acceptedRun(overrides: {
 
 function runId(index: number): string {
   return `00000000-0000-4000-8000-${index.toString().padStart(12, "0")}`;
+}
+
+function claimToken(index: number): string {
+  return `10000000-0000-4000-8000-${index.toString().padStart(12, "0")}`;
 }

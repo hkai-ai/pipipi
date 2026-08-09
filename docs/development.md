@@ -7,7 +7,8 @@
 - Node.js 24 或更高版本；
 - npm 与仓库中的 `package-lock.json`；
 - Direct 路径可访问的 Business Capability；
-- 仅在运行 Agent 或真实模型实验时需要模型凭证。
+- 仅在运行 Agent 或真实模型实验时需要模型凭证；
+- 仅在运行 PostgreSQL/Redis 集成测试时需要 Docker Compose。
 
 首次安装：
 
@@ -58,6 +59,8 @@ curl --fail -X POST http://127.0.0.1:3000/execute \
 | `npm test` | 运行确定性测试 | 否 |
 | `npm run test:watch` | 监听并运行 Vitest | 否 |
 | `npm run build` | 编译 `src/` 到 `dist/` | 否 |
+| `npm run db:migrate` | 对 `DATABASE_URL` 执行受锁保护的 PostgreSQL migration | 是，会修改指定数据库 |
+| `npm run test:integration:postgres` | 运行真实 PostgreSQL migration 与 Store contract tests | 是，会重建明确的 `_test` 数据库 schema |
 | `npm run smoke:agent` | 验证真实 Agent 与 Business Capability | 是，可能产生模型费用 |
 | `npm run smoke:staging` | 验证已部署的受控环境 | 是 |
 | `npm run test:skill-ab` | 运行三组 Skill 对比 | 是，可能产生模型费用 |
@@ -65,6 +68,25 @@ curl --fail -X POST http://127.0.0.1:3000/execute \
 | `npm run smoke:oss` | 上传已有文件并读取首字节 | 是，会写对象存储 |
 
 真实集成命令的配置、判据和产物见 [`experiments.md`](experiments.md)。默认测试套件不调用模型、OSS 或外部业务系统。
+
+### PostgreSQL 集成测试
+
+仓库提供只用于本地和 CI 的临时 PostgreSQL 17 配置。数据目录使用 `tmpfs`，测试会拒绝重建名称不以 `_test` 结尾的数据库：
+
+```bash
+docker compose -f compose.integration.yaml up -d --wait postgres
+export POSTGRES_TEST_DATABASE_URL=postgres://pipipi:pipipi-test-only@127.0.0.1:55432/pipipi_test
+npm run test:integration:postgres
+docker compose -f compose.integration.yaml down
+```
+
+手动验证 migration 时显式把测试 URL 传给 `DATABASE_URL`：
+
+```bash
+DATABASE_URL="$POSTGRES_TEST_DATABASE_URL" npm run db:migrate
+```
+
+默认 `npm test` 不连接数据库；PostgreSQL 集成文件在缺少测试 URL 时跳过。生产 migration 必须由部署步骤使用最小权限凭证显式执行，应用启动不隐式修改 schema。
 
 ## 代码地图
 
@@ -81,6 +103,10 @@ curl --fail -X POST http://127.0.0.1:3000/execute \
 | `src/business-capabilities.ts` | Content Processing Capability 的窄 Interface 与依赖错误 |
 | `src/agent-runtime.ts` | 受限 Pi Agent Adapter、请求级会话和唯一业务 Tool |
 | `src/process-run-records.ts` | disabled、内存和持久化 Run Record Adapter 的公共语义 |
+| `src/async-process-runs.ts` | 异步提交、owner 隔离、caller-scoped idempotency 和公共状态投影 |
+| `src/process-run-store.ts` | 权威 Process Run Store Seam、状态转换和有界内存 Adapter |
+| `src/postgres-process-run-store.ts` | PostgreSQL 事务、Attempt fencing、初始 Event 与 Outbox Adapter |
+| `migrations/` | 受版本和 advisory lock 管理的 PostgreSQL schema 变化 |
 | `src/object-storage*.ts`、`src/aliyun-oss-storage.ts` | 通用对象存储 Seam、配置和 OSS Adapter |
 | `src/openai-image-generation.ts` | 图片生成 Interface 与 OpenAI Adapter |
 | `test/` | 跨公开 Seam 的确定性行为验证 |
@@ -106,7 +132,7 @@ Interface 是测试面。测试应覆盖公开结果、invariant、错误和副�
 Process Registration 的 `accept` 解析外部输入一次，返回绑定准确 Process/version 的不可变
 JSON-safe snapshot。业务 input payload 默认上限为 262144 UTF-8 bytes，序列化 Process identity
 上限为 4096 bytes，完整 snapshot 上限为 266267 bytes。`run` 只执行 accepted input，不重新运行
-输入 Schema。同步 Process Runner 连续调用两步；需要延迟执行的内部调用方把 accepted input
+输入 Schema；成功 output 同样必须是最大 262144 UTF-8 bytes 的 JSON-safe snapshot。同步 Process Runner 连续调用两步；需要延迟执行的内部调用方把 accepted input
 持久化后，通过 Process Attempt Runner 传入预先分配的 `runId`。产品调用方不能直接提交或
 修改 accepted input。
 

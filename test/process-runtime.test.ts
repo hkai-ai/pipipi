@@ -310,6 +310,37 @@ describe("Process Runtime", () => {
     expect(executionCalls).toBe(0);
   });
 
+  it("rejects validated output that cannot be durably represented", async () => {
+    const unsafeOutput = defineProcessRegistration({
+      id: "test-processing",
+      version: "v1",
+      inputSchema: z.strictObject({ value: z.string() }),
+      outputSchema: z.unknown(),
+      execute: async () => ({ generatedAt: new Date() }),
+    });
+    const oversizedOutput = defineProcessRegistration({
+      id: "test-processing",
+      version: "v2",
+      inputSchema: z.strictObject({ value: z.string() }),
+      outputSchema: z.string(),
+      execute: async () => "界".repeat(262_144),
+    });
+    const attemptRunner = createProcessAttemptRunner();
+
+    for (const process of [unsafeOutput, oversizedOutput]) {
+      await expect(
+        attemptRunner.run({
+          runId: "00000000-0000-4000-8000-000000000046",
+          registration: process,
+          acceptedInput: acceptOrThrow(process, { value: "request" }),
+        }),
+      ).resolves.toMatchObject({
+        status: "failed",
+        error: { code: "INVALID_OUTPUT" },
+      });
+    }
+  });
+
   it("rejects an accepted input payload larger than 262144 UTF-8 bytes", () => {
     let executionCalls = 0;
     const process = defineProcessRegistration({

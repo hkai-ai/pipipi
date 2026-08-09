@@ -81,7 +81,7 @@ curl http://127.0.0.1:3000/healthz
 
 这是一个受控、同步、无状态的 MVP。部署平台必须提供 TLS、私有入口、调用方认证、Secret 注入和实例上限。当前生产服务不提供应用用户系统、RBAC、多租户、CORS、Queue、通用幂等、跨实例执行历史或动态流程注册。
 
-仓库内已有供开发和契约测试使用的 Async Process Runs Module、有界内存 Store/Queue 与确定性 Worker；它们尚未接入生产启动路径，不能替代后续的 PostgreSQL、Outbox 和 BullMQ 实现。
+仓库内已有供开发和契约测试使用的 Async Process Runs Module、有界内存 Store/Queue、确定性 Worker，以及事务化 PostgreSQL Store 与初始 Outbox migration。它们尚未接入生产启动路径；BullMQ Dispatcher、异步 HTTP 和可信 caller identity 仍需按开发计划接入。
 
 图片生成、海报 Skill、对象存储和 Skill A/B 对比属于开发实验与集成验证，尚未进入 `/execute` 的生产 catalog。
 
