@@ -58,6 +58,8 @@ Agent 只获得 Process Registration 明确授权的窄 Tool。生产内容处�
 
 未来若流程产生发布、扣费、发送等副作用，必须先明确幂等、审计和补偿策略。
 
+异步 Process Run、持久化查询、BullMQ 调度和 Webhook 已完成设计并进入开发计划，尚未进入生产 Interface。该设计保留现有 Business Process 模型：外部调用方仍只选择准确 Process 和版本；Queue Job、重试与 Worker 配置由服务端拥有。详见 [`docs/async-process-runs-design.md`](docs/async-process-runs-design.md) 和 [`docs/async-process-runs-development-plan.md`](docs/async-process-runs-development-plan.md)。
+
 ## Module 模型
 
 项目把复杂行为放在少量稳定 Interface 后面：
@@ -84,7 +86,12 @@ Startup Construction 是生产组装 Seam；Process Executor 是传输与 Proces
 - **Process Runner**：治理一次已解析 Process Registration 执行的 Runtime。它统一处理运行规则，但不知道具体流程的策略或依赖形状。避免使用：workflow engine、Process Registry。
 - **Execution Context**：Process Runner 在输入被接受后提供的请求级元数据。它只包含 `runId`、`AbortSignal` 等运行信息；获准依赖和稳定策略属于 Process Registration。避免使用：global capability bag、dependency bag。
 - **Business Capability**：Process Definition 获准调用的窄业务能力。远程协议或供应商 SDK 留在 Adapter 的 Implementation 内。
-- **Run Record**：一次 Process Run 的结果元数据。它不是聊天记录，也不应默认保存业务内容或 Agent 内部过程。
+- **Process Run**：一个 Business Process 的执行实例，以独立 `runId` 标识。同步入口在请求内返回终态；计划中的异步入口在接受后允许跨请求查询。
+- **Process Attempt**：异步 Worker 对同一个 Process Run 的一次执行尝试。重试产生新 Attempt，但不产生新 Process Run。
+- **Queue Job**：唤醒异步 Worker 的内部调度消息。它不是产品任务、Process Run 或权威状态，不进入公开 Interface。
+- **Process Event**：Process Run 状态变化后产生的不可变事实，可投影为 Webhook payload。
+- **Webhook Delivery**：一个 Process Event 向一个已注册 Webhook Endpoint 的投递记录。重复 Delivery 是正常的至少一次语义。
+- **Run Record**：一次 Process Run 的派生观测元数据。它不参与状态转换或恢复，不是聊天记录，也不应默认保存业务内容或 Agent 内部过程。
 
 设计讨论统一使用 **Module**、**Interface**、**Implementation**、**Seam** 和 **Adapter**。Interface 包含调用方必须知道的全部约束，不只包含 TypeScript 类型。
 
@@ -96,6 +103,8 @@ Startup Construction 是生产组装 Seam；Process Executor 是传输与 Proces
 | 项目是什么、如何完成最短体验 | [`README.md`](README.md) |
 | 精确运行行为和公开错误 | `src/` 与 `test/` |
 | Module、Interface、invariant 和测试面 | [`docs/process-runtime-design.md`](docs/process-runtime-design.md) |
+| 异步提交、查询、Queue 与 Webhook 设计 | [`docs/async-process-runs-design.md`](docs/async-process-runs-design.md) |
+| 异步能力的开发顺序与门禁 | [`docs/async-process-runs-development-plan.md`](docs/async-process-runs-development-plan.md) |
 | 本地开发与改动流程 | [`docs/development.md`](docs/development.md) |
 | 从自然语言封装 Business Process | [`docs/authoring-business-processes.md`](docs/authoring-business-processes.md) |
 | 从本地或远程来源集成 Skill | [`docs/integrating-runtime-skills.md`](docs/integrating-runtime-skills.md) |

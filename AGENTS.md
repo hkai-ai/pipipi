@@ -24,3 +24,17 @@
 - 新增 Business Process、接入 Runtime Skill 或改变公开行为时，同步更新测试、`README.md`、`CONTEXT.md` 和受影响的 `docs/` 页面。
 - 默认运行 `npm run typecheck`、`npm test` 和 `npm run build`。需要网络、凭证、费用或外部写入的 smoke 必须单独说明，不把它混入确定性验证。
 - 文档以中文为主，遵循 `docs/README.md` 的分类、事实来源和写作规范。
+
+## Agent skills
+
+### Issue tracker
+
+项目规格与工作项使用 GitHub Issues。详见 `docs/agents/issue-tracker.md`。
+
+### Triage labels
+
+项目使用五个默认 triage 角色标签。详见 `docs/agents/triage-labels.md`。
+
+### Domain docs
+
+项目使用 single-context 领域文档布局：根目录 `CONTEXT.md` 与 `docs/decisions/`。详见 `docs/agents/domain.md`。

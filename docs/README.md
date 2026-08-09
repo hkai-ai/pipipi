@@ -21,6 +21,8 @@
 | [`authoring-business-processes.md`](authoring-business-processes.md) | 说明如何把自然语言流程描述封装为 Business Process | 流程需求入口、authoring 步骤或完成标准变化 |
 | [`integrating-runtime-skills.md`](integrating-runtime-skills.md) | 说明如何从本地或远程来源审查、固定并接入 Skill | Skill 来源、权限、安装、更新或 Runtime 边界变化 |
 | [`process-runtime-design.md`](process-runtime-design.md) | 记录 Process Runtime 的 Module、Interface、invariant 和测试面 | Seam、Interface、执行顺序或错误归属变化 |
+| [`async-process-runs-design.md`](async-process-runs-design.md) | 设计异步提交、持久化查询、BullMQ Worker 和 Webhook Delivery | 异步 Interface、状态机、持久化、队列或 Webhook 设计变化 |
+| [`async-process-runs-development-plan.md`](async-process-runs-development-plan.md) | 把异步设计拆成可独立合并、验证和发布的开发批次 | 实施顺序、批次状态、测试门槛或发布依赖变化 |
 | [`experiments.md`](experiments.md) | 说明真实 Agent、Skill、图片和存储集成如何验证 | 实验命令、判据、成本或产物位置变化 |
 
 开发文档面向修改 Implementation 的人。它应解释为什么 Seam 放在这里、调用方必须遵守什么，以及如何通过 Interface 验证行为。
@@ -39,7 +41,9 @@ Runbook 必须可按顺序执行。每一步都应说明前置条件、成功信
 
 `.agents/skills/` 与 `.pi/skills/` 是运行资源。Skill 的 `SKILL.md` 约束 Agent 行为，不替代项目说明或开发文档。两类 Skill 的来源与接入规则见 [`integrating-runtime-skills.md`](integrating-runtime-skills.md)。
 
-`research/` 保存基于外部一手资料的带来源调研，不直接定义项目行为。当前 Skill 来源调研见 [`research/skill-source-patterns.md`](research/skill-source-patterns.md)；项目采用的规则以 [`integrating-runtime-skills.md`](integrating-runtime-skills.md) 为准。
+`agents/` 保存工程 Skill 使用的 Issue Tracker、triage label 和领域文档消费配置。它约束自动化工具如何操作项目，不定义产品行为。
+
+`research/` 保存基于外部一手资料的带来源调研，不直接定义项目行为。当前调研包括 [`research/skill-source-patterns.md`](research/skill-source-patterns.md) 和 [`research/async-process-execution.md`](research/async-process-execution.md)；项目采用的规则以对应设计或集成文档为准。
 
 ## 分类与放置
 
