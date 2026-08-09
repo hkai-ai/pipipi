@@ -304,10 +304,11 @@ type AsyncProcessRuns = Readonly<{
 
 | 代码区域 | 实现职责 |
 | --- | --- |
+| `src/app/` | API、后台角色和人工命令各自的 Composition Root、配置与资源生命周期 |
 | `src/processes/` | accept/run、accepted input、Attempt execution 和复用的 production catalog |
 | `src/process-runs/` | Async Process Runs，以及按 Store、Queue、Outbox、Worker、Recovery、Retention 和 Operations 分组的内部 Module |
-| `src/api/` | 异步 HTTP 路由、caller identity、readiness 和 API bootstrap；保留同步路由 |
-| `src/webhooks/` | Endpoint、Delivery、签名、Queue、Store 和独立 Worker bootstrap |
+| `src/api/` | 异步 HTTP 路由、caller identity 和 readiness；保留同步路由 |
+| `src/webhooks/` | Endpoint、Delivery、签名、Queue、Store 和 Worker Runtime |
 | `src/bin/` | 各部署角色与人工命令的薄入口 |
 | `migrations/` | 分批、向前兼容的 PostgreSQL migration |
 | `test/` | Module contract、HTTP 和受控故障测试 |

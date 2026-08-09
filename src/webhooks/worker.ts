@@ -1,5 +1,10 @@
-import type { BackgroundRuntime } from "../api/role.js";
 import type { OutboxDispatcher } from "../process-runs/outbox/dispatcher.js";
+
+export type WebhookWorkerRuntime = Readonly<{
+    start: () => Promise<void>;
+    ready: () => Promise<void>;
+    close: () => Promise<void>;
+}>;
 
 export function createWebhookWorkerRuntime(options: {
     dispatcher: OutboxDispatcher;
@@ -13,7 +18,7 @@ export function createWebhookWorkerRuntime(options: {
     closeResources: () => Promise<void>;
     dispatchIntervalMs?: number;
     onError?: () => void;
-}): BackgroundRuntime {
+}): WebhookWorkerRuntime {
     const intervalMs = positiveInteger(
         options.dispatchIntervalMs ?? 1_000,
         "Webhook outbox dispatch interval",

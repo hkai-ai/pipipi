@@ -1,20 +1,20 @@
-import type { ContentOptimizationAgentRuntime } from "./agent.js";
+import type { ContentOptimizationAgentRuntime } from "./content/agent.js";
+import type { ContentProcessingCapability } from "./content/capability.js";
 import {
     type ContentProcessingProcessConfig,
     createContentProcessingRegistration,
-} from "./content.js";
-import type { ContentProcessingCapability } from "./content-capability.js";
-import type { ProcessRunRecords } from "./records.js";
+} from "./content/registration.js";
 import {
     createProcessRegistry,
     createProcessRunner,
     type ProcessExecutor,
     type ProcessRegistry,
-} from "./runtime.js";
+} from "./runtime/index.js";
+import type { ProcessRunRecords } from "./runtime/records.js";
 import {
     createTitledContentProcessingRegistration,
     type TitledContentProcessingConfig,
-} from "./titled-content.js";
+} from "./titled-content/registration.js";
 
 export type BusinessProcessExecutorOptions = {
     contentProcessing: ContentProcessingCapability;

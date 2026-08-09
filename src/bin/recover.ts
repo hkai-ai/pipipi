@@ -1,4 +1,4 @@
-import { constructProcessRecoveryCommand } from "../process-runs/bootstrap.js";
+import { constructProcessRecoveryCommand } from "../app/process-recovery.js";
 import {
     parseQueueRecoveryCommandOptions,
     runQueueRecoveryCommand,

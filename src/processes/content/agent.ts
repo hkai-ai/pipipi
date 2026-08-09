@@ -9,7 +9,7 @@ import {
     SessionManager,
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import type { ContentProcessingCapability } from "./content-capability.js";
+import type { ContentProcessingCapability } from "./capability.js";
 
 const businessContentToolName = "process_business_content";
 const contentOptimizationSkillName = "content-optimization";

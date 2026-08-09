@@ -1,4 +1,4 @@
-import { constructProcessWorkerService } from "../process-runs/bootstrap.js";
+import { constructProcessWorkerService } from "../app/process-worker.js";
 
 const { application, port } = constructProcessWorkerService(process.env);
 const { url } = await application.listen({ host: "0.0.0.0", port });

@@ -1,4 +1,3 @@
-import type { BackgroundRuntime } from "../../api/role.js";
 import type {
     PostgresRetentionCleanup,
     RetentionCleanupBatchResult,
@@ -23,6 +22,12 @@ export type RetentionCleaner = Readonly<{
         cursor?: string;
         signal?: AbortSignal;
     }) => Promise<RetentionCleanupSweepResult>;
+}>;
+
+export type RetentionCleanerRuntime = Readonly<{
+    start: () => Promise<void>;
+    ready: () => Promise<void>;
+    close: () => Promise<void>;
 }>;
 
 export function createRetentionCleaner(options: {
@@ -94,7 +99,7 @@ export function createRetentionCleanerRuntime(options: {
     intervalMs?: number;
     onResult?: (result: RetentionCleanupSweepResult) => void;
     onError?: () => void;
-}): BackgroundRuntime {
+}): RetentionCleanerRuntime {
     const intervalMs = positiveInteger(
         options.intervalMs ?? 3_600_000,
         "Retention cleanup interval",

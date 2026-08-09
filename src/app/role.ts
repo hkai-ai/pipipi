@@ -20,6 +20,11 @@ export type RuntimeRoleApplication = Readonly<{
     close: () => Promise<void>;
 }>;
 
+export type ConstructedRuntimeRoleService = Readonly<{
+    application: RuntimeRoleApplication;
+    port: number;
+}>;
+
 export function createRuntimeRoleApplication(options: {
     role: RuntimeRoleName;
     runtime: BackgroundRuntime;
@@ -72,6 +77,22 @@ export function createRuntimeRoleApplication(options: {
                 await options.runtime.close();
             }
         },
+    });
+}
+
+export function constructRuntimeRoleService(options: {
+    role: RuntimeRoleName;
+    runtime: BackgroundRuntime;
+    port: number;
+    readinessTimeoutMs: number;
+}): ConstructedRuntimeRoleService {
+    return Object.freeze({
+        application: createRuntimeRoleApplication({
+            role: options.role,
+            runtime: options.runtime,
+            readinessTimeoutMs: options.readinessTimeoutMs,
+        }),
+        port: options.port,
     });
 }
 

@@ -2,11 +2,11 @@ import path from "node:path";
 import { runner } from "node-pg-migrate";
 import { Pool } from "pg";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { constructProcessingService } from "../src/api/bootstrap.js";
 import {
     callerIdentityHeader,
     gatewayAuthenticationHeader,
 } from "../src/api/identity.js";
+import { constructProcessingService } from "../src/app/api.js";
 import { createAsyncProcessRuns } from "../src/process-runs/index.js";
 import {
     createPostgresAsyncOperations,
@@ -18,7 +18,7 @@ import {
     type ProcessRunStore,
 } from "../src/process-runs/store/index.js";
 import { createPostgresProcessRunStore } from "../src/process-runs/store/postgres.js";
-import { createProcessRegistry } from "../src/processes/runtime.js";
+import { createProcessRegistry } from "../src/processes/runtime/index.js";
 import {
     createStandardWebhookHttpSender,
     createWebhookDeliveryWorker,

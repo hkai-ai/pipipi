@@ -11,15 +11,14 @@ import { runner } from "node-pg-migrate";
 import { Pool } from "pg";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { z } from "zod";
-import { constructProcessingService } from "../src/api/bootstrap.js";
 import {
     callerIdentityHeader,
     gatewayAuthenticationHeader,
 } from "../src/api/identity.js";
-import {
-    constructProcessDispatcherService,
-    constructProcessWorkerService,
-} from "../src/process-runs/bootstrap.js";
+import { constructProcessingService } from "../src/app/api.js";
+import { constructProcessDispatcherService } from "../src/app/process-dispatcher.js";
+import { constructProcessWorkerService } from "../src/app/process-worker.js";
+import { constructWebhookWorkerService } from "../src/app/webhook-worker.js";
 import {
     createAsyncProcessRuns,
     type ProcessRunView,
@@ -45,8 +44,7 @@ import {
     createProcessRegistry,
     defineProcessRegistration,
     failProcess,
-} from "../src/processes/runtime.js";
-import { constructWebhookWorkerService } from "../src/webhooks/bootstrap.js";
+} from "../src/processes/runtime/index.js";
 import {
     defaultWebhookWorkQueueName,
     defaultWebhookWorkQueuePrefix,

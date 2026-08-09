@@ -1,4 +1,4 @@
-import type { ProcessErrorCode, ProcessRunResult } from "./runtime.js";
+import type { ProcessErrorCode, ProcessRunResult } from "./result.js";
 
 export type ProcessRunRecord = {
     readonly schemaVersion: 1;

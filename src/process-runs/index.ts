@@ -3,7 +3,7 @@ import { z } from "zod";
 import type {
     ProcessErrorCode,
     ProcessRegistry,
-} from "../processes/runtime.js";
+} from "../processes/runtime/index.js";
 import type { ProcessWorkQueue } from "./queue/index.js";
 import {
     type ProcessRunAcceptance,

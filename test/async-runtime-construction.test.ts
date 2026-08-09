@@ -1,10 +1,8 @@
 import { describe, expect, it } from "vitest";
-import {
-    constructProcessDispatcherService,
-    constructProcessRecoveryCommand,
-    constructProcessWorkerService,
-    constructRetentionCleanerService,
-} from "../src/process-runs/bootstrap.js";
+import { constructProcessDispatcherService } from "../src/app/process-dispatcher.js";
+import { constructProcessRecoveryCommand } from "../src/app/process-recovery.js";
+import { constructProcessWorkerService } from "../src/app/process-worker.js";
+import { constructRetentionCleanerService } from "../src/app/retention-cleaner.js";
 
 describe("Async runtime role construction", () => {
     it("requires only role-owned Dispatcher connection configuration", () => {

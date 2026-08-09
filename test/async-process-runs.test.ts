@@ -16,7 +16,7 @@ import {
     defineProcessRegistration,
     failProcess,
     type ProcessRegistration,
-} from "../src/processes/runtime.js";
+} from "../src/processes/runtime/index.js";
 
 describe("Async Process Runs", () => {
     it("moves an accepted run through queued, running, and succeeded", async () => {

@@ -1,14 +1,12 @@
 import { createProcessingApplication } from "../src/api/application.js";
+import { createBusinessProcessExecutor } from "../src/processes/catalog.js";
 import {
     PiContentOptimizationAgentRuntime,
     parseOpenAIApiMode,
-} from "../src/processes/agent.js";
-import { createBusinessProcessExecutor } from "../src/processes/catalog.js";
-import {
-    type ContentProcessingCapability,
-    HttpContentProcessingCapability,
-} from "../src/processes/content.js";
-import { parseBusinessApiBaseUrl } from "../src/processes/content-config.js";
+} from "../src/processes/content/agent.js";
+import type { ContentProcessingCapability } from "../src/processes/content/capability.js";
+import { parseBusinessApiBaseUrl } from "../src/processes/content/config.js";
+import { HttpContentProcessingCapability } from "../src/processes/content/http.js";
 
 const businessApiBaseUrl = parseBusinessApiBaseUrl(
     process.env.BUSINESS_API_BASE_URL,

@@ -1,38 +1,63 @@
-import { Pool } from "pg";
-import type { StartupEnvironment } from "../api/bootstrap.js";
-import {
-    createRuntimeRoleApplication,
-    type RuntimeRoleApplication,
-} from "../api/role.js";
 import { writeAsyncOperationalLog } from "../process-runs/ops/logging.js";
 import { createWebhookOutboxDispatcher } from "../process-runs/outbox/dispatcher.js";
 import {
     createBullMqWebhookWorker,
     createBullMqWebhookWorkQueue,
-} from "./bullmq-queue.js";
+} from "../webhooks/bullmq-queue.js";
 import {
     createStandardWebhookHttpSender,
     createWebhookDeliveryWorker,
-} from "./delivery.js";
-import { createPostgresWebhookOutbox } from "./postgres-outbox.js";
-import { createPostgresWebhookDeliveryStore } from "./postgres-store.js";
-import { createWebhookSecretCipher } from "./secret-cipher.js";
-import { createWebhookTargetPolicy } from "./target-policy.js";
-import { createWebhookWorkerRuntime } from "./worker.js";
+} from "../webhooks/delivery.js";
+import { createPostgresWebhookOutbox } from "../webhooks/postgres-outbox.js";
+import { createPostgresWebhookDeliveryStore } from "../webhooks/postgres-store.js";
+import { createWebhookSecretCipher } from "../webhooks/secret-cipher.js";
+import { createWebhookTargetPolicy } from "../webhooks/target-policy.js";
+import { createWebhookWorkerRuntime } from "../webhooks/worker.js";
+import {
+    optionalNonEmpty,
+    parseBoolean,
+    parseBoundedNonNegativeInteger,
+    parseBoundedPositiveInteger,
+    parseConnectionUrl,
+    parsePort,
+    parsePositiveInteger,
+    parseQueueComponent,
+    type StartupEnvironment,
+} from "./config.js";
+import { createRuntimePool } from "./postgres.js";
+import {
+    type ConstructedRuntimeRoleService,
+    constructRuntimeRoleService,
+} from "./role.js";
 
-export type ConstructedWebhookWorkerService = Readonly<{
-    application: RuntimeRoleApplication;
-    port: number;
-}>;
+export type ConstructedWebhookWorkerService = ConstructedRuntimeRoleService;
 
 export function constructWebhookWorkerService(
     environment: StartupEnvironment,
 ): ConstructedWebhookWorkerService {
     const port = parsePort(environment.PORT);
-    const databaseUrl = parsePostgresUrl(environment.DATABASE_URL);
-    const redisUrl = parseRedisUrl(environment.REDIS_URL);
-    const queueName = parseQueueName(environment.WEBHOOK_QUEUE_NAME);
-    const queuePrefix = parseQueuePrefix(environment.WEBHOOK_QUEUE_PREFIX);
+    const databaseUrl = parseConnectionUrl(environment.DATABASE_URL, {
+        protocols: ["postgres:", "postgresql:"],
+        missingMessage: "DATABASE_URL is required for the Webhook Worker role",
+        invalidMessage:
+            "DATABASE_URL must be a valid PostgreSQL connection URL",
+        requirePath: true,
+    });
+    const redisUrl = parseConnectionUrl(environment.REDIS_URL, {
+        protocols: ["redis:", "rediss:"],
+        missingMessage: "REDIS_URL is required for the Webhook Worker role",
+        invalidMessage: "REDIS_URL must be a valid redis:// or rediss:// URL",
+    });
+    const queueName = parseQueueComponent(
+        environment.WEBHOOK_QUEUE_NAME,
+        "WEBHOOK_QUEUE_NAME",
+        false,
+    );
+    const queuePrefix = parseQueueComponent(
+        environment.WEBHOOK_QUEUE_PREFIX,
+        "WEBHOOK_QUEUE_PREFIX",
+        true,
+    );
     const readinessTimeoutMs = parsePositiveInteger(
         environment.RUNTIME_ROLE_READINESS_TIMEOUT_MS,
         2_000,
@@ -105,28 +130,10 @@ export function constructWebhookWorkerService(
         allowUnsafeAddresses: allowUnsafeTargets,
     });
     const secretCipher = createWebhookSecretCipher({ key: encryptionKey });
-    const pool = new Pool({
+    const pool = createRuntimePool({
+        environment,
         connectionString: databaseUrl,
-        max: parsePositiveInteger(
-            environment.ASYNC_POSTGRES_POOL_MAX,
-            10,
-            "ASYNC_POSTGRES_POOL_MAX",
-        ),
-        connectionTimeoutMillis: parsePositiveInteger(
-            environment.ASYNC_POSTGRES_CONNECTION_TIMEOUT_MS,
-            5_000,
-            "ASYNC_POSTGRES_CONNECTION_TIMEOUT_MS",
-        ),
-        application_name: "pipipi-webhook-worker",
-    });
-    pool.on("error", () => {
-        console.error(
-            JSON.stringify({
-                event: "postgres_pool_error",
-                role: "pipipi-webhook-worker",
-                timestamp: new Date().toISOString(),
-            }),
-        );
+        applicationName: "pipipi-webhook-worker",
     });
     const store = createPostgresWebhookDeliveryStore({
         pool,
@@ -234,146 +241,10 @@ export function constructWebhookWorkerService(
         dispatchIntervalMs,
     });
 
-    return Object.freeze({
-        application: createRuntimeRoleApplication({
-            role: "webhook-worker",
-            runtime,
-            readinessTimeoutMs,
-        }),
+    return constructRuntimeRoleService({
+        role: "webhook-worker",
+        runtime,
         port,
+        readinessTimeoutMs,
     });
-}
-
-function parsePort(value: string | undefined): number {
-    if (value === undefined) return 3000;
-    const port = Number(value);
-    if (!Number.isInteger(port) || port < 1 || port > 65_535) {
-        throw new Error("PORT must be an integer between 1 and 65535");
-    }
-    return port;
-}
-
-function parsePositiveInteger(
-    value: string | undefined,
-    fallback: number,
-    name: string,
-): number {
-    if (value === undefined) return fallback;
-    const parsed = Number(value);
-    if (!Number.isSafeInteger(parsed) || parsed < 1) {
-        throw new Error(`${name} must be a positive integer`);
-    }
-    return parsed;
-}
-
-function parseBoundedPositiveInteger(
-    value: string | undefined,
-    fallback: number,
-    name: string,
-    maximum: number,
-): number {
-    const parsed = parsePositiveInteger(value, fallback, name);
-    if (parsed > maximum) throw new Error(`${name} must not exceed ${maximum}`);
-    return parsed;
-}
-
-function parseBoundedNonNegativeInteger(
-    value: string | undefined,
-    fallback: number,
-    name: string,
-    maximum: number,
-): number {
-    if (value === undefined) return fallback;
-    const parsed = Number(value);
-    if (!Number.isSafeInteger(parsed) || parsed < 0 || parsed > maximum) {
-        throw new Error(`${name} must be an integer between 0 and ${maximum}`);
-    }
-    return parsed;
-}
-
-function parsePostgresUrl(value: string | undefined): string {
-    return parseConnectionUrl(
-        value,
-        ["postgres:", "postgresql:"],
-        "DATABASE_URL is required for the Webhook Worker role",
-        "DATABASE_URL must be a valid PostgreSQL connection URL",
-        true,
-    );
-}
-
-function parseRedisUrl(value: string | undefined): string {
-    return parseConnectionUrl(
-        value,
-        ["redis:", "rediss:"],
-        "REDIS_URL is required for the Webhook Worker role",
-        "REDIS_URL must be a valid redis:// or rediss:// URL",
-        false,
-    );
-}
-
-function parseConnectionUrl(
-    value: string | undefined,
-    protocols: readonly string[],
-    missingMessage: string,
-    invalidMessage: string,
-    requireDatabasePath: boolean,
-): string {
-    const candidate = value?.trim();
-    if (!candidate) throw new Error(missingMessage);
-    try {
-        const url = new URL(candidate);
-        if (
-            !protocols.includes(url.protocol) ||
-            url.hostname.length === 0 ||
-            (requireDatabasePath && url.pathname.length <= 1)
-        ) {
-            throw new Error();
-        }
-    } catch {
-        throw new Error(invalidMessage);
-    }
-    return candidate;
-}
-
-function parseQueueName(value: string | undefined): string | undefined {
-    return parseQueueComponent(value, "WEBHOOK_QUEUE_NAME", false);
-}
-
-function parseQueuePrefix(value: string | undefined): string | undefined {
-    return parseQueueComponent(value, "WEBHOOK_QUEUE_PREFIX", true);
-}
-
-function parseQueueComponent(
-    value: string | undefined,
-    name: string,
-    allowColon: boolean,
-): string | undefined {
-    if (value === undefined) return undefined;
-    const candidate = value.trim();
-    const pattern = allowColon ? /^[a-zA-Z0-9:_-]+$/ : /^[a-zA-Z0-9_-]+$/;
-    if (
-        candidate.length === 0 ||
-        candidate.length > 128 ||
-        (!allowColon && candidate.includes(":")) ||
-        !pattern.test(candidate)
-    ) {
-        throw new Error(`${name} is invalid`);
-    }
-    return candidate;
-}
-
-function parseBoolean(
-    value: string | undefined,
-    fallback: boolean,
-    name: string,
-): boolean {
-    if (value === undefined) return fallback;
-    if (value === "true") return true;
-    if (value === "false") return false;
-    throw new Error(`${name} must be true or false`);
-}
-
-function optionalNonEmpty(value: string | undefined): string | undefined {
-    const candidate = value?.trim();
-    return candidate ? candidate : undefined;
 }

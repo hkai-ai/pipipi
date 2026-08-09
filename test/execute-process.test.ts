@@ -7,16 +7,16 @@ import {
 } from "node:http";
 import { afterEach, describe, expect, it } from "vitest";
 import { createProcessingApplication } from "../src/api/application.js";
-import type { ContentOptimizationAgentRuntime } from "../src/processes/agent.js";
 import {
     type BusinessProcessExecutorOptions,
     createBusinessProcessExecutor,
 } from "../src/processes/catalog.js";
+import type { ContentOptimizationAgentRuntime } from "../src/processes/content/agent.js";
 import {
     type ContentProcessingCapability,
-    HttpContentProcessingCapability,
-} from "../src/processes/content.js";
-import { ContentProcessingUnavailable } from "../src/processes/content-capability.js";
+    ContentProcessingUnavailable,
+} from "../src/processes/content/capability.js";
+import { HttpContentProcessingCapability } from "../src/processes/content/http.js";
 
 type RunningServer = {
     url: string;

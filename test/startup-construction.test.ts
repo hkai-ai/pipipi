@@ -6,7 +6,7 @@ import {
 } from "node:http";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ProcessingApplication } from "../src/api/application.js";
-import { constructProcessingService } from "../src/api/bootstrap.js";
+import { constructProcessingService } from "../src/app/api.js";
 
 type RunningServer = {
     url: string;

@@ -1,4 +1,4 @@
-import { constructProcessDispatcherService } from "../process-runs/bootstrap.js";
+import { constructProcessDispatcherService } from "../app/process-dispatcher.js";
 
 const { application, port } = constructProcessDispatcherService(process.env);
 const { url } = await application.listen({ host: "0.0.0.0", port });

@@ -1,4 +1,4 @@
-import { constructWebhookWorkerService } from "../webhooks/bootstrap.js";
+import { constructWebhookWorkerService } from "../app/webhook-worker.js";
 
 const { application, port } = constructWebhookWorkerService(process.env);
 const { url } = await application.listen({ host: "0.0.0.0", port });

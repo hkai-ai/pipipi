@@ -1,4 +1,4 @@
-import { constructAsyncOperationsCommand } from "../process-runs/ops/command.js";
+import { constructAsyncOperationsCommand } from "../app/async-operations.js";
 
 const command = constructAsyncOperationsCommand(process.env);
 try {

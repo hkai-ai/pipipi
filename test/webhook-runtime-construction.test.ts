@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { constructWebhookWorkerService } from "../src/webhooks/bootstrap.js";
+import { constructWebhookWorkerService } from "../src/app/webhook-worker.js";
 
 describe("Webhook Worker construction", () => {
     it("requires only role-owned PostgreSQL and Redis configuration", () => {

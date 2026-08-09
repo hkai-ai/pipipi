@@ -14,7 +14,7 @@ import {
     createProcessRegistry,
     defineProcessRegistration,
     failProcess,
-} from "../src/processes/runtime.js";
+} from "../src/processes/runtime/index.js";
 
 const runningApplications: Array<{ close: () => Promise<void> }> = [];
 

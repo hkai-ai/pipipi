@@ -14,7 +14,7 @@ import {
     type BusinessProcessExecutorOptions,
     createBusinessProcessExecutor,
 } from "../src/processes/catalog.js";
-import { ContentProcessingUnavailable } from "../src/processes/content-capability.js";
+import { ContentProcessingUnavailable } from "../src/processes/content/capability.js";
 
 type RunningService = {
     url: string;

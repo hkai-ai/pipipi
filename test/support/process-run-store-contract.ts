@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ProcessRunStore } from "../../src/process-runs/store/index.js";
-import type { AcceptedProcessInput } from "../../src/processes/runtime.js";
+import type { AcceptedProcessInput } from "../../src/processes/runtime/index.js";
 
 export function processRunStoreContract(
     adapterName: string,

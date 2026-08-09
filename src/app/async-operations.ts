@@ -1,18 +1,22 @@
 import { Pool } from "pg";
-import type { StartupEnvironment } from "../../api/bootstrap.js";
-import {
-    type BullMqWebhookWorkQueue,
-    createBullMqWebhookWorkQueue,
-} from "../../webhooks/bullmq-queue.js";
-import {
-    type BullMqProcessWorkQueue,
-    createBullMqProcessWorkQueue,
-} from "../queue/bullmq.js";
-import type { BullMqQueueSnapshot } from "../queue/observability.js";
 import {
     createPostgresAsyncOperations,
     type PostgresAsyncOperationsSnapshot,
-} from "./index.js";
+} from "../process-runs/ops/index.js";
+import {
+    type BullMqProcessWorkQueue,
+    createBullMqProcessWorkQueue,
+} from "../process-runs/queue/bullmq.js";
+import type { BullMqQueueSnapshot } from "../process-runs/queue/observability.js";
+import {
+    type BullMqWebhookWorkQueue,
+    createBullMqWebhookWorkQueue,
+} from "../webhooks/bullmq-queue.js";
+import {
+    parseConnectionUrl,
+    parsePositiveInteger,
+    type StartupEnvironment,
+} from "./config.js";
 
 export type AsyncOperationsCommandSnapshot = Readonly<{
     schemaVersion: 1;
@@ -33,20 +37,18 @@ export type AsyncOperationsCommand = Readonly<{
 export function constructAsyncOperationsCommand(
     environment: StartupEnvironment,
 ): AsyncOperationsCommand {
-    const databaseUrl = parseConnectionUrl(
-        environment.DATABASE_URL,
-        ["postgres:", "postgresql:"],
-        "DATABASE_URL is required for Async Operations",
-        "DATABASE_URL must be a valid PostgreSQL connection URL",
-        true,
-    );
-    const redisUrl = parseConnectionUrl(
-        environment.REDIS_URL,
-        ["redis:", "rediss:"],
-        "REDIS_URL is required for Async Operations",
-        "REDIS_URL must be a valid redis:// or rediss:// URL",
-        false,
-    );
+    const databaseUrl = parseConnectionUrl(environment.DATABASE_URL, {
+        protocols: ["postgres:", "postgresql:"],
+        missingMessage: "DATABASE_URL is required for Async Operations",
+        invalidMessage:
+            "DATABASE_URL must be a valid PostgreSQL connection URL",
+        requirePath: true,
+    });
+    const redisUrl = parseConnectionUrl(environment.REDIS_URL, {
+        protocols: ["redis:", "rediss:"],
+        missingMessage: "REDIS_URL is required for Async Operations",
+        invalidMessage: "REDIS_URL must be a valid redis:// or rediss:// URL",
+    });
     const connectTimeoutMs = parsePositiveInteger(
         environment.ASYNC_REDIS_CONNECTION_TIMEOUT_MS,
         5_000,
@@ -135,43 +137,6 @@ export function constructAsyncOperationsCommand(
             pool.off("error", reportPoolError);
         },
     });
-}
-
-function parseConnectionUrl(
-    value: string | undefined,
-    protocols: readonly string[],
-    missingMessage: string,
-    invalidMessage: string,
-    requireDatabasePath: boolean,
-): string {
-    const candidate = value?.trim();
-    if (!candidate) throw new Error(missingMessage);
-    try {
-        const url = new URL(candidate);
-        if (
-            !protocols.includes(url.protocol) ||
-            url.hostname.length === 0 ||
-            (requireDatabasePath && url.pathname.length <= 1)
-        ) {
-            throw new Error();
-        }
-    } catch {
-        throw new Error(invalidMessage);
-    }
-    return candidate;
-}
-
-function parsePositiveInteger(
-    value: string | undefined,
-    fallback: number,
-    name: string,
-): number {
-    if (value === undefined) return fallback;
-    const parsed = Number(value);
-    if (!Number.isSafeInteger(parsed) || parsed < 1) {
-        throw new Error(`${name} must be a positive integer`);
-    }
-    return parsed;
 }
 
 function reportPoolError(): void {

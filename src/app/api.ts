@@ -1,36 +1,25 @@
 import { Pool } from "pg";
+import {
+    createProcessingApplication,
+    type ProcessingApplication,
+} from "../api/application.js";
+import {
+    defaultHttpMaxRequestBodyBytes,
+    defaultMaxConcurrentExecutions,
+    type ProcessingHttpOptions,
+} from "../api/http.js";
+import { createGatewayCallerIdentityResolver } from "../api/identity.js";
 import { createAsyncProcessRuns } from "../process-runs/index.js";
 import {
     type AsyncReleaseStage,
     createPostgresAsyncReleaseReadiness,
 } from "../process-runs/ops/index.js";
 import { createPostgresProcessRunStore } from "../process-runs/store/postgres.js";
-import {
-    PiContentOptimizationAgentRuntime,
-    parseOpenAIApiMode,
-} from "../processes/agent.js";
-import {
-    type BusinessProcessRuntime,
-    createBusinessProcessRuntime,
-} from "../processes/catalog.js";
-import { HttpContentProcessingCapability } from "../processes/content.js";
-import { parseBusinessApiBaseUrl } from "../processes/content-config.js";
-import type {
-    ProcessRegistry,
-    ProcessRetryPolicy,
-} from "../processes/runtime.js";
-import {
-    createProcessingApplication,
-    type ProcessingApplication,
-} from "./application.js";
-import {
-    defaultHttpMaxRequestBodyBytes,
-    defaultMaxConcurrentExecutions,
-    type ProcessingHttpOptions,
-} from "./http.js";
-import { createGatewayCallerIdentityResolver } from "./identity.js";
+import type { ProcessRegistry } from "../processes/runtime/index.js";
+import { constructBusinessProcessRuntime } from "./business-processes.js";
+import type { StartupEnvironment } from "./config.js";
 
-export type StartupEnvironment = Readonly<Record<string, string | undefined>>;
+export type { StartupEnvironment } from "./config.js";
 
 export type ConstructedProcessingService = {
     application: ProcessingApplication;
@@ -63,53 +52,6 @@ export function constructProcessingService(
         }),
         port,
     };
-}
-
-export function constructBusinessProcessRuntime(
-    environment: StartupEnvironment,
-): BusinessProcessRuntime {
-    const contentProcessingMode = parseContentProcessingMode(
-        environment.CONTENT_PROCESSING_MODE,
-    );
-    const contentProcessing = new HttpContentProcessingCapability({
-        baseUrl: parseBusinessApiBaseUrl(environment.BUSINESS_API_BASE_URL),
-        timeoutMs: parsePositiveInteger(
-            environment.BUSINESS_API_TIMEOUT_MS,
-            10_000,
-            "BUSINESS_API_TIMEOUT_MS",
-        ),
-    });
-    const agentRuntime =
-        contentProcessingMode === "agent"
-            ? new PiContentOptimizationAgentRuntime({
-                  provider: environment.PI_PROVIDER,
-                  model: environment.PI_MODEL,
-                  openAIBaseUrl: environment.OPENAI_BASE_URL,
-                  openAIApiMode: parseOpenAIApiMode(
-                      environment.OPENAI_API_MODE,
-                  ),
-                  agentDir: environment.PI_AGENT_DIR,
-                  skillDirectory: environment.PI_SKILL_DIRECTORY,
-              })
-            : undefined;
-    return createBusinessProcessRuntime({
-        contentProcessing,
-        agentRuntime,
-        processTimeoutMs: parsePositiveInteger(
-            environment.PROCESS_TIMEOUT_MS,
-            30_000,
-            "PROCESS_TIMEOUT_MS",
-        ),
-        processes: {
-            contentProcessing: {
-                mode: contentProcessingMode,
-                retryPolicy: parseContentProcessingRetryPolicy(environment),
-            },
-            titledContentProcessing: {
-                separator: environment.TITLED_CONTENT_SEPARATOR,
-            },
-        },
-    });
 }
 
 function constructAsyncProcessRuns(
@@ -373,45 +315,4 @@ function loadHttpConfiguration(
             "MAX_CONCURRENT_EXECUTIONS",
         ),
     };
-}
-
-function parseContentProcessingMode(
-    value: string | undefined,
-): "direct" | "agent" {
-    if (value === undefined || value === "direct") return "direct";
-    if (value === "agent") return "agent";
-    throw new Error("CONTENT_PROCESSING_MODE must be direct or agent");
-}
-
-function parseContentProcessingRetryPolicy(
-    environment: StartupEnvironment,
-): ProcessRetryPolicy {
-    const maximumAttempts = parsePositiveInteger(
-        environment.CONTENT_PROCESSING_RETRY_MAX_ATTEMPTS,
-        1,
-        "CONTENT_PROCESSING_RETRY_MAX_ATTEMPTS",
-    );
-    if (maximumAttempts > 5) {
-        throw new Error(
-            "CONTENT_PROCESSING_RETRY_MAX_ATTEMPTS must not exceed 5",
-        );
-    }
-    return Object.freeze({
-        maximumAttempts,
-        retryableErrorCodes: Object.freeze(
-            maximumAttempts > 1 ? (["DEPENDENCY_FAILURE"] as const) : [],
-        ),
-        backoff: Object.freeze({
-            initialDelayMs: parsePositiveInteger(
-                environment.CONTENT_PROCESSING_RETRY_INITIAL_DELAY_MS,
-                1_000,
-                "CONTENT_PROCESSING_RETRY_INITIAL_DELAY_MS",
-            ),
-            maximumDelayMs: parsePositiveInteger(
-                environment.CONTENT_PROCESSING_RETRY_MAX_DELAY_MS,
-                30_000,
-                "CONTENT_PROCESSING_RETRY_MAX_DELAY_MS",
-            ),
-        }),
-    });
 }

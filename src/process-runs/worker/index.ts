@@ -5,7 +5,7 @@ import type {
     ProcessRegistration,
     ProcessRegistry,
     ProcessRunResult,
-} from "../../processes/runtime.js";
+} from "../../processes/runtime/index.js";
 import {
     type AsyncOperationalLogSink,
     emitAsyncOperationalLog,

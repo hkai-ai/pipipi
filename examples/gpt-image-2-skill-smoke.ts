@@ -14,7 +14,7 @@ import {
     configureOpenAIProvider,
     type OpenAIApiMode,
     parseOpenAIApiMode,
-} from "../src/processes/agent.js";
+} from "../src/processes/content/agent.js";
 import type { StoredObject } from "./support/object-storage.js";
 import { createObjectStorageFromEnvironment } from "./support/object-storage-config.js";
 import {

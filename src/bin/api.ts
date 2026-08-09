@@ -1,4 +1,4 @@
-import { constructProcessingService } from "../api/bootstrap.js";
+import { constructProcessingService } from "../app/api.js";
 
 const { application, port } = constructProcessingService(process.env);
 const { url } = await application.listen({ host: "0.0.0.0", port });

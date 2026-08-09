@@ -1,6 +1,6 @@
 import type { Pool } from "pg";
 import { describe, expect, it, vi } from "vitest";
-import { constructAsyncOperationsCommand } from "../src/process-runs/ops/command.js";
+import { constructAsyncOperationsCommand } from "../src/app/async-operations.js";
 import {
     createPostgresAsyncOperations,
     createPostgresAsyncReleaseReadiness,

@@ -136,7 +136,7 @@ Process Definition 抛出的异常属于意外失败。Process Attempt Runner �
 
 ## Composition 与依赖
 
-[`constructProcessingService`](../src/api/bootstrap.ts) 拥有完整的生产 Composition Root。
+[`constructProcessingService`](../src/app/api.ts) 拥有 API 的生产 Composition Root。
 它先校验通用配置，再选择 `direct` 或 `agent` 路径。Direct 路径忽略 Agent 专用配置；Agent
 路径校验成组的 provider/model 和 OpenAI API mode，再构造 Pi Agent Runtime。任何配置错误
 都会在 Application 监听端口前抛出。
@@ -144,12 +144,13 @@ Process Definition 抛出的异常属于意外失败。Process Attempt Runner �
 Async Process Runs 默认关闭。显式启用时，Construction Root 复用同一个 production Registry，
 组装 PostgreSQL Store、`submit/find` Module、可信 caller identity Resolver 和 readiness，并由
 Application 在关闭 HTTP server 后释放 Pool。数据库 migration 由部署步骤完成，启动过程不会
-隐式修改 schema。独立的 Async Role Construction 分别组装 Dispatcher 与 Worker：Dispatcher
+隐式修改 schema。`src/app/` 中的独立 Async Role Construction 分别组装 Dispatcher 与 Worker：Dispatcher
 只连接 PostgreSQL/Redis，Worker 复用同一 production Registry 并连接执行所需 Business
 Capability。独立 Webhook Construction 只组装 Delivery Store、Webhook Outbox、专用 Queue 和
 HTTP Sender，不加载 Business Process。四个角色的 liveness 不访问下游，readiness 只检查本角色依赖；生产观测和发布门禁
 完成前，异步 feature flag 只用于受控内部环境。
 
+依赖方向是 `bin → app → api/processes/process-runs/webhooks`；业务 Module 不反向引用启动层。
 `src/bin/` 中的入口只把 `process.env` 传给各自 Construction Seam，然后监听端口、写启动日志并处理
 `SIGINT` 和 `SIGTERM`。入口不翻译配置，也不直接组装 Adapter、Executor 或 Application。
 

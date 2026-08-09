@@ -209,10 +209,11 @@ Webhook 重试状态以 PostgreSQL 为准，不依赖 BullMQ 的 Job attempts。
 | 目录 | Module 职责 |
 | --- | --- |
 | `src/bin/` | API、Dispatcher、Worker、Cleaner、Operations 和 Recovery 的可执行入口；不放业务规则 |
-| `src/api/` | HTTP 生命周期、路由、caller identity、后台角色健康检查和 API production bootstrap |
-| `src/processes/` | Process Registration、Registry、Runner、production catalog、Run Record 与获准 Business Capability |
+| `src/app/` | 各可执行角色的 Composition Root、启动配置和后台角色生命周期 |
+| `src/api/` | HTTP Application、路由和 caller identity；不组装业务与基础设施 |
+| `src/processes/` | Process Runtime、production catalog，以及按 `content/`、`titled-content/` 分组的具体 Business Process |
 | `src/process-runs/` | Async Process Runs，以及按 `store/`、`queue/`、`outbox/`、`worker/`、`recovery/`、`retention/` 和 `ops/` 分组的内部 Module |
-| `src/webhooks/` | Webhook Delivery、Store、Queue、签名、目标策略和独立 Worker bootstrap |
+| `src/webhooks/` | Webhook Delivery、Store、Queue、签名、目标策略和 Worker Runtime |
 | `examples/support/` | 只供实验使用的图片生成和对象存储实现；不进入生产 `dist/` |
 | `migrations/` | 受版本和 advisory lock 管理的 PostgreSQL schema 变化 |
 | `test/` | 跨公开 Seam 的确定性行为验证 |
@@ -222,14 +223,21 @@ Webhook 重试状态以 PostgreSQL 为准，不依赖 BullMQ 的 Job attempts。
 
 | 路径 | 职责 |
 | --- | --- |
-| `src/api/bootstrap.ts` | API 配置翻译、校验、Adapter 选择和完整生产组装 |
-| `src/processes/runtime.ts` | Registration、Registry、同步 Runner、Attempt Runner、公共结果和错误治理 |
+| `src/app/api.ts` | API 配置翻译、校验、Adapter 选择和完整生产组装 |
+| `src/app/business-processes.ts` | production Business Process Runtime 与 catalog 依赖组装 |
+| `src/app/process-dispatcher.ts`、`process-worker.ts`、`retention-cleaner.ts` | 各后台角色独立的配置和 Adapter 组装 |
+| `src/app/process-recovery.ts`、`async-operations.ts` | 一次性运维命令的资源组装 |
+| `src/app/webhook-worker.ts` | Webhook Worker 的 Delivery、Outbox、Queue 和 HTTP Sender 组装 |
+| `src/processes/runtime/` | Registration、Registry、同步 Runner、Attempt Runner、Run Record、公共结果和错误治理 |
 | `src/processes/catalog.ts` | 显式 production catalog 和 Process Runtime 组装 |
 | `src/process-runs/index.ts` | 异步提交、owner 隔离、caller-scoped idempotency 和公共状态投影 |
 | `src/process-runs/store/index.ts`、`src/process-runs/store/postgres.ts` | 权威状态转换，以及内存和 PostgreSQL Adapter |
 | `src/process-runs/queue/index.ts`、`src/process-runs/queue/bullmq.ts` | 最小 Job Interface，以及内存和 BullMQ Adapter |
 | `src/process-runs/recovery/index.ts` | 周期 reconciliation 与人工 Queue Recovery |
 | `src/webhooks/delivery.ts`、`src/webhooks/postgres-store.ts` | Webhook 投递行为和 PostgreSQL Adapter |
+
+依赖方向固定为 `bin → app → api/processes/process-runs/webhooks`。领域与业务 Module 不反向引用
+`app/` 或 `bin/`；Composition Root 负责把它们连接起来。
 
 顶层目录使用明确的领域名，子目录对应实际 Module。父目录已经提供的上下文不在文件名中重复，例如使用 `src/process-runs/store/postgres.ts`，不用 `src/process-runs/store/postgres-process-run-store.ts`；Adapter 文件只保留 `postgres.ts`、`bullmq.ts`、`http.ts` 等技术名称。不要新增 `common/`、`shared/`、`utils/` 或横向的 `controllers/services/repositories` 目录。无法明确归属的代码应先重新检查 Module 和 Seam。
 
@@ -268,7 +276,7 @@ JSON-safe snapshot。业务 input payload 默认上限为 262144 UTF-8 bytes，�
 5. 通过 Registration Seam 测试接受、JSON 往返、单次解析、策略和输出；通过 Process Attempt Runner 测试预分配 `runId`、超时与错误净化；通过真实本地 `/execute` 测试产品行为和 HTTP 映射。
 6. 更新 README 的当前能力、`CONTEXT.md` 的产品契约，以及受影响的设计或发布文档。
 
-[`src/processes/titled-content.ts`](../src/processes/titled-content.ts) 是最小示例。新版本必须新建 Registration 并显式加入 catalog；不要加入 `latest`、默认版本、自动发现或回退。
+[`src/processes/titled-content/registration.ts`](../src/processes/titled-content/registration.ts) 是最小示例。新版本必须新建 Registration 并显式加入 catalog；不要加入 `latest`、默认版本、自动发现或回退。
 
 流程需要外部 Skill 时，先按 [`integrating-runtime-skills.md`](integrating-runtime-skills.md) 在开发期解析、审查和固定来源。Process Registration 只绑定随应用发布的本地 Runtime Skill，不接收路径或 URL。
 
@@ -291,7 +299,7 @@ JSON-safe snapshot。业务 input payload 默认上限为 262144 UTF-8 bytes，�
 ```ts
 import { createProcessingApplication } from "./src/api/application.js";
 import { createBusinessProcessExecutor } from "./src/processes/catalog.js";
-import { createInMemoryProcessRunRecords } from "./src/processes/records.js";
+import { createInMemoryProcessRunRecords } from "./src/processes/runtime/records.js";
 
 const runRecords = createInMemoryProcessRunRecords({ maxRecords: 100 });
 const executor = createBusinessProcessExecutor({

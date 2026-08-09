@@ -1,10 +1,15 @@
-import type { BackgroundRuntime } from "../api/role.js";
 import type { OutboxDispatcher } from "./outbox/dispatcher.js";
 import type { ProcessRunReconciler } from "./recovery/index.js";
 
 export type ProcessDispatcherOperation =
     | "outbox_dispatch"
     | "run_reconciliation";
+
+export type ProcessDispatcherRuntime = Readonly<{
+    start: () => Promise<void>;
+    ready: () => Promise<void>;
+    close: () => Promise<void>;
+}>;
 
 export function createProcessDispatcherRuntime(options: {
     dispatcher: OutboxDispatcher;
@@ -15,7 +20,7 @@ export function createProcessDispatcherRuntime(options: {
     dispatchIntervalMs?: number;
     reconciliationIntervalMs?: number;
     onError?: (operation: ProcessDispatcherOperation) => void;
-}): BackgroundRuntime {
+}): ProcessDispatcherRuntime {
     const onError = options.onError ?? reportDispatcherError;
     const dispatchLoop = createPeriodicLoop(
         () => options.dispatcher.dispatchOnce(),
