@@ -246,7 +246,7 @@ type AsyncProcessRuns = Readonly<{
 
 目标是增加不影响 Process Run 终态的完成通知。
 
-实现进度：Issue #18 已完成 additive migration、终态 Event/Delivery/Outbox 原子写入、独立 `webhook-deliveries` Queue 与 Webhook Worker、Standard Webhooks HMAC 签名、精简 payload 和持久化首轮投递结果。Issue #19 已增加 PostgreSQL 权威的有界重试、每次 Attempt 审计、owner-scoped 追踪、稳定 event ID、Endpoint 级 `410` 停用和受审计人工重放。真实 PostgreSQL/Redis/HTTP 测试覆盖成功、永久失败、`503` 后恢复和独立 Queue。Issue #20 继续完成 Secret 保护与 SSRF 边界。
+实现进度：Issue #18 已完成 additive migration、终态 Event/Delivery/Outbox 原子写入、独立 `webhook-deliveries` Queue 与 Webhook Worker、Standard Webhooks HMAC 签名、精简 payload 和持久化首轮投递结果。Issue #19 已增加 PostgreSQL 权威的有界重试、每次 Attempt 审计、owner-scoped 追踪、稳定 event ID、Endpoint 级 `410` 停用和受审计人工重放。Issue #20 已增加 AES-256-GCM Secret 信封、明确轮换窗口、Endpoint 操作审计、HTTPS 与公网地址策略、投递前重新解析、IP 固定连接和零重定向。真实 PostgreSQL/Redis/HTTP 测试覆盖成功、永久失败、`503` 后恢复、跨 caller 隔离、DNS rebinding 和独立 Queue。
 
 ### 实现任务
 

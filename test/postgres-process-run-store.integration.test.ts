@@ -8,6 +8,12 @@ import {
 } from "../src/caller-identity.js";
 import { createPostgresProcessRunStore } from "../src/postgres-process-run-store.js";
 import { createPostgresWebhookDeliveryStore } from "../src/postgres-webhook-delivery-store.js";
+import { createWebhookSecretCipher } from "../src/webhook-secret-cipher.js";
+import { createWebhookTargetPolicy } from "../src/webhook-target-policy.js";
+import {
+  createStandardWebhookHttpSender,
+  createWebhookDeliveryWorker,
+} from "../src/webhook-delivery.js";
 import type { ProcessRunStore } from "../src/process-run-store.js";
 import { constructProcessingService } from "../src/startup-construction.js";
 import { processRunStoreContract } from "./support/process-run-store-contract.js";
@@ -214,10 +220,11 @@ postgresDescribe("PostgreSQL Process Run Store", () => {
   });
 
   it("atomically creates thin terminal Webhook Deliveries and persists a 2xx result", async () => {
-    const webhooks = createPostgresWebhookDeliveryStore({ pool: primaryPool });
+    const webhooks = postgresWebhookStore(primaryPool);
     await webhooks.provisionEndpoint({
       endpointId: "20000000-0000-4000-8000-000000000001",
       ownerId: "caller-webhook",
+      actorId: "operator:test",
       url: "https://hooks.example/process-runs",
       secret: `whsec_${Buffer.alloc(32, 5).toString("base64")}`,
       createdAt: "2026-08-09T10:00:00.000Z",
@@ -337,11 +344,12 @@ postgresDescribe("PostgreSQL Process Run Store", () => {
   });
 
   it("audits every Webhook Attempt and replays an exhausted Delivery without rewriting history", async () => {
-    const webhooks = createPostgresWebhookDeliveryStore({ pool: primaryPool });
+    const webhooks = postgresWebhookStore(primaryPool);
     const endpointId = "20000000-0000-4000-8000-000000000019";
     await webhooks.provisionEndpoint({
       endpointId,
       ownerId: "caller-webhook-retry",
+      actorId: "operator:test",
       url: "https://hooks.example/retry",
       secret: `whsec_${Buffer.alloc(32, 19).toString("base64")}`,
       createdAt: "2026-08-09T10:00:00.000Z",
@@ -521,7 +529,7 @@ postgresDescribe("PostgreSQL Process Run Store", () => {
   });
 
   it("disables only the Endpoint that returns HTTP 410", async () => {
-    const webhooks = createPostgresWebhookDeliveryStore({ pool: primaryPool });
+    const webhooks = postgresWebhookStore(primaryPool);
     const endpointIds = [
       "20000000-0000-4000-8000-000000000020",
       "20000000-0000-4000-8000-000000000021",
@@ -530,6 +538,7 @@ postgresDescribe("PostgreSQL Process Run Store", () => {
       await webhooks.provisionEndpoint({
         endpointId,
         ownerId: "caller-webhook-gone",
+        actorId: "operator:test",
         url: `https://hooks.example/gone-${index}`,
         secret: `whsec_${Buffer.alloc(32, 20 + index).toString("base64")}`,
         createdAt: "2026-08-09T10:00:00.000Z",
@@ -587,6 +596,314 @@ postgresDescribe("PostgreSQL Process Run Store", () => {
     expect(endpoints.rows).toEqual([
       { endpoint_id: endpointIds[0], status: "disabled" },
       { endpoint_id: endpointIds[1], status: "enabled" },
+    ]);
+  });
+
+  it("encrypts, rotates, scopes, and audits Webhook Endpoint operations", async () => {
+    const webhooks = postgresWebhookStore(primaryPool);
+    const endpointId = "20000000-0000-4000-8000-000000000030";
+    const oldSecret = `whsec_${Buffer.alloc(32, 30).toString("base64")}`;
+    const newSecret = `whsec_${Buffer.alloc(32, 31).toString("base64")}`;
+    await webhooks.provisionEndpoint({
+      endpointId,
+      ownerId: "caller-endpoint-security",
+      actorId: "operator:creator",
+      url: "https://hooks.example/original",
+      secret: oldSecret,
+      createdAt: "2026-08-09T10:00:00.000Z",
+    });
+
+    const raw = await primaryPool.query<{
+      current_secret_envelope: string;
+      previous_secret_envelope: string | null;
+    }>(
+      `
+        SELECT current_secret_envelope, previous_secret_envelope
+        FROM webhook_endpoints
+        WHERE endpoint_id = $1
+      `,
+      [endpointId],
+    );
+    expect(raw.rows[0]?.current_secret_envelope).toMatch(/^enc\.v1\./);
+    expect(JSON.stringify(raw.rows)).not.toContain(oldSecret);
+    expect(raw.rows[0]?.previous_secret_envelope).toBeNull();
+    const endpointViews = await webhooks.findEndpoints({
+      ownerId: "caller-endpoint-security",
+    });
+    expect(endpointViews).toEqual([
+      expect.objectContaining({
+        endpointId,
+        url: "https://hooks.example/original",
+        status: "enabled",
+      }),
+    ]);
+    expect(JSON.stringify(endpointViews)).not.toContain("secret");
+    await expect(
+      webhooks.findEndpoints({ ownerId: "other-caller" }),
+    ).resolves.toEqual([]);
+    await expect(
+      webhooks.updateEndpointUrl({
+        endpointId,
+        ownerId: "other-caller",
+        actorId: "operator:intruder",
+        url: "https://hooks.example/intruder",
+        updatedAt: "2026-08-09T10:00:01.000Z",
+      }),
+    ).resolves.toBeUndefined();
+    await expect(
+      webhooks.rotateEndpointSecret({
+        endpointId,
+        ownerId: "other-caller",
+        actorId: "operator:intruder",
+        secret: newSecret,
+        rotatedAt: "2026-08-09T10:00:01.000Z",
+        overlapMs: 60_000,
+      }),
+    ).resolves.toBeUndefined();
+
+    await expect(
+      webhooks.updateEndpointUrl({
+        endpointId,
+        ownerId: "caller-endpoint-security",
+        actorId: "operator:editor",
+        url: "https://hooks.example/updated",
+        updatedAt: "2026-08-09T10:00:01.000Z",
+      }),
+    ).resolves.toMatchObject({ url: "https://hooks.example/updated" });
+    await expect(
+      webhooks.rotateEndpointSecret({
+        endpointId,
+        ownerId: "caller-endpoint-security",
+        actorId: "operator:rotator",
+        secret: newSecret,
+        rotatedAt: "2026-08-09T10:00:02.000Z",
+        overlapMs: 60_000,
+      }),
+    ).resolves.toMatchObject({ endpointId, status: "enabled" });
+
+    const run = acceptedRun(55, {
+      ownerId: "caller-endpoint-security",
+      idempotencyKey: "secret-overlap",
+    });
+    await primaryStore.accept(run);
+    const runClaim = await primaryStore.claim({
+      runId: run.runId,
+      claimToken: claimToken(55),
+      claimedAt: "2026-08-09T10:00:03.000Z",
+    });
+    if (!runClaim) throw new Error("Expected Process Run claim");
+    await primaryStore.complete({
+      runId: run.runId,
+      claimToken: runClaim.claimToken,
+      completedAt: "2026-08-09T10:00:04.000Z",
+      completion: { status: "succeeded", output: { value: "done" } },
+    });
+    const [delivery] = await webhooks.findByRun({
+      ownerId: run.ownerId,
+      runIds: [run.runId],
+    });
+    if (!delivery) throw new Error("Expected Webhook Delivery");
+    await expect(
+      webhooks.claim({
+        deliveryId: delivery.deliveryId,
+        claimToken: "30000000-0000-4000-8000-000000000030",
+        claimedAt: "2026-08-09T10:00:05.000Z",
+      }),
+    ).resolves.toMatchObject({ secrets: [newSecret, oldSecret] });
+
+    const afterOverlap = acceptedRun(57, {
+      ownerId: "caller-endpoint-security",
+      idempotencyKey: "secret-after-overlap",
+    });
+    await primaryStore.accept(afterOverlap);
+    const afterOverlapRunClaim = await primaryStore.claim({
+      runId: afterOverlap.runId,
+      claimToken: claimToken(57),
+      claimedAt: "2026-08-09T10:01:03.000Z",
+    });
+    if (!afterOverlapRunClaim) throw new Error("Expected Process Run claim");
+    await primaryStore.complete({
+      runId: afterOverlap.runId,
+      claimToken: afterOverlapRunClaim.claimToken,
+      completedAt: "2026-08-09T10:01:04.000Z",
+      completion: { status: "succeeded", output: { value: "done" } },
+    });
+    const [afterOverlapDelivery] = await webhooks.findByRun({
+      ownerId: afterOverlap.ownerId,
+      runIds: [afterOverlap.runId],
+    });
+    if (!afterOverlapDelivery) throw new Error("Expected Webhook Delivery");
+    await expect(
+      webhooks.claim({
+        deliveryId: afterOverlapDelivery.deliveryId,
+        claimToken: "30000000-0000-4000-8000-000000000031",
+        claimedAt: "2026-08-09T10:01:05.000Z",
+      }),
+    ).resolves.toMatchObject({ secrets: [newSecret] });
+
+    await expect(
+      webhooks.disableEndpoint({
+        endpointId,
+        ownerId: "caller-endpoint-security",
+        actorId: "operator:disabler",
+        disabledAt: "2026-08-09T10:00:06.000Z",
+      }),
+    ).resolves.toMatchObject({
+      endpointId,
+      status: "disabled",
+      disabledAt: "2026-08-09T10:00:06.000Z",
+    });
+    await expect(
+      webhooks.disableEndpoint({
+        endpointId,
+        ownerId: "other-caller",
+        actorId: "operator:intruder",
+        disabledAt: "2026-08-09T10:00:07.000Z",
+      }),
+    ).resolves.toBeUndefined();
+
+    const audit = await webhooks.findEndpointAudit({
+      ownerId: "caller-endpoint-security",
+      endpointId,
+    });
+    expect(audit.map((event) => [event.action, event.actorId])).toEqual([
+      ["provisioned", "operator:creator"],
+      ["url_updated", "operator:editor"],
+      ["secret_rotated", "operator:rotator"],
+      ["disabled", "operator:disabler"],
+    ]);
+    await expect(
+      webhooks.findEndpointAudit({ ownerId: "other-caller", endpointId }),
+    ).resolves.toEqual([]);
+  });
+
+  it("audits forbidden registration and DNS rebinding before any outbound request", async () => {
+    const secretCipher = createWebhookSecretCipher({ key: Buffer.alloc(32, 32) });
+    const rejectedEndpointId = "20000000-0000-4000-8000-000000000031";
+    const forbiddenStore = createPostgresWebhookDeliveryStore({
+      pool: primaryPool,
+      secretCipher,
+      targetPolicy: createWebhookTargetPolicy({
+        resolveHostname: async () => [
+          { address: "169.254.169.254", family: 4 },
+        ],
+      }),
+    });
+    await expect(
+      forbiddenStore.provisionEndpoint({
+        endpointId: rejectedEndpointId,
+        ownerId: "caller-security-rejection",
+        actorId: "operator:security",
+        url: "https://metadata-alias.example/hook",
+        secret: `whsec_${Buffer.alloc(32, 32).toString("base64")}`,
+        createdAt: "2026-08-09T10:00:00.000Z",
+      }),
+    ).rejects.toMatchObject({ code: "WEBHOOK_TARGET_FORBIDDEN_ADDRESS" });
+    await expect(
+      forbiddenStore.findEndpointAudit({
+        ownerId: "caller-security-rejection",
+        endpointId: rejectedEndpointId,
+      }),
+    ).resolves.toEqual([
+      expect.objectContaining({
+        action: "registration_rejected",
+        reasonCode: "WEBHOOK_TARGET_FORBIDDEN_ADDRESS",
+      }),
+    ]);
+    await expect(
+      forbiddenStore.findEndpoints({ ownerId: "caller-security-rejection" }),
+    ).resolves.toEqual([]);
+
+    let resolution = 0;
+    const rebindingPolicy = createWebhookTargetPolicy({
+      resolveHostname: async () => {
+        resolution += 1;
+        return resolution === 1
+          ? [{ address: "93.184.216.34", family: 4 as const }]
+          : [{ address: "127.0.0.1", family: 4 as const }];
+      },
+    });
+    const webhooks = createPostgresWebhookDeliveryStore({
+      pool: primaryPool,
+      secretCipher,
+      targetPolicy: rebindingPolicy,
+    });
+    const endpointId = "20000000-0000-4000-8000-000000000032";
+    await webhooks.provisionEndpoint({
+      endpointId,
+      ownerId: "caller-dns-rebinding",
+      actorId: "operator:security",
+      url: "https://rebinding.example/hook",
+      secret: `whsec_${Buffer.alloc(32, 33).toString("base64")}`,
+      createdAt: "2026-08-09T10:00:00.000Z",
+    });
+    const run = acceptedRun(56, {
+      ownerId: "caller-dns-rebinding",
+      idempotencyKey: "dns-rebinding",
+    });
+    await primaryStore.accept(run);
+    const runClaim = await primaryStore.claim({
+      runId: run.runId,
+      claimToken: claimToken(56),
+      claimedAt: "2026-08-09T10:00:01.000Z",
+    });
+    if (!runClaim) throw new Error("Expected Process Run claim");
+    await primaryStore.complete({
+      runId: run.runId,
+      claimToken: runClaim.claimToken,
+      completedAt: "2026-08-09T10:00:02.000Z",
+      completion: { status: "succeeded", output: { value: "done" } },
+    });
+    const [delivery] = await webhooks.findByRun({
+      ownerId: run.ownerId,
+      runIds: [run.runId],
+    });
+    if (!delivery) throw new Error("Expected Webhook Delivery");
+    const worker = createWebhookDeliveryWorker({
+      store: webhooks,
+      sender: createStandardWebhookHttpSender({ targetPolicy: rebindingPolicy }),
+      clock: sequenceClock([
+        "2026-08-09T10:00:03.000Z",
+        "2026-08-09T10:00:04.000Z",
+      ]),
+      createClaimToken: () => "30000000-0000-4000-8000-000000000032",
+    });
+    await expect(
+      worker.process({ schemaVersion: 1, deliveryId: delivery.deliveryId }),
+    ).resolves.toBe("processed");
+    expect(resolution).toBe(2);
+    await expect(
+      webhooks.findByRun({ ownerId: run.ownerId, runIds: [run.runId] }),
+    ).resolves.toEqual([
+      expect.objectContaining({
+        status: "failed",
+        lastErrorCode: "WEBHOOK_TARGET_FORBIDDEN_ADDRESS",
+      }),
+    ]);
+    await expect(
+      webhooks.findAttempts({
+        ownerId: run.ownerId,
+        deliveryId: delivery.deliveryId,
+      }),
+    ).resolves.toEqual([
+      expect.objectContaining({
+        outcome: "failed",
+        errorCode: "WEBHOOK_TARGET_FORBIDDEN_ADDRESS",
+      }),
+    ]);
+    await expect(
+      webhooks.findEndpoints({ ownerId: run.ownerId }),
+    ).resolves.toEqual([
+      expect.objectContaining({ endpointId, status: "disabled" }),
+    ]);
+    await expect(
+      webhooks.findEndpointAudit({ ownerId: run.ownerId, endpointId }),
+    ).resolves.toEqual([
+      expect.objectContaining({ action: "provisioned" }),
+      expect.objectContaining({
+        action: "delivery_target_rejected",
+        reasonCode: "WEBHOOK_TARGET_FORBIDDEN_ADDRESS",
+      }),
     ]);
   });
 
@@ -681,6 +998,18 @@ function postgresStore(pool: Pool): ProcessRunStore {
   return createPostgresProcessRunStore({ pool, retention: RETENTION });
 }
 
+function postgresWebhookStore(pool: Pool) {
+  return createPostgresWebhookDeliveryStore({
+    pool,
+    secretCipher: createWebhookSecretCipher({ key: Buffer.alloc(32, 11) }),
+    targetPolicy: createWebhookTargetPolicy({
+      resolveHostname: async () => [
+        { address: "93.184.216.34", family: 4 },
+      ],
+    }),
+  });
+}
+
 async function migrate(url: string) {
   return runner({
     databaseUrl: url,
@@ -733,6 +1062,15 @@ function runId(index: number): string {
 
 function claimToken(index: number): string {
   return `10000000-0000-4000-8000-${index.toString().padStart(12, "0")}`;
+}
+
+function sequenceClock(values: readonly string[]): () => string {
+  const remaining = [...values];
+  return () => {
+    const value = remaining.shift();
+    if (!value) throw new Error("Clock exhausted");
+    return value;
+  };
 }
 
 const RETENTION = {

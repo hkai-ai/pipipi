@@ -48,6 +48,8 @@ import type { ProcessWorkJob } from "../src/process-work-queue.js";
 import { constructProcessingService } from "../src/startup-construction.js";
 import { signStandardWebhook } from "../src/webhook-delivery.js";
 import { constructWebhookWorkerService } from "../src/webhook-runtime-construction.js";
+import { createWebhookSecretCipher } from "../src/webhook-secret-cipher.js";
+import { createWebhookTargetPolicy } from "../src/webhook-target-policy.js";
 import { z } from "zod";
 
 const databaseUrl = process.env.POSTGRES_TEST_DATABASE_URL;
@@ -304,14 +306,21 @@ integrationDescribe("BullMQ Process Runtime", () => {
     const secret = `whsec_${Buffer.alloc(32, 9).toString("base64")}`;
     const registry = testRegistry();
     const processStore = createPostgresProcessRunStore({ pool, retention: RETENTION });
-    const deliveryStore = createPostgresWebhookDeliveryStore({ pool });
+    const deliveryStore = createPostgresWebhookDeliveryStore({
+      pool,
+      secretCipher: createWebhookSecretCipher({ key: Buffer.alloc(32, 12) }),
+      targetPolicy: createWebhookTargetPolicy({
+        allowInsecureHttp: true,
+        allowUnsafeAddresses: true,
+      }),
+    });
     await deliveryStore.provisionEndpoint({
       endpointId: "20000000-0000-4000-8000-000000000010",
       ownerId: "caller-webhook",
+      actorId: "operator:test",
       url: receiverUrl,
       secret,
       createdAt: "2026-08-09T10:00:00.000Z",
-      allowInsecureHttp: true,
     });
     const runs = createAsyncProcessRuns({ registry, store: processStore });
     const processQueue = createBullMqProcessWorkQueue({
@@ -332,7 +341,10 @@ integrationDescribe("BullMQ Process Runtime", () => {
     const webhookService = constructWebhookWorkerService({
       DATABASE_URL: databaseUrl,
       REDIS_URL: redisUrl,
+      NODE_ENV: "test",
       WEBHOOK_ALLOW_INSECURE_HTTP: "true",
+      WEBHOOK_TEST_ALLOW_UNSAFE_TARGETS: "true",
+      WEBHOOK_SECRET_ENCRYPTION_KEY: Buffer.alloc(32, 12).toString("base64"),
       WEBHOOK_REQUEST_TIMEOUT_MS: "1000",
       WEBHOOK_DELIVERY_CLAIM_LEASE_MS: "2000",
       WEBHOOK_OUTBOX_DISPATCH_INTERVAL_MS: "20",

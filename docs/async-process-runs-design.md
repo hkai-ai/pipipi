@@ -326,6 +326,8 @@ BullMQ 和网络只能提供至少一次执行。流程若会扣费、发布、�
 - 数据库和 Redis 使用不同的最小权限凭证。Secret 只由部署平台注入，不能出现在 Queue Job、日志或错误响应中。
 - Webhook secret 加密保存，只在 Delivery Worker 内解密；日志只记录 endpoint ID、delivery ID、HTTP status 和错误分类。
 - Webhook 签名只证明来源与正文完整性，不加密 payload；Endpoint 必须使用 HTTPS，payload 仍只发送最少元数据。
+- Endpoint 注册和 URL 修改先解析全部地址并拒绝 loopback、link-local、私网、metadata、保留和其他非公网地址。Delivery 每次发送前重新解析，并通过自定义 lookup 把本次连接固定到已验证地址；HTTP client 不跟随重定向，因此 DNS rebinding 和跳转不能绕过检查。
+- Endpoint 的创建、URL 修改、停用、Secret 轮换和目标拒绝都写 owner-scoped 审计事件。Secret 查询永不返回明文或加密信封；轮换窗口内只在 Worker 内解密 current/previous 两把签名 Secret。
 - API、Worker、Dispatcher 和 Webhook Delivery 都需要结构化日志、metrics 和 trace correlation。共同关联键是 `runId`、event ID 和 delivery ID。
 - backlog、最长 queued age、Attempt 成功率、stalled count、outbox age、Webhook retry age 和 dead-letter count 必须有告警。
 

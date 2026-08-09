@@ -85,6 +85,8 @@ npm run test:integration:postgres
 docker compose -f compose.integration.yaml down
 ```
 
+这两个 integration script 都会重建同一个 `_test` schema，Async suite 还会 `FLUSHDB`。使用同一组 URL 时必须串行运行；需要并行时为每个 suite 分配独立 PostgreSQL database 和非零 Redis database。
+
 手动验证 migration 时显式把测试 URL 传给 `DATABASE_URL`：
 
 ```bash
@@ -136,7 +138,8 @@ docker compose -f compose.integration.yaml down
 | `WEBHOOK_QUEUE_*` | 不读取 | 不读取 | 不读取 | 可选覆盖 |
 | `OUTBOX_*`、`PROCESS_RUN_RECONCILE_*` | 不读取 | 可选覆盖 | 不读取 | 不读取 |
 | `PROCESS_WORKER_*` | 不读取 | 不读取 | 可选覆盖 | 不读取 |
-| `WEBHOOK_*` | 不读取 | 不读取 | 不读取 | 可选覆盖 |
+| `WEBHOOK_SECRET_ENCRYPTION_KEY` | 不读取 | 不读取 | 不读取 | 必需，32-byte base64 key |
+| 其他 `WEBHOOK_*` | 不读取 | 不读取 | 不读取 | 可选覆盖 |
 | `PORT`、`RUNTIME_ROLE_READINESS_TIMEOUT_MS` | `PORT` | 两者 | 两者 | 两者 |
 
 部署前先执行 migration。`PROCESS_RUN_CLAIM_LEASE_MS` 必须大于 `PROCESS_TIMEOUT_MS`，避免正常 Attempt 在超时治理结束前被接管。每个环境使用独立 `PROCESS_QUEUE_PREFIX`；调用方不能提交 queue name、concurrency、retry 或 Redis 配置。
@@ -145,7 +148,11 @@ docker compose -f compose.integration.yaml down
 
 四个角色都提供 `GET /healthz` 和 `GET /readyz`。liveness 只确认进程工作，不访问下游；readiness 检查该角色实际使用的 migration、PostgreSQL 和 Redis，并在有界时间内返回 `503`，不暴露连接地址或内部错误。默认同步 API 保持原样，启用异步路由也不会删除 `POST /execute`。
 
-Webhook Endpoint 由运维侧预注册并绑定 caller；Process 提交不能携带 callback URL。Webhook Worker 只发送包含 `eventId`、`runId`、准确 Process/version、终态、完成时间和相对查询位置的 payload，不复制输入、输出或内部错误。`WEBHOOK_ALLOW_INSECURE_HTTP=true` 只供隔离的本地测试；正常环境仅允许 HTTPS。Issue #20 完成前，不要向真实接收方启用该角色。
+Webhook Endpoint 由运维侧预注册并绑定 caller；Process 提交不能携带 callback URL。Webhook Worker 只发送包含 `eventId`、`runId`、准确 Process/version、终态、完成时间和相对查询位置的 payload，不复制输入、输出或内部错误。Endpoint 注册、URL 修改、Secret 轮换、停用和审计目前是受信运维代码调用的内部 Store Interface，不是产品请求路由；调用方身份必须先由控制面认证，再作为 `ownerId` 与 `actorId` 传入。
+
+`WEBHOOK_SECRET_ENCRYPTION_KEY` 是每环境独立的 32-byte base64 key，只注入 Webhook Worker。签名 Secret 以绑定 Endpoint ID 的 AES-256-GCM 信封保存；查询不会返回明文或信封。`rotateEndpointSecret` 将旧 Secret 保留在最长 7 天的明确 overlap 窗口内，Worker 在窗口内生成两个签名，窗口外只解密 current Secret。migration `004_webhook_endpoint_security` 为避免把历史明文误标成密文，只允许在尚未配置 Endpoint 时迁移或回滚；已有测试 Endpoint 必须先清空并在迁移后重新配置。
+
+正常环境只接受 HTTPS。注册和每次投递都解析全部目标地址，拒绝 loopback、link-local、RFC1918、云 metadata、保留、转换和其他非公网范围；投递连接通过自定义 DNS lookup 固定到本次已验证 IP，Node HTTP client 不跟随重定向。DNS 解析失败按瞬时网络错误重试；解析到不安全地址则以稳定原因失败、停用该 Endpoint 并写审计。`WEBHOOK_ALLOW_INSECURE_HTTP=true` 与 `WEBHOOK_TEST_ALLOW_UNSAFE_TARGETS=true` 都只能在 `NODE_ENV=test` 的隔离测试进程使用。
 
 Webhook 重试状态以 PostgreSQL 为准，不依赖 BullMQ 的 Job attempts。网络错误、`429` 和 `5xx` 在 `WEBHOOK_DELIVERY_HORIZON_MS` 内按有界指数退避重试；`WEBHOOK_DELIVERY_MAX_RETRY_AFTER_MS` 限制远端 `Retry-After`，`WEBHOOK_DELIVERY_JITTER_PERCENT` 防止同步重试。默认最多 8 次 Attempt、初始等待 5 秒、单次最长等待 1 天、总投递期限 3 天。永久 `4xx` 直接失败，`410` 只停用返回该状态的 Endpoint。
 

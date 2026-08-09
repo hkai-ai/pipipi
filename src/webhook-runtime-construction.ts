@@ -16,6 +16,8 @@ import {
   createWebhookDeliveryWorker,
 } from "./webhook-delivery.js";
 import { createWebhookWorkerRuntime } from "./webhook-worker-runtime.js";
+import { createWebhookSecretCipher } from "./webhook-secret-cipher.js";
+import { createWebhookTargetPolicy } from "./webhook-target-policy.js";
 
 export type ConstructedWebhookWorkerService = Readonly<{
   application: RuntimeRoleApplication;
@@ -71,6 +73,33 @@ export function constructWebhookWorkerService(
     1_000,
     "WEBHOOK_OUTBOX_DISPATCH_INTERVAL_MS",
   );
+  const allowInsecureHttp = parseBoolean(
+    environment.WEBHOOK_ALLOW_INSECURE_HTTP,
+    false,
+    "WEBHOOK_ALLOW_INSECURE_HTTP",
+  );
+  const allowUnsafeTargets = parseBoolean(
+    environment.WEBHOOK_TEST_ALLOW_UNSAFE_TARGETS,
+    false,
+    "WEBHOOK_TEST_ALLOW_UNSAFE_TARGETS",
+  );
+  if (
+    (allowInsecureHttp || allowUnsafeTargets) &&
+    environment.NODE_ENV !== "test"
+  ) {
+    throw new Error("Unsafe Webhook targets are allowed only when NODE_ENV=test");
+  }
+  const encryptionKey = optionalNonEmpty(
+    environment.WEBHOOK_SECRET_ENCRYPTION_KEY,
+  );
+  if (!encryptionKey) {
+    throw new Error("WEBHOOK_SECRET_ENCRYPTION_KEY is required for the Webhook Worker role");
+  }
+  const targetPolicy = createWebhookTargetPolicy({
+    allowInsecureHttp,
+    allowUnsafeAddresses: allowUnsafeTargets,
+  });
+  const secretCipher = createWebhookSecretCipher({ key: encryptionKey });
   const pool = new Pool({
     connectionString: databaseUrl,
     max: parsePositiveInteger(
@@ -94,7 +123,12 @@ export function constructWebhookWorkerService(
       }),
     );
   });
-  const store = createPostgresWebhookDeliveryStore({ pool, claimLeaseMs });
+  const store = createPostgresWebhookDeliveryStore({
+    pool,
+    claimLeaseMs,
+    secretCipher,
+    targetPolicy,
+  });
   const queue = createBullMqWebhookWorkQueue({
     redisUrl,
     queueName,
@@ -135,11 +169,7 @@ export function constructWebhookWorkerService(
       store,
       sender: createStandardWebhookHttpSender({
         timeoutMs: requestTimeoutMs,
-        allowInsecureHttp: parseBoolean(
-          environment.WEBHOOK_ALLOW_INSECURE_HTTP,
-          false,
-          "WEBHOOK_ALLOW_INSECURE_HTTP",
-        ),
+        targetPolicy,
       }),
       retryPolicy: {
         maximumAttempts: parseBoundedPositiveInteger(

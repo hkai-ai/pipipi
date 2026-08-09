@@ -7,6 +7,11 @@ import {
   signStandardWebhook,
   type WebhookDeliveryStore,
 } from "../src/webhook-delivery.js";
+import {
+  createWebhookTargetPolicy,
+  WebhookTargetPolicyError,
+  type WebhookHttpClient,
+} from "../src/webhook-target-policy.js";
 
 const signingKey = Buffer.alloc(32, 7);
 const signingSecret = `whsec_${signingKey.toString("base64")}`;
@@ -61,9 +66,12 @@ describe("Webhook Delivery", () => {
     });
     const url = await listen(server);
     const sender = createStandardWebhookHttpSender({
-      allowInsecureHttp: true,
       timeoutMs: 1_000,
       clock: () => "2026-08-09T10:00:00.000Z",
+      targetPolicy: createWebhookTargetPolicy({
+        allowInsecureHttp: true,
+        allowUnsafeAddresses: true,
+      }),
     });
     const payload =
       '{"schemaVersion":1,"eventId":"event-1","type":"process_run.succeeded","createdAt":"2026-08-09T09:59:59.000Z","data":{"runId":"run-1","process":"content-processing","version":"v1","status":"succeeded","resultLocation":"/process-runs/run-1"}}';
@@ -95,11 +103,7 @@ describe("Webhook Delivery", () => {
   it("parses Retry-After without reading or persisting the remote response body", async () => {
     const sender = createStandardWebhookHttpSender({
       clock: () => "2026-08-09T10:00:00.000Z",
-      fetchImplementation: async () =>
-        new Response("remote details must remain unread", {
-          status: 429,
-          headers: { "retry-after": "10" },
-        }),
+      httpClient: fakeHttpClient({ status: 429, retryAfter: "10" }),
     });
 
     await expect(
@@ -115,6 +119,72 @@ describe("Webhook Delivery", () => {
       httpStatus: 429,
       retryAfterMs: 10_000,
     });
+  });
+
+  it("retries DNS failures but exposes a stable permanent target rejection", async () => {
+    for (const [code, expected] of [
+      ["WEBHOOK_TARGET_DNS_FAILED", { errorCode: "NETWORK_ERROR" }],
+      [
+        "WEBHOOK_TARGET_FORBIDDEN_ADDRESS",
+        {
+          errorCode: "TARGET_REJECTED",
+          targetRejectionCode: "WEBHOOK_TARGET_FORBIDDEN_ADDRESS",
+        },
+      ],
+    ] as const) {
+      const sender = createStandardWebhookHttpSender({
+        httpClient: {
+          post: async () => {
+            throw new WebhookTargetPolicyError(code);
+          },
+        },
+      });
+      await expect(
+        sender.send({
+          url: "https://hooks.example/process-runs",
+          eventId: "event-1",
+          payload: '{"eventId":"event-1"}',
+          secrets: [signingSecret],
+        }),
+      ).resolves.toMatchObject({ outcome: "failed", ...expected });
+    }
+  });
+
+  it("signs with current and previous Secrets during an explicit rotation window", async () => {
+    const previousSecret = `whsec_${Buffer.alloc(32, 8).toString("base64")}`;
+    const post = vi.fn<WebhookHttpClient["post"]>(async () => ({
+      status: 204,
+      retryAfter: null,
+    }));
+    const sender = createStandardWebhookHttpSender({
+      clock: () => "2026-08-09T10:00:00.000Z",
+      httpClient: { post },
+    });
+    const payload = '{"eventId":"event-rotation"}';
+
+    await sender.send({
+      url: "https://hooks.example/process-runs",
+      eventId: "event-rotation",
+      payload,
+      secrets: [signingSecret, previousSecret],
+    });
+    const timestamp = "1786269600";
+    expect(post).toHaveBeenCalledWith(
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          "webhook-signature": [signingSecret, previousSecret]
+            .map((secret) =>
+              signStandardWebhook({
+                messageId: "event-rotation",
+                timestamp,
+                payload,
+                secret,
+              }),
+            )
+            .join(" "),
+        }),
+      }),
+    );
   });
 
   it("claims, sends, and persists a successful Delivery without exposing transport to the Process", async () => {
@@ -288,6 +358,41 @@ describe("Webhook Delivery", () => {
       expect.objectContaining({ terminalStatus: "exhausted" }),
     );
   });
+
+  it("does not retry and disables an Endpoint rejected by the target policy", async () => {
+    const complete = vi.fn<WebhookDeliveryStore["complete"]>(async () => true);
+    const reschedule = vi.fn<WebhookDeliveryStore["reschedule"]>(async () => true);
+    const worker = createWebhookDeliveryWorker({
+      store: deliveryStore({ complete, reschedule, attemptNumber: 1 }),
+      sender: {
+        send: async () => ({
+          outcome: "failed",
+          errorCode: "TARGET_REJECTED",
+          targetRejectionCode: "WEBHOOK_TARGET_FORBIDDEN_ADDRESS",
+          latencyMs: 1,
+        }),
+      },
+      clock: sequenceClock([
+        "2026-08-09T10:00:00.000Z",
+        "2026-08-09T10:00:01.000Z",
+      ]),
+      createClaimToken: () => "claim-1",
+    });
+
+    await expect(
+      worker.process({ schemaVersion: 1, deliveryId: "delivery-1" }),
+    ).resolves.toBe("processed");
+    expect(reschedule).not.toHaveBeenCalled();
+    expect(complete).toHaveBeenCalledWith(
+      expect.objectContaining({
+        terminalStatus: "failed",
+        disableEndpoint: true,
+        result: expect.objectContaining({
+          targetRejectionCode: "WEBHOOK_TARGET_FORBIDDEN_ADDRESS",
+        }),
+      }),
+    );
+  });
 });
 
 function deliveryStore(options: {
@@ -332,4 +437,10 @@ async function listen(target: Server): Promise<string> {
   const address = target.address();
   if (!address || typeof address === "string") throw new Error("Expected address");
   return `http://127.0.0.1:${address.port}`;
+}
+
+function fakeHttpClient(
+  response: Awaited<ReturnType<WebhookHttpClient["post"]>>,
+): WebhookHttpClient {
+  return { post: async () => response };
 }

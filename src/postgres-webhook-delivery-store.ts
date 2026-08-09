@@ -2,10 +2,14 @@ import { randomUUID } from "node:crypto";
 import type { Pool, PoolClient, QueryResultRow } from "pg";
 import {
   assertStandardWebhookSecret,
-  assertWebhookEndpointUrl,
   type ClaimedWebhookDelivery,
   type WebhookDeliveryStore,
 } from "./webhook-delivery.js";
+import type { WebhookSecretCipher } from "./webhook-secret-cipher.js";
+import {
+  isWebhookTargetPolicyError,
+  type WebhookTargetPolicy,
+} from "./webhook-target-policy.js";
 
 export type WebhookEndpointView = Readonly<{
   endpointId: string;
@@ -14,6 +18,24 @@ export type WebhookEndpointView = Readonly<{
   status: "enabled" | "disabled";
   createdAt: string;
   updatedAt: string;
+  disabledAt?: string;
+}>;
+
+export type WebhookEndpointAuditView = Readonly<{
+  auditId: string;
+  endpointId: string;
+  ownerId: string;
+  actorId: string;
+  action:
+    | "provisioned"
+    | "registration_rejected"
+    | "url_updated"
+    | "url_update_rejected"
+    | "secret_rotated"
+    | "disabled"
+    | "delivery_target_rejected";
+  reasonCode?: string;
+  createdAt: string;
 }>;
 
 export type WebhookDeliveryView = Readonly<{
@@ -53,11 +75,40 @@ export type PostgresWebhookDeliveryStore = WebhookDeliveryStore &
     provisionEndpoint: (candidate: {
       endpointId: string;
       ownerId: string;
+      actorId: string;
       url: string;
       secret: string;
       createdAt: string;
-      allowInsecureHttp?: boolean;
     }) => Promise<WebhookEndpointView>;
+    findEndpoints: (request: {
+      ownerId: string;
+    }) => Promise<readonly WebhookEndpointView[]>;
+    updateEndpointUrl: (request: {
+      endpointId: string;
+      ownerId: string;
+      actorId: string;
+      url: string;
+      updatedAt: string;
+    }) => Promise<WebhookEndpointView | undefined>;
+    rotateEndpointSecret: (request: {
+      endpointId: string;
+      ownerId: string;
+      actorId: string;
+      secret: string;
+      rotatedAt: string;
+      overlapMs: number;
+    }) => Promise<WebhookEndpointView | undefined>;
+    disableEndpoint: (request: {
+      endpointId: string;
+      ownerId: string;
+      actorId: string;
+      disabledAt: string;
+    }) => Promise<WebhookEndpointView | undefined>;
+    findEndpointAudit: (request: {
+      ownerId: string;
+      endpointId: string;
+      limit?: number;
+    }) => Promise<readonly WebhookEndpointAuditView[]>;
     findByRun: (request: {
       ownerId: string;
       runIds: readonly string[];
@@ -86,10 +137,13 @@ export type PostgresWebhookDeliveryStore = WebhookDeliveryStore &
 
 export function createPostgresWebhookDeliveryStore(options: {
   pool: Pool;
+  secretCipher: WebhookSecretCipher;
+  targetPolicy: WebhookTargetPolicy;
   claimLeaseMs?: number;
   createDeliveryId?: () => string;
   createOutboxMessageId?: () => string;
   createReplayId?: () => string;
+  createAuditId?: () => string;
 }): PostgresWebhookDeliveryStore {
   const claimLeaseMs = positiveInteger(
     options.claimLeaseMs ?? 30_000,
@@ -98,40 +152,244 @@ export function createPostgresWebhookDeliveryStore(options: {
   const createDeliveryId = options.createDeliveryId ?? randomUUID;
   const createOutboxMessageId = options.createOutboxMessageId ?? randomUUID;
   const createReplayId = options.createReplayId ?? randomUUID;
+  const createAuditId = options.createAuditId ?? randomUUID;
 
   return Object.freeze({
     provisionEndpoint: async (candidate) => {
       assertUuid(candidate.endpointId, "Webhook Endpoint ID");
       assertOwner(candidate.ownerId);
-      assertWebhookEndpointUrl(candidate.url, {
-        allowInsecureHttp: candidate.allowInsecureHttp,
-      });
+      assertOwner(candidate.actorId);
       assertStandardWebhookSecret(candidate.secret);
       timestampMilliseconds(candidate.createdAt);
+      let url: string;
+      try {
+        url = (await options.targetPolicy.resolve(candidate.url)).url;
+      } catch (error) {
+        if (isWebhookTargetPolicyError(error)) {
+          await insertEndpointAudit(options.pool, {
+            auditId: createAuditId(),
+            endpointId: candidate.endpointId,
+            ownerId: candidate.ownerId,
+            actorId: candidate.actorId,
+            action: "registration_rejected",
+            reasonCode: error.code,
+            createdAt: candidate.createdAt,
+          });
+        }
+        throw error;
+      }
+      const secretEnvelope = options.secretCipher.encrypt(
+        candidate.secret,
+        candidate.endpointId,
+      );
+      return transaction(options.pool, async (client) => {
+        const result = await client.query<EndpointRow>(
+          `
+            INSERT INTO webhook_endpoints (
+              endpoint_id,
+              caller_id,
+              url,
+              current_secret_envelope,
+              created_at,
+              updated_at
+            )
+            VALUES ($1, $2, $3, $4, $5, $5)
+            RETURNING *
+          `,
+          [
+            candidate.endpointId,
+            candidate.ownerId,
+            url,
+            secretEnvelope,
+            candidate.createdAt,
+          ],
+        );
+        await insertEndpointAudit(client, {
+          auditId: createAuditId(),
+          endpointId: candidate.endpointId,
+          ownerId: candidate.ownerId,
+          actorId: candidate.actorId,
+          action: "provisioned",
+          createdAt: candidate.createdAt,
+        });
+        const row = result.rows[0];
+        if (!row) throw new Error("Webhook Endpoint was not persisted");
+        return endpointFromRow(row);
+      });
+    },
+
+    findEndpoints: async (request) => {
+      assertOwner(request.ownerId);
       const result = await options.pool.query<EndpointRow>(
         `
-          INSERT INTO webhook_endpoints (
-            endpoint_id,
-            caller_id,
-            url,
-            current_secret,
-            created_at,
-            updated_at
-          )
-          VALUES ($1, $2, $3, $4, $5, $5)
-          RETURNING *
+          SELECT *
+          FROM webhook_endpoints
+          WHERE caller_id = $1
+          ORDER BY created_at, endpoint_id
         `,
-        [
-          candidate.endpointId,
-          candidate.ownerId,
-          candidate.url,
-          candidate.secret,
-          candidate.createdAt,
-        ],
+        [request.ownerId],
       );
-      const row = result.rows[0];
-      if (!row) throw new Error("Webhook Endpoint was not persisted");
-      return endpointFromRow(row);
+      return result.rows.map(endpointFromRow);
+    },
+
+    updateEndpointUrl: async (request) => {
+      assertUuid(request.endpointId, "Webhook Endpoint ID");
+      assertOwner(request.ownerId);
+      assertOwner(request.actorId);
+      timestampMilliseconds(request.updatedAt);
+      const owned = await options.pool.query(
+        `
+          SELECT 1
+          FROM webhook_endpoints
+          WHERE endpoint_id = $1 AND caller_id = $2
+        `,
+        [request.endpointId, request.ownerId],
+      );
+      if (owned.rowCount !== 1) return undefined;
+      let url: string;
+      try {
+        url = (await options.targetPolicy.resolve(request.url)).url;
+      } catch (error) {
+        if (isWebhookTargetPolicyError(error)) {
+          await insertEndpointAudit(options.pool, {
+            auditId: createAuditId(),
+            endpointId: request.endpointId,
+            ownerId: request.ownerId,
+            actorId: request.actorId,
+            action: "url_update_rejected",
+            reasonCode: error.code,
+            createdAt: request.updatedAt,
+          });
+        }
+        throw error;
+      }
+      return transaction(options.pool, async (client) => {
+        const result = await client.query<EndpointRow>(
+          `
+            UPDATE webhook_endpoints
+            SET url = $3, updated_at = $4
+            WHERE endpoint_id = $1 AND caller_id = $2
+            RETURNING *
+          `,
+          [request.endpointId, request.ownerId, url, request.updatedAt],
+        );
+        const row = result.rows[0];
+        if (!row) return undefined;
+        await insertEndpointAudit(client, {
+          auditId: createAuditId(),
+          endpointId: request.endpointId,
+          ownerId: request.ownerId,
+          actorId: request.actorId,
+          action: "url_updated",
+          createdAt: request.updatedAt,
+        });
+        return endpointFromRow(row);
+      });
+    },
+
+    rotateEndpointSecret: async (request) => {
+      assertUuid(request.endpointId, "Webhook Endpoint ID");
+      assertOwner(request.ownerId);
+      assertOwner(request.actorId);
+      assertStandardWebhookSecret(request.secret);
+      const rotatedAtMs = timestampMilliseconds(request.rotatedAt);
+      const overlapMs = boundedInteger(
+        request.overlapMs,
+        1,
+        604_800_000,
+        "Webhook Secret overlap",
+      );
+      const previousValidUntil = new Date(rotatedAtMs + overlapMs).toISOString();
+      const nextEnvelope = options.secretCipher.encrypt(
+        request.secret,
+        request.endpointId,
+      );
+      return transaction(options.pool, async (client) => {
+        const result = await client.query<EndpointRow>(
+          `
+            UPDATE webhook_endpoints
+            SET
+              previous_secret_envelope = current_secret_envelope,
+              previous_secret_valid_until = $4,
+              current_secret_envelope = $3,
+              updated_at = $5
+            WHERE endpoint_id = $1 AND caller_id = $2
+            RETURNING *
+          `,
+          [
+            request.endpointId,
+            request.ownerId,
+            nextEnvelope,
+            previousValidUntil,
+            request.rotatedAt,
+          ],
+        );
+        const row = result.rows[0];
+        if (!row) return undefined;
+        await insertEndpointAudit(client, {
+          auditId: createAuditId(),
+          endpointId: request.endpointId,
+          ownerId: request.ownerId,
+          actorId: request.actorId,
+          action: "secret_rotated",
+          createdAt: request.rotatedAt,
+        });
+        return endpointFromRow(row);
+      });
+    },
+
+    disableEndpoint: async (request) => {
+      assertUuid(request.endpointId, "Webhook Endpoint ID");
+      assertOwner(request.ownerId);
+      assertOwner(request.actorId);
+      timestampMilliseconds(request.disabledAt);
+      return transaction(options.pool, async (client) => {
+        const result = await client.query<EndpointRow>(
+          `
+            UPDATE webhook_endpoints
+            SET status = 'disabled', disabled_at = $3, updated_at = $3
+            WHERE
+              endpoint_id = $1
+              AND caller_id = $2
+              AND status = 'enabled'
+            RETURNING *
+          `,
+          [request.endpointId, request.ownerId, request.disabledAt],
+        );
+        const row = result.rows[0];
+        if (!row) return undefined;
+        await insertEndpointAudit(client, {
+          auditId: createAuditId(),
+          endpointId: request.endpointId,
+          ownerId: request.ownerId,
+          actorId: request.actorId,
+          action: "disabled",
+          createdAt: request.disabledAt,
+        });
+        return endpointFromRow(row);
+      });
+    },
+
+    findEndpointAudit: async (request) => {
+      assertOwner(request.ownerId);
+      if (!isUuid(request.endpointId)) return [];
+      const limit = boundedInteger(
+        request.limit ?? 100,
+        1,
+        100,
+        "Webhook Endpoint audit lookup limit",
+      );
+      const result = await options.pool.query<EndpointAuditRow>(
+        `
+          SELECT *
+          FROM webhook_endpoint_audit_events
+          WHERE caller_id = $1 AND endpoint_id = $2
+          ORDER BY created_at, audit_id
+          LIMIT $3
+        `,
+        [request.ownerId, request.endpointId, limit],
+      );
+      return result.rows.map(endpointAuditFromRow);
     },
 
     claim: async (request): Promise<ClaimedWebhookDelivery | undefined> => {
@@ -165,12 +423,12 @@ export function createPostgresWebhookDeliveryStore(options: {
               deliveries.attempt_count,
               deliveries.created_at,
               endpoints.url,
-              endpoints.current_secret,
+              endpoints.current_secret_envelope,
               CASE
                 WHEN endpoints.previous_secret_valid_until >= $3
-                THEN endpoints.previous_secret
+                THEN endpoints.previous_secret_envelope
                 ELSE NULL
-              END AS previous_secret
+              END AS previous_secret_envelope
           `,
           [
             request.deliveryId,
@@ -193,7 +451,7 @@ export function createPostgresWebhookDeliveryStore(options: {
           `,
           [row.delivery_id, row.attempt_count, request.claimedAt],
         );
-        return claimedDeliveryFromRow(row);
+        return claimedDeliveryFromRow(row, options.secretCipher);
       });
     },
 
@@ -203,6 +461,8 @@ export function createPostgresWebhookDeliveryStore(options: {
       }
       timestampMilliseconds(request.completedAt);
       validateSendResult(request.result);
+      const failedResult =
+        request.result.outcome === "failed" ? request.result : undefined;
       if (
         request.result.outcome === "succeeded" &&
         (request.terminalStatus !== undefined || request.disableEndpoint === true)
@@ -211,9 +471,12 @@ export function createPostgresWebhookDeliveryStore(options: {
       }
       if (
         request.disableEndpoint === true &&
-        request.result.httpStatus !== 410
+        failedResult?.httpStatus !== 410 &&
+        failedResult?.errorCode !== "TARGET_REJECTED"
       ) {
-        throw new Error("Only HTTP 410 can disable a Webhook Endpoint");
+        throw new Error(
+          "Only HTTP 410 or a rejected target can disable a Webhook Endpoint",
+        );
       }
 
       return transaction(options.pool, async (client) => {
@@ -235,8 +498,9 @@ export function createPostgresWebhookDeliveryStore(options: {
           return false;
         }
         const httpStatus = request.result.httpStatus ?? null;
-        const errorCode =
-          request.result.outcome === "failed" ? request.result.errorCode : null;
+        const errorCode = failedResult
+          ? (failedResult.targetRejectionCode ?? failedResult.errorCode)
+          : null;
         const nextStatus =
           request.result.outcome === "succeeded"
             ? "succeeded"
@@ -284,6 +548,21 @@ export function createPostgresWebhookDeliveryStore(options: {
             `,
             [delivery.endpoint_id, request.completedAt],
           );
+          await insertEndpointAudit(client, {
+            auditId: createAuditId(),
+            endpointId: delivery.endpoint_id,
+            ownerId: delivery.caller_id,
+            actorId: "webhook-worker",
+            action:
+              failedResult?.errorCode === "TARGET_REJECTED"
+                ? "delivery_target_rejected"
+                : "disabled",
+            reasonCode:
+              failedResult?.errorCode === "TARGET_REJECTED"
+                ? failedResult.targetRejectionCode
+                : "HTTP_410",
+            createdAt: request.completedAt,
+          });
         }
         return true;
       });
@@ -583,16 +862,20 @@ export function createPostgresWebhookDeliveryStore(options: {
         endpoints: string | null;
         deliveries: string | null;
         replays: string | null;
+        endpointAudits: string | null;
       }>(`
         SELECT
           to_regclass('public.webhook_endpoints')::text AS endpoints,
           to_regclass('public.webhook_deliveries')::text AS deliveries,
-          to_regclass('public.webhook_delivery_replays')::text AS replays
+          to_regclass('public.webhook_delivery_replays')::text AS replays,
+          to_regclass('public.webhook_endpoint_audit_events')::text
+            AS "endpointAudits"
       `);
       if (
         result.rows[0]?.endpoints !== "webhook_endpoints" ||
         result.rows[0]?.deliveries !== "webhook_deliveries" ||
-        result.rows[0]?.replays !== "webhook_delivery_replays"
+        result.rows[0]?.replays !== "webhook_delivery_replays" ||
+        result.rows[0]?.endpointAudits !== "webhook_endpoint_audit_events"
       ) {
         throw new Error("Webhook Delivery database migration is not ready");
       }
@@ -607,6 +890,17 @@ interface EndpointRow extends QueryResultRow {
   status: "enabled" | "disabled";
   created_at: Date;
   updated_at: Date;
+  disabled_at: Date | null;
+}
+
+interface EndpointAuditRow extends QueryResultRow {
+  audit_id: string;
+  endpoint_id: string;
+  caller_id: string;
+  actor_id: string;
+  action: WebhookEndpointAuditView["action"];
+  reason_code: string | null;
+  created_at: Date;
 }
 
 interface DeliveryRow extends QueryResultRow {
@@ -638,8 +932,8 @@ interface ClaimedDeliveryRow extends QueryResultRow {
   attempt_count: number;
   created_at: Date;
   url: string;
-  current_secret: string;
-  previous_secret: string | null;
+  current_secret_envelope: string;
+  previous_secret_envelope: string | null;
 }
 
 interface AttemptRow extends QueryResultRow {
@@ -665,6 +959,19 @@ function endpointFromRow(row: EndpointRow): WebhookEndpointView {
     status: row.status,
     createdAt: iso(row.created_at),
     updatedAt: iso(row.updated_at),
+    ...(row.disabled_at ? { disabledAt: iso(row.disabled_at) } : {}),
+  });
+}
+
+function endpointAuditFromRow(row: EndpointAuditRow): WebhookEndpointAuditView {
+  return Object.freeze({
+    auditId: row.audit_id,
+    endpointId: row.endpoint_id,
+    ownerId: row.caller_id,
+    actorId: row.actor_id,
+    action: row.action,
+    ...(row.reason_code ? { reasonCode: row.reason_code } : {}),
+    createdAt: iso(row.created_at),
   });
 }
 
@@ -712,15 +1019,20 @@ function attemptFromRow(row: AttemptRow): WebhookDeliveryAttemptView {
   });
 }
 
-function claimedDeliveryFromRow(row: ClaimedDeliveryRow): ClaimedWebhookDelivery {
+function claimedDeliveryFromRow(
+  row: ClaimedDeliveryRow,
+  secretCipher: WebhookSecretCipher,
+): ClaimedWebhookDelivery {
   return Object.freeze({
     deliveryId: row.delivery_id,
     eventId: row.event_id,
     endpointId: row.endpoint_id,
     endpointUrl: row.url,
     secrets: Object.freeze([
-      row.current_secret,
-      ...(row.previous_secret ? [row.previous_secret] : []),
+      secretCipher.decrypt(row.current_secret_envelope, row.endpoint_id),
+      ...(row.previous_secret_envelope
+        ? [secretCipher.decrypt(row.previous_secret_envelope, row.endpoint_id)]
+        : []),
     ]),
     payload: row.payload,
     claimToken: row.claim_token,
@@ -749,6 +1061,43 @@ async function transaction<Result>(
   } finally {
     client.release();
   }
+}
+
+async function insertEndpointAudit(
+  database: Pick<Pool | PoolClient, "query">,
+  event: {
+    auditId: string;
+    endpointId: string;
+    ownerId: string;
+    actorId: string;
+    action: WebhookEndpointAuditView["action"];
+    reasonCode?: string;
+    createdAt: string;
+  },
+): Promise<void> {
+  await database.query(
+    `
+      INSERT INTO webhook_endpoint_audit_events (
+        audit_id,
+        endpoint_id,
+        caller_id,
+        actor_id,
+        action,
+        reason_code,
+        created_at
+      )
+      VALUES ($1, $2, $3, $4, $5, $6, $7)
+    `,
+    [
+      event.auditId,
+      event.endpointId,
+      event.ownerId,
+      event.actorId,
+      event.action,
+      event.reasonCode ?? null,
+      event.createdAt,
+    ],
+  );
 }
 
 async function recordAttempt(
@@ -780,7 +1129,9 @@ async function recordAttempt(
       result.outcome,
       result.httpStatus ?? null,
       result.latencyMs,
-      result.outcome === "failed" ? result.errorCode : null,
+      result.outcome === "failed"
+        ? (result.targetRejectionCode ?? result.errorCode)
+        : null,
       nextAttemptAt ?? null,
     ],
   );
@@ -809,6 +1160,13 @@ function validateSendResult(
     (!Number.isSafeInteger(result.retryAfterMs) || result.retryAfterMs < 0)
   ) {
     throw new Error("Webhook Delivery Retry-After is invalid");
+  }
+  if (
+    result.outcome === "failed" &&
+    result.errorCode === "TARGET_REJECTED" &&
+    result.targetRejectionCode === undefined
+  ) {
+    throw new Error("Webhook target rejection reason is required");
   }
 }
 

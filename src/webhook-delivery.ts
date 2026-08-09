@@ -1,4 +1,12 @@
 import { createHmac, randomUUID } from "node:crypto";
+import {
+  createPinnedWebhookHttpClient,
+  createWebhookTargetPolicy,
+  isWebhookTargetPolicyError,
+  type WebhookHttpClient,
+  type WebhookTargetPolicy,
+  type WebhookTargetRejectionCode,
+} from "./webhook-target-policy.js";
 
 export type WebhookDeliveryJob = Readonly<{
   schemaVersion: 1;
@@ -25,9 +33,10 @@ export type WebhookSendResult =
     }>
   | Readonly<{
       outcome: "failed";
-      errorCode: "HTTP_ERROR" | "NETWORK_ERROR";
+      errorCode: "HTTP_ERROR" | "NETWORK_ERROR" | "TARGET_REJECTED";
       httpStatus?: number;
       retryAfterMs?: number;
+      targetRejectionCode?: WebhookTargetRejectionCode;
       latencyMs: number;
     }>;
 
@@ -162,7 +171,8 @@ export function createWebhookDeliveryWorker(options: {
         ...(result.outcome === "failed"
           ? {
               terminalStatus: isRetryable(result) ? "exhausted" : "failed",
-              disableEndpoint: result.httpStatus === 410,
+              disableEndpoint:
+                result.httpStatus === 410 || result.errorCode === "TARGET_REJECTED",
             }
           : {}),
       });
@@ -223,29 +233,25 @@ export function assertStandardWebhookSecret(secret: string): void {
   parseWebhookSecret(secret);
 }
 
-export function assertWebhookEndpointUrl(
-  value: string,
-  options: { allowInsecureHttp?: boolean } = {},
-): void {
-  parseEndpointUrl(value, options.allowInsecureHttp === true);
-}
-
 export function createStandardWebhookHttpSender(options: {
   timeoutMs?: number;
-  allowInsecureHttp?: boolean;
   clock?: () => string;
-  fetchImplementation?: typeof fetch;
+  targetPolicy?: WebhookTargetPolicy;
+  httpClient?: WebhookHttpClient;
 } = {}): WebhookSender {
   const timeoutMs = positiveInteger(
     options.timeoutMs ?? 20_000,
     "Webhook request timeout",
   );
   const clock = options.clock ?? (() => new Date().toISOString());
-  const send = options.fetchImplementation ?? fetch;
+  const httpClient =
+    options.httpClient ??
+    createPinnedWebhookHttpClient({
+      targetPolicy: options.targetPolicy ?? createWebhookTargetPolicy(),
+    });
 
   return Object.freeze({
     send: async (request): Promise<WebhookSendResult> => {
-      const url = parseEndpointUrl(request.url, options.allowInsecureHttp === true);
       if (request.secrets.length < 1 || request.secrets.length > 2) {
         throw new Error("Webhook Delivery requires one or two signing secrets");
       }
@@ -264,8 +270,8 @@ export function createStandardWebhookHttpSender(options: {
       );
       const startedAt = performance.now();
       try {
-        const response = await send(url, {
-          method: "POST",
+        const response = await httpClient.post({
+          url: request.url,
           headers: {
             "content-type": "application/json",
             "webhook-id": request.eventId,
@@ -273,7 +279,6 @@ export function createStandardWebhookHttpSender(options: {
             "webhook-signature": signatures.join(" "),
           },
           body: request.payload,
-          redirect: "manual",
           signal: request.signal
             ? AbortSignal.any([
                 request.signal,
@@ -282,6 +287,13 @@ export function createStandardWebhookHttpSender(options: {
             : AbortSignal.timeout(timeoutMs),
         });
         const latencyMs = elapsedMilliseconds(startedAt);
+        if (response.status < 100 || response.status > 599) {
+          return Object.freeze({
+            outcome: "failed",
+            errorCode: "NETWORK_ERROR",
+            latencyMs,
+          });
+        }
         return response.status >= 200 && response.status <= 299
           ? Object.freeze({
               outcome: "succeeded",
@@ -292,10 +304,25 @@ export function createStandardWebhookHttpSender(options: {
               outcome: "failed",
               errorCode: "HTTP_ERROR",
               httpStatus: response.status,
-              ...retryAfter(response.headers.get("retry-after"), attemptedAt),
+              ...retryAfter(response.retryAfter, attemptedAt),
               latencyMs,
             });
-      } catch {
+      } catch (error) {
+        if (isWebhookTargetPolicyError(error)) {
+          if (error.code === "WEBHOOK_TARGET_DNS_FAILED") {
+            return Object.freeze({
+              outcome: "failed",
+              errorCode: "NETWORK_ERROR",
+              latencyMs: elapsedMilliseconds(startedAt),
+            });
+          }
+          return Object.freeze({
+            outcome: "failed",
+            errorCode: "TARGET_REJECTED",
+            targetRejectionCode: error.code,
+            latencyMs: elapsedMilliseconds(startedAt),
+          });
+        }
         return Object.freeze({
           outcome: "failed",
           errorCode: "NETWORK_ERROR",
@@ -346,12 +373,16 @@ function validateRetryPolicy(policy: WebhookRetryPolicy): WebhookRetryPolicy {
     20,
     "Webhook retry maximum attempts",
   );
-  const initialBackoffMs = positiveInteger(
+  const initialBackoffMs = boundedInteger(
     policy.initialBackoffMs,
+    1,
+    maximumWebhookDurationMs,
     "Webhook retry initial backoff",
   );
-  const maximumBackoffMs = positiveInteger(
+  const maximumBackoffMs = boundedInteger(
     policy.maximumBackoffMs,
+    1,
+    maximumWebhookDurationMs,
     "Webhook retry maximum backoff",
   );
   if (maximumBackoffMs < initialBackoffMs) {
@@ -361,12 +392,16 @@ function validateRetryPolicy(policy: WebhookRetryPolicy): WebhookRetryPolicy {
     maximumAttempts,
     initialBackoffMs,
     maximumBackoffMs,
-    maximumRetryAfterMs: positiveInteger(
+    maximumRetryAfterMs: boundedInteger(
       policy.maximumRetryAfterMs,
+      1,
+      maximumWebhookDurationMs,
       "Webhook maximum Retry-After",
     ),
-    deliveryHorizonMs: positiveInteger(
+    deliveryHorizonMs: boundedInteger(
       policy.deliveryHorizonMs,
+      1,
+      maximumWebhookDurationMs,
       "Webhook delivery horizon",
     ),
     jitterPercent: boundedInteger(
@@ -377,6 +412,8 @@ function validateRetryPolicy(policy: WebhookRetryPolicy): WebhookRetryPolicy {
     ),
   });
 }
+
+const maximumWebhookDurationMs = 31 * 24 * 60 * 60 * 1_000;
 
 function retryAfter(
   value: string | null,
@@ -434,24 +471,6 @@ function parseWebhookSecret(secret: string): Buffer {
     throw new Error("Webhook secret must use whsec_ base64 encoding");
   }
   return key;
-}
-
-function parseEndpointUrl(value: string, allowInsecureHttp: boolean): URL {
-  let url: URL;
-  try {
-    url = new URL(value);
-  } catch {
-    throw new Error("Webhook Endpoint URL is invalid");
-  }
-  if (
-    url.username ||
-    url.password ||
-    url.hash ||
-    (url.protocol !== "https:" && !(allowInsecureHttp && url.protocol === "http:"))
-  ) {
-    throw new Error("Webhook Endpoint URL is invalid");
-  }
-  return url;
 }
 
 function webhookTimestamp(value: string): string {
