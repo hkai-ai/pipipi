@@ -14,7 +14,8 @@ Business Processing Service 让产品调用方通过一个稳定的 HTTP Interfa
 
 - Business Process 的标识和准确版本；
 - 该版本的输入、输出和公开错误；
-- 同步请求可能超时，容量已满时应按 `Retry-After` 重试。
+- 同步请求可能超时，容量已满时应按 `Retry-After` 重试；
+- 使用异步 Interface 时必须提供 caller-scoped `Idempotency-Key`，并用返回的 `runId` 查询公共状态。
 
 服务端负责决定：
 
@@ -36,7 +37,7 @@ Business Processing Service 让产品调用方通过一个稳定的 HTTP Interfa
 | `content-processing/v1` | `{ content: string }` | `{ content: string }` | 服务端可选择 Direct 或 Agent 路径 |
 | `titled-content-processing/v1` | `{ title: string, body: string }` | `{ title: string, content: string }` | 复用 Content Processing Capability |
 
-HTTP 入口只公开 `GET /healthz` 和 `POST /execute`。每次执行生成独立 `runId`。默认生产构造不持久化 Run Record；结构化完成日志只保留运行元数据，不保存 Prompt、Tool 过程、模型消息或隐藏推理。
+默认 HTTP 入口公开 `GET /healthz`、`GET /readyz` 和 `POST /execute`。每次执行生成独立 `runId`。显式启用并完整配置 Async Process Runs 后，入口还提供 `POST /process-runs` 和 `GET /process-runs/{runId}`；该功能默认关闭，在 BullMQ Worker 就绪前不得向生产调用方开放。默认同步生产构造不持久化 Run Record；结构化完成日志只保留运行元数据，不保存 Prompt、Tool 过程、模型消息或隐藏推理。
 
 仓库已实现尚未组装进 Startup Construction 的 Async Process Runs Module。它以 `submit/find` 固定公共状态、owner 隔离和 caller-scoped idempotency，并通过有界内存 Store、统一内存 Queue 与确定性测试 Worker 验证第一条异步纵切。PostgreSQL Adapter 已能以事务持久化 Run、初始 Event 和 Outbox，并通过真实 PostgreSQL contract tests 验证跨实例查询、幂等和 fencing；这些能力仍不是当前生产 Interface。
 
@@ -44,7 +45,7 @@ HTTP 入口只公开 `GET /healthz` 和 `POST /execute`。每次执行生成独�
 
 ## 运行与信任模型
 
-当前版本是无状态、受控、同步的 Node.js HTTP 服务。实例之间不共享会话；每个 Agent 请求创建独立的内存会话。部署平台负责 TLS、私有入口、调用方认证、实例上限和 Secret 注入。
+当前默认发布形状是无状态、受控、同步的 Node.js HTTP 服务。实例之间不共享 Agent 会话；每个 Agent 请求创建独立的内存会话。异步开发入口以 PostgreSQL 共享 Process Run，并要求可信网关删除客户端伪造的身份头、注入稳定 caller subject 和网关共享凭证。部署平台负责 TLS、私有入口、调用方认证、实例上限和 Secret 注入。
 
 Agent 只获得 Process Registration 明确授权的窄 Tool。生产内容处理 Agent 只能调用 `process_business_content`，不能使用 Shell、文件读写、代码编辑或任意远程工具。
 
@@ -60,7 +61,7 @@ Agent 只获得 Process Registration 明确授权的窄 Tool。生产内容处�
 
 未来若流程产生发布、扣费、发送等副作用，必须先明确幂等、审计和补偿策略。
 
-异步 Process Run、持久化查询、BullMQ 调度和 Webhook 已完成设计并进入开发计划，尚未进入生产 Interface。该设计保留现有 Business Process 模型：外部调用方仍只选择准确 Process 和版本；Queue Job、重试与 Worker 配置由服务端拥有。详见 [`docs/async-process-runs-design.md`](docs/async-process-runs-design.md) 和 [`docs/async-process-runs-development-plan.md`](docs/async-process-runs-development-plan.md)。
+异步 Process Run 的持久化提交、owner 查询和 HTTP Interface 已完成，但功能默认关闭；BullMQ 调度、恢复、重试和 Webhook 仍按开发计划推进。该设计保留现有 Business Process 模型：外部调用方仍只选择准确 Process 和版本；Queue Job、重试与 Worker 配置由服务端拥有。详见 [`docs/async-process-runs-design.md`](docs/async-process-runs-design.md) 和 [`docs/async-process-runs-development-plan.md`](docs/async-process-runs-development-plan.md)。
 
 ## Module 模型
 
@@ -92,7 +93,7 @@ Startup Construction 是生产组装 Seam；Process Executor 是同步传输与 
 - **Process Runner**：治理一次已解析 Process Registration 执行的 Runtime。它统一处理运行规则，但不知道具体流程的策略或依赖形状。避免使用：workflow engine、Process Registry。
 - **Execution Context**：Process Runner 在输入被接受后提供的请求级元数据。它只包含 `runId`、`AbortSignal` 等运行信息；获准依赖和稳定策略属于 Process Registration。避免使用：global capability bag、dependency bag。
 - **Business Capability**：Process Definition 获准调用的窄业务能力。远程协议或供应商 SDK 留在 Adapter 的 Implementation 内。
-- **Process Run**：一个 Business Process 的执行实例，以独立 `runId` 标识。同步入口在请求内返回终态；计划中的异步入口在接受后允许跨请求查询。
+- **Process Run**：一个 Business Process 的执行实例，以独立 `runId` 标识。同步入口在请求内返回终态；异步入口在持久化接受后允许跨请求查询。
 - **Process Attempt**：异步 Worker 对同一个 Process Run 的一次执行尝试。重试产生新 Attempt，但不产生新 Process Run。
 - **Queue Job**：唤醒异步 Worker 的内部调度消息。它不是产品任务、Process Run 或权威状态，不进入公开 Interface。
 - **Process Event**：Process Run 状态变化后产生的不可变事实，可投影为 Webhook payload。

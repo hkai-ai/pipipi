@@ -35,6 +35,7 @@
 | `MAX_CONCURRENT_EXECUTIONS` | 正整数；默认 `4` |
 | `BUSINESS_API_TIMEOUT_MS` | 正整数；代码默认 `10000`，本发布显式设置 `10000` |
 | `PROCESS_TIMEOUT_MS` | 正整数；代码默认 `30000`，本发布必须显式设置 `120000` |
+| `ASYNC_PROCESS_RUNS_ENABLED` | 本同步 MVP 必须保持 `false`；异步生产发布使用独立 Runbook |
 | `PI_PROVIDER`、`PI_MODEL` | Agent 模式下按组设置 |
 | `OPENAI_BASE_URL`、`OPENAI_API_MODE` | 使用 OpenAI 或兼容网关时设置 |
 | `OPENAI_API_KEY` | 仅通过平台 Secret 注入；禁止写入镜像、仓库或普通配置 |
@@ -90,6 +91,7 @@ docker run --rm -d --name pi-business-processing-rc \
   -e PROCESS_TIMEOUT_MS=120000 \
   -e HTTP_MAX_REQUEST_BODY_BYTES=262144 \
   -e MAX_CONCURRENT_EXECUTIONS=4 \
+  -e ASYNC_PROCESS_RUNS_ENABLED=false \
   pi-business-processing-service:rc
 
 curl --fail --silent http://127.0.0.1:3000/healthz

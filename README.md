@@ -68,6 +68,14 @@ curl http://127.0.0.1:3000/healthz
 
 `GET /healthz` 只确认进程完成初始化，不访问模型或 Business Capability。
 
+`GET /readyz` 表达当前角色所需依赖是否就绪；默认同步形状不访问外部依赖，启用异步入口后会检查 PostgreSQL migration。
+
+## 异步开发 Interface
+
+仓库已提供资源式的 `POST /process-runs` 和 `GET /process-runs/{runId}`。它要求网关验证身份、注入固定 caller 头与共享凭证，并要求每次提交携带 `Idempotency-Key`。成功提交返回 `202`、`Location`、`Retry-After` 和 queued Run；查询只向 owner 返回 queued、running、succeeded 或 failed。
+
+该 Interface 由 `ASYNC_PROCESS_RUNS_ENABLED=true` 显式启用，默认关闭。当前尚未接入 BullMQ Dispatcher 和生产 Worker，因此只能用于 PostgreSQL/API 开发验证，不得在现阶段向生产调用方开放。完整契约和配置见 [`docs/async-process-runs-design.md`](docs/async-process-runs-design.md) 与 [`docs/development.md`](docs/development.md)。
+
 ## Interface 约束
 
 - 调用方必须请求准确的 Process 和版本。未注册版本返回 `PROCESS_NOT_FOUND`。
@@ -75,7 +83,7 @@ curl http://127.0.0.1:3000/healthz
 - 依赖、Agent、输出和超时失败分别返回稳定的公开错误，不透传内部消息。
 - 非 JSON、请求体过大和实例容量已满分别返回 `UNSUPPORTED_MEDIA_TYPE`、`REQUEST_TOO_LARGE` 和 `SERVICE_BUSY`。
 - 调用方不能上传流程步骤、脚本、模型、Skill、Tool 或远程地址。
-- 当前生产入口默认不持久化 Run Record。`runId` 用于排障关联，不是聊天会话 ID。
+- 当前同步入口默认不持久化 Run Record。异步入口使用独立的权威 Process Run Store；两者都不把 `runId` 当作聊天会话 ID。
 
 ## 当前边界
 

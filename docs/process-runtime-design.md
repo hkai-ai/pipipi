@@ -141,6 +141,11 @@ Process Definition 抛出的异常属于意外失败。Process Attempt Runner �
 路径校验成组的 provider/model 和 OpenAI API mode，再构造 Pi Agent Runtime。任何配置错误
 都会在 Application 监听端口前抛出。
 
+Async Process Runs 默认关闭。显式启用时，Construction Root 复用同一个 production Registry，
+组装 PostgreSQL Store、`submit/find` Module、可信 caller identity Resolver 和 readiness，并由
+Application 在关闭 HTTP server 后释放 Pool。数据库 migration 由部署步骤完成，启动过程不会
+隐式修改 schema；BullMQ Worker 接入前异步 feature flag 不能用于生产流量。
+
 [`main.ts`](../src/main.ts) 只把 `process.env` 传给 Construction Seam，然后监听端口、写启动
 日志并处理 `SIGINT` 和 `SIGTERM`。它不翻译配置，也不直接组装 Adapter、Executor 或
 Application。
@@ -201,7 +206,7 @@ Runtime registration、自动发现、动态 Process Definition 和版本回退�
 
 - `defineProcessRegistration` 隐藏单次解析、JSON-safe 快照、类型推断、延迟执行、预期失败标记和输出验证。
 - `createProcessRegistry` 隐藏 nominal 校验、重复检测、不可变复制和精确查找。
-- `createProcessAttemptRunner` 隐藏预分配 `runId` 的执行治理，让同步与计划中的异步调用方共享
+- `createProcessAttemptRunner` 隐藏预分配 `runId` 的执行治理，让同步与异步调用方共享
   同一结果、超时、取消和错误净化语义。
 - `createProcessRunner` 隐藏同步 envelope、查找、接受、Attempt 调用和记录顺序。
 - Registration factory 把一个流程的 Schema、行为、依赖和策略放在同一文件，形成 Locality。

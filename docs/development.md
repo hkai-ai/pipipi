@@ -88,6 +88,19 @@ DATABASE_URL="$POSTGRES_TEST_DATABASE_URL" npm run db:migrate
 
 默认 `npm test` 不连接数据库；PostgreSQL 集成文件在缺少测试 URL 时跳过。生产 migration 必须由部署步骤使用最小权限凭证显式执行，应用启动不隐式修改 schema。
 
+### 异步 HTTP 开发入口
+
+异步路由默认关闭。启用时以下配置必须作为一个完整配置组提供：
+
+- `ASYNC_PROCESS_RUNS_ENABLED=true` 与已完成 migration 的 `DATABASE_URL`；
+- 至少 32 bytes 的 `ASYNC_GATEWAY_SHARED_SECRET`；
+- `PROCESS_RUN_ACCEPTED_INPUT_RETENTION_MS`、`PROCESS_RUN_RESULT_RETENTION_MS` 和 `PROCESS_RUN_METADATA_RETENTION_MS`；
+- 可选的 PostgreSQL Pool、连接超时、claim lease 和 `Retry-After` 正整数覆盖值。
+
+可信网关必须先验证 service principal，删除外部请求中的 `x-pipipi-caller-id` 和 `x-pipipi-gateway-token`，再分别注入稳定 subject 与共享凭证。应用不接受请求 body 中的 owner，也不把身份头、共享凭证或数据库错误写入响应。`GET /healthz` 始终只做 liveness；`GET /readyz` 在异步功能启用时检查数据库连接和 `process_runs` migration。
+
+当前批次只验证提交与查询。Outbox Dispatcher 和 BullMQ Worker 完成前，即使配置齐全也不要向生产流量启用该 feature flag。
+
 ## 代码地图
 
 | 路径 | Module 职责 |
@@ -106,6 +119,7 @@ DATABASE_URL="$POSTGRES_TEST_DATABASE_URL" npm run db:migrate
 | `src/async-process-runs.ts` | 异步提交、owner 隔离、caller-scoped idempotency 和公共状态投影 |
 | `src/process-run-store.ts` | 权威 Process Run Store Seam、状态转换和有界内存 Adapter |
 | `src/postgres-process-run-store.ts` | PostgreSQL 事务、Attempt fencing、初始 Event 与 Outbox Adapter |
+| `src/caller-identity.ts` | 网关注入 caller subject 的认证与 HTTP 身份 Resolver |
 | `migrations/` | 受版本和 advisory lock 管理的 PostgreSQL schema 变化 |
 | `src/object-storage*.ts`、`src/aliyun-oss-storage.ts` | 通用对象存储 Seam、配置和 OSS Adapter |
 | `src/openai-image-generation.ts` | 图片生成 Interface 与 OpenAI Adapter |
@@ -195,6 +209,7 @@ Run Record 是运行排障数据，不是聊天历史。产品聊天记录应由
 - 新增配置时同时更新 `.env.example`、启动构造测试和相关文档。
 - 只把稳定运行策略放入环境配置。Process 拓扑、Schema 和业务语义留在代码中。
 - 成组配置在启动时一起校验。例如 `PI_PROVIDER` 与 `PI_MODEL` 必须同时设置。
+- 异步功能关闭时忽略数据库和网关专用配置；启用后缺少任一必需值都在监听前失败。
 - Direct 模式不应因无关的 Agent 配置失败。
 - `.env.example` 把 `PROCESS_TIMEOUT_MS` 设为 `120000`，用于受控发布形状；未设置变量时，代码默认值仍为 `30000`。
 - Secret 只由本地 `.env` 或部署平台注入。日志和错误响应不得包含凭证、Base URL、远端正文或模型错误。

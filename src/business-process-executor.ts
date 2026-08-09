@@ -9,6 +9,7 @@ import {
   createProcessRegistry,
   createProcessRunner,
   type ProcessExecutor,
+  type ProcessRegistry,
 } from "./process-runtime.js";
 import {
   createTitledContentProcessingRegistration,
@@ -26,9 +27,20 @@ export type BusinessProcessExecutorOptions = {
   };
 };
 
+export type BusinessProcessRuntime = Readonly<{
+  registry: ProcessRegistry;
+  executor: ProcessExecutor;
+}>;
+
 export function createBusinessProcessExecutor(
   options: BusinessProcessExecutorOptions,
 ): ProcessExecutor {
+  return createBusinessProcessRuntime(options).executor;
+}
+
+export function createBusinessProcessRuntime(
+  options: BusinessProcessExecutorOptions,
+): BusinessProcessRuntime {
   const contentProcessingConfig = options.processes?.contentProcessing;
   const registry = createProcessRegistry([
     createContentProcessingRegistration({
@@ -42,9 +54,12 @@ export function createBusinessProcessExecutor(
     }),
   ]);
 
-  return createProcessRunner({
+  return Object.freeze({
     registry,
-    processTimeoutMs: options.processTimeoutMs,
-    runRecords: options.runRecords,
+    executor: createProcessRunner({
+      registry,
+      processTimeoutMs: options.processTimeoutMs,
+      runRecords: options.runRecords,
+    }),
   });
 }

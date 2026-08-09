@@ -19,6 +19,7 @@ export type ProcessingApplication = {
 export type ProcessingApplicationOptions = {
   executor: ProcessExecutor;
   http?: ProcessingHttpOptions;
+  closeResources?: () => Promise<void>;
 };
 
 export function createProcessingApplication(
@@ -27,12 +28,22 @@ export function createProcessingApplication(
   const server = createServer(
     createProcessingRequestListener(options.executor, options.http),
   );
+  let resourcesClosed = false;
 
   return {
     listen: async (listenOptions) => ({
       url: await listen(server, listenOptions),
     }),
-    close: async () => close(server),
+    close: async () => {
+      try {
+        await close(server);
+      } finally {
+        if (!resourcesClosed) {
+          resourcesClosed = true;
+          await options.closeResources?.();
+        }
+      }
+    },
   };
 }
 

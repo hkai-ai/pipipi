@@ -2,8 +2,13 @@ import path from "node:path";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { runner } from "node-pg-migrate";
 import { Pool } from "pg";
+import {
+  callerIdentityHeader,
+  gatewayAuthenticationHeader,
+} from "../src/caller-identity.js";
 import { createPostgresProcessRunStore } from "../src/postgres-process-run-store.js";
 import type { ProcessRunStore } from "../src/process-run-store.js";
+import { constructProcessingService } from "../src/startup-construction.js";
 import { processRunStoreContract } from "./support/process-run-store-contract.js";
 
 const databaseUrl = process.env.POSTGRES_TEST_DATABASE_URL;
@@ -223,6 +228,74 @@ postgresDescribe("PostgreSQL Process Run Store", () => {
     await expect(primaryStore.findOwned(run.runId, run.ownerId)).resolves.toMatchObject(
       { status: "queued" },
     );
+  });
+
+  it("serves the authenticated async HTTP resource from Startup Construction", async () => {
+    const gatewaySecret = "integration-gateway-secret-at-least-32-bytes";
+    const constructed = constructProcessingService({
+      BUSINESS_API_BASE_URL: "https://business.example",
+      ASYNC_PROCESS_RUNS_ENABLED: "true",
+      DATABASE_URL: databaseUrl,
+      ASYNC_GATEWAY_SHARED_SECRET: gatewaySecret,
+      PROCESS_RUN_ACCEPTED_INPUT_RETENTION_MS: "86400000",
+      PROCESS_RUN_RESULT_RETENTION_MS: "604800000",
+      PROCESS_RUN_METADATA_RETENTION_MS: "2592000000",
+    });
+    const { url } = await constructed.application.listen();
+    const headers = {
+      "content-type": "application/json",
+      "idempotency-key": "http-integration",
+      [callerIdentityHeader]: "service:http-integration",
+      [gatewayAuthenticationHeader]: gatewaySecret,
+    };
+
+    try {
+      const readiness = await fetch(`${url}/readyz`);
+      expect(readiness.status).toBe(200);
+      const submission = await fetch(`${url}/process-runs`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          process: "content-processing",
+          version: "v1",
+          input: { content: "accepted request" },
+        }),
+      });
+      const submitted = (await submission.json()) as { runId: string };
+      expect(submission.status).toBe(202);
+      expect(submission.headers.get("location")).toBe(
+        `/process-runs/${submitted.runId}`,
+      );
+
+      const query = await fetch(`${url}/process-runs/${submitted.runId}`, {
+        headers: {
+          [callerIdentityHeader]: "service:http-integration",
+          [gatewayAuthenticationHeader]: gatewaySecret,
+        },
+      });
+      expect(query.status).toBe(200);
+      expect(await query.json()).toMatchObject({
+        runId: submitted.runId,
+        status: "queued",
+      });
+
+      const invalid = await fetch(`${url}/process-runs`, {
+        method: "POST",
+        headers: { ...headers, "idempotency-key": "invalid-request" },
+        body: JSON.stringify({
+          process: "content-processing",
+          version: "v1",
+          input: { content: "   " },
+        }),
+      });
+      expect(invalid.status).toBe(400);
+      const count = await primaryPool.query<{ count: string }>(
+        "SELECT count(*)::text AS count FROM process_runs",
+      );
+      expect(count.rows[0]?.count).toBe("1");
+    } finally {
+      await constructed.application.close();
+    }
   });
 });
 

@@ -90,7 +90,7 @@ export type AsyncProcessRuns = Readonly<{
 export function createAsyncProcessRuns(options: {
   registry: ProcessRegistry;
   store: ProcessRunStore;
-  queue: ProcessWorkQueue;
+  queue?: ProcessWorkQueue;
   clock?: () => string;
   createRunId?: () => string;
 }): AsyncProcessRuns {
@@ -150,7 +150,7 @@ export function createAsyncProcessRuns(options: {
       }
 
       const run = storeResult.run;
-      if (storeResult.outcome === "created") {
+      if (storeResult.outcome === "created" && queue) {
         await queue.enqueue({ schemaVersion: 1, runId: run.runId });
       }
       return Object.freeze({

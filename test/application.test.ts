@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   createProcessingApplication,
   type ProcessingApplication,
@@ -55,5 +55,25 @@ describe("Processing Application", () => {
       status: "succeeded",
       output: { accepted: true },
     });
+  });
+
+  it("closes injected resources once with the HTTP server", async () => {
+    const closeResources = vi.fn<() => Promise<void>>().mockResolvedValue();
+    const application = createProcessingApplication({
+      executor: {
+        execute: async () => ({
+          runId: "00000000-0000-4000-8000-000000000001",
+          status: "failed",
+          error: { code: "INTERNAL_ERROR", message: "unused" },
+        }),
+      },
+      closeResources,
+    });
+    await application.listen();
+
+    await application.close();
+    await application.close();
+
+    expect(closeResources).toHaveBeenCalledTimes(1);
   });
 });

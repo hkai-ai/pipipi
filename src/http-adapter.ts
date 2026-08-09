@@ -4,6 +4,11 @@ import type {
   ServerResponse,
 } from "node:http";
 import type {
+  AsyncProcessRuns,
+  ProcessRunSubmission,
+} from "./async-process-runs.js";
+import type { CallerIdentityResolver } from "./caller-identity.js";
+import type {
   ProcessErrorCode,
   ProcessExecutor,
   ProcessRunResult,
@@ -17,7 +22,15 @@ export type ProcessingHttpOptions = {
   maxConcurrentExecutions?: number;
   logSink?: ProcessingLogSink;
   clock?: ProcessingClock;
+  asyncProcessRuns?: AsyncProcessRunsHttpOptions;
 };
+
+export type AsyncProcessRunsHttpOptions = Readonly<{
+  runs: AsyncProcessRuns;
+  callerIdentity: CallerIdentityResolver;
+  readiness: () => Promise<void>;
+  retryAfterSeconds?: number;
+}>;
 
 export type ProcessingClock = {
   timestamp: () => string;
@@ -66,6 +79,7 @@ type RequestHandlingContext = {
   maxRequestBodyBytes: number;
   tryAcquireExecution: () => (() => void) | undefined;
   logging: RequestLoggingContext;
+  asyncProcessRuns?: AsyncProcessRunsHttpOptions;
 };
 
 type TransportFailure = {
@@ -115,6 +129,7 @@ export function createProcessingRequestListener(
         clock,
         startedAt: clock.monotonicMilliseconds(),
       },
+      asyncProcessRuns: options.asyncProcessRuns,
     };
     void handleRequest(request, response, context).catch(() => {
       emitLog(context.logging.logSink, {
@@ -153,6 +168,34 @@ async function handleRequest(
 ): Promise<void> {
   if (request.method === "GET" && request.url === "/healthz") {
     writeJson(response, 200, { status: "ok" });
+    return;
+  }
+
+  if (request.method === "GET" && request.url === "/readyz") {
+    await handleReadiness(response, context.asyncProcessRuns);
+    return;
+  }
+
+  if (
+    context.asyncProcessRuns &&
+    request.method === "POST" &&
+    request.url === "/process-runs"
+  ) {
+    await submitProcessRun(request, response, context);
+    return;
+  }
+
+  const asyncRunId =
+    context.asyncProcessRuns && request.method === "GET"
+      ? processRunIdFromPath(request.url)
+      : undefined;
+  if (context.asyncProcessRuns && asyncRunId !== undefined) {
+    await findProcessRun(
+      request,
+      response,
+      asyncRunId,
+      context.asyncProcessRuns,
+    );
     return;
   }
 
@@ -202,6 +245,193 @@ async function handleRequest(
     writeJson(response, statusFor(result), result);
   } finally {
     releaseExecution();
+  }
+}
+
+async function handleReadiness(
+  response: ServerResponse,
+  asyncOptions: AsyncProcessRunsHttpOptions | undefined,
+): Promise<void> {
+  response.setHeader("cache-control", "no-store");
+  if (!asyncOptions) {
+    writeJson(response, 200, { status: "ready" });
+    return;
+  }
+  try {
+    await asyncOptions.readiness();
+    writeJson(response, 200, { status: "ready" });
+  } catch {
+    writeJson(response, 503, { status: "not_ready" });
+  }
+}
+
+async function submitProcessRun(
+  request: IncomingMessage,
+  response: ServerResponse,
+  context: RequestHandlingContext,
+): Promise<void> {
+  const asyncOptions = context.asyncProcessRuns;
+  if (!asyncOptions) throw new Error("Async Process Runs are not configured");
+  const caller = await resolveCaller(request, response, asyncOptions);
+  if (!caller) return;
+
+  const idempotencyKeyHeader = request.headers["idempotency-key"];
+  if (
+    idempotencyKeyHeader === undefined ||
+    (typeof idempotencyKeyHeader === "string" &&
+      idempotencyKeyHeader.trim().length === 0)
+  ) {
+    writeFailureJson(
+      response,
+      400,
+      "IDEMPOTENCY_KEY_REQUIRED",
+      "Idempotency-Key is required",
+    );
+    return;
+  }
+  if (
+    typeof idempotencyKeyHeader !== "string" ||
+    Buffer.byteLength(idempotencyKeyHeader, "utf8") > 512
+  ) {
+    writeFailureJson(
+      response,
+      400,
+      "INVALID_IDEMPOTENCY_KEY",
+      "Idempotency-Key must be at most 512 bytes",
+    );
+    return;
+  }
+  if (!isJsonMediaType(request.headers["content-type"])) {
+    rejectRequest(response, unsupportedMediaTypeFailure, context.logging);
+    return;
+  }
+  const requestBody = await readRequestBody(
+    request,
+    context.maxRequestBodyBytes,
+  );
+  if (requestBody.kind === "too_large") {
+    rejectRequest(response, requestTooLargeFailure, context.logging);
+    return;
+  }
+
+  let submission: ProcessRunSubmission;
+  try {
+    submission = await asyncOptions.runs.submit(requestBody.value, {
+      callerId: caller.callerId,
+      idempotencyKey: idempotencyKeyHeader,
+    });
+  } catch {
+    writeAsyncUnavailable(response, asyncOptions);
+    return;
+  }
+  if (!submission.accepted) {
+    const status = {
+      INVALID_INPUT: 400,
+      PROCESS_NOT_FOUND: 404,
+      IDEMPOTENCY_CONFLICT: 409,
+    }[submission.error.code];
+    writeFailureJson(
+      response,
+      status,
+      submission.error.code,
+      submission.error.message,
+    );
+    return;
+  }
+
+  const retryAfter = retryAfterSeconds(asyncOptions);
+  response.setHeader("location", `/process-runs/${submission.runId}`);
+  response.setHeader("retry-after", String(retryAfter));
+  response.setHeader("cache-control", "no-store");
+  writeJson(response, 202, {
+    runId: submission.runId,
+    process: submission.process,
+    version: submission.version,
+    status: submission.status,
+    createdAt: submission.createdAt,
+  });
+}
+
+async function findProcessRun(
+  request: IncomingMessage,
+  response: ServerResponse,
+  runId: string,
+  asyncOptions: AsyncProcessRunsHttpOptions,
+): Promise<void> {
+  const caller = await resolveCaller(request, response, asyncOptions);
+  if (!caller) return;
+
+  let run;
+  try {
+    run = await asyncOptions.runs.find(runId, caller);
+  } catch {
+    writeAsyncUnavailable(response, asyncOptions);
+    return;
+  }
+  if (!run) {
+    writeFailureJson(
+      response,
+      404,
+      "PROCESS_RUN_NOT_FOUND",
+      "Process Run not found",
+    );
+    return;
+  }
+
+  response.setHeader("cache-control", "no-store");
+  if (run.status === "queued" || run.status === "running") {
+    response.setHeader("retry-after", String(retryAfterSeconds(asyncOptions)));
+  }
+  writeJson(response, 200, run);
+}
+
+async function resolveCaller(
+  request: IncomingMessage,
+  response: ServerResponse,
+  asyncOptions: AsyncProcessRunsHttpOptions,
+) {
+  try {
+    const caller = await asyncOptions.callerIdentity.resolve(request.headers);
+    if (caller) return caller;
+  } catch {
+    writeAsyncUnavailable(response, asyncOptions);
+    return undefined;
+  }
+  writeFailureJson(
+    response,
+    401,
+    "CALLER_UNAUTHORIZED",
+    "Caller identity could not be verified",
+  );
+  return undefined;
+}
+
+function writeAsyncUnavailable(
+  response: ServerResponse,
+  asyncOptions: AsyncProcessRunsHttpOptions,
+): void {
+  response.setHeader("retry-after", String(retryAfterSeconds(asyncOptions)));
+  response.setHeader("cache-control", "no-store");
+  writeFailureJson(
+    response,
+    503,
+    "ASYNC_SERVICE_UNAVAILABLE",
+    "Async Process Runs are temporarily unavailable",
+  );
+}
+
+function retryAfterSeconds(options: AsyncProcessRunsHttpOptions): number {
+  const value = options.retryAfterSeconds ?? 2;
+  return Number.isInteger(value) && value > 0 ? value : 2;
+}
+
+function processRunIdFromPath(url: string | undefined): string | undefined {
+  const match = /^\/process-runs\/([^/?#]+)$/.exec(url ?? "");
+  if (!match?.[1]) return undefined;
+  try {
+    return decodeURIComponent(match[1]);
+  } catch {
+    return undefined;
   }
 }
 

@@ -320,6 +320,8 @@ BullMQ 和网络只能提供至少一次执行。流程若会扣费、发布、�
 ## 安全与运行约束
 
 - 入口继续由 TLS 网关认证。异步 API 还需要稳定的 caller identity；网关必须删除客户端伪造的身份头，或应用直接验证 token。Process Run、幂等键和 Webhook Endpoint 都按 caller 隔离。
+- 当前 Gateway Adapter 使用固定的内部头 `x-pipipi-caller-id` 与 `x-pipipi-gateway-token`。网关先验证外部凭证并删除客户端同名头，再注入稳定 subject 和至少 32 bytes 的共享凭证；外部调用方不应直接构造这两个头。功能默认关闭，缺少数据库、retention 或网关凭证时 Startup Construction 拒绝启用。
+- `GET /healthz` 不访问外部依赖；`GET /readyz` 在异步功能启用时检查 PostgreSQL 连接与 `process_runs` migration。readiness 失败不应把数据库地址或错误细节返回给调用方。
 - `runId` 使用不可预测标识，但它不是授权凭证。所有查询都检查 owner。
 - 数据库和 Redis 使用不同的最小权限凭证。Secret 只由部署平台注入，不能出现在 Queue Job、日志或错误响应中。
 - Webhook secret 加密保存，只在 Delivery Worker 内解密；日志只记录 endpoint ID、delivery ID、HTTP status 和错误分类。

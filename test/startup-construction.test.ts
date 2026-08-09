@@ -592,7 +592,117 @@ describe("Startup Construction", () => {
       ).toThrow(`${name} must be a positive integer`);
     }
   });
+
+  it("keeps invalid async-only configuration inert while the feature is off", () => {
+    const constructed = constructProcessingService({
+      BUSINESS_API_BASE_URL: "https://business.example",
+      ASYNC_PROCESS_RUNS_ENABLED: "false",
+      DATABASE_URL: "not-a-database-url",
+      ASYNC_GATEWAY_SHARED_SECRET: "short",
+      PROCESS_RUN_ACCEPTED_INPUT_RETENTION_MS: "invalid",
+    });
+
+    expect(constructed.port).toBe(3000);
+  });
+
+  it.each(["", "TRUE", "yes", "0"])(
+    "rejects unknown async feature flag %j",
+    (value) => {
+      expect(() =>
+        constructProcessingService({
+          BUSINESS_API_BASE_URL: "https://business.example",
+          ASYNC_PROCESS_RUNS_ENABLED: value,
+        }),
+      ).toThrow("ASYNC_PROCESS_RUNS_ENABLED must be true or false");
+    },
+  );
+
+  it.each([
+    ["DATABASE_URL", "DATABASE_URL"],
+    ["ASYNC_GATEWAY_SHARED_SECRET", "ASYNC_GATEWAY_SHARED_SECRET"],
+    [
+      "PROCESS_RUN_ACCEPTED_INPUT_RETENTION_MS",
+      "PROCESS_RUN_ACCEPTED_INPUT_RETENTION_MS",
+    ],
+    ["PROCESS_RUN_RESULT_RETENTION_MS", "PROCESS_RUN_RESULT_RETENTION_MS"],
+    [
+      "PROCESS_RUN_METADATA_RETENTION_MS",
+      "PROCESS_RUN_METADATA_RETENTION_MS",
+    ],
+  ])("requires %s when Async Process Runs are enabled", (key, label) => {
+    expect(() =>
+      constructProcessingService(asyncEnvironment({ [key]: undefined })),
+    ).toThrow(`${label} is required when Async Process Runs are enabled`);
+  });
+
+  it("rejects an invalid PostgreSQL URL without echoing credentials", () => {
+    const databaseUrl = "https://user:secret-value@database.example/db";
+    let error: unknown;
+    try {
+      constructProcessingService(asyncEnvironment({ DATABASE_URL: databaseUrl }));
+    } catch (caught) {
+      error = caught;
+    }
+
+    expect(error).toBeInstanceOf(Error);
+    expect((error as Error).message).toBe(
+      "DATABASE_URL must be a valid PostgreSQL connection URL",
+    );
+    expect((error as Error).message).not.toContain("secret-value");
+  });
+
+  it("rejects a weak gateway shared secret", () => {
+    expect(() =>
+      constructProcessingService(
+        asyncEnvironment({ ASYNC_GATEWAY_SHARED_SECRET: "too-short" }),
+      ),
+    ).toThrow("ASYNC_GATEWAY_SHARED_SECRET must be at least 32 bytes");
+  });
+
+  it.each([
+    "PROCESS_RUN_ACCEPTED_INPUT_RETENTION_MS",
+    "PROCESS_RUN_RESULT_RETENTION_MS",
+    "PROCESS_RUN_METADATA_RETENTION_MS",
+    "ASYNC_POSTGRES_POOL_MAX",
+    "ASYNC_POSTGRES_CONNECTION_TIMEOUT_MS",
+    "PROCESS_RUN_CLAIM_LEASE_MS",
+    "ASYNC_RETRY_AFTER_SECONDS",
+  ])("rejects invalid async positive-integer values for %s", (name) => {
+    expect(() =>
+      constructProcessingService(asyncEnvironment({ [name]: "0" })),
+    ).toThrow(`${name} must be a positive integer`);
+  });
+
+  it("keeps liveness independent when the async database is unreachable", async () => {
+    const constructed = constructProcessingService(
+      asyncEnvironment({
+        DATABASE_URL: "postgres://service:secret@127.0.0.1:1/pipipi",
+        ASYNC_POSTGRES_CONNECTION_TIMEOUT_MS: "10",
+      }),
+    );
+    runningApplications.push(constructed.application);
+    const { url } = await constructed.application.listen();
+
+    const response = await fetch(`${url}/healthz`);
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ status: "ok" });
+  });
 });
+
+function asyncEnvironment(
+  overrides: Record<string, string | undefined> = {},
+): Record<string, string | undefined> {
+  return {
+    BUSINESS_API_BASE_URL: "https://business.example",
+    ASYNC_PROCESS_RUNS_ENABLED: "true",
+    DATABASE_URL: "postgres://service:secret@database.example/pipipi",
+    ASYNC_GATEWAY_SHARED_SECRET: "gateway-secret-that-is-at-least-32-bytes",
+    PROCESS_RUN_ACCEPTED_INPUT_RETENTION_MS: "86400000",
+    PROCESS_RUN_RESULT_RETENTION_MS: "604800000",
+    PROCESS_RUN_METADATA_RETENTION_MS: "2592000000",
+    ...overrides,
+  };
+}
 
 function executeContentProcess(url: string): Promise<Response> {
   return fetch(`${url}/execute`, {

@@ -311,7 +311,12 @@ export function createPostgresProcessRunStore(options: {
     },
 
     ready: async () => {
-      await options.pool.query("SELECT 1");
+      const result = await options.pool.query<{ process_runs: string | null }>(
+        "SELECT to_regclass('public.process_runs')::text AS process_runs",
+      );
+      if (result.rows[0]?.process_runs !== "process_runs") {
+        throw new Error("Process Run database migration is not ready");
+      }
     },
   });
 }
