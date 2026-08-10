@@ -2,6 +2,7 @@ import type { StartupEnvironment } from "./config.js";
 
 export const deploymentRoles = Object.freeze([
     "api",
+    "crt-business-api",
     "process-dispatcher",
     "process-worker",
     "webhook-worker",
@@ -25,6 +26,15 @@ export type DeploymentEnvironmentCheckOptions = Readonly<{
 const variablesByRole: Readonly<Record<DeploymentRole, readonly string[]>> =
     Object.freeze({
         api: Object.freeze(["BUSINESS_API_BASE_URL"]),
+        "crt-business-api": Object.freeze([
+            "IMAGE_PROVIDER",
+            "FAL_KEY",
+            "OBJECT_STORAGE_PROVIDER",
+            "OSS_REGION",
+            "OSS_BUCKET",
+            "OSS_ACCESS_KEY_ID",
+            "OSS_ACCESS_KEY_SECRET",
+        ]),
         "process-dispatcher": Object.freeze(["DATABASE_URL", "REDIS_URL"]),
         "process-worker": Object.freeze([
             "BUSINESS_API_BASE_URL",

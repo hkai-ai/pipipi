@@ -39,9 +39,9 @@
 
 ## 单服务器发布
 
-- 标准单服务器发布入口是 `.github/workflows/production-ci-cd.yml`。CI 构建不可变的 `pipipi:<commit>` 镜像，生产 Job 通过 SSH 上传镜像归档，再用 `compose.production.yaml` 重建单个 API 容器；不要恢复 PM2 或 release 目录作为日常发布路径。
-- 同步 API 容器固定使用 host 网络和端口 `4300`，服务器防火墙不得向公网开放该端口。基础 Compose 保持 `ASYNC_PROCESS_RUNS_ENABLED=false`，不包含 PostgreSQL、Redis 或异步角色；异步角色必须按独立 Runbook 发布。
-- 服务器环境变量保存在 `REMOTE_PATH/shared/.env`，不得写入 GitHub Actions 日志、镜像或仓库。部署必须校验容器 image tag、`com.pipipi.revision` label、`/healthz` 和 `/readyz`；任一失败都切回上一镜像。
+- 标准单服务器发布入口是 `.github/workflows/production-ci-cd.yml`。CI 构建不可变的 `pipipi:<commit>` 镜像，生产 Job 通过 SSH 上传镜像归档，再用 `compose.production.yaml` 重建主 API 与内部 CRT Business API；不要恢复 PM2 或 release 目录作为日常发布路径。
+- 两个容器都使用 host 网络；主 API 监听 `0.0.0.0:4300`，内部 CRT Business API 只监听 `127.0.0.1:4400`。服务器防火墙不得向公网开放应用端口。基础 Compose 保持 `ASYNC_PROCESS_RUNS_ENABLED=false`，不包含 PostgreSQL、Redis 或异步角色。
+- 服务器环境变量保存在 `REMOTE_PATH/shared/.env`，不得写入 GitHub Actions 日志、镜像或仓库。部署必须校验两个容器的 image tag、`com.pipipi.revision` label、`/healthz` 和 `/readyz`；任一失败都恢复上一镜像和 Compose 形状。
 
 ## Agent skills
 

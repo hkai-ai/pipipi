@@ -74,6 +74,18 @@ describe("Deployment environment", () => {
     });
 
     it.each([
+        [
+            "crt-business-api",
+            [
+                "IMAGE_PROVIDER",
+                "FAL_KEY",
+                "OBJECT_STORAGE_PROVIDER",
+                "OSS_REGION",
+                "OSS_BUCKET",
+                "OSS_ACCESS_KEY_ID",
+                "OSS_ACCESS_KEY_SECRET",
+            ],
+        ],
         ["process-dispatcher", ["DATABASE_URL", "REDIS_URL"]],
         [
             "process-worker",

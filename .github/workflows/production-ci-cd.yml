@@ -121,8 +121,10 @@ jobs:
           image="pipipi:$revision"
           shared_env="$app_root/shared/.env"
           compose_file="$app_root/shared/compose.production.yaml"
+          previous_compose="$app_root/shared/compose.production.previous.yaml"
           previous_image=""
           previous_revision=""
+          previous_has_business="false"
           legacy_pm2="false"
 
           command -v docker >/dev/null
@@ -134,16 +136,32 @@ jobs:
           fi
 
           mkdir -p "$app_root/shared"
+          install -d -m 700 -o 1000 -g 1000 \
+              "$app_root/shared/crt-business-api"
+          export PIPIPI_BUSINESS_DATA_DIRECTORY="$app_root/shared/crt-business-api"
           gzip -dc "$image_archive" | docker load
-          install -m 600 "$compose_source" "$compose_file"
+
+          docker run --rm --env-file "$shared_env" \
+              --env IMAGE_PROVIDER=fal \
+              --env OBJECT_STORAGE_PROVIDER=aliyun-oss \
+              --entrypoint node "$image" \
+              dist/bin/check-deployment-environment.js crt-business-api
 
           if docker inspect pipipi >/dev/null 2>&1; then
               previous_image="$(docker inspect pipipi --format '{{.Config.Image}}')"
               previous_revision="$(docker inspect pipipi --format '{{index .Config.Labels "com.pipipi.revision"}}')"
+              if docker inspect pipipi-business-api >/dev/null 2>&1; then
+                  previous_has_business="true"
+              fi
           elif command -v pm2 >/dev/null && \
               pm2 describe pipipi >/dev/null 2>&1; then
               legacy_pm2="true"
           fi
+
+          if [ -f "$compose_file" ]; then
+              cp -p "$compose_file" "$previous_compose"
+          fi
+          install -m 600 "$compose_source" "$compose_file"
 
           activate() {
               target_image="$1"
@@ -156,20 +174,32 @@ jobs:
 
               actual_image="$(docker inspect pipipi --format '{{.Config.Image}}')"
               actual_revision="$(docker inspect pipipi --format '{{index .Config.Labels "com.pipipi.revision"}}')"
+              business_image="$(docker inspect pipipi-business-api --format '{{.Config.Image}}')"
+              business_revision="$(docker inspect pipipi-business-api --format '{{index .Config.Labels "com.pipipi.revision"}}')"
               if [ "$actual_image" != "$target_image" ] || \
-                  [ "$actual_revision" != "$target_revision" ]; then
-                  echo "Container revision mismatch: image=$actual_image revision=$actual_revision" >&2
+                  [ "$actual_revision" != "$target_revision" ] || \
+                  [ "$business_image" != "$target_image" ] || \
+                  [ "$business_revision" != "$target_revision" ]; then
+                  echo "Container revision mismatch" >&2
                   return 1
               fi
+          }
+
+          healthy_api() {
+              curl --fail --silent --show-error \
+                  http://127.0.0.1:4300/healthz >/dev/null && \
+              curl --fail --silent --show-error \
+                  http://127.0.0.1:4300/readyz >/dev/null
           }
 
           healthy() {
               attempt=1
               while [ "$attempt" -le 30 ]; do
                   if curl --fail --silent --show-error \
-                      http://127.0.0.1:4300/healthz >/dev/null && \
+                      http://127.0.0.1:4400/healthz >/dev/null && \
                       curl --fail --silent --show-error \
-                      http://127.0.0.1:4300/readyz >/dev/null; then
+                      http://127.0.0.1:4400/readyz >/dev/null && \
+                      healthy_api; then
                       return 0
                   fi
                   attempt=$((attempt + 1))
@@ -181,8 +211,21 @@ jobs:
           rollback() {
               if [ -n "$previous_image" ]; then
                   echo "Rolling back to $previous_image" >&2
-                  activate "$previous_image" "$previous_revision"
-                  healthy
+                  if [ "$previous_has_business" = "true" ]; then
+                      activate "$previous_image" "$previous_revision"
+                      healthy
+                      return
+                  fi
+                  PIPIPI_IMAGE="$image" PIPIPI_REVISION="$revision" \
+                  PIPIPI_ENV_FILE="$shared_env" \
+                      docker compose --project-name pipipi \
+                      --file "$compose_file" down
+                  PIPIPI_IMAGE="$previous_image" \
+                  PIPIPI_REVISION="$previous_revision" \
+                  PIPIPI_ENV_FILE="$shared_env" \
+                      docker compose --project-name pipipi \
+                      --file "$previous_compose" up -d --force-recreate --no-build
+                  healthy_api
                   return
               fi
               if [ "$legacy_pm2" = "true" ]; then
@@ -194,7 +237,7 @@ jobs:
                   legacy_release="$(readlink -f "$app_root/current")"
                   cd "$legacy_release"
                   pm2 start ecosystem.config.cjs --update-env
-                  healthy
+                  healthy_api
                   return
               fi
               echo "No previous deployment is available for rollback" >&2
@@ -207,6 +250,7 @@ jobs:
 
           if ! activate "$image" "$revision" || ! healthy; then
               docker logs --tail 100 pipipi || true
+              docker logs --tail 100 pipipi-business-api || true
               rollback || true
               exit 1
           fi
@@ -214,6 +258,6 @@ jobs:
           if [ "$legacy_pm2" = "true" ]; then
               pm2 save --force >/dev/null
           fi
-          rm -f "$image_archive" "$compose_source"
+          rm -f "$image_archive" "$compose_source" "$previous_compose"
           echo "Deployed revision $revision"
           REMOTE

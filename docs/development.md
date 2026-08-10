@@ -136,7 +136,7 @@ docker compose -f compose.integration.yaml down
 
 ### 异步运行角色
 
-同一构建产物提供五个长运行命令：`npm run start:api`、`npm run start:dispatcher`、`npm run start:worker`、`npm run start:webhook-worker` 和 `npm run start:retention-cleaner`。五个角色应部署为独立进程或工作负载；API 不消费 Job，Dispatcher 不加载 Business Process 或 caller Secret，Process Worker 不加载网关身份配置，Webhook Worker 不加载 production catalog，Retention Cleaner 只连接 PostgreSQL。`npm run start:operations` 是读取 PostgreSQL 与两个 Queue 后退出的一次性运维 Job。启动后台命令本身就是启用该内部角色的部署选择；`ASYNC_PROCESS_RUNS_ENABLED` 只控制 API 是否公开异步路由。
+同一构建产物还提供 `npm run start:business-api`，负责内部 `POST /crt-images`、FAL、finalizer 和 OSS。它与 API 作为独立进程或工作负载运行；单服务器 Compose 只把它绑定到宿主机回环地址。Dispatcher、Worker、Webhook Worker 和 Retention Cleaner 仍按异步 Runbook 独立部署。`npm run start:operations` 是一次性运维 Job；`ASYNC_PROCESS_RUNS_ENABLED` 只控制 API 是否公开异步路由。
 
 | 配置 | API | Dispatcher | Process Worker | Webhook Worker | Retention Cleaner |
 | --- | --- | --- | --- | --- | --- |
@@ -160,7 +160,7 @@ docker compose -f compose.integration.yaml down
 
 `content-processing/v1` 默认 `CONTENT_PROCESSING_RETRY_MAX_ATTEMPTS=1`。只有确认下游按 `Idempotency-Key: <runId>` 去重后，才可把该值提高到 `2`–`5`；当前只把稳定的 `DEPENDENCY_FAILURE` 分类为可重试。`CONTENT_PROCESSING_RETRY_INITIAL_DELAY_MS` 和 `CONTENT_PROCESSING_RETRY_MAX_DELAY_MS` 控制指数退避，最大延迟不超过 300 秒。等待重试时公开状态仍是 `queued`，请求 body 不能覆盖这些策略。
 
-五个角色都提供 `GET /healthz` 和 `GET /readyz`。liveness 只确认进程工作，不访问下游；readiness 检查该角色实际使用的 migration、PostgreSQL 和 Redis，并在有界时间内返回 `503`，不暴露连接地址或内部错误。默认同步 API 保持原样，启用异步路由也不会删除 `POST /execute`。
+各长运行角色都提供 `GET /healthz` 和 `GET /readyz`。liveness 只确认进程工作；异步角色的 readiness 检查实际使用的 migration、PostgreSQL 和 Redis。CRT Business API 的启动校验负责检查配置形状，readiness 不产生 FAL 或 OSS 请求。默认同步 API 保持原样，启用异步路由也不会删除 `POST /execute`。
 
 ### Queue 对账与重建
 
@@ -211,7 +211,7 @@ Webhook 重试状态以 PostgreSQL 为准，不依赖 BullMQ 的 Job attempts。
 
 | 目录 | Module 职责 |
 | --- | --- |
-| `src/bin/` | API、Dispatcher、Worker、Cleaner、Operations 和 Recovery 的可执行入口；不放业务规则 |
+| `src/bin/` | API、CRT Business API、Dispatcher、Worker、Cleaner、Operations 和 Recovery 的可执行入口；不放业务规则 |
 | `src/app/` | 各可执行角色的 Composition Root、启动配置和后台角色生命周期 |
 | `src/api/` | HTTP Application、路由和 caller identity；不组装业务与基础设施 |
 | `src/process-runtime/` | 跨 Business Process 复用的 Registration、Registry、Runner、Attempt、结果和观测治理 |
@@ -219,7 +219,7 @@ Webhook 重试状态以 PostgreSQL 为准，不依赖 BullMQ 的 Job attempts。
 | `src/processes/` | production catalog，以及按 `content/`、`titled-content/`、`poster/`、`crt/` 分组的具体 Business Process；不放通用 Runtime |
 | `src/process-runs/` | Async Process Runs，以及按 `store/`、`queue/`、`outbox/`、`worker/`、`recovery/`、`retention/` 和 `ops/` 分组的内部 Module |
 | `src/webhooks/` | Webhook Delivery，以及按 `delivery/`、`store/`、`queue/`、`outbox/` 分组的内部 Module |
-| `examples/support/` | 只供真实集成与业务验收使用的 OpenAI Images 和对象存储 Adapter；不进入生产 `dist/` |
+| `src/business-api/` | CRT Business API、FAL、finalizer、证据和对象存储 Adapter |
 | `migrations/` | 受版本和 advisory lock 管理的 PostgreSQL schema 变化 |
 | `test/` | 跨公开 Seam 的确定性行为验证 |
 | `examples/` | 本地依赖、真实集成、业务验收和可复现实验 |
@@ -413,7 +413,7 @@ Run Record 是运行排障数据，不是聊天历史。产品聊天记录应由
 npm run check:deployment-env -- api
 ```
 
-可选角色为 `api`、`process-dispatcher`、`process-worker`、`webhook-worker`、`retention-cleaner`、`async-operations` 和 `process-recovery`。命令检查该角色无默认值的必填项，空字符串和纯空白都视为缺失；当 Agent 角色设置 `PI_PROVIDER=openai` 时，它还要求 `OPENAI_API_KEY`。命令不会连接 PostgreSQL、Redis、模型或 Business Capability，也不会输出配置值。每个 Construction Root 会在创建 Adapter 前重复基础检查；`NODE_ENV=production` 时也检查 OpenAI 凭证，再由原有解析器校验 URL、数值、枚举和跨字段约束。Queue Recovery 还会单独要求 `PROCESS_RECOVERY_ACTOR_ID` 或 `--actor`。其他模型和图片供应商凭证按实际 Adapter 条件注入，并通过对应 smoke 验证。
+可选角色为 `api`、`crt-business-api`、`process-dispatcher`、`process-worker`、`webhook-worker`、`retention-cleaner`、`async-operations` 和 `process-recovery`。命令检查该角色无默认值的必填项，空字符串和纯空白都视为缺失；Agent 角色和 CRT Business API 还检查各自供应商凭证名称。命令不会连接 PostgreSQL、Redis、模型、OSS 或 Business Capability，也不会输出配置值。每个 Construction Root 会在创建 Adapter 前重复基础检查，再由原有解析器校验 URL、数值、枚举和跨字段约束。
 
 - 新增配置时同时更新 `.env.example`、启动构造测试和相关文档。
 - 只把稳定运行策略放入环境配置。Process 拓扑、Schema 和业务语义留在代码中。

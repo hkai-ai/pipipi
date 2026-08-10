@@ -45,7 +45,7 @@ Business Processing Service 让产品调用方通过一个稳定的 HTTP Interfa
 
 `minimal-zine-poster/v1` 已进入 `/execute` catalog。它返回图片 HTTP(S) URL、媒体类型、尺寸和可选过期时间，不把大体积图片字节写入 Process output。调用方不能选择 Skill、模型、图片供应商或存储。OpenAI Images、FAL 与阿里云 OSS 只用于显式真实集成和海报业务验收；Skill A/B 仍是独立实验。
 
-`crt-interface-image/v1` 也已进入 `/execute` catalog。调用方提交可由 FAL 读取的公网 HTTPS `sourceImageUrl`、固定调色板名和画幅；请求不接收图片字节、Prompt 或实现配置。Registration 在 Agent 编译结果通过校验后调用一次 CRT Rendering Capability，并只公开画幅和 PNG 引用。FAL Adapter 把 URL 原样放入 `image_urls`，服务端不下载原图；Business API 对模型结果做确定性 finalizer，并可把最终 PNG 保存到阿里云 OSS。验收按服务端策略选择不保留证据、只保留脱敏 metadata，或按 `runId` 保留模型原始图、最终图和 manifest；manifest 只保存来源 URL 的 SHA-256，不保存 URL。生产必须限制调用权限、URL 长度和协议，并明确外部图片托管方与 FAL 的访问、过期和隐私约束；证据模式默认关闭。上游 Runtime Skill 未声明许可证，正式发布前必须确认权利。开发边界见 [`docs/processes/crt-interface-image/`](docs/processes/crt-interface-image/)。
+`crt-interface-image/v1` 也已进入 `/execute` catalog。调用方提交可由 FAL 读取的公网 HTTPS `sourceImageUrl`、固定调色板名和画幅；请求不接收图片字节、Prompt 或实现配置。Registration 在 Agent 编译结果通过校验后调用一次 CRT Rendering Capability，并只公开画幅和 PNG 引用。仓库内的生产 CRT Business API 把 URL 原样放入 FAL `image_urls`、执行确定性 finalizer，并把最终 PNG 保存到阿里云 OSS；单服务器 Compose 只在宿主机回环地址暴露该内部服务。验收按服务端策略选择不保留证据、只保留脱敏 metadata，或按 `runId` 保留模型原始图、最终图和 manifest；生产部署固定关闭证据。生产必须限制调用权限、URL 长度和协议，并明确外部图片托管方与 FAL 的访问、过期和隐私约束。上游 Runtime Skill 未声明许可证，正式发布前必须确认权利。开发边界见 [`docs/processes/crt-interface-image/`](docs/processes/crt-interface-image/)。
 
 ## 运行与信任模型
 

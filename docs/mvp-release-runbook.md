@@ -1,6 +1,6 @@
 ﻿# 受控 Business Process MVP 发布手册
 
-本手册面向发布与运维人员，用于发布现有同步 Business Process 服务，包括文本处理、`minimal-zine-poster/v1` 与 `crt-interface-image/v1`。生产服务通过受控 Rendering Capability 获取图片 URL；供应商专用的 OpenAI Images 和 OSS Adapter 只用于显式真实集成与本地业务验收。CRT 候选还依赖产品图片上传、`POST /crt-images`、确定性 finalizer 和来源权利确认；缺少任一门禁时不得发布包含该 catalog 的候选镜像。本文不发布异步作业或公网匿名接口。项目范围以
+本手册面向发布与运维人员，用于发布现有同步 Business Process 服务，包括文本处理、`minimal-zine-poster/v1` 与 `crt-interface-image/v1`。生产 Compose 同时运行主 API 和内部 CRT Business API；后者负责 FAL GPT Image 2、确定性 finalizer 与阿里云 OSS。CRT 候选还依赖产品图片上传和来源权利确认；缺少任一门禁时不得开放该 Process。本文不发布异步作业或公网匿名接口。项目范围以
 [`CONTEXT.md`](../CONTEXT.md) 为准；文档维护要求见 [`docs/README.md`](README.md)。
 
 ## 发布边界
@@ -30,7 +30,8 @@
 
 | 变量 | 要求 |
 | --- | --- |
-| `BUSINESS_API_BASE_URL` | 必填；必须指向容器可达且实现 `POST /process`、`POST /posters` 与 `POST /crt-images` 的真实 Business API，禁止使用 `localhost` 演示地址 |
+| `BUSINESS_API_BASE_URL` | 必填；供文本和海报 Capability 使用。CRT 可以通过单独的 `CRT_BUSINESS_API_BASE_URL` 覆盖 |
+| `CRT_BUSINESS_API_BASE_URL` | Compose 固定为 `http://127.0.0.1:4400`，不要写入产品请求 |
 | `PORT` | 可选；默认 `3000` |
 | `CONTENT_PROCESSING_MODE` | `direct` 或 `agent`；默认 `direct` |
 | `HTTP_MAX_REQUEST_BODY_BYTES` | 正整数；默认 `262144` |
@@ -47,8 +48,12 @@
 | `PI_POSTER_SKILL_DIRECTORY` | 可选；只覆盖固定的 `minimal-zine-poster-prompt` 路径 |
 | `PI_CRT_SKILL_DIRECTORY` | 可选；只覆盖固定的 `tait-crt-interface-prompt` 路径 |
 | `OPENAI_API_KEY` | 执行使用 OpenAI 的 Agent 时由平台 Secret 注入；禁止写入镜像、仓库或普通配置 |
+| `FAL_KEY` | 内部 CRT Business API 调用 FAL 的生产 Secret |
+| `OBJECT_STORAGE_PROVIDER` | 生产 Compose 固定为 `aliyun-oss` |
+| `OSS_REGION`、`OSS_BUCKET`、`OSS_ACCESS_KEY_ID`、`OSS_ACCESS_KEY_SECRET` | CRT 最终 PNG 的持久化配置 |
+| `OSS_URL_ACCESS` | `signed` 或 `public`；使用 `public` 时还必须设置 `OSS_PUBLIC_BASE_URL` |
 
-若 Business Capability 需要认证，优先使用私网身份、工作负载身份或服务网格。当前 HTTP Adapter 不发送调用方提供的任意认证头。`POST /posters` 与 `POST /crt-images` 必须以 `Idempotency-Key: <runId>` 去重，并返回在声明期限内可访问的 HTTP(S) 图片 URL；短期签名 URL 必须返回 `expiresAt`。CRT endpoint 还必须只解析服务端资产标识，不能抓取调用方 URL。生产 Business API 必须把 CRT 证据模式固定为 `off`；`CRT_IMAGE_EVIDENCE_MODE` 属于该服务的部署配置，不注入产品请求。
+若 Business Capability 需要认证，优先使用私网身份、工作负载身份或服务网格。当前 HTTP Adapter 不发送调用方提供的任意认证头。`POST /posters` 与 `POST /crt-images` 必须以 `Idempotency-Key: <runId>` 去重，并返回在声明期限内可访问的 HTTP(S) 图片 URL；短期签名 URL 必须返回 `expiresAt`。CRT endpoint 接受经过主 API 校验的公网 HTTPS URL，并原样交给 FAL。生产 Compose 固定 `CRT_IMAGE_EVIDENCE_MODE=off`，产品请求不能覆盖证据策略。
 
 `PROCESS_TIMEOUT_MS=240000` 是本手册的受控发布覆盖值，不改变代码的 30 秒默认值。它必须长于 `CRT_API_TIMEOUT_MS`；候选镜像、部署平台和回滚配置都必须显式保留该覆盖值。启用异步 Worker 时，`PROCESS_RUN_CLAIM_LEASE_MS` 还必须长于 Process 总超时。
 
@@ -58,9 +63,10 @@
 
 ```bash
 npm run check:deployment-env -- api
+npm run check:deployment-env -- crt-business-api
 ```
 
-同步 API 的无默认必填项是 `BUSINESS_API_BASE_URL`；设置 `PI_PROVIDER=openai` 时还必须提供 `OPENAI_API_KEY`。若目标环境设置 `ASYNC_PROCESS_RUNS_ENABLED=true`，同一命令还会检查 `DATABASE_URL`、`ASYNC_GATEWAY_SHARED_SECRET`、三个 `PROCESS_RUN_*_RETENTION_MS`、`ASYNC_RELEASE_STAGE`、`ASYNC_GLOBAL_BACKLOG_LIMIT`、`ASYNC_CALLER_BACKLOG_LIMIT` 和 `ASYNC_BACKLOG_RETRY_AFTER_SECONDS`。缺少任一项时，命令一次列出全部变量名并返回非零状态；它不输出值，也不连接外部系统。
+同步 API 的无默认必填项是 `BUSINESS_API_BASE_URL`；设置 `PI_PROVIDER=openai` 时还必须提供 `OPENAI_API_KEY`。CRT Business API 预检要求 FAL、存储供应商和 OSS 凭证；Compose 固定供应商为 `fal` 与 `aliyun-oss`。若目标环境设置 `ASYNC_PROCESS_RUNS_ENABLED=true`，API 预检还会检查异步角色变量。缺少任一项时，命令一次列出全部变量名并返回非零状态；它不输出值，也不连接外部系统。
 
 实际生产启动会在创建 Adapter 前重复同一检查，再校验 URL、正整数、枚举和跨字段约束。预检通过不证明 Secret 有效或依赖可达。`PI_PROVIDER` 与 `PI_MODEL`、模型凭证、Business Capability 契约和图片持久化仍按本手册的 smoke 与发布门禁验证。
 
@@ -74,7 +80,7 @@ Vercel Functions、Netlify Functions 和 Cloudflare Workers 不能直接运行�
 
 仓库通过 [production CI/CD](../.github/workflows/production-ci-cd.yml) 把同步 API 发布到一台 Linux Docker 服务器。Pull Request 执行确定性检查并构建生产镜像；`main` 推送和手动触发在检查通过后把镜像归档与生产 Compose 上传服务器并激活。生产 Job 使用 GitHub `production` Environment 和 `pipipi-production` 并发组，同一时间只允许一次部署。
 
-生产镜像固定 Node.js 24、编译产物、生产依赖和四个 Runtime Skill，不包含源码、`.env` 或凭证。服务器加载 `pipipi:<commit>` 镜像，再通过 [`compose.production.yaml`](../compose.production.yaml) 重建单个 `pipipi` API 容器。部署脚本同时校验容器 image tag 与 revision label，随后检查 `GET /healthz` 和 `GET /readyz`；失败时恢复部署前的镜像。首次从 PM2 迁移失败时，脚本会恢复服务器原有 PM2 服务。
+生产镜像固定 Node.js 24、编译产物、生产依赖和四个 Runtime Skill，不包含源码、`.env` 或凭证。服务器加载 `pipipi:<commit>` 镜像，再通过 [`compose.production.yaml`](../compose.production.yaml) 以同一镜像重建 `pipipi` 和 `pipipi-business-api` 两个容器。部署脚本校验两个容器的 image tag、revision label、liveness 和 readiness；失败时恢复部署前的镜像与 Compose 形状。
 
 ### GitHub 配置
 
@@ -119,6 +125,7 @@ Node.js 24 和生产 npm 依赖都在镜像内，服务器不需要安装 Node.j
 ```bash
 mkdir -p /opt/pipipi/shared
 chmod 700 /opt/pipipi/shared
+install -d -m 700 -o 1000 -g 1000 /opt/pipipi/shared/crt-business-api
 ```
 
 在 `/opt/pipipi/shared/.env` 写入生产配置，并设置权限：
@@ -141,9 +148,21 @@ PROCESS_TIMEOUT_MS=240000
 HTTP_MAX_REQUEST_BODY_BYTES=262144
 MAX_CONCURRENT_EXECUTIONS=4
 ASYNC_PROCESS_RUNS_ENABLED=false
+FAL_KEY=replace-with-production-secret
+OBJECT_STORAGE_PROVIDER=aliyun-oss
+OSS_REGION=oss-cn-hangzhou
+OSS_BUCKET=replace-with-bucket
+OSS_ACCESS_KEY_ID=replace-with-production-key
+OSS_ACCESS_KEY_SECRET=replace-with-production-secret
+OSS_URL_ACCESS=public
+OSS_PUBLIC_BASE_URL=https://assets.example.com
+CRT_IMAGE_MODEL=gpt-image-2
+CRT_IMAGE_QUALITY=low
+CRT_IMAGE_TIMEOUT_MS=180000
+CRT_IMAGE_OBJECT_PREFIX=crt-interface-image
 ```
 
-即使文本流程使用 `direct`，海报和 CRT 流程仍使用 Agent。生产 catalog 包含这些流程时，必须配置可用的 `PI_PROVIDER`、`PI_MODEL`、`OPENAI_BASE_URL`、`OPENAI_API_MODE` 和对应模型凭证。`BUSINESS_API_BASE_URL` 必须实现 `POST /process`、`POST /posters` 与 `POST /crt-images`。
+即使文本流程使用 `direct`，海报和 CRT 流程仍使用 Agent。生产 catalog 包含这些流程时，必须配置可用的 `PI_PROVIDER`、`PI_MODEL`、`OPENAI_BASE_URL`、`OPENAI_API_MODE` 和对应模型凭证。Compose 会把 `CRT_BUSINESS_API_BASE_URL` 固定到内部 `127.0.0.1:4400`；不要在 `.env` 中覆盖它。`BUSINESS_API_BASE_URL` 继续服务文本和海报流程。
 
 ### SSH 配置
 
@@ -159,7 +178,7 @@ ssh-keygen -t ed25519 -C "pipipi-github-actions" -f ./pipipi-deploy
 
 ### 1Panel、OpenResty 与防火墙
 
-生产容器使用 host 网络并监听 `0.0.0.0:4300`，从而保持现有 OpenResty 上游地址，也允许未来访问宿主机上的受控 Business API。服务器防火墙不得向公网开放 `4300`；1Panel 管理的 OpenResty 负责 TLS、调用方认证和反向代理。
+两个生产容器都使用 host 网络。主 API 监听 `0.0.0.0:4300`，保持现有 OpenResty 上游；CRT Business API 只监听 `127.0.0.1:4400`，无需配置 1Panel 网站或安全组规则。服务器防火墙不得向公网开放 `4300` 或 `4400`；1Panel 管理的 OpenResty 只反代主 API。
 
 在 1Panel 应用商店安装 OpenResty后，通过“网站 → 创建网站 → 反向代理”转发到 `http://<服务器内网IP>:4300`。OpenResty 运行在容器中时，不要默认使用指向容器自身的 `127.0.0.1`。以下配置仅用于说明等价的代理参数：
 
@@ -195,7 +214,7 @@ test -f /opt/pipipi/shared/.env
 curl --version
 ```
 
-随后在 GitHub Actions 手动运行 `Production CI/CD`，或把已评审改动合入 `main`。流水线依次执行 `npm ci`、`npm run check`、`npm run typecheck`、`npm test`、`npm run build`、构建生产镜像、上传镜像归档、加载镜像、用 Compose 重建容器、核对 image/revision，并检查两个健康端点。
+随后在 GitHub Actions 手动运行 `Production CI/CD`，或把已评审改动合入 `main`。流水线依次执行确定性检查、构建镜像、验证 Business API 必填变量、用 Compose 重建两个容器、核对 image/revision，并检查两项服务的健康端点。
 
 发布成功后在服务器确认：
 
@@ -204,8 +223,12 @@ docker compose --project-name pipipi \
   --file /opt/pipipi/shared/compose.production.yaml ps
 docker inspect pipipi \
   --format 'image={{.Config.Image}} revision={{index .Config.Labels "com.pipipi.revision"}} status={{.State.Status}} health={{.State.Health.Status}}'
+docker inspect pipipi-business-api \
+  --format 'image={{.Config.Image}} revision={{index .Config.Labels "com.pipipi.revision"}} status={{.State.Status}} health={{.State.Health.Status}}'
 curl --fail http://127.0.0.1:4300/healthz
 curl --fail http://127.0.0.1:4300/readyz
+curl --fail http://127.0.0.1:4400/healthz
+curl --fail http://127.0.0.1:4400/readyz
 ```
 
 流水线不会运行付费图片流程。完成确定性健康检查后，发布负责人按本手册“发布门禁”从受控入口执行对应 smoke 和图片业务验收。
@@ -224,6 +247,7 @@ PIPIPI_ENV_FILE="/opt/pipipi/shared/.env" \
   up -d --force-recreate --no-build
 curl --fail http://127.0.0.1:4300/healthz
 curl --fail http://127.0.0.1:4300/readyz
+curl --fail http://127.0.0.1:4400/healthz
 ```
 
 确认当前版本和至少一个回滚镜像后，才用 `docker image rm pipipi:<commit>` 删除不再需要的旧镜像。不要删除当前容器或回滚候选使用的镜像，也不要在同一次回滚中修改生产 `.env`。

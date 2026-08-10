@@ -70,7 +70,7 @@ cp .env.example .env
 npm run dev:business-api
 ```
 
-这个演示服务只实现文本用的 `POST /process`。执行海报 Process 时，`BUSINESS_API_BASE_URL` 必须指向实现 `POST /posters` 的受控 Business API；执行 CRT Process 时，同一地址还必须实现 `POST /crt-images`。`npm run accept:poster-business` 会完成一次海报业务验收。`npm run smoke:crt-gpt-image` 只验证本地参考图编辑；`npm run accept:crt-business` 则从产品 `POST /execute` 使用公网 `sourceImageUrl` 调用 FAL、执行确定性 finalizer，并可把最终 PNG 上传阿里云 OSS。
+文本演示服务只实现 `POST /process`。海报 Process 仍要求 `BUSINESS_API_BASE_URL` 指向实现 `POST /posters` 的受控服务；CRT Process 可以通过 `CRT_BUSINESS_API_BASE_URL` 单独指向仓库提供的生产 CRT Business API。`npm run accept:poster-business` 会完成一次海报业务验收。`npm run smoke:crt-gpt-image` 只验证本地参考图编辑；`npm run accept:crt-business` 则从产品 `POST /execute` 使用公网 `sourceImageUrl` 调用 FAL、执行确定性 finalizer，并可把最终 PNG 上传阿里云 OSS。
 
 在第二个终端启动处理服务：
 
@@ -133,9 +133,9 @@ curl http://127.0.0.1:3000/healthz
 
 仓库内已有 Async Process Runs Module、事务化 PostgreSQL Store、Process/Webhook Outbox，以及相互隔离的 BullMQ Process Queue 和 Webhook Queue。`npm run start:api`、`npm run start:dispatcher`、`npm run start:worker`、`npm run start:webhook-worker` 和 `npm run start:retention-cleaner` 从同一构建产物启动独立角色。Process 默认只执行一次，只有服务端 Registration 明确声明安全错误、次数和退避时才会重试；Webhook 已支持精简终态事件、Standard Webhooks 签名、PostgreSQL 权威的有界重试、Attempt 审计、受控人工重放、加密 Secret 和防 SSRF 的固定目标连接。Retention Cleaner 按固定 cutoff 分批删除到期内容，批次审计和返回游标允许安全续跑。Redis Queue 丢失时，`npm run recover:queue` 默认先做 PostgreSQL 权威的 dry-run，再由运维人员显式 `--apply` 重建所有仍需执行的 Job；终态 Run 永不进入恢复候选。`npm run observe:async` 从 PostgreSQL 和两个 Queue 读取不含业务内容的运维快照，Dashboard/alert 字段固定在 `ops/async-observability.json`。
 
-`minimal-zine-poster/v1` 和 `crt-interface-image/v1` 已进入 production catalog，但生产 Adapter 只依赖受控 Business API 的 `POST /posters` 与 `POST /crt-images`，不把 FAL、OSS 或模型参数暴露给产品调用方。仓库中的付费图片、阿里云 OSS、业务验收和 Skill A/B 命令都必须显式运行，不进入默认测试。当前海报版本不接收参考图片；CRT 版本接收公网 HTTPS `sourceImageUrl`。两者都不执行自动看图质检或重绘。
+`minimal-zine-poster/v1` 和 `crt-interface-image/v1` 已进入 production catalog，但生产 Adapter 只依赖受控 Business API 的 `POST /posters` 与 `POST /crt-images`，不把 FAL、OSS 或模型参数暴露给产品调用方。生产 Compose 已包含内部 CRT Business API；海报 Business API 仍由部署方提供。付费图片与 OSS 验收必须显式运行，不进入默认测试。当前海报版本不接收参考图片；CRT 版本接收公网 HTTPS `sourceImageUrl`。两者都不执行自动看图质检或重绘。
 
-CRT 流程的 Registration、Runtime Skill、HTTP Adapter、FAL URL 编辑、独立 finalizer 和可选 OSS 输出已经完成。正式发布仍受四项门禁约束：生产 `POST /crt-images` 必须受鉴权，来源 URL 必须可由 FAL 读取，目标环境必须完成存储验收，生产证据保留必须默认关闭，并确认上游 Skill 的再分发和生产使用权。
+CRT 流程的 Registration、Runtime Skill、HTTP Adapter、内部 Business API、FAL URL 编辑、独立 finalizer 和 OSS 输出已经完成。正式发布仍需确认：内部 `POST /crt-images` 不向公网暴露，来源 URL 可由 FAL 读取，目标环境完成存储验收，生产证据保留关闭，并确认上游 Skill 的再分发和生产使用权。
 
 ## 文档导航
 
