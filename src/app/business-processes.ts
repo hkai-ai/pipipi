@@ -1,4 +1,5 @@
-import { parseOpenAIApiMode } from "../processes/agent/pi.js";
+import { parseOpenAIApiMode } from "../agent-runtime/pi.js";
+import type { ProcessRetryPolicy } from "../process-runtime/index.js";
 import {
     createProcessRuntime,
     type ProcessRuntime,
@@ -14,7 +15,6 @@ import { createCrtSkillRefs } from "../processes/crt/skills.js";
 import { HttpPosterRenderingCapability } from "../processes/poster/http.js";
 import { PiPosterAgent } from "../processes/poster/pi.js";
 import { createPosterSkillRefs } from "../processes/poster/skills.js";
-import type { ProcessRetryPolicy } from "../processes/runtime/index.js";
 import type { StartupEnvironment } from "./config.js";
 
 export function createProductionRuntime(

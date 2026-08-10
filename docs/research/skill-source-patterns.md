@@ -190,7 +190,7 @@ host、防止本地路径越过允许根目录、限制 bundle 大小和文件�
 ### 当前能力
 
 本项目已经有显式的本地 Skill 入口。各流程的 `skills.ts` 提供固定 `SkillRef[]`，共享的
-[`src/processes/agent/skills.ts`](../../src/processes/agent/skills.ts) 负责精确加载。`content-processing/v1`
+[`src/agent-runtime/skills.ts`](../../src/agent-runtime/skills.ts) 负责精确加载。`content-processing/v1`
 绑定 `content-optimization` 与 `content-integrity`；`minimal-zine-poster/v1` 绑定
 `minimal-zine-poster-prompt`；`crt-interface-image/v1` 绑定 `tait-crt-interface-prompt`。Runtime 要求名称唯一、每项精确解析一次，并按声明顺序把选中的
 `SKILL.md` 正文交给独立 Agent Session。Docker image 显式复制这四个 Skill

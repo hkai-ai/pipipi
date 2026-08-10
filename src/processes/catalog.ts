@@ -1,3 +1,10 @@
+import {
+    createProcessRegistry,
+    createProcessRunner,
+    type ProcessExecutor,
+    type ProcessRegistry,
+} from "../process-runtime/index.js";
+import type { ProcessRunRecords } from "../process-runtime/records.js";
 import type { ContentAgent } from "./content/agent.js";
 import type { ContentProcessingCapability } from "./content/capability.js";
 import {
@@ -10,13 +17,6 @@ import { createCrtRegistration } from "./crt/registration.js";
 import type { PosterAgent } from "./poster/agent.js";
 import type { PosterRenderingCapability } from "./poster/capability.js";
 import { createPosterRegistration } from "./poster/registration.js";
-import {
-    createProcessRegistry,
-    createProcessRunner,
-    type ProcessExecutor,
-    type ProcessRegistry,
-} from "./runtime/index.js";
-import type { ProcessRunRecords } from "./runtime/records.js";
 import {
     createTitledContentRegistration,
     type TitledContentConfig,

@@ -1,5 +1,5 @@
 import { createServer, type Server } from "node:http";
-import type { ProcessExecutor } from "../processes/runtime/index.js";
+import type { ProcessExecutor } from "../process-runtime/index.js";
 import {
     createProcessingRequestListener,
     type ProcessingHttpOptions,

@@ -3,8 +3,9 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, join, resolve } from "node:path";
 import sharp from "sharp";
+import { parseOpenAIApiMode } from "../src/agent-runtime/pi.js";
 import { constructProcessingService } from "../src/app/api.js";
-import { parseOpenAIApiMode } from "../src/processes/agent/pi.js";
+import type { ProcessRunResult } from "../src/process-runtime/index.js";
 import type { CrtImage } from "../src/processes/crt/capability.js";
 import {
     type CrtAspectRatio,
@@ -12,7 +13,6 @@ import {
     crtAspectRatios,
     crtPaletteNames,
 } from "../src/processes/crt/style.js";
-import type { ProcessRunResult } from "../src/processes/runtime/index.js";
 import { resolveCrtEvidencePolicy } from "./support/crt-evidence.js";
 import { createImageGenerationClient } from "./support/image-generation-config.js";
 import {

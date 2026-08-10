@@ -4,13 +4,13 @@
 
 ## 项目级 Agent 与 Skill
 
-仓库中的“Agent + Skill”分为开发期和生产期。先区分调用方，再决定编辑位置：`AGENTS.md` 和 `.agents/skills/` 指导 Codex 开发仓库；`src/processes/` 中的 Agent Adapter 和 `.pi/skills/` 参与产品请求。Pi CLI 的 `.pi/extensions/` 或 `.pi/settings.json` 属于另一个开发宿主机制，本项目当前没有启用，也不进入生产 Runtime。
+仓库中的“Agent + Skill”分为开发期和生产期。先区分调用方，再决定编辑位置：`AGENTS.md` 和 `.agents/skills/` 指导 Codex 开发仓库；`src/processes/` 中的流程专属 Agent Adapter、`src/agent-runtime/` 中的跨流程基础设施和 `.pi/skills/` 参与产品请求。Pi CLI 的 `.pi/extensions/` 或 `.pi/settings.json` 属于另一个开发宿主机制，本项目当前没有启用，也不进入生产 Runtime。
 
 | 角色 | 位置 | 调用方 | 拥有的事实 |
 | --- | --- | --- | --- |
 | 仓库协作规则 | [`../AGENTS.md`](../AGENTS.md) | Codex、维护者 | 开发入口、术语、Skill 路由和完成标准；不定义生产 Agent 行为 |
 | Development Skill | [`.agents/skills/<name>/`](../.agents/skills) | Codex | 编写、测试、集成、发布或维护文档的方法 |
-| 生产 Agent Interface 与 Adapter | [`src/processes/<module>/agent.ts`](../src/processes)、`pi.ts`，共享基础设施在 [`src/processes/agent/`](../src/processes/agent) | Process Registration、生产 Composition Root | 模型任务、请求级 Session、JSON 解析和实际 Tool 表面 |
+| 生产 Agent Interface 与 Adapter | [`src/processes/<module>/agent.ts`](../src/processes)、`pi.ts`，跨流程基础设施在 [`src/agent-runtime/`](../src/agent-runtime) | Process Registration、生产 Composition Root | 模型任务、请求级 Session、JSON 解析和实际 Tool 表面 |
 | Runtime Skill | [`.pi/skills/<name>/`](../.pi/skills) | 服务端受限 Agent | 经过评审的任务说明；它本身不授予 Tool、文件、Shell 或网络权限 |
 | 服务端绑定与流程治理 | `src/processes/<module>/skills.ts`、`registration.ts`，[`src/app/business-processes.ts`](../src/app/business-processes.ts)、[`src/processes/catalog.ts`](../src/processes/catalog.ts) | Startup Construction、Process Runner | 准确 Skill 集合、Agent 与 Capability Adapter、执行顺序、校验、错误、重试和 production catalog |
 
@@ -115,7 +115,7 @@ Runtime Skill 必须服务于一个明确的 Process Registration。集成步骤
 7. 用 mock Agent 做确定性契约测试，再按需运行显式的真实集成或业务验收；
 8. 记录来源、不可变 ref、内容哈希、适配改动和回滚版本。
 
-当前 Pi Agent 路径接受非空 `SkillRef[]`。具体 Process 的 `skills.ts` 固定 Skill 名称、顺序、默认本地路径和 Tool 名称；通用 [`src/processes/agent/skills.ts`](../src/processes/agent/skills.ts) 只负责精确加载。名称必须唯一，并且必须精确解析一次。Runtime 按声明顺序读取所有 `SKILL.md`，把正文作为一个经过评审的指令集交给 Agent，同时只暴露 Registration 已授权的 Tool。`content-processing/v1` 最多让一次 Tool 调用触达 Business Capability，并要求成功输出与 Tool 结果一致。`minimal-zine-poster/v1` 与 `crt-interface-image/v1` 都不给 Agent Tool；Registration 先验证 Agent 编译结果，再自行调用对应 Rendering Capability。Runtime 不自动读取附加 reference、运行 Skill script 或连接 MCP。需要这些能力的 Skill 不能直接接入；应先设计窄 Runtime Interface、权限和测试，再扩展实现。当前限制和真实验证方法见 [`experiments.md`](experiments.md)。
+当前 Pi Agent 路径接受非空 `SkillRef[]`。具体 Process 的 `skills.ts` 固定 Skill 名称、顺序、默认本地路径和 Tool 名称；通用 [`src/agent-runtime/skills.ts`](../src/agent-runtime/skills.ts) 只负责精确加载。名称必须唯一，并且必须精确解析一次。Runtime 按声明顺序读取所有 `SKILL.md`，把正文作为一个经过评审的指令集交给 Agent，同时只暴露 Registration 已授权的 Tool。`content-processing/v1` 最多让一次 Tool 调用触达 Business Capability，并要求成功输出与 Tool 结果一致。`minimal-zine-poster/v1` 与 `crt-interface-image/v1` 都不给 Agent Tool；Registration 先验证 Agent 编译结果，再自行调用对应 Rendering Capability。Runtime 不自动读取附加 reference、运行 Skill script 或连接 MCP。需要这些能力的 Skill 不能直接接入；应先设计窄 Runtime Interface、权限和测试，再扩展实现。当前限制和真实验证方法见 [`experiments.md`](experiments.md)。
 
 ## 线上边界
 

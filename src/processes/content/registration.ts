@@ -6,7 +6,7 @@ import {
     type ProcessExecutionContext,
     type ProcessRegistration,
     type ProcessRetryPolicy,
-} from "../runtime/index.js";
+} from "../../process-runtime/index.js";
 import type { ContentAgent } from "./agent.js";
 import {
     type ContentProcessingCapability,

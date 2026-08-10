@@ -42,7 +42,7 @@ import {
     createProcessRegistry,
     defineProcessRegistration,
     failProcess,
-} from "../src/processes/runtime/index.js";
+} from "../src/process-runtime/index.js";
 import { signStandardWebhook } from "../src/webhooks/delivery/signing.js";
 import { createWebhookTargetPolicy } from "../src/webhooks/delivery/target-policy.js";
 import {

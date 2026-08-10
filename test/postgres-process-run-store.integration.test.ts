@@ -18,7 +18,7 @@ import {
     type ProcessRunStore,
 } from "../src/process-runs/store/index.js";
 import { createPostgresProcessRunStore } from "../src/process-runs/store/postgres.js";
-import { createProcessRegistry } from "../src/processes/runtime/index.js";
+import { createProcessRegistry } from "../src/process-runtime/index.js";
 import {
     createStandardWebhookHttpSender,
     createWebhookDeliveryWorker,

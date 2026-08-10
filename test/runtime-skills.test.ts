@@ -4,7 +4,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { createSkillSet } from "../src/processes/agent/skills.js";
+import { createSkillSet } from "../src/agent-runtime/skills.js";
 import {
     contentToolName,
     createContentSkillRefs,

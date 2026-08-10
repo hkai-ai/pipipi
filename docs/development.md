@@ -213,7 +213,9 @@ Webhook 重试状态以 PostgreSQL 为准，不依赖 BullMQ 的 Job attempts。
 | `src/bin/` | API、Dispatcher、Worker、Cleaner、Operations 和 Recovery 的可执行入口；不放业务规则 |
 | `src/app/` | 各可执行角色的 Composition Root、启动配置和后台角色生命周期 |
 | `src/api/` | HTTP Application、路由和 caller identity；不组装业务与基础设施 |
-| `src/processes/` | Process Runtime、共享 Agent 基础设施、production catalog，以及按 `content/`、`titled-content/`、`poster/`、`crt/` 分组的具体 Business Process |
+| `src/process-runtime/` | 跨 Business Process 复用的 Registration、Registry、Runner、Attempt、结果和观测治理 |
+| `src/agent-runtime/` | 跨 Business Process 复用的 Pi provider 配置、Agent JSON 解析和 Runtime Skill 精确加载 |
+| `src/processes/` | production catalog，以及按 `content/`、`titled-content/`、`poster/`、`crt/` 分组的具体 Business Process；不放通用 Runtime |
 | `src/process-runs/` | Async Process Runs，以及按 `store/`、`queue/`、`outbox/`、`worker/`、`recovery/`、`retention/` 和 `ops/` 分组的内部 Module |
 | `src/webhooks/` | Webhook Delivery，以及按 `delivery/`、`store/`、`queue/`、`outbox/` 分组的内部 Module |
 | `examples/support/` | 只供真实集成与业务验收使用的 OpenAI Images 和对象存储 Adapter；不进入生产 `dist/` |
@@ -230,8 +232,8 @@ Webhook 重试状态以 PostgreSQL 为准，不依赖 BullMQ 的 Job attempts。
 | `src/app/process-dispatcher.ts`、`process-worker.ts`、`retention-cleaner.ts` | 各后台角色独立的配置和 Adapter 组装 |
 | `src/app/process-recovery.ts`、`async-operations.ts` | 一次性运维命令的资源组装 |
 | `src/app/webhook-worker.ts` | Webhook Worker 的 Delivery、Outbox、Queue 和 HTTP Sender 组装 |
-| `src/processes/runtime/` | Registration、Registry、同步 Runner、Attempt Runner、Run Record、公共结果和错误治理 |
-| `src/processes/agent/pi.ts`、`skills.ts` | 多个流程共用的 Pi provider 配置、Agent JSON 解析和 Runtime Skill 精确加载 |
+| `src/process-runtime/` | Registration、Registry、同步 Runner、Attempt Runner、Run Record、公共结果和错误治理 |
+| `src/agent-runtime/pi.ts`、`skills.ts` | 多个流程共用的 Pi provider 配置、Agent JSON 解析和 Runtime Skill 精确加载 |
 | `src/processes/catalog.ts` | 显式 production catalog 和 Process Runtime 组装 |
 | `src/processes/content/registration.ts` | `content-processing/v1` 的 Schema、Direct/Agent 流程、失败和 Tool 调用 invariant |
 | `src/processes/content/skills.ts` | `content-processing/v1` 获准使用的有序 Runtime Skill 集合与 Tool 名称 |
@@ -253,8 +255,7 @@ Webhook 重试状态以 PostgreSQL 为准，不依赖 BullMQ 的 Job attempts。
 | `src/webhooks/store/postgres.ts` | Endpoint、Delivery、Attempt 和 replay 的 PostgreSQL Adapter |
 | `src/webhooks/queue/`、`src/webhooks/outbox/` | Webhook Job 调度和事务 Outbox 发布 |
 
-依赖方向固定为 `bin → app → api/processes/process-runs/webhooks`。领域与业务 Module 不反向引用
-`app/` 或 `bin/`；Composition Root 负责把它们连接起来。
+依赖方向固定为：`bin` 只进入 `app`；`app` 组装 `api`、`processes`、`process-runs` 和 `webhooks`；具体 `processes` 依赖 `process-runtime` 与 `agent-runtime`，`api` 和 `process-runs` 只依赖 `process-runtime` 的稳定 Interface。Runtime Module 不反向引用具体 Business Process，领域与业务 Module 不反向引用 `app` 或 `bin`；Composition Root 负责把它们连接起来。
 
 顶层目录使用明确的领域名，子目录对应实际 Module。父目录已经提供的上下文不在文件名中重复，例如使用 `src/process-runs/store/postgres.ts`，不用 `src/process-runs/store/postgres-process-run-store.ts`；Adapter 文件只保留 `postgres.ts`、`bullmq.ts`、`http.ts` 等技术名称。不要新增 `common/`、`shared/`、`utils/` 或横向的 `controllers/services/repositories` 目录。无法明确归属的代码应先重新检查 Module 和 Seam。
 
@@ -357,7 +358,7 @@ JSON-safe snapshot。业务 input payload 默认上限为 262144 UTF-8 bytes，�
 ```ts
 import { createProcessingApplication } from "./src/api/application.js";
 import { createProcessExecutor } from "./src/processes/catalog.js";
-import { createInMemoryProcessRunRecords } from "./src/processes/runtime/records.js";
+import { createInMemoryProcessRunRecords } from "./src/process-runtime/records.js";
 
 const runRecords = createInMemoryProcessRunRecords({ maxRecords: 100 });
 const executor = createProcessExecutor({

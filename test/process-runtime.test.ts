@@ -10,8 +10,8 @@ import {
     type ProcessExecutionContext,
     type ProcessRegistration,
     type ProcessRegistry,
-} from "../src/processes/runtime/index.js";
-import type { CompletedProcessRun } from "../src/processes/runtime/records.js";
+} from "../src/process-runtime/index.js";
+import type { CompletedProcessRun } from "../src/process-runtime/records.js";
 
 describe("Process Runtime", () => {
     it("captures and validates a server-owned retry policy", () => {

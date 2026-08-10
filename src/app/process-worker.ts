@@ -2,7 +2,7 @@ import { writeAsyncOperationalLog } from "../process-runs/ops/logging.js";
 import { createBullMqProcessWorker } from "../process-runs/queue/bullmq.js";
 import { createPostgresProcessRunStore } from "../process-runs/store/postgres.js";
 import { createProcessWorker } from "../process-runs/worker/index.js";
-import { createProcessAttemptRunner } from "../processes/runtime/index.js";
+import { createProcessAttemptRunner } from "../process-runtime/index.js";
 import { createProductionRuntime } from "./business-processes.js";
 import {
     optionalNonEmpty,

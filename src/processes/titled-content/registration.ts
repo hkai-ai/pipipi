@@ -1,13 +1,13 @@
 import { z } from "zod";
 import {
-    type ContentProcessingCapability,
-    ContentProcessingUnavailable,
-} from "../content/capability.js";
-import {
     defineProcessRegistration,
     failProcess,
     type ProcessRegistration,
-} from "../runtime/index.js";
+} from "../../process-runtime/index.js";
+import {
+    type ContentProcessingCapability,
+    ContentProcessingUnavailable,
+} from "../content/capability.js";
 
 const titledContentInputSchema = z.strictObject({
     title: z.string().trim().min(1),

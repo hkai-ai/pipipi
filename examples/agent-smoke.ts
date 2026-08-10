@@ -1,5 +1,5 @@
+import { parseOpenAIApiMode } from "../src/agent-runtime/pi.js";
 import { createProcessingApplication } from "../src/api/application.js";
-import { parseOpenAIApiMode } from "../src/processes/agent/pi.js";
 import { createProcessExecutor } from "../src/processes/catalog.js";
 import type { ContentProcessingCapability } from "../src/processes/content/capability.js";
 import { parseBusinessApiBaseUrl } from "../src/processes/content/config.js";

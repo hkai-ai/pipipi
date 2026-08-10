@@ -1,4 +1,4 @@
-import type { SkillRef } from "../agent/skills.js";
+import type { SkillRef } from "../../agent-runtime/skills.js";
 
 export const contentToolName = "process_business_content";
 

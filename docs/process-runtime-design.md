@@ -157,7 +157,9 @@ Capability。独立 Webhook Construction 只组装 Delivery Store、Webhook Outb
 HTTP Sender，不加载 Business Process。四个角色的 liveness 不访问下游，readiness 只检查本角色依赖；生产观测和发布门禁
 完成前，异步 feature flag 只用于受控内部环境。
 
-依赖方向是 `bin → app → api/processes/process-runs/webhooks`；业务 Module 不反向引用启动层。
+`src/process-runtime/` 独立拥有通用 Process 执行治理，`src/agent-runtime/` 独立拥有跨流程 Agent 基础设施；`src/processes/` 只拥有具体 Business Process 与显式 catalog。具体 Process 可以依赖两个 Runtime Module，Runtime Module 不反向知道任何具体 Process。`api` 与 `process-runs` 只跨 `process-runtime` 的稳定 Interface 执行或持久化流程。
+
+依赖方向是 `bin → app`，再由 `app` 组装 `api`、`processes`、`process-runs` 和 `webhooks`；业务 Module 不反向引用启动层。
 `src/bin/` 中的入口只把 `process.env` 传给各自 Construction Seam，然后监听端口、写启动日志并处理
 `SIGINT` 和 `SIGTERM`。入口不翻译配置，也不直接组装 Adapter、Executor 或 Application。
 
@@ -184,7 +186,7 @@ Production catalog 由
 | Zod Schema、Registry Map、结果映射 | in-process | 留在深 Module 内，不增加 Adapter |
 | 受控 Business API | remote but owned | `ContentProcessingCapability`、`PosterRenderingCapability` 与 `CrtRenderingCapability` port；生产使用 HTTP Adapter，测试使用内存 Adapter |
 | Pi Agent Runtime | true external | `agent.ts` 定义窄 Interface；生产使用 `pi.ts` Adapter，测试使用 mock Adapter |
-| Runtime Skill 快照 | bundled resource | 流程拥有准确 `SkillRef[]`；`src/processes/agent/skills.ts` 精确加载，不自动发现或扩大 Tool 权限 |
+| Runtime Skill 快照 | bundled resource | 流程拥有准确 `SkillRef[]`；`src/agent-runtime/skills.ts` 精确加载，不自动发现或扩大 Tool 权限 |
 | Run Record 存储 | 可替换存储 Seam | disabled、内存和持久化 Adapter 共用 `ProcessRunRecordAdapter` |
 
 <!-- markdownlint-enable MD013 -->

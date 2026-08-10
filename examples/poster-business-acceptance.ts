@@ -7,14 +7,14 @@ import {
     type ServerResponse,
 } from "node:http";
 import { join, resolve } from "node:path";
+import { parseOpenAIApiMode } from "../src/agent-runtime/pi.js";
 import { constructProcessingService } from "../src/app/api.js";
-import { parseOpenAIApiMode } from "../src/processes/agent/pi.js";
+import type { ProcessRunResult } from "../src/process-runtime/index.js";
 import {
     type PosterImage,
     type PosterRenderingCapability,
     PosterRenderingUnavailable,
 } from "../src/processes/poster/capability.js";
-import type { ProcessRunResult } from "../src/processes/runtime/index.js";
 import { createImageGenerationClient } from "./support/image-generation-config.js";
 import type { StoredObject } from "./support/object-storage.js";
 import { createObjectStorageFromEnvironment } from "./support/object-storage-config.js";

@@ -12,7 +12,7 @@ import type {
     ProcessErrorCode,
     ProcessExecutor,
     ProcessRunResult,
-} from "../processes/runtime/index.js";
+} from "../process-runtime/index.js";
 import type { CallerIdentityResolver } from "./identity.js";
 
 export const defaultHttpMaxRequestBodyBytes = 262_144;

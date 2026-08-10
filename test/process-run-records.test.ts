@@ -3,14 +3,14 @@ import {
     createProcessingApplication,
     type ProcessingApplication,
 } from "../src/api/application.js";
-import { createProcessExecutor } from "../src/processes/catalog.js";
-import type { ProcessRunResult } from "../src/processes/runtime/index.js";
+import type { ProcessRunResult } from "../src/process-runtime/index.js";
 import {
     createInMemoryProcessRunRecords,
     createProcessRunRecords,
     type ProcessRunRecordAdapter,
     type ProcessRunRecords,
-} from "../src/processes/runtime/records.js";
+} from "../src/process-runtime/records.js";
+import { createProcessExecutor } from "../src/processes/catalog.js";
 
 const runningApplications: ProcessingApplication[] = [];
 

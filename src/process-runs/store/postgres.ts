@@ -3,7 +3,7 @@ import type { Pool, PoolClient, QueryResultRow } from "pg";
 import type {
     AcceptedProcessInput,
     ProcessErrorCode,
-} from "../../processes/runtime/index.js";
+} from "../../process-runtime/index.js";
 import type {
     ClaimedProcessRun,
     ProcessRunStore,

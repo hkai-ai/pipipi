@@ -3,7 +3,7 @@ import {
     defineProcessRegistration,
     failProcess,
     type ProcessRegistration,
-} from "../runtime/index.js";
+} from "../../process-runtime/index.js";
 import type { CrtAgent } from "./agent.js";
 import {
     type CrtRenderingCapability,

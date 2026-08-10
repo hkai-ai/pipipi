@@ -15,7 +15,7 @@ import {
     createPostgresAsyncReleaseReadiness,
 } from "../process-runs/ops/postgres.js";
 import { createPostgresProcessRunStore } from "../process-runs/store/postgres.js";
-import type { ProcessRegistry } from "../processes/runtime/index.js";
+import type { ProcessRegistry } from "../process-runtime/index.js";
 import { createProductionRuntime } from "./business-processes.js";
 import type { StartupEnvironment } from "./config.js";
 

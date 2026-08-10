@@ -12,12 +12,12 @@ import {
     configureOpenAI,
     type OpenAIApiMode,
     parseAgentJson,
-} from "../agent/pi.js";
+} from "../../agent-runtime/pi.js";
 import {
     createSkillSet,
     type SkillRef,
     type SkillSet,
-} from "../agent/skills.js";
+} from "../../agent-runtime/skills.js";
 import type { ContentAgent, ContentAgentRequest } from "./agent.js";
 import { contentToolName } from "./skills.js";
 
