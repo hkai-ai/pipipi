@@ -2,17 +2,18 @@ import { describe, expect, it } from "vitest";
 import { constructWebhookWorkerService } from "../src/app/webhook-worker.js";
 
 describe("Webhook Worker construction", () => {
-    it("requires only role-owned PostgreSQL and Redis configuration", () => {
+    it("requires all role-owned connection and Secret configuration", () => {
         expect(() => constructWebhookWorkerService({})).toThrow(
-            "DATABASE_URL is required for the Webhook Worker role",
+            "Deployment environment for webhook-worker is missing required variables: DATABASE_URL, REDIS_URL, WEBHOOK_SECRET_ENCRYPTION_KEY",
         );
         expect(() => constructWebhookWorkerService({ DATABASE_URL })).toThrow(
-            "REDIS_URL is required for the Webhook Worker role",
+            "Deployment environment for webhook-worker is missing required variables: REDIS_URL, WEBHOOK_SECRET_ENCRYPTION_KEY",
         );
         expect(() =>
             constructWebhookWorkerService({
                 DATABASE_URL,
                 REDIS_URL,
+                WEBHOOK_SECRET_ENCRYPTION_KEY,
                 WEBHOOK_QUEUE_PREFIX: "bad prefix",
             }),
         ).toThrow("WEBHOOK_QUEUE_PREFIX is invalid");
@@ -23,6 +24,7 @@ describe("Webhook Worker construction", () => {
             constructWebhookWorkerService({
                 DATABASE_URL,
                 REDIS_URL,
+                WEBHOOK_SECRET_ENCRYPTION_KEY,
                 WEBHOOK_REQUEST_TIMEOUT_MS: "30000",
                 WEBHOOK_DELIVERY_CLAIM_LEASE_MS: "30000",
             }),
@@ -33,6 +35,7 @@ describe("Webhook Worker construction", () => {
             constructWebhookWorkerService({
                 DATABASE_URL,
                 REDIS_URL,
+                WEBHOOK_SECRET_ENCRYPTION_KEY,
                 WEBHOOK_ALLOW_INSECURE_HTTP: "yes",
             }),
         ).toThrow("WEBHOOK_ALLOW_INSECURE_HTTP must be true or false");
@@ -57,7 +60,7 @@ describe("Webhook Worker construction", () => {
         expect(() =>
             constructWebhookWorkerService({ DATABASE_URL, REDIS_URL }),
         ).toThrow(
-            "WEBHOOK_SECRET_ENCRYPTION_KEY is required for the Webhook Worker role",
+            "Deployment environment for webhook-worker is missing required variables: WEBHOOK_SECRET_ENCRYPTION_KEY",
         );
         expect(() =>
             constructWebhookWorkerService({

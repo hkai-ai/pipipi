@@ -18,6 +18,7 @@ import { createPostgresProcessRunStore } from "../process-runs/store/postgres.js
 import type { ProcessRegistry } from "../process-runtime/index.js";
 import { createProductionRuntime } from "./business-processes.js";
 import type { StartupEnvironment } from "./config.js";
+import { assertDeploymentEnvironment } from "./deployment-environment.js";
 
 export type { StartupEnvironment } from "./config.js";
 
@@ -29,6 +30,9 @@ export type ConstructedProcessingService = {
 export function constructProcessingService(
     environment: StartupEnvironment,
 ): ConstructedProcessingService {
+    assertDeploymentEnvironment(environment, "api", {
+        includeProviderCredentials: environment.NODE_ENV === "production",
+    });
     const port = parsePort(environment.PORT);
     const httpConfiguration = loadHttpConfiguration(environment);
     const runtime = createProductionRuntime(environment);

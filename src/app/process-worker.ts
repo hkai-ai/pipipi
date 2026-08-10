@@ -11,6 +11,7 @@ import {
     parseRequiredPositiveInteger,
     type StartupEnvironment,
 } from "./config.js";
+import { assertDeploymentEnvironment } from "./deployment-environment.js";
 import { createRuntimePool } from "./postgres.js";
 import { loadProcessRunConnections } from "./process-run-config.js";
 import { createPinoProcessRunLogSink } from "./process-run-logging.js";
@@ -23,6 +24,9 @@ import {
 export function constructProcessWorkerService(
     environment: StartupEnvironment,
 ): ConstructedRuntimeRoleService {
+    assertDeploymentEnvironment(environment, "process-worker", {
+        includeProviderCredentials: environment.NODE_ENV === "production",
+    });
     const runLogSink = createPinoProcessRunLogSink({
         level: environment.PROCESS_RUN_LOG_LEVEL,
     });

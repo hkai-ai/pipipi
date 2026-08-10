@@ -178,14 +178,16 @@ describe("Async operations observability", () => {
 
     it("constructs the one-shot observer from database and queue-owned settings", async () => {
         expect(() => constructAsyncOperationsCommand({})).toThrow(
-            "DATABASE_URL is required for Async Operations",
+            "Deployment environment for async-operations is missing required variables: DATABASE_URL, REDIS_URL",
         );
         expect(() =>
             constructAsyncOperationsCommand({
                 DATABASE_URL:
                     "postgres://service:local@127.0.0.1:55432/pipipi_test",
             }),
-        ).toThrow("REDIS_URL is required for Async Operations");
+        ).toThrow(
+            "Deployment environment for async-operations is missing required variables: REDIS_URL",
+        );
         expect(() =>
             constructAsyncOperationsCommand({
                 DATABASE_URL:

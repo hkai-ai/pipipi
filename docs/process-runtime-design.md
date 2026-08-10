@@ -44,7 +44,9 @@ flowchart LR
 
 `constructProcessingService` 是生产启动的唯一 Construction Seam。调用方只提供环境变量映射，
 并收到 ready `ProcessingApplication` 和端口；调用方无需知道具体 Adapter、Agent Runtime、
-Process catalog 或 HTTP 限制。
+Process catalog 或 HTTP 限制。Construction Root 先用共享的纯函数聚合该角色全部缺失变量，
+再解析值、检查跨字段约束并创建 Adapter。独立部署预检命令复用同一缺失项检查，但不构造
+Application 或连接外部依赖。
 
 `ProcessExecutor` 是 HTTP Adapter 与 Process Runtime 之间的主 Seam。Process Runner 的
 Implementation 位于该 Seam 之后，因此 HTTP Adapter 无需了解 Registry、Registration、
@@ -62,7 +64,7 @@ Process Definition、依赖、策略和输出验证都留在 Module 内。生产
 
 | Module | Interface | 隐藏的 Implementation |
 | --- | --- | --- |
-| Startup Construction | `constructProcessingService(environment)` | 环境变量翻译、默认值、跨字段校验、Adapter 选择、Executor 与 Application 组装 |
+| Startup Construction | `constructProcessingService(environment)` | 按角色聚合缺失变量、配置翻译、默认值、跨字段校验、Adapter 选择、Executor 与 Application 组装 |
 | Processing Application | `createProcessingApplication({ executor, http })` | Node HTTP server 的创建、监听和关闭 |
 | Process Executor | `execute(request): Promise<ProcessRunResult>` | envelope 校验、查找、超时、取消、失败映射和记录 |
 | Process Registration | `identity`、`accept(input)` 与 `run(acceptedInput, context)` | 单次输入解析、JSON-safe 快照、Process Definition、依赖、策略和输出验证 |
@@ -211,7 +213,7 @@ Production catalog 由
 
 Interface 就是测试面：
 
-- Startup Construction 测试传入显式只读环境变量映射，并通过本地 HTTP 边界验证默认值、
+- Startup Construction 测试传入显式只读环境变量映射，并验证按角色聚合缺失项、默认值、
   配置覆盖、四项 Registration 组装、跨字段拒绝，以及 Skill 与外部依赖在健康检查中保持惰性。
 - 大部分产品行为通过真实本地 HTTP 的 `POST /execute` 测试。
 - Process Runtime 测试只跨 Registration、Registry、Process Attempt Runner 和 Process

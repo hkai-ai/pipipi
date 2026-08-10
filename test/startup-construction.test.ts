@@ -503,6 +503,25 @@ describe("Startup Construction", () => {
         expect(constructed.port).toBe(3000);
     });
 
+    it("requires an OpenAI credential for a production Agent deployment", () => {
+        const environment = {
+            NODE_ENV: "production",
+            BUSINESS_API_BASE_URL: "https://business.example",
+            PI_PROVIDER: "openai",
+            PI_MODEL: "gpt-5.6-terra",
+        };
+
+        expect(() => constructProcessingService(environment)).toThrow(
+            "Deployment environment for api is missing required variables: OPENAI_API_KEY",
+        );
+        expect(
+            constructProcessingService({
+                ...environment,
+                OPENAI_API_KEY: "deployment-test-key",
+            }).port,
+        ).toBe(3000);
+    });
+
     it("executes direct content without invoking the poster Agent", async () => {
         const businessInputs: unknown[] = [];
         const businessApi = await startServer(async (request, response) => {
@@ -617,7 +636,9 @@ describe("Startup Construction", () => {
         (baseUrl) => {
             expect(() =>
                 constructProcessingService({ BUSINESS_API_BASE_URL: baseUrl }),
-            ).toThrow("BUSINESS_API_BASE_URL is required");
+            ).toThrow(
+                "Deployment environment for api is missing required variables: BUSINESS_API_BASE_URL",
+            );
         },
     );
 
@@ -739,7 +760,9 @@ describe("Startup Construction", () => {
     ])("requires %s when Async Process Runs are enabled", (key, label) => {
         expect(() =>
             constructProcessingService(asyncEnvironment({ [key]: undefined })),
-        ).toThrow(`${label} is required when Async Process Runs are enabled`);
+        ).toThrow(
+            `Deployment environment for api is missing required variables: ${label}`,
+        );
     });
 
     it("rejects an invalid PostgreSQL URL without echoing credentials", () => {

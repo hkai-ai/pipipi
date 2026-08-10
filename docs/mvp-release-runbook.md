@@ -52,6 +52,18 @@
 
 `PROCESS_TIMEOUT_MS=240000` 是本手册的受控发布覆盖值，不改变代码的 30 秒默认值。它必须长于 `CRT_API_TIMEOUT_MS`；候选镜像、部署平台和回滚配置都必须显式保留该覆盖值。启用异步 Worker 时，`PROCESS_RUN_CLAIM_LEASE_MS` 还必须长于 Process 总超时。
 
+## 部署环境预检
+
+构建完成并由平台注入目标环境的变量和 Secret 后，先运行 API 角色预检：
+
+```bash
+npm run check:deployment-env -- api
+```
+
+同步 API 的无默认必填项是 `BUSINESS_API_BASE_URL`；设置 `PI_PROVIDER=openai` 时还必须提供 `OPENAI_API_KEY`。若目标环境设置 `ASYNC_PROCESS_RUNS_ENABLED=true`，同一命令还会检查 `DATABASE_URL`、`ASYNC_GATEWAY_SHARED_SECRET`、三个 `PROCESS_RUN_*_RETENTION_MS`、`ASYNC_RELEASE_STAGE`、`ASYNC_GLOBAL_BACKLOG_LIMIT`、`ASYNC_CALLER_BACKLOG_LIMIT` 和 `ASYNC_BACKLOG_RETRY_AFTER_SECONDS`。缺少任一项时，命令一次列出全部变量名并返回非零状态；它不输出值，也不连接外部系统。
+
+实际生产启动会在创建 Adapter 前重复同一检查，再校验 URL、正整数、枚举和跨字段约束。预检通过不证明 Secret 有效或依赖可达。`PI_PROVIDER` 与 `PI_MODEL`、模型凭证、Business Capability 契约和图片持久化仍按本手册的 smoke 与发布门禁验证。
+
 ## 运行时兼容性
 
 当前入口是主动监听 `0.0.0.0:$PORT` 的 Node.js 24 HTTP 进程，并在运行时读取镜像内的 Skill 文件。普通 Docker 主机、Kubernetes 和支持长运行容器的平台可以运行同一镜像。

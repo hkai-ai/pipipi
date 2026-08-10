@@ -73,7 +73,7 @@ npm run db:migrate
 | --- | --- | --- | --- |
 | 1 | 记录旧镜像摘要、当前 migration 版本、数据库备份 ID、Queue prefix 和基线运维快照 | 证据可由另一名发布人员复核 | 不开始变更；补齐备份或证据 |
 | 2 | 运行 migration Job，再次运行 `npm run db:migrate` | 第二次运行显示无待执行 migration，`007` 索引存在 | 停止部署并保留数据库；从 migration 日志诊断，不运行 down |
-| 3 | 部署 Retention Cleaner、Process Dispatcher、Process Worker 和 Webhook Worker，不接外部流量 | 所有角色 readiness 成功，Queue 名称与 prefix 一致 | 停止有问题的角色并回滚镜像；保留 additive schema 和 PostgreSQL 数据 |
+| 3 | 分别完成环境预检，再部署 Retention Cleaner、Process Dispatcher、Process Worker 和 Webhook Worker，不接外部流量 | 预检与所有角色 readiness 成功，Queue 名称与 prefix 一致 | 停止有问题的角色并回滚镜像；保留 additive schema 和 PostgreSQL 数据 |
 | 4 | 运行人工全量 Queue Recovery dry-run，保存完整批次链 | 根批次从空 cursor 开始，所有批次 `completed`、最终 cursor 为空且 `failed=0` | 不执行 apply，不提升流量；修复 Queue、配置或候选异常后重跑完整链 |
 | 5 | 部署 API，保持 `ASYNC_RELEASE_STAGE=internal`，只允许内部合成调用方 | 提交、owner 查询和 Webhook smoke 到达预期终态 | 设置 `ASYNC_PROCESS_RUNS_ENABLED=false` 或回滚 API；保留 GET 所需数据库 |
 | 6 | 采集至少一个正常观测窗口并完成故障演练，再依次提升到 `canary` 和 `production` | readiness、Dashboard 和告警均通过，演练证据完整 | 停止提升并退回上一个阶段；按对应告警章节处置 |
@@ -81,6 +81,30 @@ npm run db:migrate
 同一 Queue 上滚动升级 Worker 时，先让新 Worker ready，再停止旧 Worker 领取新 Job，并给旧 Worker 至少 `PROCESS_WORKER_SHUTDOWN_GRACE_MS` 完成或释放 claim。Job envelope 始终只有 `{ schemaVersion: 1, runId }`；新旧 Worker 都从 PostgreSQL 选择准确 Registration。不要同时改变 schema、Process 语义和 Queue prefix。
 
 ## 配置与分阶段启用
+
+每个角色只注入自己拥有的配置。以下变量没有代码默认值，空字符串和纯空白都视为缺失：
+
+| 角色 | 必填环境变量 |
+| --- | --- |
+| `api` | `BUSINESS_API_BASE_URL`；`PI_PROVIDER=openai` 时还需 `OPENAI_API_KEY`；启用异步入口后还需 `DATABASE_URL`、`ASYNC_GATEWAY_SHARED_SECRET`、三个 `PROCESS_RUN_*_RETENTION_MS`、`ASYNC_RELEASE_STAGE`、`ASYNC_GLOBAL_BACKLOG_LIMIT`、`ASYNC_CALLER_BACKLOG_LIMIT`、`ASYNC_BACKLOG_RETRY_AFTER_SECONDS` |
+| `process-dispatcher` | `DATABASE_URL`、`REDIS_URL` |
+| `process-worker` | `BUSINESS_API_BASE_URL`、`DATABASE_URL`、`REDIS_URL`、三个 `PROCESS_RUN_*_RETENTION_MS`；`PI_PROVIDER=openai` 时还需 `OPENAI_API_KEY` |
+| `webhook-worker` | `DATABASE_URL`、`REDIS_URL`、`WEBHOOK_SECRET_ENCRYPTION_KEY` |
+| `retention-cleaner` | `DATABASE_URL` |
+| `async-operations` | `DATABASE_URL`、`REDIS_URL` |
+| `process-recovery` | `DATABASE_URL`、`REDIS_URL`；运行恢复命令时还需 `PROCESS_RECOVERY_ACTOR_ID` 或 `--actor` |
+
+构建完成后，在每个工作负载自己的 Secret 注入环境中运行对应预检。例如：
+
+```bash
+npm run check:deployment-env -- process-dispatcher
+npm run check:deployment-env -- process-worker
+npm run check:deployment-env -- webhook-worker
+npm run check:deployment-env -- retention-cleaner
+npm run check:deployment-env -- api
+```
+
+预检不连接 PostgreSQL、Redis、模型或 Business Capability，不输出配置值，并在一次失败中列出该角色全部缺失变量。实际 Construction Root 会重复检查存在性，再校验格式和跨字段约束；`GET /readyz` 随后验证 migration 与外部依赖。预检通过不能替代 Secret、网络、容量和 smoke 门禁。
 
 以下配置是 API 开启异步入口时的完整组。示例值是容量规划起点，不是所有环境的固定生产值：
 

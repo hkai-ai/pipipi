@@ -7,11 +7,13 @@ import { constructRetentionCleanerService } from "../src/app/retention-cleaner.j
 describe("Async runtime role construction", () => {
     it("requires only role-owned Dispatcher connection configuration", () => {
         expect(() => constructProcessDispatcherService({})).toThrow(
-            "DATABASE_URL is required for this runtime role",
+            "Deployment environment for process-dispatcher is missing required variables: DATABASE_URL, REDIS_URL",
         );
         expect(() =>
             constructProcessDispatcherService({ DATABASE_URL: DATABASE_URL }),
-        ).toThrow("REDIS_URL is required for this runtime role");
+        ).toThrow(
+            "Deployment environment for process-dispatcher is missing required variables: REDIS_URL",
+        );
         expect(() =>
             constructProcessDispatcherService({
                 DATABASE_URL,
@@ -30,19 +32,23 @@ describe("Async runtime role construction", () => {
 
     it("requires Worker business, persistence, Redis, and retention configuration", () => {
         expect(() => constructProcessWorkerService({})).toThrow(
-            "BUSINESS_API_BASE_URL is required",
+            "Deployment environment for process-worker is missing required variables: BUSINESS_API_BASE_URL, DATABASE_URL, REDIS_URL, PROCESS_RUN_ACCEPTED_INPUT_RETENTION_MS, PROCESS_RUN_RESULT_RETENTION_MS, PROCESS_RUN_METADATA_RETENTION_MS",
         );
         expect(() =>
             constructProcessWorkerService({
                 BUSINESS_API_BASE_URL: "https://business.example",
             }),
-        ).toThrow("DATABASE_URL is required for this runtime role");
+        ).toThrow(
+            "Deployment environment for process-worker is missing required variables: DATABASE_URL, REDIS_URL, PROCESS_RUN_ACCEPTED_INPUT_RETENTION_MS, PROCESS_RUN_RESULT_RETENTION_MS, PROCESS_RUN_METADATA_RETENTION_MS",
+        );
         expect(() =>
             constructProcessWorkerService({
                 BUSINESS_API_BASE_URL: "https://business.example",
                 DATABASE_URL,
             }),
-        ).toThrow("REDIS_URL is required for this runtime role");
+        ).toThrow(
+            "Deployment environment for process-worker is missing required variables: REDIS_URL, PROCESS_RUN_ACCEPTED_INPUT_RETENTION_MS, PROCESS_RUN_RESULT_RETENTION_MS, PROCESS_RUN_METADATA_RETENTION_MS",
+        );
         expect(() =>
             constructProcessWorkerService({
                 BUSINESS_API_BASE_URL: "https://business.example",
@@ -50,7 +56,7 @@ describe("Async runtime role construction", () => {
                 REDIS_URL,
             }),
         ).toThrow(
-            "PROCESS_RUN_ACCEPTED_INPUT_RETENTION_MS is required for the Process Worker role",
+            "Deployment environment for process-worker is missing required variables: PROCESS_RUN_ACCEPTED_INPUT_RETENTION_MS, PROCESS_RUN_RESULT_RETENTION_MS, PROCESS_RUN_METADATA_RETENTION_MS",
         );
     });
 
@@ -60,6 +66,7 @@ describe("Async runtime role construction", () => {
                 BUSINESS_API_BASE_URL: "https://business.example",
                 DATABASE_URL,
                 REDIS_URL,
+                ...WORKER_RETENTION,
                 PROCESS_TIMEOUT_MS: "60000",
                 PROCESS_RUN_CLAIM_LEASE_MS: "60000",
             }),
@@ -68,7 +75,7 @@ describe("Async runtime role construction", () => {
 
     it("constructs the Retention Cleaner from role-owned PostgreSQL settings", async () => {
         expect(() => constructRetentionCleanerService({})).toThrow(
-            "DATABASE_URL is required for this runtime role",
+            "Deployment environment for retention-cleaner is missing required variables: DATABASE_URL",
         );
         expect(() =>
             constructRetentionCleanerService({
@@ -85,10 +92,10 @@ describe("Async runtime role construction", () => {
 
     it("constructs one-shot Queue Recovery from Dispatcher-owned settings", async () => {
         expect(() => constructProcessRecoveryCommand({})).toThrow(
-            "DATABASE_URL is required for this runtime role",
+            "Deployment environment for process-recovery is missing required variables: DATABASE_URL, REDIS_URL",
         );
         expect(() => constructProcessRecoveryCommand({ DATABASE_URL })).toThrow(
-            "REDIS_URL is required for this runtime role",
+            "Deployment environment for process-recovery is missing required variables: REDIS_URL",
         );
         const command = constructProcessRecoveryCommand({
             DATABASE_URL,
@@ -102,3 +109,8 @@ describe("Async runtime role construction", () => {
 const DATABASE_URL =
     "postgresql://service:local-only@127.0.0.1:55432/pipipi_test";
 const REDIS_URL = "redis://127.0.0.1:56379/15";
+const WORKER_RETENTION = {
+    PROCESS_RUN_ACCEPTED_INPUT_RETENTION_MS: "86400000",
+    PROCESS_RUN_RESULT_RETENTION_MS: "604800000",
+    PROCESS_RUN_METADATA_RETENTION_MS: "2592000000",
+} as const;

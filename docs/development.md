@@ -68,6 +68,7 @@ curl --fail -X POST http://127.0.0.1:3000/execute \
 | `npm test` | 运行确定性测试 | 否 |
 | `npm run test:watch` | 监听并运行 Vitest | 否 |
 | `npm run build` | 编译 `src/` 到 `dist/` | 否 |
+| `npm run check:deployment-env -- <role>` | 从已编译产物聚合检查一个部署角色的必填环境变量 | 否 |
 | `npm run db:migrate` | 对 `DATABASE_URL` 执行受锁保护的 PostgreSQL migration | 是，会修改指定数据库 |
 | `npm run recover:queue -- ...` | dry-run 或修复 PostgreSQL 与 Process Queue 的差异 | 是；`--apply` 会写 Queue、Outbox 与审计表 |
 | `npm run observe:async` | 读取 PostgreSQL 与两个 BullMQ Queue，输出一次无内容运维快照 | 是，只读访问 PostgreSQL 与 Redis |
@@ -405,6 +406,14 @@ Run Record 是运行排障数据，不是聊天历史。产品聊天记录应由
 ## 配置规则
 
 [`.env.example`](../.env.example) 是配置键的可复制清单；解析函数和测试约束精确默认值与组合规则。
+
+部署预检必须在 `npm run build` 后、每个角色自己的环境变量和 Secret 已注入时运行：
+
+```bash
+npm run check:deployment-env -- api
+```
+
+可选角色为 `api`、`process-dispatcher`、`process-worker`、`webhook-worker`、`retention-cleaner`、`async-operations` 和 `process-recovery`。命令检查该角色无默认值的必填项，空字符串和纯空白都视为缺失；当 Agent 角色设置 `PI_PROVIDER=openai` 时，它还要求 `OPENAI_API_KEY`。命令不会连接 PostgreSQL、Redis、模型或 Business Capability，也不会输出配置值。每个 Construction Root 会在创建 Adapter 前重复基础检查；`NODE_ENV=production` 时也检查 OpenAI 凭证，再由原有解析器校验 URL、数值、枚举和跨字段约束。Queue Recovery 还会单独要求 `PROCESS_RECOVERY_ACTOR_ID` 或 `--actor`。其他模型和图片供应商凭证按实际 Adapter 条件注入，并通过对应 smoke 验证。
 
 - 新增配置时同时更新 `.env.example`、启动构造测试和相关文档。
 - 只把稳定运行策略放入环境配置。Process 拓扑、Schema 和业务语义留在代码中。

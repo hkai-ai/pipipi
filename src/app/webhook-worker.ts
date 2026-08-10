@@ -24,6 +24,7 @@ import {
     parseQueueComponent,
     type StartupEnvironment,
 } from "./config.js";
+import { assertDeploymentEnvironment } from "./deployment-environment.js";
 import { createRuntimePool } from "./postgres.js";
 import {
     type ConstructedRuntimeRoleService,
@@ -35,6 +36,7 @@ export type ConstructedWebhookWorkerService = ConstructedRuntimeRoleService;
 export function constructWebhookWorkerService(
     environment: StartupEnvironment,
 ): ConstructedWebhookWorkerService {
+    assertDeploymentEnvironment(environment, "webhook-worker");
     const port = parsePort(environment.PORT);
     const databaseUrl = parseConnectionUrl(environment.DATABASE_URL, {
         protocols: ["postgres:", "postgresql:"],

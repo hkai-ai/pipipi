@@ -9,6 +9,7 @@ import {
     parsePositiveInteger,
     type StartupEnvironment,
 } from "./config.js";
+import { assertDeploymentEnvironment } from "./deployment-environment.js";
 import { createRuntimePool } from "./postgres.js";
 import { parseProcessRunDatabaseUrl } from "./process-run-config.js";
 import {
@@ -19,6 +20,7 @@ import {
 export function constructRetentionCleanerService(
     environment: StartupEnvironment,
 ): ConstructedRuntimeRoleService {
+    assertDeploymentEnvironment(environment, "retention-cleaner");
     const port = parsePort(environment.PORT);
     const readinessTimeoutMs = parsePositiveInteger(
         environment.RUNTIME_ROLE_READINESS_TIMEOUT_MS,

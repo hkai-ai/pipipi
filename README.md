@@ -62,6 +62,8 @@ cp .env.example .env
 
 `.env` 已被 Git 忽略。文本 Direct 路径不调用模型；执行海报业务验收、文本 Agent 路径或真实模型 smoke 时需要模型凭证。不要把真实凭证提交到仓库。
 
+构建部署产物后，可在目标角色的 Secret 注入环境中运行 `npm run check:deployment-env -- api`，一次检查全部无默认必填项。异步角色名和逐角色清单见 [同步 MVP 发布手册](docs/mvp-release-runbook.md#部署环境预检) 与 [异步发布手册](docs/async-process-runs-runbook.md#配置与分阶段启用)。实际启动会重复存在性检查，再校验格式和跨字段约束。
+
 在第一个终端启动演示 Business Capability：
 
 ```bash

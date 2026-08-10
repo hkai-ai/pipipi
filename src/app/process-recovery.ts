@@ -9,6 +9,7 @@ import {
     parsePositiveInteger,
     type StartupEnvironment,
 } from "./config.js";
+import { assertDeploymentEnvironment } from "./deployment-environment.js";
 import { createRuntimePool } from "./postgres.js";
 import { loadProcessRunConnections } from "./process-run-config.js";
 
@@ -21,6 +22,7 @@ export type ConstructedProcessRecoveryCommand = Readonly<{
 export function constructProcessRecoveryCommand(
     environment: StartupEnvironment,
 ): ConstructedProcessRecoveryCommand {
+    assertDeploymentEnvironment(environment, "process-recovery");
     const connections = loadProcessRunConnections(environment);
     const redisConnectionTimeoutMs = parsePositiveInteger(
         environment.ASYNC_REDIS_CONNECTION_TIMEOUT_MS,

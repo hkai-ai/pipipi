@@ -17,6 +17,7 @@ import {
     parsePositiveInteger,
     type StartupEnvironment,
 } from "./config.js";
+import { assertDeploymentEnvironment } from "./deployment-environment.js";
 
 export type AsyncOperationsCommandSnapshot = Readonly<{
     schemaVersion: 1;
@@ -37,6 +38,7 @@ export type AsyncOperationsCommand = Readonly<{
 export function constructAsyncOperationsCommand(
     environment: StartupEnvironment,
 ): AsyncOperationsCommand {
+    assertDeploymentEnvironment(environment, "async-operations");
     const databaseUrl = parseConnectionUrl(environment.DATABASE_URL, {
         protocols: ["postgres:", "postgresql:"],
         missingMessage: "DATABASE_URL is required for Async Operations",
