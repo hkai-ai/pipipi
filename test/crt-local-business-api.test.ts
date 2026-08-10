@@ -3,10 +3,35 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import sharp from "sharp";
 import { describe, expect, it, vi } from "vitest";
-import { startLocalCrtBusinessApi } from "../examples/support/local-crt-business-api.js";
-import { OpenAIImageGenerationError } from "../examples/support/openai-image-generation.js";
+import { startLocalCrtBusinessApi } from "../src/business-api/crt-server.js";
+import { OpenAIImageGenerationError } from "../src/business-api/openai-image-generation.js";
 
 describe("local CRT Business API", () => {
+    it("reports liveness and readiness", async () => {
+        const directory = await mkdtemp(join(tmpdir(), "pipipi-crt-api-"));
+        const api = await startLocalCrtBusinessApi({
+            directory,
+            imageClient: {
+                edit: async () => {
+                    throw new Error("not called");
+                },
+            },
+        });
+
+        try {
+            for (const path of ["/healthz", "/readyz"]) {
+                const response = await fetch(`${api.url}${path}`);
+                expect(response.status).toBe(200);
+                await expect(response.json()).resolves.toEqual({
+                    status: "ok",
+                });
+            }
+        } finally {
+            await api.close();
+            await rm(directory, { recursive: true, force: true });
+        }
+    });
+
     it("passes a public URL to the image provider and serves one idempotent finalized PNG", async () => {
         const directory = await mkdtemp(join(tmpdir(), "pipipi-crt-api-"));
         const generated = await sharp({
@@ -156,7 +181,7 @@ describe("local CRT Business API", () => {
         }
     });
 
-    it("uploads the finalized PNG to configured object storage", async () => {
+    it("persists one object-storage result across restarts", async () => {
         const directory = await mkdtemp(join(tmpdir(), "pipipi-crt-api-"));
         const generated = await sharp({
             create: {
@@ -178,15 +203,20 @@ describe("local CRT Business API", () => {
             contentType: request.contentType,
             size: request.bytes.byteLength,
         }));
+        const edit = vi.fn(async () => ({
+            bytes: generated,
+            mimeType: "image/png" as const,
+            outputFormat: "png" as const,
+        }));
+        const request = {
+            sourceImageUrl: "https://images.example.com/source.png",
+            prompt: "Transform the attached source image.",
+            palette: "经典",
+            aspectRatio: "4:3",
+        };
         const api = await startLocalCrtBusinessApi({
             directory,
-            imageClient: {
-                edit: async () => ({
-                    bytes: generated,
-                    mimeType: "image/png",
-                    outputFormat: "png",
-                }),
-            },
+            imageClient: { edit },
             storage: { provider: "aliyun-oss", upload },
             objectPrefix: "crt-production",
         });
@@ -198,12 +228,7 @@ describe("local CRT Business API", () => {
                     "content-type": "application/json",
                     "idempotency-key": "run-oss",
                 },
-                body: JSON.stringify({
-                    sourceImageUrl: "https://images.example.com/source.png",
-                    prompt: "Transform the attached source image.",
-                    palette: "经典",
-                    aspectRatio: "4:3",
-                }),
+                body: JSON.stringify(request),
             });
 
             expect(response.status).toBe(200);
@@ -219,6 +244,36 @@ describe("local CRT Business API", () => {
                 expect.objectContaining({ signal: expect.any(AbortSignal) }),
             );
             expect(api.evidence().storage).toBe("aliyun-oss");
+
+            await api.close();
+            const afterRestart = vi.fn(async () => {
+                throw new Error("image provider must not run after restart");
+            });
+            const restarted = await startLocalCrtBusinessApi({
+                directory,
+                imageClient: { edit: afterRestart },
+                storage: { provider: "aliyun-oss", upload },
+                objectPrefix: "crt-production",
+            });
+            try {
+                const repeated = await fetch(`${restarted.url}/crt-images`, {
+                    method: "POST",
+                    headers: {
+                        "content-type": "application/json",
+                        "idempotency-key": "run-oss",
+                    },
+                    body: JSON.stringify(request),
+                });
+                expect(repeated.status).toBe(200);
+                expect(await repeated.json()).toMatchObject({
+                    url: "https://assets.example.com/crt/run-oss.png",
+                });
+                expect(afterRestart).not.toHaveBeenCalled();
+                expect(edit).toHaveBeenCalledOnce();
+                expect(upload).toHaveBeenCalledOnce();
+            } finally {
+                await restarted.close();
+            }
         } finally {
             await api.close();
             await rm(directory, { recursive: true, force: true });

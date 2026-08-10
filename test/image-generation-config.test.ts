@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { FalImageGenerationClient } from "../examples/support/fal-image-generation.js";
-import { createImageGenerationClient } from "../examples/support/image-generation-config.js";
-import { OpenAIImageGenerationClient } from "../examples/support/openai-image-generation.js";
+import { FalImageGenerationClient } from "../src/business-api/fal-image-generation.js";
+import { createImageGenerationClient } from "../src/business-api/image-generation-config.js";
+import { OpenAIImageGenerationClient } from "../src/business-api/openai-image-generation.js";
 
 describe("image generation configuration", () => {
     it("keeps OpenAI as the default provider", () => {

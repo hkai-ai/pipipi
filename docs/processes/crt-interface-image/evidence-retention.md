@@ -24,7 +24,7 @@
 | staging | `off` 或经过批准的 `metadata` | 优先保留关联信息，不保留像素 |
 | production | `off` | 来源 URL、模型结果和最终图片属于敏感业务内容，不应成为普通运行日志或调试文件 |
 
-生产 Business API 尚不在本仓库内。实现生产 `POST /crt-images` 时，应复用同一模式语义，并在服务启动时解析配置。不要把模式、目录、期限或上传地址加入 `/execute` 或 `POST /crt-images` 的请求 body。
+生产 CRT Business API 在服务启动时解析同一模式语义；单服务器 Compose 固定为 `off`。不要把模式、目录、期限或上传地址加入 `/execute` 或 `POST /crt-images` 的请求 body。
 
 ## 保留内容
 
@@ -123,8 +123,8 @@ npm run accept:crt-business
 
 | 目标 | 文件 |
 | --- | --- |
-| 配置解析、manifest 和文件写入 | [`../../../examples/support/crt-evidence.ts`](../../../examples/support/crt-evidence.ts) |
-| 本地 `POST /crt-images` 集成 | [`../../../examples/support/local-crt-business-api.ts`](../../../examples/support/local-crt-business-api.ts) |
+| 配置解析、manifest 和文件写入 | [`../../../src/business-api/crt-evidence.ts`](../../../src/business-api/crt-evidence.ts) |
+| `POST /crt-images` 集成 | [`../../../src/business-api/crt-server.ts`](../../../src/business-api/crt-server.ts) |
 | 验收报告与每次 Run 关联 | [`../../../examples/crt-business-acceptance.ts`](../../../examples/crt-business-acceptance.ts) |
 | 策略和文件级测试 | [`../../../test/crt-evidence.test.ts`](../../../test/crt-evidence.test.ts) |
 | Business API 跨 Interface 测试 | [`../../../test/crt-local-business-api.test.ts`](../../../test/crt-local-business-api.test.ts) |

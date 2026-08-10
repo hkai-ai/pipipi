@@ -5,6 +5,14 @@ import { basename, join, resolve } from "node:path";
 import sharp from "sharp";
 import { parseOpenAIApiMode } from "../src/agent-runtime/pi.js";
 import { constructProcessingService } from "../src/app/api.js";
+import { resolveCrtEvidencePolicy } from "../src/business-api/crt-evidence.js";
+import {
+    type LocalCrtBusinessApiEvidence,
+    startLocalCrtBusinessApi,
+} from "../src/business-api/crt-server.js";
+import { createImageGenerationClient } from "../src/business-api/image-generation-config.js";
+import { createObjectStorageFromEnvironment } from "../src/business-api/object-storage-config.js";
+import type { GptImageQuality } from "../src/business-api/openai-image-generation.js";
 import type { ProcessRunResult } from "../src/process-runtime/index.js";
 import {
     type CrtImage,
@@ -16,14 +24,6 @@ import {
     crtAspectRatios,
     crtPaletteNames,
 } from "../src/processes/crt/style.js";
-import { resolveCrtEvidencePolicy } from "./support/crt-evidence.js";
-import { createImageGenerationClient } from "./support/image-generation-config.js";
-import {
-    type LocalCrtBusinessApiEvidence,
-    startLocalCrtBusinessApi,
-} from "./support/local-crt-business-api.js";
-import { createObjectStorageFromEnvironment } from "./support/object-storage-config.js";
-import type { GptImageQuality } from "./support/openai-image-generation.js";
 
 const sourceImageUrl = required("CRT_SOURCE_IMAGE_URL");
 if (!isPublicSourceImageUrl(sourceImageUrl)) {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { resolveOpenAIImageConfiguration } from "../examples/support/openai-image-config.js";
+import { resolveOpenAIImageConfiguration } from "../src/business-api/openai-image-config.js";
 
 describe("OpenAI image configuration", () => {
     it("uses an independent image API configuration when provided", () => {

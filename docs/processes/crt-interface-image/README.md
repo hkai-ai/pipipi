@@ -1,6 +1,6 @@
 ﻿# `crt-interface-image/v1` Business Process
 
-本文面向实现、测试和发布 `crt-interface-image/v1` 的开发者。调用方提供公网图片 URL 后，用 FAL GPT Image 2 生成 TaiT CRT 界面风格图片是可行的。仓库已经实现 Process Registration、受限 Agent、固定 Runtime Skill、CRT Rendering Capability Interface、生产 HTTP Adapter、确定性 finalizer、FAL URL 编辑和可选阿里云 OSS 输出。正式开放前仍须部署生产 `POST /crt-images`、配置调用鉴权，并确认上游 Skill 的使用权。
+本文面向实现、测试和发布 `crt-interface-image/v1` 的开发者。调用方提供公网图片 URL 后，用 FAL GPT Image 2 生成 TaiT CRT 界面风格图片是可行的。仓库已经实现 Process Registration、受限 Agent、固定 Runtime Skill、CRT Rendering Capability Interface、生产 HTTP Adapter、内部 `POST /crt-images` Business API、确定性 finalizer、FAL URL 编辑和阿里云 OSS 输出。正式开放前仍须配置入口鉴权、生产 Secret，并确认上游 Skill 的使用权。
 
 要开发同类“上传参考图 → 模型编辑 → 确定性后处理 → 图片引用”流程，先阅读 [参考图转换 Business Process 开发模板](development-template.md)。它把本流程已验证的 Module 边界、配置归属、证据策略、测试分层和完成标准整理成可复制步骤。
 
@@ -139,7 +139,7 @@ CRT_IMAGE_OBJECT_PREFIX=crt-interface-image
 | `9:16` | `1152 × 2048` |
 | `16:9` | `2048 × 1152` |
 
-不要在发生“请求可能已经到达模型但响应未知”的错误后自动重试。先从本地幂等记录和供应商 request ID 判断状态；无法证明未产生副作用时，返回受控依赖失败并交给运维处理。`crt-interface-image/v1` 本身不声明自动重试。
+Business API 在调用模型前持久化 `runId`、请求摘要和 pending 状态，成功后原子写入结果；相同 `runId` 重启后也不会再次调用模型。pending 状态表示调用结果未知，服务返回受控失败并等待人工核对，不能自动重试。`crt-interface-image/v1` 本身不声明自动重试。
 
 ## 确定性后处理
 
@@ -151,13 +151,13 @@ GPT Image 2 负责识别参考图、保留主体关系和重绘整体构图，�
 - 以同一 bitmap grid 锁定右上标题栏中的 `tait-crt-interface-skill` 签名。
 - 输出不含 alpha 的 PNG，并重新验证尺寸、比例、调色板和解码完整性。
 
-[`examples/support/crt-finalizer.ts`](../../../examples/support/crt-finalizer.ts) 根据上述公开输出约束独立实现本地验收 finalizer，没有复制上游 Python 源码。它用 Sharp 完成目标尺寸、调色板量化、共享格、扫描线、边缘扰动、桶形外缘和固定签名。上游 Python 脚本只作为已审查的行为参考，没有随 Runtime Skill 安装。生产图片服务可以复用经过权利与性能评审的独立算法，但 Agent 不能运行 finalizer，也不能获得文件系统、Shell 或通用网络权限。
+[`src/business-api/crt-finalizer.ts`](../../../src/business-api/crt-finalizer.ts) 根据上述公开输出约束独立实现 finalizer，没有复制上游 Python 源码。它用 Sharp 完成目标尺寸、调色板量化、共享格、扫描线、边缘扰动、桶形外缘和固定签名。上游 Python 脚本只作为已审查的行为参考，没有随 Runtime Skill 安装。Agent 不能运行 finalizer，也不能获得文件系统、Shell 或通用网络权限。
 
 后处理无法修复主体遗漏、重复、手部关系错误或构图偏差。上线前需要人工或受控视觉验收；若以后加入自动质检与重绘，应发布新版本，明确最大尝试次数、费用、幂等和失败语义。
 
 ## 可配置证据保留
 
-图片证据属于 `crt-interface-image/v1` 的服务端运行策略，不属于产品 Interface。仓库内的本地 Business API 支持三档模式：`off` 不创建调试证据，`metadata` 只保存脱敏 manifest，`full` 按 `runId` 保存上传原图、GPT Image 2 原始返回、CRT 最终图和 manifest。`accept:crt-business` 默认使用 `full`；生产 `POST /crt-images` 必须默认使用 `off`。
+图片证据属于 `crt-interface-image/v1` 的服务端运行策略，不属于产品 Interface。CRT Business API 支持三档模式：`off` 不创建调试证据，`metadata` 只保存脱敏 manifest，`full` 按 `runId` 保存 GPT Image 2 原始返回、CRT 最终图和 manifest。`accept:crt-business` 默认使用 `full`；生产 Compose 固定使用 `off`。
 
 `off` 不影响产品最终图片的持久化。证据副本和产品资产使用独立的授权、保留和删除策略。配置、目录结构、manifest 字段、失败语义和开发核对步骤见 [CRT 图片证据保留](evidence-retention.md)。
 
@@ -250,9 +250,10 @@ npm run accept:crt-business
 | 调色板和画幅 | [`src/processes/crt/style.ts`](../../../src/processes/crt/style.ts) |
 | Capability 与 HTTP 协议 | [`src/processes/crt/capability.ts`](../../../src/processes/crt/capability.ts)、[`src/processes/crt/http.ts`](../../../src/processes/crt/http.ts) |
 | Skill 绑定与来源 | [`src/processes/crt/skills.ts`](../../../src/processes/crt/skills.ts)、[Runtime Skill](../../../.pi/skills/tait-crt-interface-prompt) |
-| GPT Image edit Adapter 与配置 | [`examples/support/openai-image-generation.ts`](../../../examples/support/openai-image-generation.ts)、[`examples/support/fal-image-generation.ts`](../../../examples/support/fal-image-generation.ts)、[`examples/support/image-generation-config.ts`](../../../examples/support/image-generation-config.ts) |
-| 公网 URL 与可选 OSS 业务验收 | [`examples/crt-business-acceptance.ts`](../../../examples/crt-business-acceptance.ts)、[`examples/support/local-crt-business-api.ts`](../../../examples/support/local-crt-business-api.ts)、[`examples/support/crt-finalizer.ts`](../../../examples/support/crt-finalizer.ts) |
-| 证据策略与开发说明 | [`examples/support/crt-evidence.ts`](../../../examples/support/crt-evidence.ts)、[CRT 图片证据保留](evidence-retention.md) |
+| GPT Image edit Adapter 与配置 | [`src/business-api/openai-image-generation.ts`](../../../src/business-api/openai-image-generation.ts)、[`src/business-api/fal-image-generation.ts`](../../../src/business-api/fal-image-generation.ts)、[`src/business-api/image-generation-config.ts`](../../../src/business-api/image-generation-config.ts) |
+| 生产 Business API、finalizer 与 OSS | [`src/bin/crt-business-api.ts`](../../../src/bin/crt-business-api.ts)、[`src/business-api/crt-server.ts`](../../../src/business-api/crt-server.ts)、[`src/business-api/crt-finalizer.ts`](../../../src/business-api/crt-finalizer.ts)、[`src/business-api/object-storage-config.ts`](../../../src/business-api/object-storage-config.ts) |
+| 公网 URL 业务验收 | [`examples/crt-business-acceptance.ts`](../../../examples/crt-business-acceptance.ts) |
+| 证据策略与开发说明 | [`src/business-api/crt-evidence.ts`](../../../src/business-api/crt-evidence.ts)、[CRT 图片证据保留](evidence-retention.md) |
 | 同类流程开发模板 | [参考图转换 Business Process 开发模板](development-template.md) |
 | 编辑 smoke | [`examples/crt-gpt-image-smoke.ts`](../../../examples/crt-gpt-image-smoke.ts) |
 | 确定性测试 | [`test/crt-process.test.ts`](../../../test/crt-process.test.ts)、[`test/crt-http.test.ts`](../../../test/crt-http.test.ts)、[`test/openai-image-generation.test.ts`](../../../test/openai-image-generation.test.ts)、[`test/fal-image-generation.test.ts`](../../../test/fal-image-generation.test.ts)、[`test/image-generation-config.test.ts`](../../../test/image-generation-config.test.ts)、[`test/crt-local-business-api.test.ts`](../../../test/crt-local-business-api.test.ts)、[`test/crt-evidence.test.ts`](../../../test/crt-evidence.test.ts) |

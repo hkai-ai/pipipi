@@ -3,7 +3,7 @@ import {
     FalImageGenerationClient,
     FalImageGenerationError,
     type FalSubscribe,
-} from "../examples/support/fal-image-generation.js";
+} from "../src/business-api/fal-image-generation.js";
 
 const minimalPng = Buffer.concat([
     Buffer.from("89504e470d0a1a0a0000000d49484452", "hex"),

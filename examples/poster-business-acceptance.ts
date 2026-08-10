@@ -9,20 +9,20 @@ import {
 import { join, resolve } from "node:path";
 import { parseOpenAIApiMode } from "../src/agent-runtime/pi.js";
 import { constructProcessingService } from "../src/app/api.js";
+import { createImageGenerationClient } from "../src/business-api/image-generation-config.js";
+import type { StoredObject } from "../src/business-api/object-storage.js";
+import { createObjectStorageFromEnvironment } from "../src/business-api/object-storage-config.js";
+import type {
+    GeneratedImage,
+    GptImageOutputFormat,
+    GptImageQuality,
+} from "../src/business-api/openai-image-generation.js";
 import type { ProcessRunResult } from "../src/process-runtime/index.js";
 import {
     type PosterImage,
     type PosterRenderingCapability,
     PosterRenderingUnavailable,
 } from "../src/processes/poster/capability.js";
-import { createImageGenerationClient } from "./support/image-generation-config.js";
-import type { StoredObject } from "./support/object-storage.js";
-import { createObjectStorageFromEnvironment } from "./support/object-storage-config.js";
-import type {
-    GeneratedImage,
-    GptImageOutputFormat,
-    GptImageQuality,
-} from "./support/openai-image-generation.js";
 
 const reportDirectory = resolve(
     process.env.GPT_IMAGE_REPORT_DIRECTORY ?? "artifacts/gpt-image-2",

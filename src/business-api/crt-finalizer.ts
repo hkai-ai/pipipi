@@ -3,7 +3,7 @@ import {
     type CrtAspectRatio,
     type CrtPalette,
     paletteColors,
-} from "../../src/processes/crt/style.js";
+} from "../processes/crt/style.js";
 
 export type FinalizedCrtImage = Readonly<{
     bytes: Buffer;

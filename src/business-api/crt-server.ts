@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import {
     createServer,
     type IncomingMessage,
@@ -8,13 +8,17 @@ import {
 } from "node:http";
 import { join } from "node:path";
 import sharp from "sharp";
-import { isPublicSourceImageUrl } from "../../src/processes/crt/capability.js";
+import {
+    type CrtImage,
+    isPublicSourceImageUrl,
+    parseCrtImage,
+} from "../processes/crt/capability.js";
 import {
     type CrtAspectRatio,
     type CrtPalette,
     crtAspectRatios,
     crtPaletteNames,
-} from "../../src/processes/crt/style.js";
+} from "../processes/crt/style.js";
 import {
     type CrtEvidencePolicy,
     type CrtEvidenceResult,
@@ -43,14 +47,6 @@ type CrtRequest = Readonly<{
     aspectRatio: CrtAspectRatio;
 }>;
 
-type CrtImage = Readonly<{
-    url: string;
-    contentType: "image/png";
-    width: number;
-    height: number;
-    expiresAt?: string;
-}>;
-
 export type LocalCrtBusinessApiEvidence = Readonly<{
     storage: string;
     requests: number;
@@ -72,30 +68,39 @@ export type LocalCrtBusinessApiEvidence = Readonly<{
     }>;
 }>;
 
-export type LocalCrtBusinessApi = Readonly<{
+export type CrtBusinessApi = Readonly<{
     url: string;
     evidence: () => LocalCrtBusinessApiEvidence;
     close: () => Promise<void>;
 }>;
+
+export type LocalCrtBusinessApi = CrtBusinessApi;
 
 type PendingTransform = Readonly<{
     digest: string;
     result: Promise<CrtImage>;
 }>;
 
-export async function startLocalCrtBusinessApi(options: {
-    directory: string;
-    imageClient: ImageEditClient;
-    provider?: string;
-    model?: string;
-    quality?: GptImageQuality;
-    evidencePolicy?: CrtEvidencePolicy;
-    storage?: ObjectStorageCapability;
-    objectPrefix?: string;
-}): Promise<LocalCrtBusinessApi> {
+export async function startCrtBusinessApi(
+    options: {
+        directory: string;
+        imageClient: ImageEditClient;
+        provider?: string;
+        model?: string;
+        quality?: GptImageQuality;
+        evidencePolicy?: CrtEvidencePolicy;
+        storage?: ObjectStorageCapability;
+        objectPrefix?: string;
+    },
+    listenOptions: { host?: string; port?: number } = {},
+): Promise<CrtBusinessApi> {
     const directory = options.directory;
     const outputDirectory = join(directory, "images");
-    await mkdir(outputDirectory, { recursive: true });
+    const resultDirectory = join(directory, "results");
+    await Promise.all([
+        mkdir(outputDirectory, { recursive: true }),
+        mkdir(resultDirectory, { recursive: true }),
+    ]);
 
     const provider = options.provider?.trim() || "openai";
     const model = options.model?.trim() || "gpt-image-2";
@@ -139,6 +144,13 @@ export async function startLocalCrtBusinessApi(options: {
         request: IncomingMessage,
         response: ServerResponse,
     ): Promise<void> {
+        if (
+            request.method === "GET" &&
+            (request.url === "/healthz" || request.url === "/readyz")
+        ) {
+            writeJson(response, 200, { status: "ok" });
+            return;
+        }
         if (request.method === "POST" && request.url === "/crt-images") {
             await transformAsset(request, response);
             return;
@@ -196,7 +208,54 @@ export async function startLocalCrtBusinessApi(options: {
         request.once("aborted", abort);
         let pending = existing?.result;
         if (!pending) {
-            pending = performTransform(input, requestKey, controller.signal);
+            const claim = await claimTransform(
+                resultDirectory,
+                requestKey,
+                digest,
+            );
+            if (claim.kind === "conflict") {
+                writeJson(response, 409, {
+                    error: {
+                        code: "IDEMPOTENCY_CONFLICT",
+                        message:
+                            "Idempotency key was already used for another request",
+                    },
+                });
+                request.off("aborted", abort);
+                return;
+            }
+            if (claim.kind === "pending") {
+                writeJson(response, 503, {
+                    error: {
+                        code: "CRT_RENDERING_UNAVAILABLE",
+                        message: "CRT rendering status requires reconciliation",
+                    },
+                });
+                request.off("aborted", abort);
+                return;
+            }
+            if (claim.kind === "complete") {
+                outputs.set(
+                    requestKey,
+                    join(outputDirectory, `${requestKey}.png`),
+                );
+                writeJson(response, 200, claim.result);
+                request.off("aborted", abort);
+                return;
+            }
+            pending = performTransform(
+                input,
+                requestKey,
+                controller.signal,
+            ).then(async (result) => {
+                await completeTransform(
+                    resultDirectory,
+                    requestKey,
+                    digest,
+                    result,
+                );
+                return result;
+            });
             transforms.set(
                 requestKey,
                 Object.freeze({ digest, result: pending }),
@@ -323,7 +382,7 @@ export async function startLocalCrtBusinessApi(options: {
         response.end(bytes);
     }
 
-    serviceUrl = await listenServer(server);
+    serviceUrl = await listenServer(server, listenOptions);
     return Object.freeze({
         url: serviceUrl,
         evidence: () =>
@@ -345,6 +404,87 @@ export async function startLocalCrtBusinessApi(options: {
         close: () => closeServer(server),
     });
 }
+
+type TransformClaim =
+    | Readonly<{ kind: "claimed" }>
+    | Readonly<{ kind: "pending" }>
+    | Readonly<{ kind: "conflict" }>
+    | Readonly<{ kind: "complete"; result: CrtImage }>;
+
+async function claimTransform(
+    directory: string,
+    key: string,
+    digest: string,
+): Promise<TransformClaim> {
+    const path = join(directory, `${key}.json`);
+    try {
+        await writeFile(path, JSON.stringify({ digest, state: "pending" }), {
+            encoding: "utf8",
+            flag: "wx",
+            mode: 0o600,
+        });
+        return Object.freeze({ kind: "claimed" });
+    } catch (error) {
+        if (!isFileExistsError(error)) throw error;
+    }
+
+    const record = parseTransformRecord(
+        JSON.parse(await readFile(path, "utf8")),
+    );
+    if (record.digest !== digest) return Object.freeze({ kind: "conflict" });
+    if (record.state === "pending") return Object.freeze({ kind: "pending" });
+    return Object.freeze({ kind: "complete", result: record.result });
+}
+
+async function completeTransform(
+    directory: string,
+    key: string,
+    digest: string,
+    result: CrtImage,
+): Promise<void> {
+    const path = join(directory, `${key}.json`);
+    const temporaryPath = join(
+        directory,
+        `${key}.${process.pid}.${Date.now()}.tmp`,
+    );
+    await writeFile(
+        temporaryPath,
+        JSON.stringify({ digest, state: "complete", result }),
+        { encoding: "utf8", mode: 0o600 },
+    );
+    await rename(temporaryPath, path);
+}
+
+function parseTransformRecord(
+    value: unknown,
+):
+    | Readonly<{ digest: string; state: "pending" }>
+    | Readonly<{ digest: string; state: "complete"; result: CrtImage }> {
+    if (!isRecord(value) || !/^[a-f0-9]{64}$/u.test(String(value.digest))) {
+        throw new Error("Stored CRT idempotency record is invalid");
+    }
+    const digest = String(value.digest);
+    if (value.state === "pending")
+        return Object.freeze({ digest, state: "pending" });
+    if (value.state === "complete") {
+        return Object.freeze({
+            digest,
+            state: "complete",
+            result: parseCrtImage(value.result),
+        });
+    }
+    throw new Error("Stored CRT idempotency state is invalid");
+}
+
+function isFileExistsError(error: unknown): boolean {
+    return (
+        error instanceof Error &&
+        "code" in error &&
+        (error as NodeJS.ErrnoException).code === "EEXIST"
+    );
+}
+
+export const startLocalCrtBusinessApi = startCrtBusinessApi;
 
 function summarizeRenderingFailure(
     error: unknown,
@@ -490,10 +630,15 @@ function writeJson(
     response.end(body);
 }
 
-async function listenServer(server: Server): Promise<string> {
+async function listenServer(
+    server: Server,
+    options: { host?: string; port?: number },
+): Promise<string> {
+    const host = options.host ?? "127.0.0.1";
+    const port = options.port ?? 0;
     await new Promise<void>((resolveListen, reject) => {
         server.once("error", reject);
-        server.listen(0, "127.0.0.1", () => {
+        server.listen(port, host, () => {
             server.off("error", reject);
             resolveListen();
         });
@@ -503,7 +648,8 @@ async function listenServer(server: Server): Promise<string> {
         await closeServer(server);
         throw new Error("Local CRT Business API did not bind an IP address");
     }
-    return `http://127.0.0.1:${address.port}`;
+    const urlHost = host === "0.0.0.0" || host === "::" ? "127.0.0.1" : host;
+    return `http://${urlHost}:${address.port}`;
 }
 
 async function closeServer(server: Server): Promise<void> {

@@ -1,10 +1,7 @@
 import { createHash } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
-import type {
-    CrtAspectRatio,
-    CrtPalette,
-} from "../../src/processes/crt/style.js";
+import type { CrtAspectRatio, CrtPalette } from "../processes/crt/style.js";
 import type {
     GptImageQuality,
     GptImageUsage,

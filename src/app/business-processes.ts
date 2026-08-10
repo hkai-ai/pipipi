@@ -32,6 +32,10 @@ export function createProductionRuntime(
         });
     const mode = parseContentMode(environment.CONTENT_PROCESSING_MODE);
     const baseUrl = parseBusinessApiBaseUrl(environment.BUSINESS_API_BASE_URL);
+    const crtBaseUrl = parseBusinessApiBaseUrl(
+        environment.CRT_BUSINESS_API_BASE_URL ??
+            environment.BUSINESS_API_BASE_URL,
+    );
     const openAIApiMode = parseOpenAIApiMode(environment.OPENAI_API_MODE);
     const capability = new HttpContentProcessingCapability({
         baseUrl,
@@ -89,7 +93,7 @@ export function createProductionRuntime(
                 agentDir: environment.PI_AGENT_DIR,
             }),
             capability: new HttpCrtRenderingCapability({
-                baseUrl,
+                baseUrl: crtBaseUrl,
                 timeoutMs: parsePositiveInteger(
                     environment.CRT_API_TIMEOUT_MS,
                     180_000,

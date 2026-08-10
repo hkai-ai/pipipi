@@ -1,8 +1,8 @@
 import { createHash } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, extname, resolve } from "node:path";
-import type { StoredObject } from "./support/object-storage.js";
-import { createObjectStorageFromEnvironment } from "./support/object-storage-config.js";
+import type { StoredObject } from "../src/business-api/object-storage.js";
+import { createObjectStorageFromEnvironment } from "../src/business-api/object-storage-config.js";
 
 const storage = createObjectStorageFromEnvironment(process.env);
 if (!storage) {

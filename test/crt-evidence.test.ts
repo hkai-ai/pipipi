@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
     resolveCrtEvidencePolicy,
     saveCrtEvidence,
-} from "../examples/support/crt-evidence.js";
+} from "../src/business-api/crt-evidence.js";
 
 const temporaryDirectories: string[] = [];
 

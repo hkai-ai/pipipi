@@ -1,8 +1,8 @@
 import { createHash } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { basename, join, resolve } from "node:path";
-import { createImageGenerationClient } from "./support/image-generation-config.js";
-import type { GptImageQuality } from "./support/openai-image-generation.js";
+import { createImageGenerationClient } from "../src/business-api/image-generation-config.js";
+import type { GptImageQuality } from "../src/business-api/openai-image-generation.js";
 
 const sourcePath = resolve(required("CRT_SOURCE_IMAGE_FILE"));
 const reportDirectory = resolve(

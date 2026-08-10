@@ -2,8 +2,8 @@ import { describe, expect, it, vi } from "vitest";
 import {
     type AliyunOssClient,
     AliyunOssStorage,
-} from "../examples/support/aliyun-oss-storage.js";
-import { createObjectStorageFromEnvironment } from "../examples/support/object-storage-config.js";
+} from "../src/business-api/aliyun-oss-storage.js";
+import { createObjectStorageFromEnvironment } from "../src/business-api/object-storage-config.js";
 
 describe("AliyunOssStorage", () => {
     it("uploads bytes with V4 signing and returns a public CDN URL", async () => {

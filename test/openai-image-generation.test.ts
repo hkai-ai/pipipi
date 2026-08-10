@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
     OpenAIImageGenerationClient,
     OpenAIImageGenerationError,
-} from "../examples/support/openai-image-generation.js";
+} from "../src/business-api/openai-image-generation.js";
 
 const minimalPng = Buffer.concat([
     Buffer.from("89504e470d0a1a0a0000000d49484452", "hex"),
