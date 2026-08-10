@@ -30,13 +30,17 @@ export type GenerateImageRequest = {
     signal?: AbortSignal;
 };
 
-export type EditImageRequest = GenerateImageRequest & {
-    image: {
-        bytes: Uint8Array;
-        mimeType: "image/png" | "image/jpeg" | "image/webp";
-        filename?: string;
-    };
+type SourceImage = {
+    bytes: Uint8Array;
+    mimeType: "image/png" | "image/jpeg" | "image/webp";
+    filename?: string;
 };
+
+export type EditImageRequest = GenerateImageRequest &
+    (
+        | { image: SourceImage; imageUrl?: never }
+        | { imageUrl: string; image?: never }
+    );
 
 export type OpenAIImageGenerationClientOptions = {
     apiKey: string;
@@ -139,6 +143,11 @@ export class OpenAIImageGenerationClient {
     async edit(request: EditImageRequest): Promise<GeneratedImage> {
         const prompt = request.prompt.trim();
         if (!prompt) throw new Error("GPT image prompt is required");
+        if (!("image" in request) || request.image === undefined) {
+            throw new Error(
+                "The OpenAI image Adapter requires source image bytes",
+            );
+        }
         if (request.image.bytes.byteLength === 0) {
             throw new Error("GPT image edit requires source image bytes");
         }
@@ -220,9 +229,7 @@ async function readGeneratedImage(response: Response): Promise<GeneratedImage> {
     };
 }
 
-function extensionFor(
-    mimeType: EditImageRequest["image"]["mimeType"],
-): GptImageOutputFormat {
+function extensionFor(mimeType: SourceImage["mimeType"]): GptImageOutputFormat {
     if (mimeType === "image/jpeg") return "jpeg";
     if (mimeType === "image/webp") return "webp";
     return "png";

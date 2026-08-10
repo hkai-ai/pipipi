@@ -101,6 +101,31 @@ describe("FAL image generation Adapter", () => {
         expect(image.bytes).toEqual(minimalPng);
     });
 
+    it("passes a public source URL directly to FAL", async () => {
+        const subscribe = vi.fn<FalSubscribe>(async () => ({
+            data: { images: [{ url: inlinePng }] },
+            requestId: "fal-url-edit-1",
+        }));
+        const client = new FalImageGenerationClient({
+            apiKey: "fal-test-key",
+            subscribe,
+        });
+        const imageUrl =
+            "https://images.example.com/source.png?signature=temporary";
+
+        await client.edit({
+            imageUrl,
+            prompt: "Rebuild this portrait as a CRT interface",
+            model: "gpt-image-2",
+            size: "1600x1200",
+            outputFormat: "png",
+        });
+
+        expect(subscribe.mock.calls[0]?.[1]?.input).toMatchObject({
+            image_urls: [imageUrl],
+        });
+    });
+
     it("returns a typed sanitized dependency error", async () => {
         const dependencyError = Object.assign(
             new Error("prompt and fal-never-print-this-key"),

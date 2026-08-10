@@ -9,6 +9,7 @@ import {
     type CrtRenderingCapability,
     CrtRenderingUnavailable,
     crtImageSchema,
+    isPublicSourceImageUrl,
 } from "./capability.js";
 import {
     type CrtAspectRatio,
@@ -20,12 +21,15 @@ import {
 } from "./style.js";
 
 const inputSchema = z.strictObject({
-    sourceImageId: z
+    sourceImageUrl: z
         .string()
         .trim()
         .min(1)
-        .max(128)
-        .regex(/^[a-zA-Z0-9][a-zA-Z0-9._:-]*$/u),
+        .max(2_048)
+        .refine(
+            isPublicSourceImageUrl,
+            "Source image URL must be a public HTTPS URL",
+        ),
     palette: z.enum(crtPaletteNames),
     aspectRatio: z.enum(crtAspectRatios),
 });
@@ -202,7 +206,7 @@ export function createCrtRegistration(
                     async () =>
                         capability.transform(
                             {
-                                sourceImageId: input.sourceImageId,
+                                sourceImageUrl: input.sourceImageUrl,
                                 prompt: compiled.prompt,
                                 palette: input.palette,
                                 aspectRatio: input.aspectRatio,

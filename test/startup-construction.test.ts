@@ -1,4 +1,4 @@
-import {
+﻿import {
     createServer,
     type RequestListener,
     type Server,
@@ -65,7 +65,7 @@ describe("Startup Construction", () => {
         });
         expect(
             registration?.accept({
-                sourceImageId: "asset_portrait_01",
+                sourceImageUrl: "https://images.example.com/portrait-01.png",
                 palette: "经典",
                 aspectRatio: "4:3",
             }),

@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+﻿import { describe, expect, it } from "vitest";
 import { createProcessingApplication } from "../src/api/application.js";
 import { createProcessExecutor } from "../src/processes/catalog.js";
 import type { ContentProcessingCapability } from "../src/processes/content/capability.js";
@@ -62,7 +62,8 @@ describe("crt-interface-image/v1", () => {
                     process: "crt-interface-image",
                     version: "v1",
                     input: {
-                        sourceImageId: "asset_portrait_01",
+                        sourceImageUrl:
+                            "https://images.example.com/portrait-01.png",
                         palette: "经典",
                         aspectRatio: "4:3",
                     },
@@ -84,7 +85,7 @@ describe("crt-interface-image/v1", () => {
     it("compiles without exposing the source asset, transforms once, and returns no prompt", async () => {
         const agentRequests: CrtAgentRequest[] = [];
         const transformCalls: Array<{
-            sourceImageId: string;
+            sourceImageUrl: string;
             prompt: string;
             palette: string;
             aspectRatio: string;
@@ -111,7 +112,7 @@ describe("crt-interface-image/v1", () => {
             process: "crt-interface-image",
             version: "v1",
             input: {
-                sourceImageId: "asset_portrait_01",
+                sourceImageUrl: "https://images.example.com/portrait-01.png",
                 palette: "经典",
                 aspectRatio: "4:3",
             },
@@ -129,10 +130,10 @@ describe("crt-interface-image/v1", () => {
             palette: "经典",
             aspectRatio: "4:3",
         });
-        expect(agentRequests[0]).not.toHaveProperty("sourceImageId");
+        expect(agentRequests[0]).not.toHaveProperty("sourceImageUrl");
         expect(transformCalls).toEqual([
             {
-                sourceImageId: "asset_portrait_01",
+                sourceImageUrl: "https://images.example.com/portrait-01.png",
                 prompt: compiledCrt.prompt,
                 palette: "经典",
                 aspectRatio: "4:3",
@@ -168,7 +169,7 @@ describe("crt-interface-image/v1", () => {
             process: "crt-interface-image",
             version: "v1",
             input: {
-                sourceImageId: "asset_portrait_01",
+                sourceImageUrl: "https://images.example.com/portrait-01.png",
                 palette: "经典",
                 aspectRatio: "4:3",
             },
@@ -197,7 +198,7 @@ describe("crt-interface-image/v1", () => {
             process: "crt-interface-image",
             version: "v1",
             input: {
-                sourceImageId: "asset_portrait_01",
+                sourceImageUrl: "https://images.example.com/portrait-01.png",
                 palette: "经典",
                 aspectRatio: "4:3",
             },
@@ -226,7 +227,7 @@ describe("crt-interface-image/v1", () => {
             process: "crt-interface-image",
             version: "v1",
             input: {
-                sourceImageId: "asset_portrait_01",
+                sourceImageUrl: "https://images.example.com/portrait-01.png",
                 palette: "经典",
                 aspectRatio: "4:3",
             },
@@ -256,7 +257,7 @@ describe("crt-interface-image/v1", () => {
             process: "crt-interface-image",
             version: "v1",
             input: {
-                sourceImageId: "asset_group_02",
+                sourceImageUrl: "https://images.example.com/group-02.png",
                 palette: "如图",
                 aspectRatio: "9:16",
             },
@@ -287,7 +288,7 @@ describe("crt-interface-image/v1", () => {
             process: "crt-interface-image",
             version: "v1",
             input: {
-                sourceImageId: "asset_portrait_01",
+                sourceImageUrl: "https://images.example.com/portrait-01.png",
                 palette: "经典",
                 aspectRatio: "4:3",
                 model: "gpt-image-2",
@@ -302,40 +303,39 @@ describe("crt-interface-image/v1", () => {
     });
 
     it.each([
-        ["remote URL", "https://assets.example/source.png"],
+        ["plain HTTP URL", "http://assets.example/source.png"],
+        ["loopback URL", "https://localhost/source.png"],
+        ["IP literal URL", "https://127.0.0.1/source.png"],
         ["data URL", "data:image/png;base64,AAAA"],
         ["local path", "/tmp/source.png"],
-    ])(
-        "rejects a %s instead of an opaque source asset id",
-        async (_case, sourceImageId) => {
-            let agentCalls = 0;
-            const executor = createCrtExecutor(
-                {
-                    compile: async () => {
-                        agentCalls += 1;
-                        return compiledCrt;
-                    },
+    ])("rejects an unsafe %s", async (_case, sourceImageUrl) => {
+        let agentCalls = 0;
+        const executor = createCrtExecutor(
+            {
+                compile: async () => {
+                    agentCalls += 1;
+                    return compiledCrt;
                 },
-                { transform: async () => crtImage },
-            );
+            },
+            { transform: async () => crtImage },
+        );
 
-            const result = await executor.execute({
-                process: "crt-interface-image",
-                version: "v1",
-                input: {
-                    sourceImageId,
-                    palette: "经典",
-                    aspectRatio: "4:3",
-                },
-            });
+        const result = await executor.execute({
+            process: "crt-interface-image",
+            version: "v1",
+            input: {
+                sourceImageUrl,
+                palette: "经典",
+                aspectRatio: "4:3",
+            },
+        });
 
-            expect(result).toMatchObject({
-                status: "failed",
-                error: { code: "INVALID_INPUT" },
-            });
-            expect(agentCalls).toBe(0);
-        },
-    );
+        expect(result).toMatchObject({
+            status: "failed",
+            error: { code: "INVALID_INPUT" },
+        });
+        expect(agentCalls).toBe(0);
+    });
 
     it("rejects an invalid prompt before the image Capability runs", async () => {
         let transformCalls = 0;
@@ -361,7 +361,7 @@ describe("crt-interface-image/v1", () => {
             process: "crt-interface-image",
             version: "v1",
             input: {
-                sourceImageId: "asset_portrait_01",
+                sourceImageUrl: "https://images.example.com/portrait-01.png",
                 palette: "经典",
                 aspectRatio: "4:3",
             },
@@ -393,7 +393,7 @@ describe("crt-interface-image/v1", () => {
             process: "crt-interface-image",
             version: "v1",
             input: {
-                sourceImageId: "asset_portrait_01",
+                sourceImageUrl: "https://images.example.com/portrait-01.png",
                 palette: "经典",
                 aspectRatio: "4:3",
             },
@@ -421,7 +421,7 @@ describe("crt-interface-image/v1", () => {
             process: "crt-interface-image",
             version: "v1",
             input: {
-                sourceImageId: "asset_portrait_01",
+                sourceImageUrl: "https://images.example.com/portrait-01.png",
                 palette: "经典",
                 aspectRatio: "4:3",
             },
@@ -459,7 +459,7 @@ describe("crt-interface-image/v1", () => {
             },
         );
         const input = {
-            sourceImageId: "asset_portrait_01",
+            sourceImageUrl: "https://images.example.com/portrait-01.png",
             palette: "经典",
             aspectRatio: "4:3",
         };
@@ -501,7 +501,7 @@ describe("crt-interface-image/v1", () => {
             process: "crt-interface-image",
             version: "v1",
             input: {
-                sourceImageId: "asset_portrait_01",
+                sourceImageUrl: "https://images.example.com/portrait-01.png",
                 palette: "经典",
                 aspectRatio: "4:3",
             },
@@ -540,7 +540,7 @@ describe("crt-interface-image/v1", () => {
             process: "crt-interface-image",
             version: "v1",
             input: {
-                sourceImageId: "asset_portrait_01",
+                sourceImageUrl: "https://images.example.com/portrait-01.png",
                 palette: "经典",
                 aspectRatio: "4:3",
             },

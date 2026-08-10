@@ -23,7 +23,7 @@ export type CrtImage = z.infer<typeof crtImageSchema>;
 export type CrtRenderingCapability = Readonly<{
     transform: (
         input: {
-            sourceImageId: string;
+            sourceImageUrl: string;
             prompt: string;
             palette: CrtPalette;
             aspectRatio: CrtAspectRatio;
@@ -36,6 +36,27 @@ export class CrtRenderingUnavailable extends Error {
     constructor(options?: ErrorOptions) {
         super("CRT rendering is unavailable", options);
         this.name = "CrtRenderingUnavailable";
+    }
+}
+
+export function isPublicSourceImageUrl(value: string): boolean {
+    try {
+        const url = new URL(value);
+        const hostname = url.hostname.toLowerCase();
+        return (
+            url.protocol === "https:" &&
+            url.username.length === 0 &&
+            url.password.length === 0 &&
+            url.port.length === 0 &&
+            url.hash.length === 0 &&
+            hostname.includes(".") &&
+            hostname !== "localhost" &&
+            !hostname.endsWith(".localhost") &&
+            !/^\d{1,3}(?:\.\d{1,3}){3}$/u.test(hostname) &&
+            !hostname.startsWith("[")
+        );
+    } catch {
+        return false;
     }
 }
 

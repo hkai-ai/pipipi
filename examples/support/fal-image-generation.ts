@@ -108,9 +108,7 @@ export class FalImageGenerationClient {
     async edit(request: EditImageRequest): Promise<GeneratedImage> {
         const prompt = request.prompt.trim();
         if (!prompt) throw new Error("FAL image prompt is required");
-        if (request.image.bytes.byteLength === 0) {
-            throw new Error("FAL image edit requires source image bytes");
-        }
+        const sourceImageUrl = resolveSourceImageUrl(request);
         requireGptImage2(request.model);
 
         const signal = timeoutSignal(request.signal, this.#timeoutMs);
@@ -119,9 +117,7 @@ export class FalImageGenerationClient {
             result = await this.#subscribe("openai/gpt-image-2/edit", {
                 input: {
                     prompt,
-                    image_urls: [
-                        dataUri(request.image.bytes, request.image.mimeType),
-                    ],
+                    image_urls: [sourceImageUrl],
                     image_size: parseImageSize(request.size ?? "1600x1200"),
                     quality: request.quality ?? "low",
                     num_images: 1,
@@ -199,9 +195,22 @@ function isImageSizePreset(
 
 function dataUri(
     bytes: Uint8Array,
-    mimeType: EditImageRequest["image"]["mimeType"],
+    mimeType: "image/png" | "image/jpeg" | "image/webp",
 ): string {
     return `data:${mimeType};base64,${Buffer.from(bytes).toString("base64")}`;
+}
+
+function resolveSourceImageUrl(request: EditImageRequest): string {
+    if ("imageUrl" in request && request.imageUrl !== undefined) {
+        const value = request.imageUrl.trim();
+        if (!value)
+            throw new Error("FAL image edit requires a source image URL");
+        return value;
+    }
+    if (request.image.bytes.byteLength === 0) {
+        throw new Error("FAL image edit requires source image bytes");
+    }
+    return dataUri(request.image.bytes, request.image.mimeType);
 }
 
 function readGeneratedImage(

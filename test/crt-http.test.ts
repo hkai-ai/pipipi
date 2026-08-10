@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+﻿import { describe, expect, it, vi } from "vitest";
 import { CrtRenderingUnavailable } from "../src/processes/crt/capability.js";
 import { HttpCrtRenderingCapability } from "../src/processes/crt/http.js";
 
@@ -22,7 +22,7 @@ describe("CRT Rendering HTTP Adapter", () => {
 
         const result = await capability.transform(
             {
-                sourceImageId: "asset_portrait_01",
+                sourceImageUrl: "https://images.example.com/portrait-01.png",
                 prompt: "Transform the attached image",
                 palette: "经典",
                 aspectRatio: "4:3",
@@ -43,7 +43,7 @@ describe("CRT Rendering HTTP Adapter", () => {
             "idempotency-key": "run-1",
         });
         expect(JSON.parse(String(request?.body))).toEqual({
-            sourceImageId: "asset_portrait_01",
+            sourceImageUrl: "https://images.example.com/portrait-01.png",
             prompt: "Transform the attached image",
             palette: "经典",
             aspectRatio: "4:3",
@@ -66,7 +66,8 @@ describe("CRT Rendering HTTP Adapter", () => {
         const error = await capability
             .transform(
                 {
-                    sourceImageId: "asset_portrait_01",
+                    sourceImageUrl:
+                        "https://images.example.com/portrait-01.png",
                     prompt: "Transform the attached image",
                     palette: "经典",
                     aspectRatio: "4:3",

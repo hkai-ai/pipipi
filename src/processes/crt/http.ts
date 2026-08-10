@@ -26,7 +26,7 @@ export class HttpCrtRenderingCapability implements CrtRenderingCapability {
 
     async transform(
         input: {
-            sourceImageId: string;
+            sourceImageUrl: string;
             prompt: string;
             palette: CrtPalette;
             aspectRatio: CrtAspectRatio;
