@@ -1,4 +1,5 @@
 import type { z } from "zod";
+import type { ProcessRunActivity } from "./logging.js";
 
 const inputMaxBytes = 262_144;
 const outputMaxBytes = 262_144;
@@ -15,6 +16,13 @@ export type ProcessIdentity = Readonly<{
 export type ProcessExecutionContext = Readonly<{
     runId: string;
     signal: AbortSignal;
+    runActivity: ProcessRunActivity;
+}>;
+
+type ProcessRegistrationRunContext = Readonly<{
+    runId: string;
+    signal: AbortSignal;
+    runActivity?: ProcessRunActivity;
 }>;
 
 export type ExpectedProcessErrorCode = "AGENT_FAILURE" | "DEPENDENCY_FAILURE";
@@ -99,7 +107,7 @@ export type ProcessRegistration = Readonly<{
     accept: (input: unknown) => ProcessRegistrationAcceptance;
     run: (
         acceptedInput: AcceptedProcessInput,
-        context: ProcessExecutionContext,
+        context: ProcessRegistrationRunContext,
     ) => Promise<ProcessRegistrationCompletion>;
     [processRegistrationBrand]: true;
 }>;
@@ -112,6 +120,7 @@ export function defineProcessRegistration<
     version: string;
     inputSchema: InputSchema;
     outputSchema: OutputSchema;
+    activities?: readonly string[];
     retryPolicy?: ProcessRetryPolicy;
     execute: (
         input: z.output<InputSchema>,
@@ -123,6 +132,7 @@ export function defineProcessRegistration<
     const outputSchema = definition.outputSchema;
     const execute = definition.execute;
     const retryPolicy = normalizeRetryPolicy(definition.retryPolicy);
+    const activities = normalizeActivities(definition.activities);
 
     const identity = Object.freeze({
         id: definition.id,
@@ -166,7 +176,7 @@ export function defineProcessRegistration<
 
     const run = (
         acceptedInput: AcceptedProcessInput,
-        context: ProcessExecutionContext,
+        context: ProcessRegistrationRunContext,
     ): Promise<ProcessRegistrationCompletion> =>
         Promise.resolve()
             .then(() => {
@@ -182,7 +192,24 @@ export function defineProcessRegistration<
                 }
                 const executionInput =
                     acceptedSnapshot.input as z.output<InputSchema>;
-                return execute(executionInput, context);
+                const runActivity: ProcessRunActivity =
+                    context.runActivity ??
+                    (async (_activity, operation) => operation());
+                return execute(
+                    executionInput,
+                    Object.freeze({
+                        runId: context.runId,
+                        signal: context.signal,
+                        runActivity: (activity, operation) => {
+                            if (!activities.has(activity)) {
+                                throw new Error(
+                                    `Process activity ${activity} is not declared`,
+                                );
+                            }
+                            return runActivity(activity, operation);
+                        },
+                    }),
+                );
             })
             .then((rawOutput): ProcessRegistrationCompletion => {
                 if (isExpectedProcessFailure(rawOutput)) {
@@ -223,6 +250,32 @@ export function defineProcessRegistration<
         run,
         [processRegistrationBrand]: true as const,
     });
+}
+
+function normalizeActivities(
+    values: readonly string[] | undefined,
+): ReadonlySet<string> {
+    const activities = values ?? [];
+    if (!Array.isArray(activities) || activities.length > 32) {
+        throw new Error("Process activities must contain at most 32 names");
+    }
+    const names = new Set<string>();
+    for (const activity of activities) {
+        if (
+            typeof activity !== "string" ||
+            activity.length > 64 ||
+            !/^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$/u.test(activity)
+        ) {
+            throw new Error(
+                "Process activity names must use lower snake case and contain at most 64 characters",
+            );
+        }
+        if (names.has(activity)) {
+            throw new Error(`Process activity ${activity} is duplicated`);
+        }
+        names.add(activity);
+    }
+    return names;
 }
 
 function normalizeRetryPolicy(

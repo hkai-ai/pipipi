@@ -35,6 +35,8 @@
 
 Agent 不能选择或替换 Skill，也不能使用 Shell、文件系统、代码编辑或任意远程工具。Capability 的 HTTP Adapter 与 Agent provider 都是服务端 Implementation。
 
+运行活动日志使用固定名称：两种模式都记录 `content_processing`；Agent 模式还以 `content_optimization` 包住 Agent 调用和结果一致性校验。日志只记录活动结果与耗时，不记录文本、Tool 参数或模型消息。
+
 ## 错误与副作用
 
 | 阶段 | 公开错误 | 条件 |

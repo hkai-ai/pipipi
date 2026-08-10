@@ -76,6 +76,8 @@ flowchart LR
 5. 受控 Business API 解析资产，调用 GPT Image 2 图片编辑，执行同尺寸后处理，持久化 PNG，并返回图片引用。
 6. Registration 验证媒体类型、尺寸和比例后，才向产品返回结果。
 
+运行活动日志用 `crt_prompt_compilation` 和 `crt_rendering` 区分 Agent 编译校验与 CRT Rendering Capability 调用。日志只记录活动结果与耗时，不记录 `sourceImageId`、调色板、画幅、Prompt、recipe、图片 URL、资产内容或供应商正文。
+
 GPT Image 2 的官方图片指南明确支持通过 Images API 编辑一张或多张参考图，并支持符合约束的自定义输出尺寸；开发时以 [Edit images](https://developers.openai.com/api/docs/guides/image-generation#edit-images) 和 [Customize image output](https://developers.openai.com/api/docs/guides/image-generation#customize-image-output) 为准。FAL 也提供 [`openai/gpt-image-2/edit`](https://fal.ai/models/openai/gpt-image-2/edit/api)，接受 Data URI、`image_urls`、自定义尺寸、质量和 PNG 输出。模型和供应商配置固定在 Business API 内，不进入产品请求。
 
 ## 上传与资产服务

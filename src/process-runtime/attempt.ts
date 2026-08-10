@@ -1,3 +1,8 @@
+import {
+    createProcessRunAttemptLog,
+    type ProcessRunLogClock,
+    type ProcessRunLogSink,
+} from "./logging.js";
 import type {
     AcceptedProcessInput,
     ProcessRegistration,
@@ -8,6 +13,7 @@ export type ProcessAttemptRequest = Readonly<{
     runId: string;
     registration: ProcessRegistration;
     acceptedInput: AcceptedProcessInput;
+    attemptNumber?: number;
     signal?: AbortSignal;
 }>;
 
@@ -16,7 +22,11 @@ export type ProcessAttemptRunner = Readonly<{
 }>;
 
 export function createProcessAttemptRunner(
-    options: { processTimeoutMs?: number } = {},
+    options: {
+        processTimeoutMs?: number;
+        logSink?: ProcessRunLogSink;
+        logClock?: ProcessRunLogClock;
+    } = {},
 ): ProcessAttemptRunner {
     const processTimeoutMs = options.processTimeoutMs ?? 30_000;
     if (!Number.isInteger(processTimeoutMs) || processTimeoutMs < 1) {
@@ -29,7 +39,19 @@ export function createProcessAttemptRunner(
                 process: attempt.registration.identity.id,
                 version: attempt.registration.identity.version,
             };
+            const attemptNumber = attempt.attemptNumber ?? 1;
+            if (!Number.isSafeInteger(attemptNumber) || attemptNumber < 1) {
+                throw new Error("Process Attempt number must be positive");
+            }
             const controller = new AbortController();
+            const log = createProcessRunAttemptLog({
+                runId: attempt.runId,
+                ...identity,
+                attemptNumber,
+                signal: controller.signal,
+                sink: options.logSink,
+                clock: options.logClock,
+            });
             let timeout: NodeJS.Timeout | undefined;
             let externallyCancelled = false;
             let removeCancellationListener: (() => void) | undefined;
@@ -63,52 +85,78 @@ export function createProcessAttemptRunner(
                     attempt.registration.run(attempt.acceptedInput, {
                         runId: attempt.runId,
                         signal: controller.signal,
+                        runActivity: log.runActivity,
                     }),
                     timeoutFailure,
                     cancellationFailure,
                 ]);
-                return completion.status === "succeeded"
-                    ? {
-                          runId: attempt.runId,
-                          ...identity,
-                          status: "succeeded",
-                          output: completion.output,
-                      }
-                    : processFailure(
-                          attempt.runId,
-                          completion.error.code,
-                          completion.error.publicMessage,
-                          identity,
-                      );
+                const result: ProcessRunResult =
+                    completion.status === "succeeded"
+                        ? {
+                              runId: attempt.runId,
+                              ...identity,
+                              status: "succeeded",
+                              output: completion.output,
+                          }
+                        : processFailure(
+                              attempt.runId,
+                              completion.error.code,
+                              completion.error.publicMessage,
+                              identity,
+                          );
+                log.finish(
+                    result.status === "succeeded"
+                        ? { outcome: "succeeded" }
+                        : {
+                              outcome: "failed",
+                              errorCode: result.error.code,
+                          },
+                );
+                return result;
             } catch (error) {
                 if (
                     externallyCancelled ||
                     error instanceof ProcessAttemptCancelledFailure
                 ) {
-                    return processFailure(
+                    const result = processFailure(
                         attempt.runId,
                         "INTERNAL_ERROR",
                         "The process could not be completed",
                         identity,
                     );
+                    log.finish({
+                        outcome: "cancelled",
+                        errorCode: "INTERNAL_ERROR",
+                    });
+                    return result;
                 }
                 if (
                     controller.signal.aborted ||
                     error instanceof ProcessTimeoutFailure
                 ) {
-                    return processFailure(
+                    const result = processFailure(
                         attempt.runId,
                         "PROCESS_TIMEOUT",
                         "The process exceeded its time limit",
                         identity,
                     );
+                    log.finish({
+                        outcome: "timed_out",
+                        errorCode: "PROCESS_TIMEOUT",
+                    });
+                    return result;
                 }
-                return processFailure(
+                const result = processFailure(
                     attempt.runId,
                     "INTERNAL_ERROR",
                     "The process could not be completed",
                     identity,
                 );
+                log.finish({
+                    outcome: "failed",
+                    errorCode: "INTERNAL_ERROR",
+                });
+                return result;
             } finally {
                 if (timeout) clearTimeout(timeout);
                 removeCancellationListener?.();

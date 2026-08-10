@@ -136,37 +136,48 @@ export function createPosterRegistration(
         version: "v1",
         inputSchema,
         outputSchema,
+        activities: ["poster_prompt_compilation", "poster_rendering"],
         execute: async (input, context) => {
             const brief = normalizeWhitespace(input.brief);
             const text = input.text;
 
             let compiled: z.infer<typeof compiledSchema>;
             try {
-                const result = compiledSchema.safeParse(
-                    await agent.compile({
-                        brief,
-                        ...(text ? { text } : {}),
-                        signal: context.signal,
-                    }),
+                compiled = await context.runActivity(
+                    "poster_prompt_compilation",
+                    async () => {
+                        const result = compiledSchema.safeParse(
+                            await agent.compile({
+                                brief,
+                                ...(text ? { text } : {}),
+                                signal: context.signal,
+                            }),
+                        );
+                        if (
+                            !result.success ||
+                            (text !== undefined &&
+                                !result.data.prompt.includes(text))
+                        ) {
+                            throw new PosterPromptActivityFailure();
+                        }
+                        return result.data;
+                    },
                 );
-                if (
-                    !result.success ||
-                    (text !== undefined && !result.data.prompt.includes(text))
-                ) {
-                    return agentFailure();
-                }
-                compiled = result.data;
             } catch {
                 return agentFailure();
             }
 
             try {
-                const image = await capability.render(
-                    { prompt: compiled.prompt, aspectRatio: "3:5" },
-                    {
-                        signal: context.signal,
-                        idempotencyKey: context.runId,
-                    },
+                const image = await context.runActivity(
+                    "poster_rendering",
+                    async () =>
+                        capability.render(
+                            { prompt: compiled.prompt, aspectRatio: "3:5" },
+                            {
+                                signal: context.signal,
+                                idempotencyKey: context.runId,
+                            },
+                        ),
                 );
                 return { ...compiled, image };
             } catch (error) {
@@ -181,6 +192,8 @@ export function createPosterRegistration(
         },
     });
 }
+
+class PosterPromptActivityFailure extends Error {}
 
 function normalizeWhitespace(value: string): string {
     return value.replace(/\s+/g, " ");

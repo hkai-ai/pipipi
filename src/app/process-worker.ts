@@ -13,6 +13,7 @@ import {
 } from "./config.js";
 import { createRuntimePool } from "./postgres.js";
 import { loadProcessRunConnections } from "./process-run-config.js";
+import { createPinoProcessRunLogSink } from "./process-run-logging.js";
 import {
     type BackgroundRuntime,
     type ConstructedRuntimeRoleService,
@@ -22,7 +23,10 @@ import {
 export function constructProcessWorkerService(
     environment: StartupEnvironment,
 ): ConstructedRuntimeRoleService {
-    const processRuntime = createProductionRuntime(environment);
+    const runLogSink = createPinoProcessRunLogSink({
+        level: environment.PROCESS_RUN_LOG_LEVEL,
+    });
+    const processRuntime = createProductionRuntime(environment, { runLogSink });
     const port = parsePort(environment.PORT);
     const readinessTimeoutMs = parsePositiveInteger(
         environment.RUNTIME_ROLE_READINESS_TIMEOUT_MS,
@@ -110,7 +114,10 @@ export function constructProcessWorkerService(
         worker: createProcessWorker({
             registry: processRuntime.registry,
             store,
-            attemptRunner: createProcessAttemptRunner({ processTimeoutMs }),
+            attemptRunner: createProcessAttemptRunner({
+                processTimeoutMs,
+                logSink: runLogSink,
+            }),
             logSink: writeAsyncOperationalLog,
         }),
     });

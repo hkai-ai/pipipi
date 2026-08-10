@@ -39,6 +39,7 @@
 | `POSTER_API_TIMEOUT_MS` | 正整数；代码默认 `90000`，本发布显式设置 `90000` |
 | `CRT_API_TIMEOUT_MS` | 正整数；代码默认 `180000`，本发布显式设置 `180000` |
 | `PROCESS_TIMEOUT_MS` | 正整数；代码默认 `30000`，本发布必须显式设置 `240000` |
+| `PROCESS_RUN_LOG_LEVEL` | Pino 阈值；默认 `info`，生产建议保留 `info` 以观察完整活动时间线 |
 | `ASYNC_PROCESS_RUNS_ENABLED` | 本同步 MVP 必须保持 `false`；异步生产发布使用独立 Runbook |
 | `PI_PROVIDER`、`PI_MODEL` | 按组设置；海报与 CRT 流程始终使用 Agent |
 | `OPENAI_BASE_URL`、`OPENAI_API_MODE` | 使用 OpenAI 或兼容网关时设置 |
@@ -59,7 +60,7 @@ Vercel Functions、Netlify Functions 和 Cloudflare Workers 不能直接运行�
 
 ## Run Record 策略
 
-当前生产启动构造没有注入 Run Record 存储。MVP 依靠部署平台收集单行 JSON 完成日志，并按 `runId`、Process、状态和错误码检索。`runId` 是运行排障索引，不是聊天会话 ID；聊天历史应由产品数据库单独保存。
+当前生产启动构造没有注入 Run Record 存储。MVP 依靠部署平台收集 Pino newline-delimited JSON，并按 `runId`、Process、状态和错误码检索。`runId` 是运行排障索引，不是聊天会话 ID；聊天历史应由产品数据库单独保存。
 
 仓库提供的内存 Run Record Adapter 只用于开发或单实例测试。它有容量上限，但重启即丢失，也不在实例之间共享。不要把容器内存或容器磁盘当作生产记录存储。
 
@@ -126,7 +127,7 @@ docker build -t pi-business-processing-service:rc .
 2. 授权调用方必须能通过 TLS 网关访问 `/healthz` 和 `/execute`。
 3. 网关请求超时必须长于 `PROCESS_TIMEOUT_MS`。
 4. 平台实例并发不得高于应用并发闸门；平台必须设置最大实例数。
-5. 日志系统必须收到单行 JSON，并能按 `runId`、`process`、`status` 和 `errorCode` 检索。
+5. 日志系统必须收到 Pino 单行 JSON，识别数值 `level`，能按 `runId`、`process`、`status|outcome` 和 `errorCode` 检索，并能按 `attemptNumber + sequence` 还原固定活动时间线；日志中不得出现业务内容、Prompt、Tool 参数、模型消息或内部异常正文。
 6. `BUSINESS_API_BASE_URL` 必须连接真实 Business Capability。
 7. `POST /posters` 必须按 `runId` 去重，并验证图片 URL 的访问控制、有效期、媒体类型和尺寸。
 8. `POST /crt-images` 必须按 `runId` 去重，并验证资产权限、GPT Image 2 编辑、finalizer、PNG 引用、费用和删除生命周期；生产证据模式必须为 `off`，或有单独批准的数据保留策略。

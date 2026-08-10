@@ -39,7 +39,7 @@ Business Processing Service 让产品调用方通过一个稳定的 HTTP Interfa
 | `minimal-zine-poster/v1` | `{ brief: string, text?: string }` | `{ prompt, recipe, interpretation, image }` | 无 Tool Agent 编译固定 Runtime Skill；Poster Rendering Capability 生成并持久化图片 |
 | `crt-interface-image/v1` | `{ sourceImageId, palette, aspectRatio }` | `{ aspectRatio, image }` | 无 Tool Agent 编译固定 Runtime Skill；CRT Rendering Capability 解析参考图、编辑、后处理并持久化 PNG |
 
-默认 HTTP 入口公开 `GET /healthz`、`GET /readyz` 和 `POST /execute`。每次执行生成独立 `runId`。显式启用并完整配置 Async Process Runs 后，API 还提供 `POST /process-runs` 和 `GET /process-runs/{runId}`；该功能默认关闭，只有按异步 Runbook 通过容量、恢复、安全、观测和 staged rollout 门禁后才能向外部调用方开放。默认同步生产构造不持久化 Run Record；结构化完成日志只保留运行元数据，不保存 Prompt、Tool 过程、模型消息或隐藏推理。
+默认 HTTP 入口公开 `GET /healthz`、`GET /readyz` 和 `POST /execute`。每次执行生成独立 `runId`。显式启用并完整配置 Async Process Runs 后，API 还提供 `POST /process-runs` 和 `GET /process-runs/{runId}`；该功能默认关闭，只有按异步 Runbook 通过容量、恢复、安全、观测和 staged rollout 门禁后才能向外部调用方开放。默认同步生产构造不持久化 Run Record；同步与异步 Attempt 都通过 Pino Adapter 输出结构化运行活动日志。日志只保留 `runId`、Process identity、Attempt、服务端声明的活动、顺序、结果、稳定错误码和耗时，不保存业务内容、Prompt、Tool 参数、模型消息、隐藏推理或内部异常正文。
 
 仓库已实现 Async Process Runs Module。它以 `submit/find` 固定公共状态、owner 隔离和 caller-scoped idempotency；PostgreSQL Adapter 以事务持久化 Run、初始 Event 和 Outbox。Outbox Dispatcher 通过统一的 BullMQ `process-runs` Queue 只发布 `{ schemaVersion, runId }`，Worker 再从 PostgreSQL 读取准确 Registration 与 accepted input。Store 以 claim token 隔离 Attempt；过期租约可被接管，Reconciler 会重投长期 queued 或过期 running Run，停机超时则释放当前 claim。Registration 默认单次执行，也可声明有界错误分类与指数退避；Business Capability 获得稳定 `runId` 幂等键。API、Dispatcher 和 Worker 已有独立 Construction Root、入口、配置与健康检查；真实 PostgreSQL/Redis 集成测试覆盖成功、业务失败、受控重试、Redis 断线、重复 Job、租约接管、有期限停机和 caller 隔离。
 
@@ -79,7 +79,8 @@ Agent 只获得 Process Registration 明确绑定的 Runtime Skill 集合与窄 
 | Processing Application | `listen`、`close` | Node HTTP 生命周期 |
 | Process Executor | `execute(request)` | 查找、超时、取消、错误转换和 Run Record |
 | Process Registration | `identity`、`retryPolicy`、`accept(input)`、`run(acceptedInput, context)` | Schema、JSON-safe accepted input、Process Definition、依赖、服务端重试策略和输出验证 |
-| Process Attempt Runner | `run({ runId, registration, acceptedInput })` | 预分配 runId、超时、取消和公开错误净化 |
+| Process Attempt Runner | `run({ runId, registration, acceptedInput, attemptNumber? })` | 预分配 runId、超时、取消、公开错误净化和活动时间线 |
+| Process Run Activity Logging | `runActivity(name, operation)`、`ProcessRunLogSink` | 声明检查、Attempt 关联、顺序、耗时、结果净化，以及 Pino 与内存 Adapter |
 | Async Process Runs | `submit(request, context)`、`find(runId, context)` | 输入接受、owner、幂等摘要和公共状态投影 |
 | Async Operations | `snapshot()`、staged release readiness | PostgreSQL 与 BullMQ 指标、容量/恢复发布门禁和无内容结构化日志 |
 | Process Run Store | 接受 Run、owner 查询、claim、终态转换 | accepted input、attempt、revision 和 fencing；提供内存与 PostgreSQL Adapter |
@@ -112,6 +113,7 @@ Startup Construction 是生产组装 Seam；Process Executor 是同步传输与 
 - **Process Event**：Process Run 状态变化后产生的不可变事实，可投影为 Webhook payload。
 - **Webhook Delivery**：一个 Process Event 向一个已注册 Webhook Endpoint 的投递记录。重复 Delivery 是正常的至少一次语义。
 - **Run Record**：一次 Process Run 的派生观测元数据。它不参与状态转换或恢复，不是聊天记录，也不应默认保存业务内容或 Agent 内部过程。
+- **Process Run Activity Log**：一次 Process Attempt 的 best-effort 结构化观测时间线。活动名由 Process Registration 固定声明；它不是 Process Event、权威状态、业务审计或隐藏推理。
 
 设计讨论统一使用 **Module**、**Interface**、**Implementation**、**Seam** 和 **Adapter**。Interface 包含调用方必须知道的全部约束，不只包含 TypeScript 类型。
 

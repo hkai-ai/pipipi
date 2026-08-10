@@ -184,7 +184,7 @@ dry-run 只检查 PostgreSQL 与 Redis 并写恢复审计，不写 Queue 或 Out
 
 PostgreSQL Store 在 acceptance 事务内先检查 caller-scoped idempotency，再使用事务级 advisory lock 串行统计非终态 backlog。caller 达到阈值抛出稳定 `429 CALLER_BACKLOG_LIMIT_REACHED`，全局达到阈值抛出 `503 ASYNC_SERVICE_CAPACITY_REACHED`，都返回配置的 `Retry-After`；相同请求的幂等重放和既有 Run GET 不受门禁影响。`007_process_run_admission` 的 caller/status 部分索引保持检查可预测。
 
-成功日志只保留关联元数据：API/Worker 用 `runId`，Outbox 用 `messageId + eventId + runId|deliveryId`，Webhook Attempt 用 `deliveryId + eventId`。日志不得包含 idempotency key、accepted input、output、Webhook URL/payload、Secret 或内部异常正文。精确部署、告警处置和 fault drill 见 [`async-process-runs-runbook.md`](async-process-runs-runbook.md)。
+成功日志只保留关联元数据：API/Worker 用 `runId`，Process Attempt/activity 另有 `attemptNumber + sequence`，Outbox 用 `messageId + eventId + runId|deliveryId`，Webhook Attempt 用 `deliveryId + eventId`。日志不得包含 idempotency key、accepted input、output、Prompt、Tool 参数、模型消息、Webhook URL/payload、Secret 或内部异常正文。精确部署、告警处置和 fault drill 见 [`async-process-runs-runbook.md`](async-process-runs-runbook.md)。
 
 ### 内容保留与清理
 
@@ -232,7 +232,7 @@ Webhook 重试状态以 PostgreSQL 为准，不依赖 BullMQ 的 Job attempts。
 | `src/app/process-dispatcher.ts`、`process-worker.ts`、`retention-cleaner.ts` | 各后台角色独立的配置和 Adapter 组装 |
 | `src/app/process-recovery.ts`、`async-operations.ts` | 一次性运维命令的资源组装 |
 | `src/app/webhook-worker.ts` | Webhook Worker 的 Delivery、Outbox、Queue 和 HTTP Sender 组装 |
-| `src/process-runtime/` | Registration、Registry、同步 Runner、Attempt Runner、Run Record、公共结果和错误治理 |
+| `src/process-runtime/` | Registration、Registry、同步 Runner、Attempt Runner、运行活动日志、Run Record、公共结果和错误治理 |
 | `src/agent-runtime/pi.ts`、`skills.ts` | 多个流程共用的 Pi provider 配置、Agent JSON 解析和 Runtime Skill 精确加载 |
 | `src/processes/catalog.ts` | 显式 production catalog 和 Process Runtime 组装 |
 | `src/processes/content/registration.ts` | `content-processing/v1` 的 Schema、Direct/Agent 流程、失败和 Tool 调用 invariant |
@@ -328,11 +328,11 @@ JSON-safe snapshot。业务 input payload 默认上限为 262144 UTF-8 bytes，�
 
 流程拓扑和业务语义保留在 TypeScript 中，不使用 JSON 工作流语言。维护者可以把自然语言需求直接交给 Codex；需求输入、判断规则和完整完成标准见 [`authoring-business-processes.md`](authoring-business-processes.md)。
 
-1. 新建 `create…Registration` factory，通过 `defineProcessRegistration` 声明固定 `id`、`version`、输入 Schema、输出 Schema 和 Process Definition。
-2. 把该流程获准使用的窄 Business Capability 和稳定策略传给 factory，并由闭包捕获。流程使用 Agent 时，在流程 Module 内定义准确、有序的 Skill 与 Tool 集合；Composition Root 只提供 Adapter 和部署配置。Execution Context 只携带 `runId` 和 `AbortSignal` 等请求级信息。
+1. 新建 `create…Registration` factory，通过 `defineProcessRegistration` 声明固定 `id`、`version`、输入 Schema、输出 Schema、运行活动和 Process Definition。
+2. 把该流程获准使用的窄 Business Capability 和稳定策略传给 factory，并由闭包捕获。流程使用 Agent 时，在流程 Module 内定义准确、有序的 Skill 与 Tool 集合；Composition Root 只提供 Adapter 和部署配置。Execution Context 只携带 `runId`、`AbortSignal` 和受控 `runActivity` 等请求级信息。
 3. 用 `failProcess` 返回预期的 `AGENT_FAILURE` 或 `DEPENDENCY_FAILURE`。让意外异常继续抛出，由 Process Runner 转换为安全的 `INTERNAL_ERROR`。
 4. 在 `createProcessExecutor` 的显式 production catalog 中加入 Registration。每项只代表一个准确 `(id, version)`。
-5. 通过 Registration Seam 测试接受、JSON 往返、单次解析、策略和输出。Agent 流程还要验证 Tool 调用次数、下游幂等键和最终结果来源；通过 Process Attempt Runner 测试预分配 `runId`、超时与错误净化；通过真实本地 `/execute` 测试产品行为和 HTTP 映射。
+5. 通过 Registration Seam 测试接受、JSON 往返、单次解析、策略和输出。Agent 流程还要验证 Tool 调用次数、下游幂等键和最终结果来源；通过 Process Attempt Runner 测试预分配 `runId`、超时、活动时间线、日志故障隔离与错误净化；通过真实本地 `/execute` 测试产品行为和 HTTP 映射。
 6. 创建或更新 `docs/processes/<process-id>/README.md`，再更新 README 的当前能力、`CONTEXT.md` 的产品契约，以及受影响的设计或发布文档。目录和内容规则见 [Business Process 文档目录](processes/README.md)。
 
 [`src/processes/titled-content/registration.ts`](../src/processes/titled-content/registration.ts) 是最小示例；[`src/processes/poster/registration.ts`](../src/processes/poster/registration.ts) 展示 Agent 编译后再调用 Business Capability 的两阶段流程；[`src/processes/crt/registration.ts`](../src/processes/crt/registration.ts) 展示如何把预上传资产保持为不透明业务字段。新版本必须新建 Registration 并显式加入 catalog；不要加入 `latest`、默认版本、自动发现或回退。
@@ -351,9 +351,35 @@ JSON-safe snapshot。业务 input payload 默认上限为 262144 UTF-8 bytes，�
 4. 只在 Startup Construction 或明确的 composition root 选择生产 Adapter。
 5. 若新供应商迫使调用方理解其专有概念，重新检查 Seam 是否放错位置。
 
+## 追踪 Process Run 活动
+
+Production Composition Root 默认通过 Pino Adapter 把 Process Attempt 与活动日志写成 newline-delimited JSON。Process author 在 Registration 中声明固定活动，并用 Execution Context 包住有业务意义、可能耗时或失败的操作：
+
+```ts
+return defineProcessRegistration({
+  id: "example-processing",
+  version: "v1",
+  inputSchema,
+  outputSchema,
+  activities: ["policy_loading", "content_processing"],
+  execute: async (input, context) => {
+    const policy = await context.runActivity("policy_loading", () => loadPolicy());
+    return context.runActivity("content_processing", () => process(input, policy));
+  },
+});
+```
+
+活动名必须是最多 64 个字符的小写 snake case，列表最多 32 项且不能重复。名称必须由代码固定，不能拼接 input、资产标识、URL、供应商响应或其他运行时内容。`runActivity` 自动记录 start/finish、`succeeded|failed|cancelled` 和耗时；Attempt finish 记录 `succeeded|failed|timed_out|cancelled` 与可选公开错误码。异步 Worker 传入持久化 Attempt number，同步执行固定为 1。
+
+按 `runId` 筛选日志，再按 `attemptNumber` 和 `sequence` 排序即可还原执行时间线。`sequence` 只在单个 Attempt 内递增；跨 Attempt、实例或 Process Run 不承诺全局顺序。Pino 添加数值 `level`、`pid`、`hostname`、`service`、`module` 和 `msg`；事件自己的 ISO `timestamp` 是唯一时间字段。started 与成功 finish 使用 `info`，失败或取消使用 `warn`，以 `INTERNAL_ERROR` 结束的失败 Attempt 使用 `error`。
+
+`PROCESS_RUN_LOG_LEVEL` 控制 Pino 阈值，默认 `info`，可设为 `fatal|error|warn|info|debug|trace|silent`。设为 `warn` 时只输出失败、取消和超时；设为 `silent` 时关闭 Process Run 活动日志。日志 sink、Pino destination 或时钟失败不会改变 Process Result。日志不保存 accepted input、output、Prompt、Tool 参数、模型消息、隐藏推理、Secret、远端正文或内部异常消息。Pino redaction 是敏感字段名的兜底保护，不能替代 `ProcessRunLogRecord` 的源头白名单。
+
+运行活动日志是 best-effort 观测，不是权威 Process Event、状态库、Run Record 或产品查询 Interface。需要可靠状态与结果时，异步调用方仍查询 owner-scoped `GET /process-runs/{runId}`；需要业务审计时，应设计独立的授权、持久化和保留策略。
+
 ## 接入 Run Record
 
-默认生产构造使用 disabled 实现，只输出结构化完成日志。开发或单实例测试可以注入有容量上限的内存实现：
+默认生产构造使用 disabled 实现，只输出结构化 Attempt 与活动日志。开发或单实例测试可以注入有容量上限的内存实现：
 
 ```ts
 import { createProcessingApplication } from "./src/api/application.js";
@@ -407,7 +433,7 @@ Run Record 是运行排障数据，不是聊天历史。产品聊天记录应由
 
 - Startup Construction 测试配置解析、跨字段拒绝和完整生产组装。
 - Process Runtime 测试 Registration、Registry、Process Attempt Runner 和同步 Runner 的 Interface invariant。
-- HTTP Adapter 测试传输错误、容量、状态码和结构化日志。
+- HTTP Adapter 测试传输错误、容量、状态码和请求级结构化日志；Process Attempt Runner 测试运行活动日志。
 - Application 测试 server 生命周期，不了解具体 Business Process。
 - Process Registration 测试流程 Schema、获准依赖、策略和错误契约。
 - Adapter 测试协议与错误转换；默认使用本地受控依赖。

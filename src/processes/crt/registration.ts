@@ -176,26 +176,42 @@ export function createCrtRegistration(
         version: "v1",
         inputSchema,
         outputSchema,
+        activities: ["crt_prompt_compilation", "crt_rendering"],
         execute: async (input, context) => {
-            const compiled = await compileAgentResult(
-                agent,
-                input,
-                context.signal,
-            );
-            if (!compiled) return agentFailure();
+            let compiled: z.infer<typeof compiledSchema>;
+            try {
+                compiled = await context.runActivity(
+                    "crt_prompt_compilation",
+                    async () => {
+                        const result = await compileAgentResult(
+                            agent,
+                            input,
+                            context.signal,
+                        );
+                        if (!result) throw new CrtPromptActivityFailure();
+                        return result;
+                    },
+                );
+            } catch {
+                return agentFailure();
+            }
 
             try {
-                const image = await capability.transform(
-                    {
-                        sourceImageId: input.sourceImageId,
-                        prompt: compiled.prompt,
-                        palette: input.palette,
-                        aspectRatio: input.aspectRatio,
-                    },
-                    {
-                        signal: context.signal,
-                        idempotencyKey: context.runId,
-                    },
+                const image = await context.runActivity(
+                    "crt_rendering",
+                    async () =>
+                        capability.transform(
+                            {
+                                sourceImageId: input.sourceImageId,
+                                prompt: compiled.prompt,
+                                palette: input.palette,
+                                aspectRatio: input.aspectRatio,
+                            },
+                            {
+                                signal: context.signal,
+                                idempotencyKey: context.runId,
+                            },
+                        ),
                 );
                 return { aspectRatio: input.aspectRatio, image };
             } catch (error) {
@@ -210,6 +226,8 @@ export function createCrtRegistration(
         },
     });
 }
+
+class CrtPromptActivityFailure extends Error {}
 
 async function compileAgentResult(
     agent: CrtAgent,

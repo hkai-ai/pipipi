@@ -225,7 +225,7 @@ flowchart LR
 | Process Registration | `identity`、接受输入、执行 accepted input | Schema、Definition、依赖、策略和输出验证 |
 | Process Run Store | 创建、claim、转换状态、按 owner 查询、追加 outbox | SQL、事务、乐观并发、加密和 retention |
 | Process Work Queue | 发布 `runId`、消费 Queue Job、关闭 | BullMQ Queue/Worker、连接、backoff、并发和 job retention |
-| Process Attempt Runner | 执行一个已 claim 的 Attempt | 超时、AbortSignal、错误净化、retry classification 和 fencing |
+| Process Attempt Runner | 执行一个已 claim 的 Attempt | 超时、AbortSignal、活动时间线、错误净化、retry classification 和 fencing |
 | Process Events | 在状态事务中追加不可变事件 | outbox 扫描、重复发布和 reconciliation |
 | Process Recovery | `recover({ mode, dryRun, cursor })` | PostgreSQL 候选、Queue inspection、Outbox ack、租约保护、审计和指标 |
 | Webhook Delivery | 为事件创建 Delivery、签名、投递、重试和重放 | endpoint 策略、HTTP、secret、backoff 和审计 |
@@ -339,7 +339,7 @@ BullMQ 和网络只能提供至少一次执行。流程若会扣费、发布、�
 - Webhook 签名只证明来源与正文完整性，不加密 payload；Endpoint 必须使用 HTTPS，payload 仍只发送最少元数据。
 - Endpoint 注册和 URL 修改先解析全部地址并拒绝 loopback、link-local、私网、metadata、保留和其他非公网地址。Delivery 每次发送前重新解析，并通过自定义 lookup 把本次连接固定到已验证地址；HTTP client 不跟随重定向，因此 DNS rebinding 和跳转不能绕过检查。
 - Endpoint 的创建、URL 修改、停用、Secret 轮换和目标拒绝都写 owner-scoped 审计事件。Secret 查询永不返回明文或加密信封；轮换窗口内只在 Worker 内解密 current/previous 两把签名 Secret。
-- API、Worker、Dispatcher 和 Webhook Delivery 使用无业务内容的结构化关联日志。共同关联键是 `runId`、`eventId` 和 `deliveryId`；Outbox 还记录 `messageId`。
+- API、Worker、Dispatcher 和 Webhook Delivery 使用无业务内容的结构化关联日志。共同关联键是 `runId`、`eventId` 和 `deliveryId`；Outbox 还记录 `messageId`。Process Worker 还输出与同步 Runtime 相同的 Attempt/activity 事件，按 `runId + attemptNumber + sequence` 还原执行时间线。
 - `observe:async` 统一读取 PostgreSQL 与两个 Queue 的运维快照；Dashboard 与告警规范覆盖 backlog、queued/Job age、queue wait、execution p95、failure rate、stuck、Outbox lag、Webhook failure、cleanup/recovery 与 storage growth。
 - 新 Run 的 caller/global backlog admission 位于 PostgreSQL acceptance 事务内。幂等重放先于容量判断；达到 caller 阈值返回 `429`，达到全局阈值返回 `503`，既有 GET 始终独立可用。
 

@@ -37,6 +37,8 @@
 
 该 Process 与 `content-processing/v1` 共享 Capability Interface，但拥有独立 Schema、Process Definition 和配置实例。修改一个 Registration 的配置不能改变另一个 Process。
 
+运行活动日志用固定的 `content_processing` 标记 Capability 调用，只记录活动结果与耗时，不记录标题、正文或组合内容。
+
 ## 错误与副作用
 
 | 阶段 | 公开错误 | 条件 |

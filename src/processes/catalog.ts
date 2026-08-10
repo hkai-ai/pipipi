@@ -3,6 +3,8 @@ import {
     createProcessRunner,
     type ProcessExecutor,
     type ProcessRegistry,
+    type ProcessRunLogClock,
+    type ProcessRunLogSink,
 } from "../process-runtime/index.js";
 import type { ProcessRunRecords } from "../process-runtime/records.js";
 import type { ContentAgent } from "./content/agent.js";
@@ -27,6 +29,8 @@ export type ProcessRuntimeOptions = {
     agent?: ContentAgent;
     processTimeoutMs?: number;
     runRecords?: ProcessRunRecords;
+    runLogSink?: ProcessRunLogSink;
+    runLogClock?: ProcessRunLogClock;
     processes?: {
         contentProcessing?: ContentProcessConfig;
         titledContentProcessing?: TitledContentConfig;
@@ -82,6 +86,8 @@ export function createProcessRuntime(
             registry,
             processTimeoutMs: options.processTimeoutMs,
             runRecords: options.runRecords,
+            runLogSink: options.runLogSink,
+            runLogClock: options.runLogClock,
         }),
     });
 }

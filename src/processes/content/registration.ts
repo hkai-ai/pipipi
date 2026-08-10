@@ -63,6 +63,7 @@ export function createContentRegistration(
         version: "v1",
         inputSchema: contentProcessInputSchema,
         outputSchema: contentProcessOutputSchema,
+        activities: ["content_optimization", "content_processing"],
         retryPolicy: options.retryPolicy,
         execute: async (input, context) => {
             const preparedContent = input.content.replace(/\s+/g, " ");
@@ -87,9 +88,11 @@ async function executeDirect(
     capability: ContentProcessingCapability,
 ): Promise<{ content: string } | ExpectedProcessFailure> {
     try {
-        return await capability.process(
-            { content },
-            { signal: context.signal, idempotencyKey: context.runId },
+        return await context.runActivity("content_processing", async () =>
+            capability.process(
+                { content },
+                { signal: context.signal, idempotencyKey: context.runId },
+            ),
         );
     } catch (error) {
         if (error instanceof ContentProcessingUnavailable) {
@@ -119,10 +122,17 @@ async function executeWithAgent(
                 );
             }
             try {
-                const result = await capability.process(input, {
-                    signal: AbortSignal.any([context.signal, options.signal]),
-                    idempotencyKey: context.runId,
-                });
+                const result = await context.runActivity(
+                    "content_processing",
+                    async () =>
+                        capability.process(input, {
+                            signal: AbortSignal.any([
+                                context.signal,
+                                options.signal,
+                            ]),
+                            idempotencyKey: context.runId,
+                        }),
+                );
                 observed.result = result;
                 return result;
             } catch (error) {
@@ -135,29 +145,36 @@ async function executeWithAgent(
     };
 
     try {
-        const rawOutput = await agent.optimize({
-            content,
-            signal: context.signal,
-            idempotencyKey: context.runId,
-            capability: permittedCapability,
-        });
-        if (observed.dependencyUnavailable) return dependencyFailure();
-        if (observed.calls !== 1 || !observed.result) return agentFailure();
+        return await context.runActivity("content_optimization", async () => {
+            const rawOutput = await agent.optimize({
+                content,
+                signal: context.signal,
+                idempotencyKey: context.runId,
+                capability: permittedCapability,
+            });
+            if (observed.dependencyUnavailable) {
+                throw new ContentDependencyActivityFailure();
+            }
+            if (observed.calls !== 1 || !observed.result) {
+                throw new ContentAgentActivityFailure();
+            }
 
-        const output = contentProcessOutputSchema.safeParse(rawOutput);
-        const toolResult = contentProcessOutputSchema.safeParse(
-            observed.result,
-        );
-        if (
-            !output.success ||
-            !toolResult.success ||
-            output.data.content !== toolResult.data.content
-        ) {
-            return agentFailure();
-        }
-        return toolResult.data;
+            const output = contentProcessOutputSchema.safeParse(rawOutput);
+            const toolResult = contentProcessOutputSchema.safeParse(
+                observed.result,
+            );
+            if (
+                !output.success ||
+                !toolResult.success ||
+                output.data.content !== toolResult.data.content
+            ) {
+                throw new ContentAgentActivityFailure();
+            }
+            return toolResult.data;
+        });
     } catch (error) {
         if (
+            error instanceof ContentDependencyActivityFailure ||
             error instanceof ContentProcessingUnavailable ||
             observed.dependencyUnavailable
         ) {
@@ -166,6 +183,10 @@ async function executeWithAgent(
         return agentFailure();
     }
 }
+
+class ContentAgentActivityFailure extends Error {}
+
+class ContentDependencyActivityFailure extends Error {}
 
 function agentFailure(): ExpectedProcessFailure {
     return failProcess(

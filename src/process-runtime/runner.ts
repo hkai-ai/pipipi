@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { createProcessAttemptRunner } from "./attempt.js";
+import type { ProcessRunLogClock, ProcessRunLogSink } from "./logging.js";
 import {
     disabledProcessRunRecords,
     type ProcessRunRecords,
@@ -28,6 +29,8 @@ export function createProcessRunner(options: {
     registry: ProcessRegistry;
     processTimeoutMs?: number;
     runRecords?: ProcessRunRecords;
+    runLogSink?: ProcessRunLogSink;
+    runLogClock?: ProcessRunLogClock;
 }): ProcessExecutor {
     const registry = options.registry;
     if (
@@ -40,6 +43,8 @@ export function createProcessRunner(options: {
     const runRecords = options.runRecords ?? disabledProcessRunRecords;
     const attemptRunner = createProcessAttemptRunner({
         processTimeoutMs: options.processTimeoutMs,
+        logSink: options.runLogSink,
+        logClock: options.runLogClock,
     });
 
     return Object.freeze({

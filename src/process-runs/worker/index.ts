@@ -93,6 +93,7 @@ export function createProcessWorker(options: {
                           runId: claim.runId,
                           registration,
                           acceptedInput: claim.acceptedInput,
+                          attemptNumber: claim.attemptNumber,
                           signal: context?.signal,
                       })
                     : {

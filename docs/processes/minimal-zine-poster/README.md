@@ -38,6 +38,8 @@
 
 Agent 没有 Tool，也不能使用 Shell、文件系统、代码编辑或任意网络能力。图片模型、供应商、对象存储和 URL 策略由受控 `POST /posters` Business API 拥有。
 
+运行活动日志用 `poster_prompt_compilation` 和 `poster_rendering` 区分 Prompt 编译校验与图片 Capability 调用。日志只记录活动结果与耗时，不记录 brief、画面文字、Prompt、recipe、图片 URL 或供应商正文。
+
 ## 错误与副作用
 
 | 阶段 | 公开错误 | 条件 |

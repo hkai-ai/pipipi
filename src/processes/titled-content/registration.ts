@@ -48,13 +48,21 @@ export function createTitledContentRegistration(
         version: "v1",
         inputSchema: titledContentInputSchema,
         outputSchema: titledContentOutputSchema,
+        activities: ["content_processing"],
         execute: async (input, context) => {
             const title = normalizeWhitespace(input.title);
             const body = normalizeWhitespace(input.body);
             try {
-                const processed = await capability.process(
-                    { content: `${title}${separator}${body}` },
-                    { signal: context.signal, idempotencyKey: context.runId },
+                const processed = await context.runActivity(
+                    "content_processing",
+                    async () =>
+                        capability.process(
+                            { content: `${title}${separator}${body}` },
+                            {
+                                signal: context.signal,
+                                idempotencyKey: context.runId,
+                            },
+                        ),
                 );
                 return { title, content: processed.content };
             } catch (error) {

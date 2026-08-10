@@ -1,5 +1,8 @@
 import { parseOpenAIApiMode } from "../agent-runtime/pi.js";
-import type { ProcessRetryPolicy } from "../process-runtime/index.js";
+import type {
+    ProcessRetryPolicy,
+    ProcessRunLogSink,
+} from "../process-runtime/index.js";
 import {
     createProcessRuntime,
     type ProcessRuntime,
@@ -16,10 +19,17 @@ import { HttpPosterRenderingCapability } from "../processes/poster/http.js";
 import { PiPosterAgent } from "../processes/poster/pi.js";
 import { createPosterSkillRefs } from "../processes/poster/skills.js";
 import type { StartupEnvironment } from "./config.js";
+import { createPinoProcessRunLogSink } from "./process-run-logging.js";
 
 export function createProductionRuntime(
     environment: StartupEnvironment,
+    options: { runLogSink?: ProcessRunLogSink } = {},
 ): ProcessRuntime {
+    const runLogSink =
+        options.runLogSink ??
+        createPinoProcessRunLogSink({
+            level: environment.PROCESS_RUN_LOG_LEVEL,
+        });
     const mode = parseContentMode(environment.CONTENT_PROCESSING_MODE);
     const baseUrl = parseBusinessApiBaseUrl(environment.BUSINESS_API_BASE_URL);
     const openAIApiMode = parseOpenAIApiMode(environment.OPENAI_API_MODE);
@@ -92,6 +102,7 @@ export function createProductionRuntime(
             30_000,
             "PROCESS_TIMEOUT_MS",
         ),
+        runLogSink,
         processes: {
             contentProcessing: {
                 mode,

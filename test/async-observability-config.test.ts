@@ -30,6 +30,8 @@ describe("Async observability specification", () => {
             "logs.process_run_submission_accepted.durationMs",
             "persistence.runs.queueWaitP95Ms",
             "persistence.runs.executionP95Ms",
+            "logs.process_run_attempt_finished.durationMs",
+            "logs.process_run_activity_finished.durationMs",
             "persistence.runs.failureRateRecent",
             "persistence.runs.stuck",
             "persistence.outbox.oldestProcessLagMs",

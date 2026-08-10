@@ -411,6 +411,17 @@ describe("Startup Construction", () => {
         },
     );
 
+    it("rejects an unknown Process Run log level before listening", () => {
+        expect(() =>
+            constructProcessingService({
+                BUSINESS_API_BASE_URL: "https://business.example",
+                PROCESS_RUN_LOG_LEVEL: "verbose",
+            }),
+        ).toThrow(
+            "PROCESS_RUN_LOG_LEVEL must be fatal, error, warn, info, debug, trace, or silent",
+        );
+    });
+
     it("keeps Agent-backed health checks isolated from external dependencies", async () => {
         const externalRequests: string[] = [];
         const externalSentinel = await startServer((request, response) => {

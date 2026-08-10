@@ -146,13 +146,16 @@ Dashboard 与告警的 vendor-neutral 规范位于 [`ops/async-observability.jso
 | 接收延迟 | `process_run_submission_accepted.durationMs` | API 验证与 PostgreSQL durable acceptance 延迟 |
 | Queue 等待 | `persistence.runs.queueWaitP95Ms`、`queues.process.oldestRunnableAgeMs` | durable Run 到首次 Attempt 与 Redis Job 年龄 |
 | 执行耗时 | `persistence.runs.executionP95Ms` | 首次开始到终态的近期 p95 |
+| Attempt 活动 | `process_run_attempt_finished.durationMs`、`process_run_activity_finished.durationMs` | 按 Process、活动与 outcome 定位慢阶段或失败阶段 |
 | 失败与 stuck | `failureRateRecent`、`persistence.runs.stuck` | 业务/依赖失败和长期 queued/租约过期 Run |
 | Outbox | `oldestProcessLagMs`、`oldestWebhookLagMs` | PostgreSQL commit 到入队确认的延迟 |
 | Webhook | `persistence.webhooks.failureRateRecent`、`oldestPendingAgeMs` | 终态投递失败和重试积压 |
 | Storage | `persistence.storage.asyncTablesBytes` | 当前体积；监控系统计算日增长率 |
 | Cleanup/Recovery | `lastDeferredRuns`、`lastFailedItems`、完成时间 | 内容清理受引用阻塞或 Queue 恢复失败 |
 
-结构化日志的关联链为：API/Worker 使用 `runId`，Outbox 同时使用 `messageId + eventId + runId|deliveryId`，Webhook Attempt 使用 `deliveryId + eventId`。日志不得包含 caller 原始凭证、idempotency key、accepted input、output、Webhook payload、Endpoint URL、签名 Secret、数据库/Redis URL、远端响应正文或内部异常消息。需要查看业务结果时，使用 owner-authenticated GET；不要从日志还原内容。
+结构化日志的关联链为：API/Worker 使用 `runId`，Outbox 同时使用 `messageId + eventId + runId|deliveryId`，Webhook Attempt 使用 `deliveryId + eventId`。Process Attempt 与 activity 由 Pino 输出；`level=30|40|50` 分别表示 `info|warn|error`。排查单个 Process Run 时，先按 `runId` 过滤，再按 `attemptNumber + sequence` 排序；`process_run_activity_started` 表示当前阶段，配对的 `process_run_activity_finished` 给出 outcome 与耗时，`process_run_attempt_finished` 给出 Attempt 结果和稳定错误码。API 与 Worker 必须使用相同的 `PROCESS_RUN_LOG_LEVEL`，生产保留完整时间线时设为 `info`。
+
+日志不得包含 caller 原始凭证、idempotency key、accepted input、output、Prompt、Tool 参数、模型消息、隐藏推理、Webhook payload、Endpoint URL、签名 Secret、数据库/Redis URL、远端响应正文或内部异常消息。需要查看业务结果时，使用 owner-authenticated GET；不要从日志还原内容。Activity Log 是 best-effort 观测；缺失事件不能用来推断权威状态，状态与恢复仍以 PostgreSQL 为准。
 
 ## Queue 对账与 Redis 重建
 

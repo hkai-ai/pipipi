@@ -48,6 +48,16 @@
                     "title": "Execution duration p95"
                 },
                 {
+                    "metric": "logs.process_run_attempt_finished.durationMs",
+                    "statistic": "p95_by_process_and_outcome",
+                    "title": "Attempt duration by Process"
+                },
+                {
+                    "metric": "logs.process_run_activity_finished.durationMs",
+                    "statistic": "p95_by_process_activity_and_outcome",
+                    "title": "Activity duration by Process"
+                },
+                {
                     "metric": "persistence.runs.failureRateRecent",
                     "statistic": "latest",
                     "title": "Process failure rate"
