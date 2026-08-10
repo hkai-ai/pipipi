@@ -1,4 +1,4 @@
-# 从流程描述封装 Business Process
+﻿# 从流程描述封装 Business Process
 
 本文面向希望把一段业务流程交给 Codex 实现的项目维护者。你可以只描述目标、输入和结果；Codex 负责把描述收敛为版本化契约、代码拥有的 Process Definition、显式 Process Registration、测试和文档。生产 Runtime 仍以 [`../CONTEXT.md`](../CONTEXT.md) 的范围和共同语言为准。
 
@@ -56,7 +56,7 @@ Codex 先把需求归入一种变化：
 
 `minimal-zine-poster/v1` 是现有的两阶段示例。调用方只提交 `brief` 和可选 `text`。无 Tool Agent 先按固定 Runtime Skill 编译 Prompt；Registration 验证四段结构、六轴 recipe 和原文保留；Poster Rendering Capability 再生成并持久化图片。公开输出返回图片 URL 和元数据，不返回供应商、模型、Skill 路径、存储配置或原始图片字节。Process 说明见 [`processes/minimal-zine-poster/`](processes/minimal-zine-poster/)，Implementation 见 [`src/processes/poster/registration.ts`](../src/processes/poster/registration.ts)。
 
-`crt-interface-image/v1` 展示参考图流程如何保持同一边界。产品先从独立上传 Interface 获得 `sourceImageId`，再只提交资产标识、调色板和画幅；无 Tool Agent 看不到图片，只编译内部 Prompt 与 recipe；CRT Rendering Capability 负责资产解析、GPT Image 2 编辑、确定性后处理和存储。完整开发契约见 [`processes/crt-interface-image/`](processes/crt-interface-image/)。
+`crt-interface-image/v1` 展示参考图流程如何保持同一边界。产品只提交公网 HTTPS `sourceImageUrl`、调色板和画幅；无 Tool Agent 看不到图片 URL，只编译内部 Prompt 与 recipe；CRT Rendering Capability 负责 FAL GPT Image 2 编辑、确定性后处理和存储。完整开发契约见 [`processes/crt-interface-image/`](processes/crt-interface-image/)。
 
 ### 实现和注册
 

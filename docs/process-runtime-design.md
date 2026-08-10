@@ -1,4 +1,4 @@
-# Process Runtime 设计
+﻿# Process Runtime 设计
 
 本文面向修改 Process Runtime 的开发者，记录 Business Processing 的当前 Module 设计。领域词汇以
 [`CONTEXT.md`](../CONTEXT.md) 为准；文档分类与维护要求见
@@ -75,7 +75,7 @@ Process Definition、依赖、策略和输出验证都留在 Module 内。生产
 | Runtime Skill Set | `createSkillSet(refs, cwd)`、`load()` | 非空与重名校验、准确名称解析、顺序、首次读取、缓存和 Prompt 编译 |
 | Content Processing Capability | `process(input, { signal })` | 远程协议、超时、响应校验和依赖错误转换 |
 | Poster Rendering Capability | `render({ prompt, aspectRatio: "3:5" }, { signal, idempotencyKey })` | 图片生成、持久化、URL 生命周期、远程协议和依赖错误转换 |
-| CRT Rendering Capability | `transform({ sourceImageId, prompt, palette, aspectRatio }, { signal, idempotencyKey })` | 资产解析、参考图编辑、确定性后处理、服务端证据策略、持久化、URL 生命周期和依赖错误转换 |
+| CRT Rendering Capability | `transform({ sourceImageUrl, prompt, palette, aspectRatio }, { signal, idempotencyKey })` | FAL 公网 URL 参考图编辑、确定性后处理、服务端证据策略、持久化、URL 生命周期和依赖错误转换 |
 | Process Run Records | `record(completion)` 与 `find(runId)` | 内容保留策略、防御性复制、容量和存储 Adapter |
 
 <!-- markdownlint-enable MD013 -->
@@ -192,7 +192,7 @@ Production catalog 由
 - `content-processing/v1` 捕获 Content Processing Capability、可选 Agent 和 `mode`。流程 Module 的 `skills.ts` 拥有两个准确 Runtime Skill 的名称、顺序、默认路径和唯一 Tool 名称；Composition Root 只提供路径覆盖、模型和供应商等部署配置。Pi Adapter 只加载该集合，不扫描或启用其他 Skill。路径在构造时固定；空集合或重复引用会阻止构造。文件在首次 Agent 请求时读取并缓存，缺失、重复解析或空正文会映射为 `AGENT_FAILURE`。Registration 最多让一次 Agent Tool 调用触达 Business Capability，始终使用 `runId` 作为下游幂等键，并只接受与该 Tool 结果一致的 Agent 输出。
 - `titled-content-processing/v1` 捕获 Content Processing Capability 和 `separator`。
 - `minimal-zine-poster/v1` 捕获 Poster Agent 与 Poster Rendering Capability。Agent 只加载 `minimal-zine-poster-prompt`，不获得 Tool；Registration 要求四段 Prompt、六个固定 recipe 轴和可选原文逐字保留。验证通过后，Registration 只调用一次 Capability，并以 `runId` 作为下游幂等键。Capability 必须返回 HTTP(S) 图片 URL、受限媒体类型、尺寸和可选过期时间；原始图片字节不进入 Process output。
-- `crt-interface-image/v1` 捕获 CRT Agent 与 CRT Rendering Capability。产品只提交不透明 `sourceImageId`、固定调色板和画幅；Agent 只加载 `tait-crt-interface-prompt`，不获得 Tool，也看不到参考图或资产标识。Registration 要求四段 Prompt、十四个固定 recipe 轴、请求画幅、准确调色板和核心 CRT 约束；验证通过后只调用一次 Capability，并以 `runId` 作为下游幂等键。Capability 必须返回符合 GPT Image 2 尺寸边界和请求比例的 PNG 引用；Prompt、recipe 和原始图片字节不进入 Process output。图片 Business API 在自己的 Composition Root 固定证据模式，不能从产品输入或 Execution Context 读取该策略。上传、图片编辑、finalizer 和证据边界见 [`processes/crt-interface-image/`](processes/crt-interface-image/)。
+- `crt-interface-image/v1` 捕获 CRT Agent 与 CRT Rendering Capability。产品只提交公网 HTTPS `sourceImageUrl`、固定调色板和画幅；Agent 只加载 `tait-crt-interface-prompt`，不获得 Tool，也看不到参考图 URL。Registration 要求四段 Prompt、十四个固定 recipe 轴、请求画幅、准确调色板和核心 CRT 约束；验证通过后只调用一次 Capability，并以 `runId` 作为下游幂等键。Capability 必须返回符合 GPT Image 2 尺寸边界和请求比例的 PNG 引用；Prompt、recipe、来源 URL 和图片字节不进入 Process output。图片 Business API 在自己的 Composition Root 固定 FAL、证据和存储策略。完整边界见 [`processes/crt-interface-image/`](processes/crt-interface-image/)。
 - Execution Context 只携带请求级的 `runId`、`AbortSignal` 与受控 `runActivity`；业务依赖和稳定策略仍由 Registration 捕获。
 
 依赖按 Seam 类型处理：

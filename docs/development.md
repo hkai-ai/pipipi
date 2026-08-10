@@ -79,7 +79,7 @@ curl --fail -X POST http://127.0.0.1:3000/execute \
 | `npm run test:skill-ab` | 运行三组 Skill 对比 | 是，可能产生模型费用 |
 | `npm run accept:poster-business`（`smoke:poster-process`、`test:gpt-image-2` 别名） | 从产品 `POST /execute` 验收 `minimal-zine-poster/v1`、真实图片与可选上传 | 是，可能产生模型和存储费用 |
 | `npm run smoke:crt-gpt-image` | 验证一张本地参考图可通过 GPT Image 2 edit stage 生成 PNG；不运行 finalizer 或完整 Process | 是，读取本地图片、产生模型费用并写 `artifacts/` |
-| `npm run accept:crt-business` | 从本地上传和产品 `POST /execute` 无 OSS 验收 `crt-interface-image/v1`、真实图片、finalizer 与可配置证据 | 是，读取本地图片、产生模型费用并写 `artifacts/` |
+| `npm run accept:crt-business` | 用公网图片 URL 从产品 `POST /execute` 验收 `crt-interface-image/v1`、FAL、finalizer、可选 OSS 与证据策略 | 是，联网读取图片、产生模型/存储费用并写 `artifacts/` |
 | `npm run smoke:oss` | 上传已有文件并读取首字节 | 是，会写对象存储 |
 
 真实集成命令的配置、判据和产物见 [`experiments.md`](experiments.md)。默认测试套件不调用模型、OSS 或外部业务系统。

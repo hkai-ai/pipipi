@@ -1,4 +1,4 @@
-# 受控 Business Process MVP 发布手册
+﻿# 受控 Business Process MVP 发布手册
 
 本手册面向发布与运维人员，用于发布现有同步 Business Process 服务，包括文本处理、`minimal-zine-poster/v1` 与 `crt-interface-image/v1`。生产服务通过受控 Rendering Capability 获取图片 URL；供应商专用的 OpenAI Images 和 OSS Adapter 只用于显式真实集成与本地业务验收。CRT 候选还依赖产品图片上传、`POST /crt-images`、确定性 finalizer 和来源权利确认；缺少任一门禁时不得发布包含该 catalog 的候选镜像。本文不发布异步作业或公网匿名接口。项目范围以
 [`CONTEXT.md`](../CONTEXT.md) 为准；文档维护要求见 [`docs/README.md`](README.md)。
@@ -337,14 +337,16 @@ CRT_SOURCE_IMAGE_FILE=/absolute/path/to/non-sensitive-test-image.png \
 npm run smoke:crt-gpt-image
 ```
 
-该 smoke 不运行 Runtime Skill Agent、production catalog、资产服务或 finalizer。随后用同一张非敏感参考图运行无 OSS 本地业务验收：
+该 smoke 不运行 Runtime Skill Agent、production catalog 或 finalizer。随后用一条 FAL 可读取的公网 HTTPS 图片 URL 运行完整业务验收：
 
 ```bash
-CRT_SOURCE_IMAGE_FILE=/absolute/path/to/non-sensitive-test-image.png \
+CRT_SOURCE_IMAGE_URL=https://images.example.com/source.png \
+IMAGE_PROVIDER=fal \
+FAL_KEY=replace-with-local-secret \
 npm run accept:crt-business
 ```
 
-该命令从临时 `POST /assets` 上传进入产品 `POST /execute`，验证真实 Agent、单次 `POST /crt-images`、`runId` 幂等、GPT Image 2 编辑、确定性 finalizer、目标尺寸与调色板、PNG 下载和无 OSS 判据。默认 `full` 证据模式还会按 `runId` 保存原图、模型原始图、最终图和脱敏 manifest，供发布负责人核对真实调用链。若 Agent 网关不实现标准 Images API，可用 `OPENAI_IMAGE_BASE_URL` 和 `OPENAI_IMAGE_API_KEY` 直连 OpenAI Images，也可设置 `IMAGE_PROVIDER=fal` 与 `FAL_KEY` 改用 FAL。发布门禁必须记录实际供应商，并单独评审凭证、数据保留、费用和故障语义。
+该命令进入产品 `POST /execute`，验证真实 Agent、单次 `POST /crt-images`、`runId` 幂等、FAL GPT Image 2 URL 编辑、确定性 finalizer、目标尺寸与调色板及结果下载。默认 `full` 证据模式按 `runId` 保存模型原始图、最终图和脱敏 manifest；配置 `OBJECT_STORAGE_PROVIDER=aliyun-oss` 后还验证 OSS 输出。
 
 本地通过仍不满足生产发布门禁。发布前必须按 [`processes/crt-interface-image/`](processes/crt-interface-image/) 完成来源授权、生产上传的身份与资产安全、生产 `POST /crt-images`、持久化 URL、删除生命周期、九种调色板、四种画幅和人工视觉验收，并按 [CRT 图片证据保留](processes/crt-interface-image/evidence-retention.md) 确认生产模式与清理责任。
 
@@ -356,4 +358,4 @@ npm run accept:crt-business
 
 ## 本次不发布
 
-本次 MVP 不增加应用用户系统、RBAC、多租户、数据库、持久化或跨实例执行历史、Run Record 查询接口、通用幂等、队列、自动重试、CORS、应用内 OSS Adapter、生成后自动视觉质检、自动重绘或全量基础设施即代码。CRT 的上传 Interface 和资产服务属于产品图片平台，不由本服务公开；产品只把预上传资产的 `sourceImageId` 交给 `/execute`。两个图片流程都有模型费用和图片持久化副作用，必须保持调用权限、`runId` 幂等、并发和费用门禁。
+本次 MVP 不增加应用用户系统、RBAC、多租户、数据库、持久化或跨实例执行历史、Run Record 查询接口、通用幂等、队列、自动重试、CORS、生成后自动视觉质检、自动重绘或全量基础设施即代码。CRT 产品请求只提交公网 HTTPS `sourceImageUrl`；FAL 和 OSS 配置由服务端拥有。两个图片流程都有模型费用和图片持久化副作用，必须保持调用权限、`runId` 幂等、并发和费用门禁。

@@ -1,4 +1,4 @@
-# Business Processing Service
+﻿# Business Processing Service
 
 一个轻量的版本化业务处理服务。产品调用方只提交 Business Process、准确版本和业务输入；服务端用代码绑定 Schema、业务行为、获准依赖和稳定策略。流程内部可以使用本地逻辑、远程 Business Capability 或受限 Agent，产品契约不随实现方式变化。
 
@@ -11,7 +11,7 @@
 | `content-processing/v1` | `{ "content": string }` | `{ "content": string }` |
 | `titled-content-processing/v1` | `{ "title": string, "body": string }` | `{ "title": string, "content": string }` |
 | `minimal-zine-poster/v1` | `{ "brief": string, "text"?: string }` | `{ "prompt", "recipe", "interpretation", "image" }` |
-| `crt-interface-image/v1` | `{ "sourceImageId", "palette", "aspectRatio" }` | `{ "aspectRatio", "image" }` |
+| `crt-interface-image/v1` | `{ "sourceImageUrl", "palette", "aspectRatio" }` | `{ "aspectRatio", "image" }` |
 
 四个流程共享同一个 `POST /execute` Interface。每个明确版本由 Process Registration 绑定业务定义、Schema、依赖、运行活动和策略，再进入不可变 Process Registry。Process Runner 统一处理 `runId`、精确版本查找、超时、取消、错误净化和可选 Run Record。
 
@@ -70,7 +70,7 @@ cp .env.example .env
 npm run dev:business-api
 ```
 
-这个演示服务只实现文本用的 `POST /process`。执行海报 Process 时，`BUSINESS_API_BASE_URL` 必须指向实现 `POST /posters` 的受控 Business API。执行 CRT Process 时，同一地址还必须实现 `POST /crt-images`，并能通过服务端资产标识解析已上传图片。`npm run accept:poster-business` 会临时启动真实图片 Capability 和生产 Composition，再从产品 `POST /execute` 完成一次海报业务验收；`smoke:poster-process` 与 `test:gpt-image-2` 保留为兼容别名。`npm run smoke:crt-gpt-image` 只验证 GPT Image 2 参考图编辑；`npm run accept:crt-business` 还会临时启动本地上传、`POST /crt-images` 和确定性 finalizer，从产品 `POST /execute` 完成无 OSS 业务验收，并按服务端策略保留原图、模型原始图、最终图和脱敏 manifest。付费图片命令默认使用 OpenAI Images；当兼容网关缺少 GPT Image 2 图片编辑时，设置 `IMAGE_PROVIDER=fal` 与 `FAL_KEY` 即可改用 FAL。
+这个演示服务只实现文本用的 `POST /process`。执行海报 Process 时，`BUSINESS_API_BASE_URL` 必须指向实现 `POST /posters` 的受控 Business API；执行 CRT Process 时，同一地址还必须实现 `POST /crt-images`。`npm run accept:poster-business` 会完成一次海报业务验收。`npm run smoke:crt-gpt-image` 只验证本地参考图编辑；`npm run accept:crt-business` 则从产品 `POST /execute` 使用公网 `sourceImageUrl` 调用 FAL、执行确定性 finalizer，并可把最终 PNG 上传阿里云 OSS。
 
 在第二个终端启动处理服务：
 
@@ -133,9 +133,9 @@ curl http://127.0.0.1:3000/healthz
 
 仓库内已有 Async Process Runs Module、事务化 PostgreSQL Store、Process/Webhook Outbox，以及相互隔离的 BullMQ Process Queue 和 Webhook Queue。`npm run start:api`、`npm run start:dispatcher`、`npm run start:worker`、`npm run start:webhook-worker` 和 `npm run start:retention-cleaner` 从同一构建产物启动独立角色。Process 默认只执行一次，只有服务端 Registration 明确声明安全错误、次数和退避时才会重试；Webhook 已支持精简终态事件、Standard Webhooks 签名、PostgreSQL 权威的有界重试、Attempt 审计、受控人工重放、加密 Secret 和防 SSRF 的固定目标连接。Retention Cleaner 按固定 cutoff 分批删除到期内容，批次审计和返回游标允许安全续跑。Redis Queue 丢失时，`npm run recover:queue` 默认先做 PostgreSQL 权威的 dry-run，再由运维人员显式 `--apply` 重建所有仍需执行的 Job；终态 Run 永不进入恢复候选。`npm run observe:async` 从 PostgreSQL 和两个 Queue 读取不含业务内容的运维快照，Dashboard/alert 字段固定在 `ops/async-observability.json`。
 
-`minimal-zine-poster/v1` 和 `crt-interface-image/v1` 已进入 production catalog，但生产 Adapter 只依赖受控 Business API 的 `POST /posters` 与 `POST /crt-images`，不把 OpenAI、OSS 或模型参数暴露给产品调用方。仓库中的 OpenAI Images、阿里云 OSS、业务验收和 Skill A/B 命令都必须显式运行，不进入默认测试。当前海报版本不接收参考图片；CRT 版本只接收预先上传后获得的服务端资产标识。两者都不执行自动看图质检或重绘。
+`minimal-zine-poster/v1` 和 `crt-interface-image/v1` 已进入 production catalog，但生产 Adapter 只依赖受控 Business API 的 `POST /posters` 与 `POST /crt-images`，不把 FAL、OSS 或模型参数暴露给产品调用方。仓库中的付费图片、阿里云 OSS、业务验收和 Skill A/B 命令都必须显式运行，不进入默认测试。当前海报版本不接收参考图片；CRT 版本接收公网 HTTPS `sourceImageUrl`。两者都不执行自动看图质检或重绘。
 
-CRT 流程的 Registration、Runtime Skill、HTTP Adapter、独立实现的 finalizer 和无 OSS 本地业务验收已经完成。正式发布仍受四项门禁约束：产品必须提供受鉴权上传和生产 `POST /crt-images`，受控图片服务必须持久化结果并完成目标环境验收，生产证据保留必须默认关闭，上游 Skill 的再分发和生产使用权必须得到确认。
+CRT 流程的 Registration、Runtime Skill、HTTP Adapter、FAL URL 编辑、独立 finalizer 和可选 OSS 输出已经完成。正式发布仍受四项门禁约束：生产 `POST /crt-images` 必须受鉴权，来源 URL 必须可由 FAL 读取，目标环境必须完成存储验收，生产证据保留必须默认关闭，并确认上游 Skill 的再分发和生产使用权。
 
 ## 文档导航
 

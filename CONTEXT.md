@@ -1,4 +1,4 @@
-# Business Processing 项目上下文
+﻿# Business Processing 项目上下文
 
 本文记录项目长期稳定的业务背景、范围和共同语言。它帮助产品、开发者和自动化工具在修改代码前建立同一套理解；安装命令、实现细节和发布步骤分别放在对应专题文档中。
 
@@ -37,7 +37,7 @@ Business Processing Service 让产品调用方通过一个稳定的 HTTP Interfa
 | `content-processing/v1` | `{ content: string }` | `{ content: string }` | 服务端可选择 Direct 或绑定多个 Runtime Skill 的 Agent 路径 |
 | `titled-content-processing/v1` | `{ title: string, body: string }` | `{ title: string, content: string }` | 复用 Content Processing Capability |
 | `minimal-zine-poster/v1` | `{ brief: string, text?: string }` | `{ prompt, recipe, interpretation, image }` | 无 Tool Agent 编译固定 Runtime Skill；Poster Rendering Capability 生成并持久化图片 |
-| `crt-interface-image/v1` | `{ sourceImageId, palette, aspectRatio }` | `{ aspectRatio, image }` | 无 Tool Agent 编译固定 Runtime Skill；CRT Rendering Capability 解析参考图、编辑、后处理并持久化 PNG |
+| `crt-interface-image/v1` | `{ sourceImageUrl, palette, aspectRatio }` | `{ aspectRatio, image }` | 无 Tool Agent 编译固定 Runtime Skill；CRT Rendering Capability 用公网 HTTPS 参考图执行 FAL GPT Image 2 编辑、后处理并持久化 PNG |
 
 默认 HTTP 入口公开 `GET /healthz`、`GET /readyz` 和 `POST /execute`。每次执行生成独立 `runId`。显式启用并完整配置 Async Process Runs 后，API 还提供 `POST /process-runs` 和 `GET /process-runs/{runId}`；该功能默认关闭，只有按异步 Runbook 通过容量、恢复、安全、观测和 staged rollout 门禁后才能向外部调用方开放。默认同步生产构造不持久化 Run Record；同步与异步 Attempt 都通过 Pino Adapter 输出结构化运行活动日志。日志只保留 `runId`、Process identity、Attempt、服务端声明的活动、顺序、结果、稳定错误码和耗时，不保存业务内容、Prompt、Tool 参数、模型消息、隐藏推理或内部异常正文。
 
@@ -45,7 +45,7 @@ Business Processing Service 让产品调用方通过一个稳定的 HTTP Interfa
 
 `minimal-zine-poster/v1` 已进入 `/execute` catalog。它返回图片 HTTP(S) URL、媒体类型、尺寸和可选过期时间，不把大体积图片字节写入 Process output。调用方不能选择 Skill、模型、图片供应商或存储。OpenAI Images、FAL 与阿里云 OSS 只用于显式真实集成和海报业务验收；Skill A/B 仍是独立实验。
 
-`crt-interface-image/v1` 也已进入 `/execute` catalog。调用方只提交预先上传后得到的不透明 `sourceImageId`、固定调色板名和画幅；请求不接收图片字节、任意 URL、Prompt 或实现配置。Registration 在 Agent 编译结果通过校验后调用一次 CRT Rendering Capability，并只公开画幅和 PNG 引用。仓库已提供支持 OpenAI Images 与 FAL 的 GPT Image 2 reference-edit smoke，以及包含临时上传、`POST /crt-images`、确定性 finalizer、下载与报告的无 OSS 本地业务验收。验收按服务端策略选择不保留证据、只保留脱敏 metadata，或按 `runId` 保留原图、模型原始图、最终图和 manifest；产品请求不能选择该策略。生产受鉴权上传、资产所有权与生命周期、持久化图片服务仍由产品图片平台完成，证据模式必须默认关闭；上游 Runtime Skill 未声明许可证，正式发布前必须确认权利。开发边界见 [`docs/processes/crt-interface-image/`](docs/processes/crt-interface-image/)。
+`crt-interface-image/v1` 也已进入 `/execute` catalog。调用方提交可由 FAL 读取的公网 HTTPS `sourceImageUrl`、固定调色板名和画幅；请求不接收图片字节、Prompt 或实现配置。Registration 在 Agent 编译结果通过校验后调用一次 CRT Rendering Capability，并只公开画幅和 PNG 引用。FAL Adapter 把 URL 原样放入 `image_urls`，服务端不下载原图；Business API 对模型结果做确定性 finalizer，并可把最终 PNG 保存到阿里云 OSS。验收按服务端策略选择不保留证据、只保留脱敏 metadata，或按 `runId` 保留模型原始图、最终图和 manifest；manifest 只保存来源 URL 的 SHA-256，不保存 URL。生产必须限制调用权限、URL 长度和协议，并明确外部图片托管方与 FAL 的访问、过期和隐私约束；证据模式默认关闭。上游 Runtime Skill 未声明许可证，正式发布前必须确认权利。开发边界见 [`docs/processes/crt-interface-image/`](docs/processes/crt-interface-image/)。
 
 ## 运行与信任模型
 

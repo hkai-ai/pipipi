@@ -21,7 +21,7 @@
 | `npm run test:skill-ab` | Direct、控制 Skill、候选 Skill 的行为差异 | 多次模型调用、业务请求 | `artifacts/skill-ab/latest.*` |
 | `npm run accept:poster-business`（兼容别名：`smoke:poster-process`、`test:gpt-image-2`） | 从产品 HTTP Interface 验收 `minimal-zine-poster/v1` | Agent、OpenAI Images 或 FAL 请求，可选 OSS PUT | `artifacts/gpt-image-2/latest.*` |
 | `npm run smoke:crt-gpt-image` | 用一张本地参考图验证 GPT Image 2 edit stage | 读取本地图片、OpenAI Images 或 FAL 请求、本地写入 | `artifacts/crt-interface-image/latest.*` |
-| `npm run accept:crt-business` | 从本地上传与产品 HTTP Interface 无 OSS 验收 `crt-interface-image/v1` | Agent、OpenAI Images 或 FAL 请求、本地临时资产与产物写入 | `artifacts/crt-interface-image/acceptance/latest.*` |
+| `npm run accept:crt-business` | 从公网图片 URL 与产品 HTTP Interface 验收 `crt-interface-image/v1` | Agent、FAL、可选 OSS 与本地产物写入 | `artifacts/crt-interface-image/acceptance/latest.*` |
 | `npm run smoke:oss` | 已有文件的上传、URL 生成和首字节读取 | OSS PUT 与 GET | `artifacts/object-storage/latest.json` |
 | `npm run smoke:staging` | 已部署环境的健康、成功与拒绝契约 | 受控环境请求 | 终端判据 |
 
@@ -143,26 +143,27 @@ npm run smoke:crt-gpt-image
 
 `passed: true` 只证明 edit stage 返回一张可解码、带尺寸的非平凡 PNG。它不证明主体完整、风格合格、调色板准确，也不运行 Runtime Skill Agent、production catalog、资产服务、确定性 CRT 后处理或对象存储。用下一节的本地业务验收检查完整本地链路。
 
-## CRT 无 OSS 本地业务验收
+## CRT 公网 URL 业务验收
 
 确认参考图不敏感、所选供应商支持 GPT Image 2 编辑，并接受一次 Agent 与一次图片编辑用量后运行：
 
 ```bash
-CRT_SOURCE_IMAGE_FILE=/absolute/path/to/non-sensitive-test-image.png \
+CRT_SOURCE_IMAGE_URL=https://images.example.com/source.png \
+IMAGE_PROVIDER=fal \
+FAL_KEY=replace-with-local-secret \
 npm run accept:crt-business
 ```
 
-命令临时启动回环 `POST /assets` 与 `POST /crt-images`，把原图放入临时目录，再从产品 `POST /execute` 调用 production catalog、真实 Agent、生产 HTTP Adapter、所选 GPT Image 2 Adapter 和确定性 finalizer。验收默认启用 `full` 证据模式，并把摘要和本次 Run 的完整证据写入：
+命令临时启动回环 `POST /crt-images`，再从产品 `POST /execute` 调用 production catalog、真实 Agent、生产 HTTP Adapter、FAL GPT Image 2 和确定性 finalizer。验收默认启用 `full` 证据模式，并把摘要和本次 Run 的证据写入：
 
 - `artifacts/crt-interface-image/acceptance/latest.png`
 - `artifacts/crt-interface-image/acceptance/latest.json`
 - `artifacts/crt-interface-image/acceptance/latest.md`
-- `artifacts/crt-interface-image/acceptance/runs/<runId>/source.*`
 - `artifacts/crt-interface-image/acceptance/runs/<runId>/raw-gpt-image-2.*`
 - `artifacts/crt-interface-image/acceptance/runs/<runId>/final-crt.png`
 - `artifacts/crt-interface-image/acceptance/runs/<runId>/manifest.json`
 
-临时服务关闭后删除工作目录；`full` 模式保留上面列出的审计副本。`metadata` 只保留 manifest，`off` 不创建每次 Run 的证据目录。用 `CRT_IMAGE_EVIDENCE_MODE` 选择模式，用 `CRT_IMAGE_EVIDENCE_DIRECTORY` 覆盖目录。命令不读取 OSS 配置，也不执行远端存储写入。`passed: true` 证明本地上传、单次图片编辑、`runId` 幂等键、目标尺寸、不透明 PNG、精确调色板、证据策略、下载哈希和无 OSS 判据通过；它不替代生产身份、资产隔离、持久化、删除生命周期、容量与人工视觉验收。字段和核对步骤见 [`crt-interface-image` 的证据保留说明](processes/crt-interface-image/evidence-retention.md)。
+临时服务关闭后删除工作目录；`full` 模式保留模型原始图、最终图和 manifest，`metadata` 只保留 manifest，`off` 不创建每次 Run 的证据目录。设置 `OBJECT_STORAGE_PROVIDER=aliyun-oss` 后还会把最终 PNG 上传 OSS；所需变量见 `.env.example`。`passed: true` 证明公网 URL 直传 FAL、单次图片编辑、`runId` 幂等、目标尺寸、精确调色板、证据策略和结果下载通过。
 
 若 Agent 和图片阶段使用不同 API，可直连 OpenAI Images：
 

@@ -1,4 +1,4 @@
-# 参考图转换 Business Process 开发模板
+﻿# 参考图转换 Business Process 开发模板
 
 本文把 `crt-interface-image/v1` 作为可运行样板，说明如何开发“用户上传参考图，服务端调用图片模型编辑，再执行确定性后处理并返回图片引用”的 Business Process。新流程应复用这里的边界和开发顺序，但必须拥有自己的 Process ID、准确版本、产品 Schema、Runtime Skill、验收样本和发布门禁。
 
@@ -84,14 +84,14 @@ test/
 
 ## 固定公开 Interface
 
-产品请求只表达业务选择。上传、模型和保存策略由服务端拥有。
+产品请求只表达业务选择和可公开读取的参考图 URL。模型和保存策略由服务端拥有。
 
 ```json
 {
   "process": "<process-id>",
   "version": "<exact-version>",
   "input": {
-    "sourceImageId": "opaque_asset_id",
+    "sourceImageUrl": "https://images.example.com/source.png",
     "<businessOption>": "<allowed-value>",
     "aspectRatio": "4:3"
   }
@@ -100,7 +100,7 @@ test/
 
 产品输入可以包含调色板、画幅或模板类型等稳定业务字段。它不能包含：
 
-- 图片文件路径、任意远程 URL 或 Base64 图片；
+- 图片文件路径、非 HTTPS/内网 URL 或 Base64 图片；
 - Prompt、recipe、步骤或脚本；
 - Runtime Skill 名称、来源地址或版本；
 - provider、model、quality、API key 或 Base URL；
@@ -113,16 +113,13 @@ test/
 
 ```mermaid
 flowchart LR
-    Caller["受控产品调用方"] --> Upload["受鉴权上传 Interface"]
-    Upload --> Asset["私有资产服务<br/>opaque sourceImageId"]
-    Caller --> Execute["POST /execute"]
+    Caller["受控产品调用方"] --> Execute["POST /execute<br/>sourceImageUrl"]
     Execute --> Registration["准确版本的 Process Registration"]
     Registration --> Agent["无 Tool Agent<br/>编译内部计划"]
     Agent --> Registration
     Registration --> Capability["Image Transformation Capability"]
     Capability --> BusinessApi["受控 Business API"]
-    Asset --> BusinessApi
-    BusinessApi --> Edit["Reference-image edit Adapter"]
+    BusinessApi --> Edit["FAL URL edit Adapter"]
     Edit --> Finalizer["确定性 finalizer"]
     Finalizer --> Evidence["服务端证据策略"]
     Evidence --> Store["产品图片存储"]
@@ -137,11 +134,11 @@ flowchart LR
 3. **实现 Registration。** 在 factory 内绑定 Schema、Process Definition、Agent、Capability 和稳定策略。把 Registration 加入显式 production catalog。
 4. **限制 Agent。** 参考图转换 Agent 通常只编译 Prompt 和 recipe，不需要 Tool，也不应看到图片字节、资产标识、凭证或文件系统。Registration 必须验证 Agent 结果后才能调用付费 Capability。
 5. **定义 Capability。** Process Definition 只依赖窄业务方法。HTTP、multipart、Data URI、供应商 SDK、模型错误和认证留在 Adapter 内。
-6. **实现资产边界。** 上传 Interface 验证 caller、magic bytes、MIME、文件大小、像素上限和内容策略，再签发不可枚举的 `sourceImageId`。Business API 只解析受控资产，不能按请求抓取任意 URL。
-7. **实现 Business API。** 先用 Process `runId` 原子 claim 幂等键，再解析资产、调用一次图片模型、执行 finalizer、按证据策略留存、持久化产品图片并保存幂等结果。
+6. **实现 URL 边界。** 只接受公网 HTTPS URL，限制长度并拒绝账号密码、fragment、自定义端口、localhost 和 IP literal；完整 URL 不进入日志。
+7. **实现 Business API。** 先用 Process `runId` 原子 claim 幂等键，再把 URL 原样交给 FAL、执行 finalizer、按证据策略留存、持久化产品图片并保存幂等结果。
 8. **实现确定性 finalizer。** 把模型难以稳定保证的尺寸、调色板、签名或编码要求放入可测试代码。finalizer 不得偷偷改变公开画幅或生成额外付费调用。
 9. **固定证据策略。** 在 Business API 的 Composition Root 选择 `off`、`metadata` 或 `full`。开发验收可以默认 `full`；生产必须默认 `off`。
-10. **从公共 Seam 验证。** 先运行不联网测试，再运行显式付费 smoke 和无 OSS 本地业务验收，最后在目标环境替换临时上传、本地磁盘与回环 URL。
+10. **从公共 Seam 验证。** 先运行不联网测试，再运行显式付费 smoke 和公网 URL 业务验收，最后在目标环境启用正式 OSS。
 
 ## 配置归属模板
 
@@ -200,26 +197,28 @@ manifest 最后写入，并至少关联 Process ID、版本、`runId`、provider
 
 smoke 只验证图片 Adapter 能用参考图获得真实模型结果。命令必须显式说明会联网、产生费用和写入的位置；报告不得保存 Prompt 或凭证。smoke 不替代 Process 验收。
 
-### 3. 无 OSS 本地业务验收
+### 3. 公网 URL 业务验收
 
 完整本地验收必须覆盖：
 
 ```text
-临时上传 → sourceImageId → POST /execute → production catalog
+sourceImageUrl → POST /execute → production catalog
 → Agent → production HTTP Adapter → local Business API
-→ GPT Image 2 reference edit → finalizer → evidence policy
-→ loopback image URL → 下载与哈希核对
+→ FAL GPT Image 2 reference edit → finalizer → evidence policy
+→ 本地或 OSS image URL → 下载与哈希核对
 ```
 
 CRT 样板命令：
 
 ```bash
-CRT_SOURCE_IMAGE_FILE=/absolute/path/to/non-sensitive-test-image.png \
+CRT_SOURCE_IMAGE_URL=https://images.example.com/source.png \
+IMAGE_PROVIDER=fal \
+FAL_KEY=replace-with-local-secret \
 CRT_IMAGE_EVIDENCE_MODE=full \
 npm run accept:crt-business
 ```
 
-验收报告必须同时指出它证明了什么、没有证明什么。无 OSS 本地验收不能证明生产身份隔离、持久化存储、容量、删除生命周期或线上部署已经完成。
+验收报告必须同时指出它证明了什么、没有证明什么。验收不能证明所有来源站点都允许 FAL 读取，也不能替代生产身份、容量和线上部署检查。
 
 ### 4. 生产验收
 

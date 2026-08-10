@@ -32,6 +32,11 @@
 - 默认运行 `npm run check`、`npm run typecheck`、`npm test` 和 `npm run build`。需要网络、凭证、费用或外部写入的 smoke 必须单独说明，不把它混入确定性验证。
 - 文档以中文为主，遵循 `docs/README.md` 的分类、事实来源和写作规范。
 
+## CRT 图片输入
+
+- `crt-interface-image/v1` 接收公网 HTTPS `sourceImageUrl`。服务端不下载参考图；FAL Adapter 将 URL 原样放入 `image_urls`。完整 URL 不得进入日志或证据，只保存摘要。
+- CRT 最终 PNG 可由服务端配置保存到阿里云 OSS；FAL、模型、OSS 凭证、bucket 和对象前缀不得进入产品请求。
+
 ## 单服务器发布
 
 - 标准单服务器发布入口是 `.github/workflows/production-ci-cd.yml`。CI 构建发布包，生产 Job 通过 SSH 把版本部署到 `REMOTE_PATH/releases/<commit>`，再用 PM2 切换 `current`。
