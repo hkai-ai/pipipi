@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from "node:crypto";
+import { createHash } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import {
     createServer,
@@ -6,8 +6,9 @@ import {
     type Server,
     type ServerResponse,
 } from "node:http";
-import { basename, extname, join } from "node:path";
-import sharp, { type Metadata } from "sharp";
+import { join } from "node:path";
+import sharp from "sharp";
+import { isPublicSourceImageUrl } from "../../src/processes/crt/capability.js";
 import {
     type CrtAspectRatio,
     type CrtPalette,
@@ -21,6 +22,7 @@ import {
 } from "./crt-evidence.js";
 import { crtImageDimensions, finalizeCrtImage } from "./crt-finalizer.js";
 import { FalImageGenerationError } from "./fal-image-generation.js";
+import type { ObjectStorageCapability } from "./object-storage.js";
 import {
     type EditImageRequest,
     type GeneratedImage,
@@ -32,18 +34,10 @@ type ImageEditClient = Readonly<{
     edit: (request: EditImageRequest) => Promise<GeneratedImage>;
 }>;
 
-type Asset = Readonly<{
-    id: string;
-    path: string;
-    filename: string;
-    contentType: "image/png" | "image/jpeg" | "image/webp";
-    bytes: number;
-    width: number;
-    height: number;
-}>;
+type RasterContentType = "image/png" | "image/jpeg" | "image/webp";
 
 type CrtRequest = Readonly<{
-    sourceImageId: string;
+    sourceImageUrl: string;
     prompt: string;
     palette: CrtPalette;
     aspectRatio: CrtAspectRatio;
@@ -54,16 +48,16 @@ type CrtImage = Readonly<{
     contentType: "image/png";
     width: number;
     height: number;
+    expiresAt?: string;
 }>;
 
 export type LocalCrtBusinessApiEvidence = Readonly<{
-    storage: "local-filesystem";
-    uploads: number;
+    storage: string;
     requests: number;
     editAttempts: number;
     edits: number;
     idempotencyKey?: string;
-    sourceImageId?: string;
+    sourceImageUrlSha256?: string;
     outputFile?: string;
     outputSha256?: string;
     colors?: readonly string[];
@@ -89,9 +83,6 @@ type PendingTransform = Readonly<{
     result: Promise<CrtImage>;
 }>;
 
-const maximumSourceBytes = 50 * 1024 * 1024;
-const maximumSourcePixels = 40_000_000;
-
 export async function startLocalCrtBusinessApi(options: {
     directory: string;
     imageClient: ImageEditClient;
@@ -99,29 +90,26 @@ export async function startLocalCrtBusinessApi(options: {
     model?: string;
     quality?: GptImageQuality;
     evidencePolicy?: CrtEvidencePolicy;
+    storage?: ObjectStorageCapability;
+    objectPrefix?: string;
 }): Promise<LocalCrtBusinessApi> {
     const directory = options.directory;
-    const assetDirectory = join(directory, "assets");
     const outputDirectory = join(directory, "images");
-    await Promise.all([
-        mkdir(assetDirectory, { recursive: true }),
-        mkdir(outputDirectory, { recursive: true }),
-    ]);
+    await mkdir(outputDirectory, { recursive: true });
 
     const provider = options.provider?.trim() || "openai";
     const model = options.model?.trim() || "gpt-image-2";
     const quality = options.quality ?? "low";
     const evidencePolicy = options.evidencePolicy ?? { mode: "off" };
-    const assets = new Map<string, Asset>();
+    const objectPrefix = normalizeObjectPrefix(options.objectPrefix);
     const outputs = new Map<string, string>();
     const transforms = new Map<string, PendingTransform>();
     let serviceUrl = "";
-    let uploads = 0;
     let requests = 0;
     let editAttempts = 0;
     let edits = 0;
     let idempotencyKey: string | undefined;
-    let sourceImageId: string | undefined;
+    let sourceImageUrlSha256: string | undefined;
     let outputFile: string | undefined;
     let outputSha256: string | undefined;
     let colors: readonly string[] | undefined;
@@ -151,10 +139,6 @@ export async function startLocalCrtBusinessApi(options: {
         request: IncomingMessage,
         response: ServerResponse,
     ): Promise<void> {
-        if (request.method === "POST" && request.url === "/assets") {
-            await uploadAsset(request, response);
-            return;
-        }
         if (request.method === "POST" && request.url === "/crt-images") {
             await transformAsset(request, response);
             return;
@@ -168,86 +152,6 @@ export async function startLocalCrtBusinessApi(options: {
             return;
         }
         response.writeHead(404).end();
-    }
-
-    async function uploadAsset(
-        request: IncomingMessage,
-        response: ServerResponse,
-    ): Promise<void> {
-        const declaredType = parseImageContentType(
-            singleHeader(request.headers["content-type"]),
-        );
-        const body = await readBody(request, maximumSourceBytes);
-        const detectedType = detectImageContentType(body);
-        if (!declaredType || detectedType !== declaredType) {
-            writeJson(response, 415, {
-                error: {
-                    code: "UNSUPPORTED_MEDIA_TYPE",
-                    message: "Upload must be a valid PNG, JPEG, or WebP image",
-                },
-            });
-            return;
-        }
-        let metadata: Metadata;
-        try {
-            metadata = await sharp(body, {
-                limitInputPixels: maximumSourcePixels,
-            }).metadata();
-        } catch {
-            writeJson(response, 400, {
-                error: {
-                    code: "INVALID_IMAGE",
-                    message: "Uploaded image could not be decoded",
-                },
-            });
-            return;
-        }
-        const width = metadata.width;
-        const height = metadata.height;
-        if (
-            !width ||
-            !height ||
-            width * height > maximumSourcePixels ||
-            width > 12_000 ||
-            height > 12_000
-        ) {
-            writeJson(response, 400, {
-                error: {
-                    code: "INVALID_IMAGE",
-                    message: "Uploaded image dimensions are not supported",
-                },
-            });
-            return;
-        }
-        const id = `asset_${randomUUID()}`;
-        const requestedFilename = sanitizeFilename(
-            singleHeader(request.headers["x-file-name"]),
-            declaredType,
-        );
-        const path = join(
-            assetDirectory,
-            `${id}.${extensionFor(declaredType)}`,
-        );
-        await writeFile(path, body, { mode: 0o600 });
-        const asset = Object.freeze({
-            id,
-            path,
-            filename: requestedFilename,
-            contentType: declaredType,
-            bytes: body.length,
-            width,
-            height,
-        });
-        assets.set(id, asset);
-        uploads += 1;
-        sourceImageId = id;
-        writeJson(response, 201, {
-            sourceImageId: id,
-            contentType: declaredType,
-            bytes: body.length,
-            width,
-            height,
-        });
     }
 
     async function transformAsset(
@@ -273,17 +177,6 @@ export async function startLocalCrtBusinessApi(options: {
             });
             return;
         }
-        const asset = assets.get(input.sourceImageId);
-        if (!asset) {
-            writeJson(response, 404, {
-                error: {
-                    code: "ASSET_NOT_FOUND",
-                    message: "Source image asset is unavailable",
-                },
-            });
-            return;
-        }
-
         const digest = sha256(JSON.stringify(input));
         const existing = transforms.get(requestKey);
         if (existing && existing.digest !== digest) {
@@ -297,18 +190,13 @@ export async function startLocalCrtBusinessApi(options: {
             return;
         }
         idempotencyKey = requestKey;
-        sourceImageId = input.sourceImageId;
+        sourceImageUrlSha256 = sha256(input.sourceImageUrl);
         const controller = new AbortController();
         const abort = () => controller.abort();
         request.once("aborted", abort);
         let pending = existing?.result;
         if (!pending) {
-            pending = performTransform(
-                input,
-                asset,
-                requestKey,
-                controller.signal,
-            );
+            pending = performTransform(input, requestKey, controller.signal);
             transforms.set(
                 requestKey,
                 Object.freeze({ digest, result: pending }),
@@ -331,20 +219,14 @@ export async function startLocalCrtBusinessApi(options: {
 
     async function performTransform(
         input: CrtRequest,
-        asset: Asset,
         requestKey: string,
         signal: AbortSignal,
     ): Promise<CrtImage> {
-        const source = await readFile(asset.path);
         const target = crtImageDimensions(input.aspectRatio);
         renderingFailure = undefined;
         editAttempts += 1;
         const generated = await options.imageClient.edit({
-            image: {
-                bytes: source,
-                mimeType: asset.contentType,
-                filename: asset.filename,
-            },
+            imageUrl: input.sourceImageUrl,
             prompt: input.prompt,
             model,
             size: `${target.width}x${target.height}`,
@@ -364,7 +246,6 @@ export async function startLocalCrtBusinessApi(options: {
         }
         const finalized = await finalizeCrtImage({
             generated: raw,
-            source,
             palette: input.palette,
             aspectRatio: input.aspectRatio,
         });
@@ -376,12 +257,7 @@ export async function startLocalCrtBusinessApi(options: {
             quality,
             palette: input.palette,
             aspectRatio: input.aspectRatio,
-            source: {
-                bytes: source,
-                contentType: asset.contentType,
-                width: asset.width,
-                height: asset.height,
-            },
+            sourceUrlSha256: sha256(input.sourceImageUrl),
             raw: {
                 bytes: raw,
                 contentType: rawContentType,
@@ -409,11 +285,23 @@ export async function startLocalCrtBusinessApi(options: {
         colors = finalized.colors;
         blockSize = finalized.blockSize;
         imageRequestId = generated.requestId;
+        const stored = options.storage
+            ? await options.storage.upload(
+                  {
+                      objectKey: `${objectPrefix}/${requestKey}.png`,
+                      bytes: finalized.bytes,
+                      contentType: "image/png",
+                      cacheControl: "private, max-age=31536000, immutable",
+                  },
+                  { signal },
+              )
+            : undefined;
         return Object.freeze({
-            url: `${serviceUrl}/images/${requestKey}.png`,
+            url: stored?.url ?? `${serviceUrl}/images/${requestKey}.png`,
             contentType: "image/png",
             width: finalized.width,
             height: finalized.height,
+            ...(stored?.urlExpiresAt ? { expiresAt: stored.urlExpiresAt } : {}),
         });
     }
 
@@ -440,13 +328,12 @@ export async function startLocalCrtBusinessApi(options: {
         url: serviceUrl,
         evidence: () =>
             Object.freeze({
-                storage: "local-filesystem" as const,
-                uploads,
+                storage: options.storage?.provider ?? "local-filesystem",
                 requests,
                 editAttempts,
                 edits,
                 ...(idempotencyKey ? { idempotencyKey } : {}),
-                ...(sourceImageId ? { sourceImageId } : {}),
+                ...(sourceImageUrlSha256 ? { sourceImageUrlSha256 } : {}),
                 ...(outputFile ? { outputFile } : {}),
                 ...(outputSha256 ? { outputSha256 } : {}),
                 ...(colors ? { colors } : {}),
@@ -490,8 +377,8 @@ function parseCrtRequest(value: unknown): CrtRequest {
         throw new Error("CRT request must be an object with four fields");
     }
     if (
-        typeof value.sourceImageId !== "string" ||
-        !/^asset_[a-f0-9-]+$/u.test(value.sourceImageId) ||
+        typeof value.sourceImageUrl !== "string" ||
+        !isPublicSourceImageUrl(value.sourceImageUrl) ||
         typeof value.prompt !== "string" ||
         value.prompt.trim().length === 0 ||
         value.prompt.length > 50_000 ||
@@ -503,7 +390,7 @@ function parseCrtRequest(value: unknown): CrtRequest {
         throw new Error("CRT request is invalid");
     }
     return Object.freeze({
-        sourceImageId: value.sourceImageId,
+        sourceImageUrl: value.sourceImageUrl,
         prompt: value.prompt,
         palette: value.palette as CrtPalette,
         aspectRatio: value.aspectRatio as CrtAspectRatio,
@@ -517,9 +404,18 @@ function parseIdempotencyKey(value: string | undefined): string {
     return value;
 }
 
+function normalizeObjectPrefix(value: string | undefined): string {
+    const prefix =
+        value?.trim().replace(/^\/+|\/+$/gu, "") || "crt-interface-image";
+    if (!/^[A-Za-z0-9][A-Za-z0-9/_-]{0,199}$/u.test(prefix)) {
+        throw new Error("CRT image object prefix is invalid");
+    }
+    return prefix;
+}
+
 function parseImageContentType(
     value: string | undefined,
-): Asset["contentType"] | undefined {
+): RasterContentType | undefined {
     const normalized = value?.split(";", 1)[0]?.trim().toLowerCase();
     if (
         normalized === "image/png" ||
@@ -531,9 +427,7 @@ function parseImageContentType(
     return undefined;
 }
 
-function detectImageContentType(
-    bytes: Buffer,
-): Asset["contentType"] | undefined {
+function detectImageContentType(bytes: Buffer): RasterContentType | undefined {
     if (
         bytes.length >= 8 &&
         bytes.subarray(0, 8).equals(Buffer.from("89504e470d0a1a0a", "hex"))
@@ -575,25 +469,6 @@ async function readBody(
         chunks.push(buffer);
     }
     return Buffer.concat(chunks);
-}
-
-function sanitizeFilename(
-    value: string | undefined,
-    contentType: Asset["contentType"],
-): string {
-    const fallback = `source.${extensionFor(contentType)}`;
-    if (!value) return fallback;
-    const candidate = basename(value.trim()).replace(/[^A-Za-z0-9._-]/gu, "_");
-    if (!candidate || candidate.length > 160 || !extname(candidate)) {
-        return fallback;
-    }
-    return candidate;
-}
-
-function extensionFor(contentType: Asset["contentType"]): string {
-    if (contentType === "image/jpeg") return "jpg";
-    if (contentType === "image/webp") return "webp";
-    return "png";
 }
 
 function singleHeader(

@@ -35,12 +35,15 @@ export function crtImageDimensions(
  */
 export async function finalizeCrtImage(input: {
     generated: Uint8Array;
-    source: Uint8Array;
+    source?: Uint8Array;
     palette: CrtPalette;
     aspectRatio: CrtAspectRatio;
 }): Promise<FinalizedCrtImage> {
     const { width, height } = crtImageDimensions(input.aspectRatio);
-    const colors = await resolveColors(input.palette, input.source);
+    const colors = await resolveColors(
+        input.palette,
+        input.source ?? input.generated,
+    );
     const rgb = colors.map(parseHexColor).sort(compareLuminance);
     const blockSize = 4;
     const lowWidth = Math.ceil(width / blockSize);

@@ -1,12 +1,15 @@
 import { createHash } from "node:crypto";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, join, resolve } from "node:path";
 import sharp from "sharp";
 import { parseOpenAIApiMode } from "../src/agent-runtime/pi.js";
 import { constructProcessingService } from "../src/app/api.js";
 import type { ProcessRunResult } from "../src/process-runtime/index.js";
-import type { CrtImage } from "../src/processes/crt/capability.js";
+import {
+    type CrtImage,
+    isPublicSourceImageUrl,
+} from "../src/processes/crt/capability.js";
 import {
     type CrtAspectRatio,
     type CrtPalette,
@@ -19,9 +22,13 @@ import {
     type LocalCrtBusinessApiEvidence,
     startLocalCrtBusinessApi,
 } from "./support/local-crt-business-api.js";
+import { createObjectStorageFromEnvironment } from "./support/object-storage-config.js";
 import type { GptImageQuality } from "./support/openai-image-generation.js";
 
-const sourcePath = resolve(required("CRT_SOURCE_IMAGE_FILE"));
+const sourceImageUrl = required("CRT_SOURCE_IMAGE_URL");
+if (!isPublicSourceImageUrl(sourceImageUrl)) {
+    throw new Error("CRT_SOURCE_IMAGE_URL must be a public HTTPS URL");
+}
 const reportDirectory = resolve(
     process.env.CRT_ACCEPTANCE_REPORT_DIRECTORY ??
         "artifacts/crt-interface-image/acceptance",
@@ -52,15 +59,6 @@ const processTimeoutMs = parsePositiveInteger(
     "CRT_IMAGE_PROCESS_TIMEOUT_MS",
 );
 const apiMode = parseOpenAIApiMode(process.env.OPENAI_API_MODE);
-const source = await readFile(sourcePath);
-const sourceContentType = detectSourceMimeType(source);
-if (!sourceContentType) {
-    throw new Error("CRT_SOURCE_IMAGE_FILE must be PNG, JPEG, or WebP");
-}
-if (source.length > 50 * 1024 * 1024) {
-    throw new Error("CRT_SOURCE_IMAGE_FILE must not exceed 50 MB");
-}
-
 await mkdir(reportDirectory, { recursive: true });
 const evidencePolicy = resolveCrtEvidencePolicy(process.env, {
     defaultMode: "full",
@@ -72,6 +70,10 @@ const temporaryDirectory = await mkdtemp(
 const imageGeneration = createImageGenerationClient(process.env, {
     timeoutMs: imageTimeoutMs,
 });
+if (imageGeneration.provider !== "fal") {
+    throw new Error("CRT public URL acceptance requires IMAGE_PROVIDER=fal");
+}
+const storage = createObjectStorageFromEnvironment(process.env);
 const businessApi = await startLocalCrtBusinessApi({
     directory: temporaryDirectory,
     imageClient: imageGeneration.client,
@@ -79,24 +81,14 @@ const businessApi = await startLocalCrtBusinessApi({
     model: imageModel,
     quality,
     evidencePolicy,
+    ...(storage ? { storage } : {}),
+    objectPrefix: process.env.CRT_IMAGE_OBJECT_PREFIX,
 });
 let application:
     | ReturnType<typeof constructProcessingService>["application"]
     | undefined;
 
 try {
-    const uploadResponse = await fetch(`${businessApi.url}/assets`, {
-        method: "POST",
-        headers: {
-            "content-type": sourceContentType,
-            "x-file-name": basename(sourcePath),
-        },
-        body: source,
-        signal: AbortSignal.timeout(30_000),
-    });
-    const uploadBody = await readJson(uploadResponse);
-    const upload = parseUpload(uploadBody);
-
     const constructed = constructProcessingService({
         ...process.env,
         BUSINESS_API_BASE_URL: businessApi.url,
@@ -117,7 +109,7 @@ try {
             process: "crt-interface-image",
             version: "v1",
             input: {
-                sourceImageId: upload.sourceImageId,
+                sourceImageUrl,
                 palette,
                 aspectRatio,
             },
@@ -136,11 +128,9 @@ try {
         : undefined;
     const evidence = businessApi.evidence();
     const checks = evaluate({
-        uploadStatus: uploadResponse.status,
         processStatus: processResponse.status,
         result,
         output,
-        upload,
         evidence,
         downloaded,
         imageInspection,
@@ -150,19 +140,9 @@ try {
     const report = {
         generatedAt: new Date().toISOString(),
         passed: checks.every((check) => check.passed),
-        scope: "local no-OSS Business Process acceptance",
+        scope: "public URL Business Process acceptance",
         source: {
-            filename: basename(sourcePath),
-            contentType: sourceContentType,
-            bytes: source.length,
-            sha256: sha256(source),
-        },
-        upload: {
-            request: "POST /assets",
-            httpStatus: uploadResponse.status,
-            sourceImageId: upload.sourceImageId,
-            width: upload.width,
-            height: upload.height,
+            urlSha256: sha256(sourceImageUrl),
         },
         process: {
             request: "POST /execute",
@@ -218,7 +198,7 @@ try {
             {
                 passed: report.passed,
                 scope: report.scope,
-                upload: report.upload,
+                source: report.source,
                 process: report.process,
                 rendering: report.rendering,
                 artifacts: report.artifacts,
@@ -242,11 +222,9 @@ try {
 type Check = Readonly<{ criterion: string; passed: boolean }>;
 
 function evaluate(options: {
-    uploadStatus: number;
     processStatus: number;
     result: ProcessRunResult;
     output: { aspectRatio: CrtAspectRatio; image: CrtImage } | undefined;
-    upload: UploadResult;
     evidence: LocalCrtBusinessApiEvidence;
     downloaded: Buffer | undefined;
     imageInspection:
@@ -262,11 +240,10 @@ function evaluate(options: {
 }): Check[] {
     return [
         {
-            criterion: "local POST /assets accepted the source raster",
+            criterion: "public source URL was passed without local upload",
             passed:
-                options.uploadStatus === 201 &&
-                options.evidence.uploads === 1 &&
-                options.evidence.sourceImageId === options.upload.sourceImageId,
+                options.evidence.sourceImageUrlSha256 ===
+                sha256(sourceImageUrl),
         },
         {
             criterion:
@@ -295,10 +272,10 @@ function evaluate(options: {
                 options.output !== undefined &&
                 options.output.aspectRatio === options.aspectRatio &&
                 options.output.image.contentType === "image/png" &&
-                options.output.image.url.startsWith("http://127.0.0.1:"),
+                isPublicOrLoopbackUrl(options.output.image.url),
         },
         {
-            criterion: "local result URL downloads the finalized raster",
+            criterion: "result URL downloads the finalized raster",
             passed:
                 options.downloaded !== undefined &&
                 options.downloaded.length > 10_000 &&
@@ -324,8 +301,10 @@ function evaluate(options: {
                     options.evidence.colors.length,
         },
         {
-            criterion: "no OSS or remote object storage was used",
-            passed: options.evidence.storage === "local-filesystem",
+            criterion: "configured output storage completed",
+            passed:
+                options.evidence.storage ===
+                (storage?.provider ?? "local-filesystem"),
         },
         {
             criterion: `server-owned ${options.evidence.artifacts.mode} evidence policy completed`,
@@ -335,28 +314,6 @@ function evaluate(options: {
                     options.evidence.artifacts.manifestFile !== undefined),
         },
     ];
-}
-
-type UploadResult = Readonly<{
-    sourceImageId: string;
-    contentType: string;
-    bytes: number;
-    width: number;
-    height: number;
-}>;
-
-function parseUpload(value: unknown): UploadResult {
-    if (
-        !isRecord(value) ||
-        typeof value.sourceImageId !== "string" ||
-        typeof value.contentType !== "string" ||
-        typeof value.bytes !== "number" ||
-        typeof value.width !== "number" ||
-        typeof value.height !== "number"
-    ) {
-        throw new Error("POST /assets returned an invalid response");
-    }
-    return value as UploadResult;
 }
 
 function parseProcessResult(value: unknown): ProcessRunResult {
@@ -452,7 +409,7 @@ async function writeReport(
         `- Image provider: \`${String(rendering.provider)}\``,
         `- Image model: \`${String(rendering.model)}\``,
         `- Palette / aspect ratio: \`${String(rendering.palette)} / ${String(rendering.aspectRatio)}\``,
-        "- Storage: local temporary asset service and local report file; no OSS",
+        `- Storage: ${String(rendering.storage)}`,
         `- Evidence retention: \`${artifacts?.mode ?? "off"}\``,
         "- Credentials, Prompt text, Base URLs, and revised Prompt: omitted",
         "",
@@ -555,31 +512,16 @@ function parsePositiveInteger(
     return parsed;
 }
 
-function detectSourceMimeType(
-    bytes: Buffer,
-): "image/png" | "image/jpeg" | "image/webp" | undefined {
-    if (
-        bytes.length >= 8 &&
-        bytes.subarray(0, 8).equals(Buffer.from("89504e470d0a1a0a", "hex"))
-    ) {
-        return "image/png";
+function isPublicOrLoopbackUrl(value: string): boolean {
+    try {
+        const url = new URL(value);
+        return (
+            url.protocol === "https:" ||
+            (url.protocol === "http:" && url.hostname === "127.0.0.1")
+        );
+    } catch {
+        return false;
     }
-    if (
-        bytes.length >= 3 &&
-        bytes[0] === 0xff &&
-        bytes[1] === 0xd8 &&
-        bytes[2] === 0xff
-    ) {
-        return "image/jpeg";
-    }
-    if (
-        bytes.length >= 12 &&
-        bytes.toString("ascii", 0, 4) === "RIFF" &&
-        bytes.toString("ascii", 8, 12) === "WEBP"
-    ) {
-        return "image/webp";
-    }
-    return undefined;
 }
 
 function required(name: string): string {

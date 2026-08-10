@@ -42,7 +42,8 @@ export type CrtEvidenceInput = Readonly<{
     quality: GptImageQuality;
     palette: CrtPalette;
     aspectRatio: CrtAspectRatio;
-    source: Raster;
+    source?: Raster;
+    sourceUrlSha256?: string;
     raw: Raster &
         Readonly<{
             requestId?: string;
@@ -95,17 +96,21 @@ export async function saveCrtEvidence(
 
     const runDirectory = join(policy.directory, input.runId);
     await mkdir(runDirectory, { recursive: true, mode: 0o700 });
-    const sourceName = `source.${extensionFor(input.source.contentType)}`;
+    const sourceName = input.source
+        ? `source.${extensionFor(input.source.contentType)}`
+        : undefined;
     const rawName = `raw-gpt-image-2.${extensionFor(input.raw.contentType)}`;
     const finalName = "final-crt.png";
     const manifestFile = join(runDirectory, "manifest.json");
-    const sourceFile = join(runDirectory, sourceName);
+    const sourceFile = sourceName ? join(runDirectory, sourceName) : undefined;
     const rawFile = join(runDirectory, rawName);
     const finalFile = join(runDirectory, finalName);
 
     if (policy.mode === "full") {
         await Promise.all([
-            writeFile(sourceFile, input.source.bytes, { mode: 0o600 }),
+            ...(sourceFile && input.source
+                ? [writeFile(sourceFile, input.source.bytes, { mode: 0o600 })]
+                : []),
             writeFile(rawFile, input.raw.bytes, { mode: 0o600 }),
             writeFile(finalFile, input.final.bytes, { mode: 0o600 }),
         ]);
@@ -134,14 +139,16 @@ export async function saveCrtEvidence(
             palette: input.palette,
             aspectRatio: input.aspectRatio,
         },
-        source: {
-            contentType: input.source.contentType,
-            width: input.source.width,
-            height: input.source.height,
-            bytes: input.source.bytes.byteLength,
-            sha256: sha256(input.source.bytes),
-            ...file(sourceName),
-        },
+        source: input.source
+            ? {
+                  contentType: input.source.contentType,
+                  width: input.source.width,
+                  height: input.source.height,
+                  bytes: input.source.bytes.byteLength,
+                  sha256: sha256(input.source.bytes),
+                  ...(sourceName ? file(sourceName) : {}),
+              }
+            : { urlSha256: input.sourceUrlSha256 },
         raw: {
             contentType: input.raw.contentType,
             width: input.raw.width,
@@ -170,7 +177,8 @@ export async function saveCrtEvidence(
         mode: policy.mode,
         runDirectory,
         manifestFile,
-        ...(policy.mode === "full" ? { sourceFile, rawFile, finalFile } : {}),
+        ...(policy.mode === "full" && sourceFile ? { sourceFile } : {}),
+        ...(policy.mode === "full" ? { rawFile, finalFile } : {}),
     });
 }
 

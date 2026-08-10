@@ -1,6 +1,6 @@
 import { access, mkdtemp, readdir, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
     resolveCrtEvidencePolicy,
@@ -29,7 +29,10 @@ describe("CRT image evidence policy", () => {
                     defaultDirectory: "/tmp/crt-evidence",
                 },
             ),
-        ).toEqual({ mode: "full", directory: "/tmp/crt-evidence" });
+        ).toEqual({
+            mode: "full",
+            directory: resolve("/tmp/crt-evidence"),
+        });
     });
 
     it("allows production composition to disable evidence retention", () => {
