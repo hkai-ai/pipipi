@@ -1,10 +1,8 @@
 import { createHash } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { basename, join, resolve } from "node:path";
-import {
-    type GptImageQuality,
-    OpenAIImageGenerationClient,
-} from "./support/openai-image-generation.js";
+import { createImageGenerationClient } from "./support/image-generation-config.js";
+import type { GptImageQuality } from "./support/openai-image-generation.js";
 
 const sourcePath = resolve(required("CRT_SOURCE_IMAGE_FILE"));
 const reportDirectory = resolve(
@@ -31,11 +29,10 @@ if (!mimeType) {
     throw new Error("CRT_SOURCE_IMAGE_FILE must be PNG, JPEG, or WebP");
 }
 
-const client = new OpenAIImageGenerationClient({
-    apiKey: required("OPENAI_API_KEY"),
-    baseUrl: process.env.OPENAI_BASE_URL,
+const imageGeneration = createImageGenerationClient(process.env, {
     timeoutMs,
 });
+const client = imageGeneration.client;
 const generated = await client.edit({
     image: {
         bytes: source,
@@ -78,6 +75,7 @@ const report = {
         sha256: sha256(source),
     },
     request: {
+        provider: imageGeneration.provider,
         model,
         size,
         quality,
@@ -104,6 +102,7 @@ await Promise.all([
         `# CRT GPT Image edit smoke\n\n` +
             `- Result: **${report.passed ? "PASS" : "FAIL"}**\n` +
             `- Scope: ${report.scope}\n` +
+            `- Provider: \`${imageGeneration.provider}\`\n` +
             `- Model: \`${model}\`\n` +
             `- Source: \`${report.source.filename}\` (${report.source.contentType}, ${report.source.bytes} bytes)\n` +
             `- Output: \`${generated.width ?? "unknown"}x${generated.height ?? "unknown"}\`, ${generated.bytes.byteLength} bytes\n` +

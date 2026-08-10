@@ -67,7 +67,7 @@ Agent 没有 Tool，也不能使用 Shell、文件系统、代码编辑或任意
 npm test -- test/poster-process.test.ts test/poster-http.test.ts test/runtime-skills.test.ts
 ```
 
-真实业务验收会联网、调用图片模型，并可能写入对象存储：
+真实业务验收会联网、调用图片模型，并可能写入对象存储。默认 OpenAI Adapter；设置 `IMAGE_PROVIDER=fal` 与 `FAL_KEY` 可改用 FAL：
 
 ```bash
 npm run accept:poster-business

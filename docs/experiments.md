@@ -19,8 +19,8 @@
 | `npm run smoke:agent` | Pi Agent 确实调用唯一获准 Business Capability | 模型调用、业务请求 | 终端判据 |
 | `SKILL_AB_DRY_RUN=1 npm run test:skill-ab` | 三组实验结构和 Skill 装载预检 | 无模型调用 | 终端判据 |
 | `npm run test:skill-ab` | Direct、控制 Skill、候选 Skill 的行为差异 | 多次模型调用、业务请求 | `artifacts/skill-ab/latest.*` |
-| `npm run accept:poster-business`（兼容别名：`smoke:poster-process`、`test:gpt-image-2`） | 从产品 HTTP Interface 验收 `minimal-zine-poster/v1` | Agent、Images 请求，可选 OSS PUT | `artifacts/gpt-image-2/latest.*` |
-| `npm run smoke:crt-gpt-image` | 用一张本地参考图验证 GPT Image 2 edit stage | 读取本地图片、Images 请求、本地写入 | `artifacts/crt-interface-image/latest.*` |
+| `npm run accept:poster-business`（兼容别名：`smoke:poster-process`、`test:gpt-image-2`） | 从产品 HTTP Interface 验收 `minimal-zine-poster/v1` | Agent、OpenAI Images 或 FAL 请求，可选 OSS PUT | `artifacts/gpt-image-2/latest.*` |
+| `npm run smoke:crt-gpt-image` | 用一张本地参考图验证 GPT Image 2 edit stage | 读取本地图片、OpenAI Images 或 FAL 请求、本地写入 | `artifacts/crt-interface-image/latest.*` |
 | `npm run smoke:oss` | 已有文件的上传、URL 生成和首字节读取 | OSS PUT 与 GET | `artifacts/object-storage/latest.json` |
 | `npm run smoke:staging` | 已部署环境的健康、成功与拒绝契约 | 受控环境请求 | 终端判据 |
 
@@ -34,7 +34,7 @@ CONTENT_PROCESSING_MODE=agent npm run dev
 
 Agent 每次请求创建独立内存会话，并按流程 Module 的准确绑定加载 `.pi/skills/content-optimization/SKILL.md` 与 `.pi/skills/content-integrity/SKILL.md`。Agent 只允许调用 `process_business_content`。这个 Tool 包装现有 Content Processing Capability；Registration 最多让一次调用触达下游，并只接受与 Tool 结果一致的 Agent 输出。Shell、文件读写和代码编辑不会暴露给 Agent。
 
-默认从 `.env` 读取 Pi 模型与 OpenAI 兼容配置。`PI_PROVIDER` 和 `PI_MODEL` 必须同时设置。`OPENAI_API_MODE` 可以是 `chat-completions` 或 `responses`；兼容网关还可通过 `OPENAI_BASE_URL` 配置。
+默认从 `.env` 读取 Pi 模型与 OpenAI 兼容配置。`PI_PROVIDER` 和 `PI_MODEL` 必须同时设置。`OPENAI_API_MODE` 可以是 `chat-completions` 或 `responses`；兼容网关还可通过 `OPENAI_BASE_URL` 配置。图片阶段默认使用 OpenAI Adapter：`OPENAI_IMAGE_BASE_URL` 和 `OPENAI_IMAGE_API_KEY` 可脱离 Agent 网关。设置 `IMAGE_PROVIDER=fal` 与服务端 `FAL_KEY` 后，付费图片命令改用 FAL；产品输入不能选择供应商。
 
 先启动本地演示 Business Capability，再执行真实 Agent smoke：
 
@@ -48,7 +48,7 @@ Smoke 会临时启动 Agent 模式服务，完成一次 `/execute` 请求，并�
 
 生产 Agent 可以按服务端声明顺序加载多个单文件 Skill，要求名称唯一且每项精确解析一次。它适合规则、分类、抽取、改写、Prompt 编译和少量受控 Tool，但不会自动读取 Skill 的附加参考文件、运行 Skill 脚本、使用 MCP、保存持久记忆或看图后重试。
 
-海报与 CRT 流程都只让 Agent 编译 Prompt；Registration 校验结果后调用各自的窄 Rendering Capability。生产 HTTP Adapter 要求 Capability 返回已持久化图片的 URL。海报业务验收会临时启动受控 `POST /posters` Capability，由它调用 OpenAI Images 和可选 OSS。CRT smoke 只调用 GPT Image 2 edit stage，不替代 `POST /crt-images`、finalizer 或完整 Process 验收。当前流程仍没有自动视觉检查、有限重绘或跨 Run 变化记忆；不要为了补齐这些能力直接开放 Coding Tools。
+海报与 CRT 流程都只让 Agent 编译 Prompt；Registration 校验结果后调用各自的窄 Rendering Capability。生产 HTTP Adapter 要求 Capability 返回已持久化图片的 URL。海报业务验收会临时启动受控 `POST /posters` Capability，由它调用所选 OpenAI 或 FAL Adapter 和可选 OSS。CRT smoke 只调用 GPT Image 2 edit stage，不替代 `POST /crt-images`、finalizer 或完整 Process 验收。当前流程仍没有自动视觉检查、有限重绘或跨 Run 变化记忆；不要为了补齐这些能力直接开放 Coding Tools。
 
 ## Skill A/B 对比
 
@@ -95,7 +95,7 @@ Dry run 不覆盖最近一次真实报告。实验只在临时目录生成 Skill
 
 Runtime Skill 位于 `.pi/skills/minimal-zine-poster-prompt/`。它从上游 `gc-minimal-zine-poster-v0-1` 的固定哈希适配而来，只保留 Prompt 编译规则。`SOURCE.md` 记录来源、许可、审查清单、适配差异和回滚方式。Agent 没有 Tool；图片生成不属于 Skill 权限。
 
-业务验收启动生产 Composition，通过产品 `POST /execute` 提交请求。生产 catalog 解析 Process 后，Pi Agent 编译 Prompt，生产 HTTP Adapter 再调用临时启动的受控 `POST /posters` Business Capability。该 Capability 调用 GPT Image 并写入本地 raster；配置对象存储时上传并返回远端 URL，否则启动临时图片 endpoint。验收会下载 Process 返回的 URL，并逐字节比较下载结果与生成产物：
+业务验收启动生产 Composition，通过产品 `POST /execute` 提交请求。生产 catalog 解析 Process 后，Pi Agent 编译 Prompt，生产 HTTP Adapter 再调用临时启动的受控 `POST /posters` Business Capability。该 Capability 通过所选 OpenAI 或 FAL Adapter 调用 GPT Image 2，并写入本地 raster；配置对象存储时上传并返回远端 URL，否则启动临时图片 endpoint。验收会下载 Process 返回的 URL，并逐字节比较下载结果与生成产物：
 
 ```bash
 npm run accept:poster-business
@@ -104,7 +104,7 @@ npm run smoke:poster-process
 npm run test:gpt-image-2
 ```
 
-默认配置来自 `.env.example`。图片生成可能运行数分钟并产生费用；可用本地 `.env` 覆盖主题、尺寸、质量、格式和超时。不要把 API Key 写入主题、Skill 或测试输入。
+默认配置来自 `.env.example`。图片生成可能运行数分钟并产生费用；可用本地 `.env` 覆盖供应商、主题、尺寸、质量、格式和超时。OpenAI Adapter 调用 `/images/generations`；FAL Adapter 调用 `openai/gpt-image-2`，并用 `sync_mode` 取回内联图片。不要把 API Key 写入主题、Skill 或测试输入。
 
 业务验收检查：
 
@@ -125,14 +125,23 @@ npm run test:gpt-image-2
 
 ## CRT 参考图编辑 smoke
 
-`crt-interface-image/v1` 的产品契约、上传边界、`POST /crt-images` 协议、finalizer 和完整验收标准见 [`processes/crt-interface-image/`](processes/crt-interface-image/)。仓库当前提供一个更窄的付费 smoke，用来确认一张 PNG、JPEG 或 WebP 能通过 GPT Image 2 的 `POST /images/edits` 生成 PNG：
+`crt-interface-image/v1` 的产品契约、上传边界、`POST /crt-images` 协议、finalizer 和完整验收标准见 [`processes/crt-interface-image/`](processes/crt-interface-image/)。仓库当前提供一个更窄的付费 smoke，用来确认一张 PNG、JPEG 或 WebP 能通过所选 OpenAI 或 FAL GPT Image 2 Adapter 生成 PNG：
 
 ```bash
 CRT_SOURCE_IMAGE_FILE=/absolute/path/to/non-sensitive-test-image.png \
 npm run smoke:crt-gpt-image
 ```
 
-运行前必须在本地 `.env` 设置 `OPENAI_API_KEY`。源文件不得超过 50 MB；命令通过 magic bytes 判断格式，不把原图像素、Prompt 正文或凭证写入报告。可以用 `CRT_IMAGE_MODEL`、`CRT_IMAGE_SIZE`、`CRT_IMAGE_QUALITY`、`CRT_IMAGE_TIMEOUT_MS` 和 `CRT_IMAGE_REPORT_DIRECTORY` 覆盖显式实验参数。`CRT_IMAGE_PROMPT` 只用于评审后的 Prompt 变更实验，不能成为产品字段。
+运行前必须配置所选图片供应商：OpenAI Adapter 读取 `OPENAI_IMAGE_API_KEY`，未设置时回退到 `OPENAI_API_KEY`；FAL Adapter 读取 `FAL_KEY`。源文件不得超过 50 MB；命令通过 magic bytes 判断格式，不把原图像素、Prompt 正文或凭证写入报告。可以用 `IMAGE_PROVIDER`、`CRT_IMAGE_MODEL`、`CRT_IMAGE_SIZE`、`CRT_IMAGE_QUALITY`、`CRT_IMAGE_TIMEOUT_MS` 和 `CRT_IMAGE_REPORT_DIRECTORY` 覆盖显式实验参数。FAL Adapter 只接受 `gpt-image-2`。`CRT_IMAGE_PROMPT` 只用于评审后的 Prompt 变更实验，不能成为产品字段。
+
+兼容网关缺少 `/images/edits` 时，可让图片阶段改用 FAL：
+
+```bash
+IMAGE_PROVIDER=fal
+FAL_KEY=replace-with-fal-key
+```
+
+FAL Adapter 固定调用 `openai/gpt-image-2` 与 `openai/gpt-image-2/edit`，把本地参考图编码为 Data URI，并设置 `sync_mode=true` 直接取回结果。供应商返回的 request ID 会进入本地报告；凭证、Prompt 正文、参考图像素和远端错误正文不会进入报告。生产采用 FAL 前必须评审图片数据保留、区域、费用、队列超时和删除要求。
 
 产物包括：
 

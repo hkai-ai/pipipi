@@ -43,9 +43,9 @@ Business Processing Service 让产品调用方通过一个稳定的 HTTP Interfa
 
 仓库已实现 Async Process Runs Module。它以 `submit/find` 固定公共状态、owner 隔离和 caller-scoped idempotency；PostgreSQL Adapter 以事务持久化 Run、初始 Event 和 Outbox。Outbox Dispatcher 通过统一的 BullMQ `process-runs` Queue 只发布 `{ schemaVersion, runId }`，Worker 再从 PostgreSQL 读取准确 Registration 与 accepted input。Store 以 claim token 隔离 Attempt；过期租约可被接管，Reconciler 会重投长期 queued 或过期 running Run，停机超时则释放当前 claim。Registration 默认单次执行，也可声明有界错误分类与指数退避；Business Capability 获得稳定 `runId` 幂等键。API、Dispatcher 和 Worker 已有独立 Construction Root、入口、配置与健康检查；真实 PostgreSQL/Redis 集成测试覆盖成功、业务失败、受控重试、Redis 断线、重复 Job、租约接管、有期限停机和 caller 隔离。
 
-`minimal-zine-poster/v1` 已进入 `/execute` catalog。它返回图片 HTTP(S) URL、媒体类型、尺寸和可选过期时间，不把大体积图片字节写入 Process output。调用方不能选择 Skill、模型、图片供应商或存储。OpenAI Images 与阿里云 OSS 只用于显式真实集成和海报业务验收；Skill A/B 仍是独立实验。
+`minimal-zine-poster/v1` 已进入 `/execute` catalog。它返回图片 HTTP(S) URL、媒体类型、尺寸和可选过期时间，不把大体积图片字节写入 Process output。调用方不能选择 Skill、模型、图片供应商或存储。OpenAI Images、FAL 与阿里云 OSS 只用于显式真实集成和海报业务验收；Skill A/B 仍是独立实验。
 
-`crt-interface-image/v1` 也已进入 `/execute` catalog。调用方只提交预先上传后得到的不透明 `sourceImageId`、固定调色板名和画幅；请求不接收图片字节、任意 URL、Prompt 或实现配置。Registration 在 Agent 编译结果通过校验后调用一次 CRT Rendering Capability，并只公开画幅和 PNG 引用。仓库已提供 GPT Image 2 reference-edit smoke，但受鉴权上传、`POST /crt-images`、确定性 finalizer 和完整业务验收仍由产品图片服务完成；上游 Runtime Skill 未声明许可证，正式发布前必须确认权利。开发边界见 [`docs/processes/crt-interface-image/`](docs/processes/crt-interface-image/)。
+`crt-interface-image/v1` 也已进入 `/execute` catalog。调用方只提交预先上传后得到的不透明 `sourceImageId`、固定调色板名和画幅；请求不接收图片字节、任意 URL、Prompt 或实现配置。Registration 在 Agent 编译结果通过校验后调用一次 CRT Rendering Capability，并只公开画幅和 PNG 引用。仓库已提供支持 OpenAI Images 与 FAL 的 GPT Image 2 reference-edit smoke，但受鉴权上传、`POST /crt-images`、确定性 finalizer 和完整业务验收仍由产品图片服务完成；上游 Runtime Skill 未声明许可证，正式发布前必须确认权利。开发边界见 [`docs/processes/crt-interface-image/`](docs/processes/crt-interface-image/)。
 
 ## 运行与信任模型
 

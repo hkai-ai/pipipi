@@ -74,7 +74,7 @@ flowchart LR
 5. 受控 Business API 解析资产，调用 GPT Image 2 图片编辑，执行同尺寸后处理，持久化 PNG，并返回图片引用。
 6. Registration 验证媒体类型、尺寸和比例后，才向产品返回结果。
 
-GPT Image 2 的官方图片指南明确支持通过 Images API 编辑一张或多张参考图，并支持符合约束的自定义输出尺寸；开发时以 [Edit images](https://developers.openai.com/api/docs/guides/image-generation#edit-images) 和 [Customize image output](https://developers.openai.com/api/docs/guides/image-generation#customize-image-output) 为准。模型和供应商配置固定在 Business API 内，不进入产品请求。
+GPT Image 2 的官方图片指南明确支持通过 Images API 编辑一张或多张参考图，并支持符合约束的自定义输出尺寸；开发时以 [Edit images](https://developers.openai.com/api/docs/guides/image-generation#edit-images) 和 [Customize image output](https://developers.openai.com/api/docs/guides/image-generation#customize-image-output) 为准。FAL 提供独立的 [GPT Image 2 Edit API](https://fal.ai/models/openai/gpt-image-2/edit/api)，可在 OpenAI 兼容网关缺少标准图片编辑时由服务端选择。模型和供应商配置固定在 Business API 内，不进入产品请求。
 
 ## 上传与资产服务
 
@@ -112,7 +112,7 @@ Idempotency-Key: 123e4567-e89b-42d3-a456-426614174000
 
 1. 对 `Idempotency-Key` 建立原子 claim。相同 key 的重复请求必须返回同一已完成结果，不能再次付费调用模型。
 2. 从私有资产服务解析 `sourceImageId`，验证可用性、授权范围、MIME 和像素上限。
-3. 按画幅选择固定尺寸，并把一张参考图作为 multipart `image[]` 调用 `POST /v1/images/edits`；固定 `model=gpt-image-2`、`n=1` 和 `output_format=png`。
+3. 按画幅选择固定尺寸，并调用已配置的 GPT Image 2 Adapter：OpenAI Adapter 把一张参考图作为 multipart `image[]` 发送到 `POST /v1/images/edits`；FAL Adapter 把参考图编码为 Data URI 后发送到 `openai/gpt-image-2/edit`。两者都固定单张 PNG 输出。
 4. 对模型 PNG 执行确定性后处理和输出检查。
 5. 用 `runId` 派生稳定对象键，写入私有或受控分发存储，再保存幂等结果。
 6. 返回与产品输出中 `image` 相同的 JSON 结构；不要返回供应商响应、Prompt、内部对象键或凭证。
@@ -161,24 +161,25 @@ GPT Image 2 负责识别参考图、保留主体关系和重绘整体构图，�
 
 ```bash
 npm test -- test/crt-process.test.ts test/crt-http.test.ts test/runtime-skills.test.ts test/startup-construction.test.ts
-npm test -- test/openai-image-generation.test.ts
+npm test -- test/openai-image-generation.test.ts test/fal-image-generation.test.ts test/image-generation-config.test.ts
 npm run check
 npm run typecheck
 npm test
 npm run build
 ```
 
-确定性测试证明严格产品 Schema、Agent 先于 Capability、Agent 看不到资产标识、单次 Capability 调用、`runId` 幂等键、错误净化、图片元数据和 GPT Image multipart 协议。它们不证明真实模型的视觉质量。
+确定性测试证明严格产品 Schema、Agent 先于 Capability、Agent 看不到资产标识、单次 Capability 调用、`runId` 幂等键、错误净化、图片元数据，以及 OpenAI multipart 与 FAL Data URI 协议。它们不证明真实模型的视觉质量。
 
 显式 GPT Image 2 smoke 会联网、产生模型费用、读取本地参考图并写入 `artifacts/crt-interface-image/`。确认图片不敏感、费用和凭证范围后再运行：
 
 ```bash
 CRT_SOURCE_IMAGE_FILE=/absolute/path/to/non-sensitive-test-image.png \
-OPENAI_API_KEY=replace-with-local-secret \
+IMAGE_PROVIDER=fal \
+FAL_KEY=replace-with-local-secret \
 npm run smoke:crt-gpt-image
 ```
 
-该命令只验证参考图能通过 GPT Image 2 edit stage 生成 PNG，并记录不含 Prompt 正文、凭证或原图像素的报告。它不运行 finalizer，也不经过产品 `POST /execute`，因此不能代替完整业务验收。
+该命令只验证参考图能通过 GPT Image 2 edit stage 生成 PNG，并记录不含 Prompt 正文、凭证或原图像素的报告。默认使用 OpenAI Adapter；上例显式切换到 FAL。它不运行 finalizer，也不经过产品 `POST /execute`，因此不能代替完整业务验收。
 
 完整业务验收必须从产品 `POST /execute` 进入 production catalog，经过真实 Agent、生产 HTTP Adapter、受控 `POST /crt-images`、资产解析、GPT Image 2、finalizer 和对象存储，再下载返回 URL 检查：
 
@@ -198,6 +199,7 @@ npm run smoke:crt-gpt-image
 - 发布负责人已确认上游来源的再分发和生产使用权；
 - 上传与资产服务通过身份、隔离、文件安全、保留和删除评审；
 - `POST /crt-images` 完成幂等、超时、费用、模型错误、后处理和存储测试；
+- 图片供应商的凭证、数据保留、区域、费用、队列超时与删除要求已经评审；
 - `PROCESS_TIMEOUT_MS` 长于 `CRT_API_TIMEOUT_MS`，平台超时再长于 Process 总超时；
 - 确定性测试、GPT Image 2 edit smoke 和完整业务验收全部通过；
 - 测试样本覆盖单人、多人、手持物、复杂遮挡、明暗图片、九种调色板和四种画幅；
@@ -214,5 +216,6 @@ npm run smoke:crt-gpt-image
 | 调色板和画幅 | [`src/processes/crt/style.ts`](../../../src/processes/crt/style.ts) |
 | Capability 与 HTTP 协议 | [`src/processes/crt/capability.ts`](../../../src/processes/crt/capability.ts)、[`src/processes/crt/http.ts`](../../../src/processes/crt/http.ts) |
 | Skill 绑定与来源 | [`src/processes/crt/skills.ts`](../../../src/processes/crt/skills.ts)、[Runtime Skill](../../../.pi/skills/tait-crt-interface-prompt) |
-| GPT Image edit Adapter 与 smoke | [`examples/support/openai-image-generation.ts`](../../../examples/support/openai-image-generation.ts)、[`examples/crt-gpt-image-smoke.ts`](../../../examples/crt-gpt-image-smoke.ts) |
-| 确定性测试 | [`test/crt-process.test.ts`](../../../test/crt-process.test.ts)、[`test/crt-http.test.ts`](../../../test/crt-http.test.ts)、[`test/openai-image-generation.test.ts`](../../../test/openai-image-generation.test.ts) |
+| GPT Image edit Adapter 与配置 | [`examples/support/openai-image-generation.ts`](../../../examples/support/openai-image-generation.ts)、[`examples/support/fal-image-generation.ts`](../../../examples/support/fal-image-generation.ts)、[`examples/support/image-generation-config.ts`](../../../examples/support/image-generation-config.ts) |
+| 编辑 smoke | [`examples/crt-gpt-image-smoke.ts`](../../../examples/crt-gpt-image-smoke.ts) |
+| 确定性测试 | [`test/crt-process.test.ts`](../../../test/crt-process.test.ts)、[`test/crt-http.test.ts`](../../../test/crt-http.test.ts)、[`test/openai-image-generation.test.ts`](../../../test/openai-image-generation.test.ts)、[`test/fal-image-generation.test.ts`](../../../test/fal-image-generation.test.ts)、[`test/image-generation-config.test.ts`](../../../test/image-generation-config.test.ts) |

@@ -149,7 +149,7 @@ npm run smoke:staging
 
 第一条命令证明真实 Agent 和 Business Capability 都参与执行，并检查 Tool 调用次数、结果来源与默认受保护内容。第二条命令检查健康状态、一次结构化成功结果和一个字段严格受限的 `INVALID_INPUT` 失败响应。两条命令都不比较精确文案，也不输出业务内容、Tool 输入或认证值。
 
-海报候选还必须运行本地业务验收。它会从产品 `POST /execute` 进入 production catalog，调用真实 Agent、production HTTP Adapter、受控 `POST /posters` Capability 与 Images API；配置 OSS 时还会写远端对象。先确认测试主题、凭证、bucket、对象前缀和费用范围：
+海报候选还必须运行本地业务验收。它会从产品 `POST /execute` 进入 production catalog，调用真实 Agent、production HTTP Adapter、受控 `POST /posters` Capability 与所选图片 Adapter；配置 OSS 时还会写远端对象。先确认测试主题、凭证、bucket、对象前缀和费用范围：
 
 ```bash
 npm run accept:poster-business
@@ -164,7 +164,7 @@ CRT_SOURCE_IMAGE_FILE=/absolute/path/to/non-sensitive-test-image.png \
 npm run smoke:crt-gpt-image
 ```
 
-该 smoke 不运行 Runtime Skill Agent、production catalog、资产服务、finalizer 或对象存储。发布前还必须按 [`processes/crt-interface-image/`](processes/crt-interface-image/) 完成来源授权、上传安全、确定性后处理和全链路业务验收。当前仓库尚未提供 `accept:crt-business`；在该命令实现并从产品 `POST /execute` 验证单次 `POST /crt-images`、`runId` 幂等、参考图关系、九种调色板、四种画幅、PNG 下载和删除生命周期之前，CRT 候选不满足发布门禁。
+该 smoke 不运行 Runtime Skill Agent、production catalog、资产服务、finalizer 或对象存储。若 Agent 网关不实现标准 Images API，可用 `OPENAI_IMAGE_BASE_URL` 和 `OPENAI_IMAGE_API_KEY` 直连 OpenAI Images，也可设置 `IMAGE_PROVIDER=fal` 与 `FAL_KEY` 改用 FAL。发布前还必须按 [`processes/crt-interface-image/`](processes/crt-interface-image/) 完成来源授权、上传安全、确定性后处理和全链路业务验收。当前仓库尚未提供 `accept:crt-business`；在该命令实现并从产品 `POST /execute` 验证单次 `POST /crt-images`、`runId` 幂等、参考图关系、九种调色板、四种画幅、PNG 下载和删除生命周期之前，CRT 候选不满足发布门禁。
 
 ## 发布与回滚
 

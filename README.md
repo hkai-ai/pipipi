@@ -66,7 +66,7 @@ cp .env.example .env
 npm run dev:business-api
 ```
 
-这个演示服务只实现文本用的 `POST /process`。执行海报 Process 时，`BUSINESS_API_BASE_URL` 必须指向实现 `POST /posters` 的受控 Business API。执行 CRT Process 时，同一地址还必须实现 `POST /crt-images`，并能通过服务端资产标识解析已上传图片。`npm run accept:poster-business` 会临时启动真实图片 Capability 和生产 Composition，再从产品 `POST /execute` 完成一次海报业务验收；`smoke:poster-process` 与 `test:gpt-image-2` 保留为兼容别名。`npm run smoke:crt-gpt-image` 只验证 GPT Image 2 参考图编辑，不替代 CRT finalizer 或完整业务验收。
+这个演示服务只实现文本用的 `POST /process`。执行海报 Process 时，`BUSINESS_API_BASE_URL` 必须指向实现 `POST /posters` 的受控 Business API。执行 CRT Process 时，同一地址还必须实现 `POST /crt-images`，并能通过服务端资产标识解析已上传图片。`npm run accept:poster-business` 会临时启动真实图片 Capability 和生产 Composition，再从产品 `POST /execute` 完成一次海报业务验收；`smoke:poster-process` 与 `test:gpt-image-2` 保留为兼容别名。`npm run smoke:crt-gpt-image` 只验证 GPT Image 2 参考图编辑，不替代 CRT finalizer 或完整业务验收。付费图片命令默认使用 OpenAI Images；当兼容网关缺少 GPT Image 2 图片编辑时，设置 `IMAGE_PROVIDER=fal` 与 `FAL_KEY` 即可改用 FAL。
 
 在第二个终端启动处理服务：
 

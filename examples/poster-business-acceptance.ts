@@ -15,13 +15,13 @@ import {
     PosterRenderingUnavailable,
 } from "../src/processes/poster/capability.js";
 import type { ProcessRunResult } from "../src/processes/runtime/index.js";
+import { createImageGenerationClient } from "./support/image-generation-config.js";
 import type { StoredObject } from "./support/object-storage.js";
 import { createObjectStorageFromEnvironment } from "./support/object-storage-config.js";
-import {
-    type GeneratedImage,
-    type GptImageOutputFormat,
-    type GptImageQuality,
-    OpenAIImageGenerationClient,
+import type {
+    GeneratedImage,
+    GptImageOutputFormat,
+    GptImageQuality,
 } from "./support/openai-image-generation.js";
 
 const reportDirectory = resolve(
@@ -115,6 +115,7 @@ type Report = {
     };
     output?: PosterOutput;
     generatedImage?: {
+        provider: string;
         model: string;
         requestedSize: string;
         quality: GptImageQuality;
@@ -143,11 +144,10 @@ let generatedImageFile: string | undefined;
 let storedObject: StoredObject | undefined;
 let localImageServer: LocalImageServer | undefined;
 
-const imageClient = new OpenAIImageGenerationClient({
-    apiKey: requiredEnvironmentVariable("OPENAI_API_KEY"),
-    baseUrl: process.env.OPENAI_BASE_URL,
+const imageGeneration = createImageGenerationClient(process.env, {
     timeoutMs: imageTimeoutMs,
 });
+const imageClient = imageGeneration.client;
 const rendering: PosterRenderingCapability = {
     render: async (input, options) => {
         try {
@@ -279,6 +279,7 @@ try {
         ...(generatedImage && generatedImageFile
             ? {
                   generatedImage: {
+                      provider: imageGeneration.provider,
                       model: imageModel,
                       requestedSize: imageSize,
                       quality: imageQuality,
@@ -512,6 +513,7 @@ function renderReport(report: Report): string {
         lines.push(
             "## Generated raster evidence",
             "",
+            `- Provider: \`${report.generatedImage.provider}\``,
             `- Model: \`${report.generatedImage.model}\``,
             `- Bytes: ${report.generatedImage.bytes}`,
             `- SHA-256: \`${report.generatedImage.sha256}\``,
@@ -830,12 +832,6 @@ function parsePositiveInteger(
         throw new Error(`${name} must be a positive integer`);
     }
     return parsed;
-}
-
-function requiredEnvironmentVariable(name: string): string {
-    const value = process.env[name]?.trim();
-    if (!value) throw new Error(`${name} is required`);
-    return value;
 }
 
 function sha256(value: string | Uint8Array): string {

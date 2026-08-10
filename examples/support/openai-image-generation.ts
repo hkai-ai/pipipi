@@ -200,7 +200,7 @@ async function readGeneratedImage(response: Response): Promise<GeneratedImage> {
 
     const image = readFirstImage(body);
     const bytes = decodeBase64Image(image.b64Json);
-    const detected = detectImage(bytes);
+    const detected = detectRasterImage(bytes);
     if (!detected) {
         throw new OpenAIImageGenerationError(
             "GPT Image returned data that is not a supported raster image",
@@ -308,7 +308,7 @@ function decodeBase64Image(value: string): Buffer {
     return Buffer.from(normalized, "base64");
 }
 
-function detectImage(bytes: Buffer):
+export function detectRasterImage(bytes: Buffer):
     | {
           mimeType: string;
           outputFormat: GptImageOutputFormat;
