@@ -41,7 +41,8 @@
 
 - 标准单服务器发布入口是 `.github/workflows/production-ci-cd.yml`。CI 构建发布包，生产 Job 通过 SSH 把版本部署到 `REMOTE_PATH/releases/<commit>`，再用 PM2 切换 `current`。
 - 同步 API 的生产端口固定为 `4300`，只向本机反向代理开放。基础流水线保持 `ASYNC_PROCESS_RUNS_ENABLED=false`；异步角色必须按独立 Runbook 发布。
-- 服务器环境变量保存在 `REMOTE_PATH/shared/.env`，不得写入 GitHub Actions 日志、发布包或仓库。部署后必须同时通过 `/healthz` 与 `/readyz`，失败时切回上一 release。
+- 服务器环境变量保存在 `REMOTE_PATH/shared/.env`，不得写入 GitHub Actions 日志、发布包或仓库。切换 release 后必须从目标目录重新创建 PM2 进程，并校验 `/proc/<pid>/cwd` 等于该 release；只通过健康检查不能证明新版本已激活。
+- 部署后必须同时通过 `/healthz` 与 `/readyz`，失败时用同一 PM2 进程重建和目录校验步骤切回上一 release。
 
 ## Agent skills
 

@@ -74,7 +74,7 @@ Vercel Functions、Netlify Functions 和 Cloudflare Workers 不能直接运行�
 
 仓库通过 [production CI/CD](../.github/workflows/production-ci-cd.yml) 把同步 API 发布到一台 Linux 服务器。Pull Request 只执行确定性检查；`main` 推送和手动触发在检查通过后生成发布包，通过 SSH 上传并激活。生产 Job 使用 GitHub `production` Environment 和 `pipipi-production` 并发组，同一时间只允许一次部署。
 
-发布包只包含 `dist/`、生产依赖清单、PM2 配置和固定 Runtime Skill，不包含源码、`.env` 或凭证。服务器把每个 commit 解压到 `REMOTE_PATH/releases/<commit>`，安装 production dependencies，再原子切换 `REMOTE_PATH/current`。新版本必须同时通过 `GET /healthz` 与 `GET /readyz`；失败时部署脚本恢复上一 release 并重新加载 PM2。
+发布包只包含 `dist/`、生产依赖清单、PM2 配置和固定 Runtime Skill，不包含源码、`.env` 或凭证。服务器把每个 commit 解压到 `REMOTE_PATH/releases/<commit>`，安装 production dependencies，再原子切换 `REMOTE_PATH/current`。激活步骤删除旧 PM2 进程并从目标 release 重新启动，随后校验 `/proc/<pid>/cwd` 与目标目录一致，避免旧进程通过健康检查造成假成功。新版本必须同时通过 `GET /healthz` 与 `GET /readyz`；失败时部署脚本恢复上一 release 并重新启动 PM2。
 
 ### GitHub 配置
 
@@ -200,13 +200,15 @@ test -f /opt/pipipi/shared/.env
 curl --version
 ```
 
-随后在 GitHub Actions 手动运行 `Production CI/CD`，或把已评审改动合入 `main`。流水线依次执行 `npm ci`、`npm run check`、`npm run typecheck`、`npm test`、`npm run build`、上传发布包、安装生产依赖、切换 release、重载 PM2，并检查两个健康端点。
+随后在 GitHub Actions 手动运行 `Production CI/CD`，或把已评审改动合入 `main`。流水线依次执行 `npm ci`、`npm run check`、`npm run typecheck`、`npm test`、`npm run build`、上传发布包、安装生产依赖、切换 release、重新启动 PM2、核对进程工作目录，并检查两个健康端点。
 
 发布成功后在服务器确认：
 
 ```bash
 readlink -f /opt/pipipi/current
 pm2 status pipipi
+PID="$(pm2 pid pipipi)"
+readlink -f "/proc/$PID/cwd"
 curl --fail http://127.0.0.1:4300/healthz
 curl --fail http://127.0.0.1:4300/readyz
 ```
@@ -221,8 +223,12 @@ curl --fail http://127.0.0.1:4300/readyz
 cd /opt/pipipi
 ln -s "$(pwd)/releases/<known-good-commit>" current.next
 mv -Tf current.next current
-cd current
-pm2 startOrReload ecosystem.config.cjs --update-env
+TARGET="$(readlink -f current)"
+cd "$TARGET"
+pm2 delete pipipi 2>/dev/null || true
+pm2 start ecosystem.config.cjs --update-env
+PID="$(pm2 pid pipipi)"
+test "$(readlink -f "/proc/$PID/cwd")" = "$TARGET"
 curl --fail http://127.0.0.1:4300/healthz
 curl --fail http://127.0.0.1:4300/readyz
 pm2 save

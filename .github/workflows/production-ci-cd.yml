@@ -145,8 +145,22 @@ jobs:
               target="$1"
               ln -sfn "$target" "$app_root/current.next"
               mv -Tf "$app_root/current.next" "$current_link"
-              cd "$current_link"
-              pm2 startOrReload ecosystem.config.cjs --update-env
+              cd "$target"
+              pm2 delete pipipi >/dev/null 2>&1 || true
+              pm2 start ecosystem.config.cjs --update-env
+
+              pid="$(pm2 pid pipipi | head -n 1)"
+              expected_cwd="$(readlink -f "$target")"
+              if [ -z "$pid" ] || [ "$pid" = "0" ] || \
+                  [ ! -d "/proc/$pid" ]; then
+                  echo "PM2 did not start pipipi" >&2
+                  return 1
+              fi
+              actual_cwd="$(readlink -f "/proc/$pid/cwd")"
+              if [ "$actual_cwd" != "$expected_cwd" ]; then
+                  echo "PM2 is running $actual_cwd, expected $expected_cwd" >&2
+                  return 1
+              fi
           }
 
           healthy() {
