@@ -182,7 +182,8 @@ describe("Runtime Skill set", () => {
     it("records the immutable upstream poster Skill hash", () => {
         const upstream = readFileSync(
             ".agents/skills/gc-minimal-zine-poster-v0-1/SKILL.md",
-        );
+            "utf8",
+        ).replace(/\r\n/gu, "\n");
         const digest = createHash("sha256").update(upstream).digest("hex");
         const lock = JSON.parse(readFileSync("skills-lock.json", "utf8")) as {
             skills: Record<string, { computedHash?: string }>;
