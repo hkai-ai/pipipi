@@ -20,6 +20,12 @@
 - 生产请求路径只读取随应用发布、由服务端选择的本地 Runtime Skill。禁止按请求下载、更新或执行任意远程 Skill。
 - 当前没有通用 Skill Installer。生产确实需要多个来源类型时，可在开发工具链增加 Skill Installer 和只读 Installed Skill Catalog；它们不得进入产品请求路径。
 
+## Git 远端与同步
+
+- `git@github.com:techidsk/pipipi.git` 是主仓库。保留其 `origin` 名称，并从该仓库获取和跟踪分支。
+- `git@github.com:hkai-ai/pipipi.git` 是同步副本。用户授权推送分支或 tag 时，把同一 ref 推送到两个仓库，并确认两端指向同一 commit。
+- 本地可以为 `origin` 配置两个 push URL；若缺少该配置，则分别推送。不要从同步副本拉取、合并或设置分支上游。
+
 ## 完成与验证
 
 - 新增 Business Process、接入 Runtime Skill 或改变公开行为时，同步更新测试、`README.md`、`CONTEXT.md` 和受影响的 `docs/` 页面。
