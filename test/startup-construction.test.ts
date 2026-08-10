@@ -49,6 +49,29 @@ describe("Startup Construction", () => {
         ).toMatchObject({ accepted: true });
     });
 
+    it("registers crt-interface-image/v1 in the production catalog", () => {
+        const runtime = createProductionRuntime({
+            BUSINESS_API_BASE_URL: "https://business.example",
+        });
+
+        const registration = runtime.registry.find({
+            id: "crt-interface-image",
+            version: "v1",
+        });
+
+        expect(registration?.identity).toEqual({
+            id: "crt-interface-image",
+            version: "v1",
+        });
+        expect(
+            registration?.accept({
+                sourceImageId: "asset_portrait_01",
+                palette: "经典",
+                aspectRatio: "4:3",
+            }),
+        ).toMatchObject({ accepted: true });
+    });
+
     it("constructs the default direct service from an explicit environment", async () => {
         const businessInputs: unknown[] = [];
         const businessApi = await startServer(async (request, response) => {
@@ -402,6 +425,7 @@ describe("Startup Construction", () => {
             PI_AGENT_DIR: "/must-not-be-read/pi-agent",
             PI_SKILL_DIRECTORY: "/must-not-be-read/content-optimization",
             PI_POSTER_SKILL_DIRECTORY: "/must-not-be-read/poster-prompt",
+            PI_CRT_SKILL_DIRECTORY: "/must-not-be-read/crt-prompt",
             OPENAI_BASE_URL: `${externalSentinel.url}/v1`,
             OPENAI_API_MODE: "responses",
             OPENAI_API_KEY: "must-not-be-read",
@@ -460,6 +484,7 @@ describe("Startup Construction", () => {
             PI_AGENT_DIR: "/tmp/pi-agent",
             PI_SKILL_DIRECTORY: "/tmp/content-optimization",
             PI_POSTER_SKILL_DIRECTORY: "/tmp/poster-prompt",
+            PI_CRT_SKILL_DIRECTORY: "/tmp/crt-prompt",
             OPENAI_BASE_URL: "https://gateway.example/v1",
             OPENAI_API_MODE: "responses",
         });
@@ -481,6 +506,7 @@ describe("Startup Construction", () => {
             PI_AGENT_DIR: "/must-not-be-read/pi-agent",
             PI_SKILL_DIRECTORY: "/must-not-be-read/content-optimization",
             PI_POSTER_SKILL_DIRECTORY: "/must-not-be-read/poster-prompt",
+            PI_CRT_SKILL_DIRECTORY: "/must-not-be-read/crt-prompt",
             OPENAI_BASE_URL: "https://gateway.example/v1",
             OPENAI_API_MODE: "responses",
         });
@@ -619,6 +645,7 @@ describe("Startup Construction", () => {
     it.each([
         "BUSINESS_API_TIMEOUT_MS",
         "POSTER_API_TIMEOUT_MS",
+        "CRT_API_TIMEOUT_MS",
         "PROCESS_TIMEOUT_MS",
         "CONTENT_PROCESSING_RETRY_MAX_ATTEMPTS",
         "CONTENT_PROCESSING_RETRY_INITIAL_DELAY_MS",

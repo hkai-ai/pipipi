@@ -28,6 +28,7 @@
         "accept:poster-business": "node --env-file-if-exists=.env --import tsx examples/poster-business-acceptance.ts",
         "smoke:poster-process": "npm run accept:poster-business",
         "test:gpt-image-2": "npm run accept:poster-business",
+        "smoke:crt-gpt-image": "node --env-file-if-exists=.env --import tsx examples/crt-gpt-image-smoke.ts",
         "check": "biome check .",
         "check:fix": "biome check --write .",
         "lint": "biome lint .",

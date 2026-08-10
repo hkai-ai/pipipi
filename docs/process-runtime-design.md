@@ -69,6 +69,7 @@ Process Definition、依赖、策略和输出验证都留在 Module 内。生产
 | Runtime Skill Set | `createSkillSet(refs, cwd)`、`load()` | 非空与重名校验、准确名称解析、顺序、首次读取、缓存和 Prompt 编译 |
 | Content Processing Capability | `process(input, { signal })` | 远程协议、超时、响应校验和依赖错误转换 |
 | Poster Rendering Capability | `render({ prompt, aspectRatio: "3:5" }, { signal, idempotencyKey })` | 图片生成、持久化、URL 生命周期、远程协议和依赖错误转换 |
+| CRT Rendering Capability | `transform({ sourceImageId, prompt, palette, aspectRatio }, { signal, idempotencyKey })` | 资产解析、参考图编辑、确定性后处理、持久化、URL 生命周期和依赖错误转换 |
 | Process Run Records | `record(completion)` 与 `find(runId)` | 内容保留策略、防御性复制、容量和存储 Adapter |
 
 <!-- markdownlint-enable MD013 -->
@@ -142,8 +143,8 @@ Process Definition 抛出的异常属于意外失败。Process Attempt Runner �
 ## Composition 与依赖
 
 [`constructProcessingService`](../src/app/api.ts) 拥有 API 的生产 Composition Root。
-它先校验通用配置，再组装三个精确 Registration。`CONTENT_PROCESSING_MODE` 只在文本流程中
-选择 `direct` 或 `agent`；海报流程始终构造无 Tool Agent。共享的 provider/model 与 OpenAI API
+它先校验通用配置，再组装四个精确 Registration。`CONTENT_PROCESSING_MODE` 只在文本流程中
+选择 `direct` 或 `agent`；海报与 CRT 流程始终构造无 Tool Agent。共享的 provider/model 与 OpenAI API
 mode 在启动时成组校验，Skill 文件和外部依赖保持惰性，不影响 liveness。配置错误会在
 Application 监听端口前抛出。
 
@@ -162,15 +163,16 @@ HTTP Sender，不加载 Business Process。四个角色的 liveness 不访问下
 
 Production catalog 由
 [`createProcessExecutor`](../src/processes/catalog.ts)
-定义，也是唯一知道全部具体 Business Process 的位置。生产 Composition Root 向它提供三组
-依赖；它创建三个 Registration、不可变 Registry 和 Process Runner，再向 Application 返回 ready
-`ProcessExecutor`。测试和 smoke 可以省略海报依赖以构造更小的隔离 catalog，生产组装始终提供。
+定义，也是唯一知道全部具体 Business Process 的位置。生产 Composition Root 向它提供四组
+依赖；它创建四个 Registration、不可变 Registry 和 Process Runner，再向 Application 返回 ready
+`ProcessExecutor`。测试和 smoke 可以省略图片流程依赖以构造更小的隔离 catalog，生产组装始终提供。
 
 每个 Registration factory 只捕获该流程获准使用的依赖：
 
 - `content-processing/v1` 捕获 Content Processing Capability、可选 Agent 和 `mode`。流程 Module 的 `skills.ts` 拥有两个准确 Runtime Skill 的名称、顺序、默认路径和唯一 Tool 名称；Composition Root 只提供路径覆盖、模型和供应商等部署配置。Pi Adapter 只加载该集合，不扫描或启用其他 Skill。路径在构造时固定；空集合或重复引用会阻止构造。文件在首次 Agent 请求时读取并缓存，缺失、重复解析或空正文会映射为 `AGENT_FAILURE`。Registration 最多让一次 Agent Tool 调用触达 Business Capability，始终使用 `runId` 作为下游幂等键，并只接受与该 Tool 结果一致的 Agent 输出。
 - `titled-content-processing/v1` 捕获 Content Processing Capability 和 `separator`。
 - `minimal-zine-poster/v1` 捕获 Poster Agent 与 Poster Rendering Capability。Agent 只加载 `minimal-zine-poster-prompt`，不获得 Tool；Registration 要求四段 Prompt、六个固定 recipe 轴和可选原文逐字保留。验证通过后，Registration 只调用一次 Capability，并以 `runId` 作为下游幂等键。Capability 必须返回 HTTP(S) 图片 URL、受限媒体类型、尺寸和可选过期时间；原始图片字节不进入 Process output。
+- `crt-interface-image/v1` 捕获 CRT Agent 与 CRT Rendering Capability。产品只提交不透明 `sourceImageId`、固定调色板和画幅；Agent 只加载 `tait-crt-interface-prompt`，不获得 Tool，也看不到参考图或资产标识。Registration 要求四段 Prompt、十四个固定 recipe 轴、请求画幅、准确调色板和核心 CRT 约束；验证通过后只调用一次 Capability，并以 `runId` 作为下游幂等键。Capability 必须返回符合 GPT Image 2 尺寸边界和请求比例的 PNG 引用；Prompt、recipe 和原始图片字节不进入 Process output。上传、图片编辑和 finalizer 边界见 [`developing-crt-interface-image.md`](developing-crt-interface-image.md)。
 - Execution Context 只携带请求级的 `runId` 与 `AbortSignal`。
 
 依赖按 Seam 类型处理：
@@ -180,7 +182,7 @@ Production catalog 由
 | 依赖 | 类别 | Adapter 策略 |
 | --- | --- | --- |
 | Zod Schema、Registry Map、结果映射 | in-process | 留在深 Module 内，不增加 Adapter |
-| 受控 Business API | remote but owned | `ContentProcessingCapability` 与 `PosterRenderingCapability` port；生产使用 HTTP Adapter，测试使用内存 Adapter |
+| 受控 Business API | remote but owned | `ContentProcessingCapability`、`PosterRenderingCapability` 与 `CrtRenderingCapability` port；生产使用 HTTP Adapter，测试使用内存 Adapter |
 | Pi Agent Runtime | true external | `agent.ts` 定义窄 Interface；生产使用 `pi.ts` Adapter，测试使用 mock Adapter |
 | Runtime Skill 快照 | bundled resource | 流程拥有准确 `SkillRef[]`；`src/processes/agent/skills.ts` 精确加载，不自动发现或扩大 Tool 权限 |
 | Run Record 存储 | 可替换存储 Seam | disabled、内存和持久化 Adapter 共用 `ProcessRunRecordAdapter` |
@@ -192,7 +194,7 @@ Production catalog 由
 Interface 就是测试面：
 
 - Startup Construction 测试传入显式只读环境变量映射，并通过本地 HTTP 边界验证默认值、
-  配置覆盖、三项 Registration 组装、跨字段拒绝，以及 Skill 与外部依赖在健康检查中保持惰性。
+  配置覆盖、四项 Registration 组装、跨字段拒绝，以及 Skill 与外部依赖在健康检查中保持惰性。
 - 大部分产品行为通过真实本地 HTTP 的 `POST /execute` 测试。
 - Process Runtime 测试只跨 Registration、Registry、Process Attempt Runner 和 Process
   Executor 的公开 Seam，覆盖接受 invariant、单次解析、延迟执行、精确版本、快照拒绝、失败、
@@ -200,7 +202,7 @@ Interface 就是测试面：
 - Application 测试注入 fake ready Process Executor，证明 Application 不依赖具体流程。
 - 远程依赖测试使用受控 Adapter 或 mock Adapter，不访问真实凭证与远端系统。
 - Runtime Skill Set 测试生产绑定、多项顺序、未绑定项隔离、重名拒绝和准确名称解析。
-- Agent Registration 测试文本 Tool 的缺失、重复调用和结果来源，也测试海报 Agent 的结构、原文保留和先验证后渲染。确定性测试不调用真实模型。文本 smoke 验证真实 Tool 路径；海报业务验收从产品 `POST /execute` 经过 production catalog、真实 Agent、production HTTP Adapter、受控 `POST /posters` Capability 和真实图片 URL。Skill A/B 组合仍由独立命令执行。
+- Agent Registration 测试文本 Tool 的缺失、重复调用和结果来源，也测试海报与 CRT Agent 的结构、请求约束和先验证后渲染。CRT 测试还证明 Agent 看不到资产标识、Capability 只调用一次、图片为受限 PNG 且比例正确。确定性测试不调用真实模型。文本 smoke 验证真实 Tool 路径；海报业务验收从产品 `POST /execute` 经过 production catalog、真实 Agent、production HTTP Adapter、受控 `POST /posters` Capability 和真实图片 URL；CRT 的显式 smoke 当前只验证 GPT Image 2 reference-edit stage。Skill A/B 组合仍由独立命令执行。
 
 测试不读取私有 Map，不断言 key 编码，也不依赖内部 helper 的调用顺序。Implementation
 重构只要保持 Interface，就不应迫使这些测试重写。

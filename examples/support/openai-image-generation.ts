@@ -30,6 +30,14 @@ export type GenerateImageRequest = {
     signal?: AbortSignal;
 };
 
+export type EditImageRequest = GenerateImageRequest & {
+    image: {
+        bytes: Uint8Array;
+        mimeType: "image/png" | "image/jpeg" | "image/webp";
+        filename?: string;
+    };
+};
+
 export type OpenAIImageGenerationClientOptions = {
     apiKey: string;
     baseUrl?: string;
@@ -125,45 +133,99 @@ export class OpenAIImageGenerationClient {
             );
         }
 
-        const requestId = readRequestId(response.headers);
-        const body = await readJson(response);
-        if (!response.ok) {
-            const apiError = readApiError(body);
-            throw new OpenAIImageGenerationError(
-                `GPT Image returned HTTP ${response.status}${apiError.message ? `: ${apiError.message}` : ""}`,
-                {
-                    status: response.status,
-                    ...(requestId ? { requestId } : {}),
-                    ...(apiError.code ? { code: apiError.code } : {}),
-                },
-            );
-        }
-
-        const image = readFirstImage(body);
-        const bytes = decodeBase64Image(image.b64Json);
-        const detected = detectImage(bytes);
-        if (!detected) {
-            throw new OpenAIImageGenerationError(
-                "GPT Image returned data that is not a supported raster image",
-                { ...(requestId ? { requestId } : {}) },
-            );
-        }
-
-        return {
-            bytes,
-            mimeType: detected.mimeType,
-            outputFormat: detected.outputFormat,
-            ...(detected.width === undefined ? {} : { width: detected.width }),
-            ...(detected.height === undefined
-                ? {}
-                : { height: detected.height }),
-            ...(requestId ? { requestId } : {}),
-            ...(image.revisedPrompt
-                ? { revisedPrompt: image.revisedPrompt }
-                : {}),
-            ...readUsage(body),
-        };
+        return readGeneratedImage(response);
     }
+
+    async edit(request: EditImageRequest): Promise<GeneratedImage> {
+        const prompt = request.prompt.trim();
+        if (!prompt) throw new Error("GPT image prompt is required");
+        if (request.image.bytes.byteLength === 0) {
+            throw new Error("GPT image edit requires source image bytes");
+        }
+
+        const model = request.model?.trim() || "gpt-image-2";
+        const outputFormat = request.outputFormat ?? "png";
+        const timeoutSignal = AbortSignal.timeout(this.#timeoutMs);
+        const signal = request.signal
+            ? AbortSignal.any([request.signal, timeoutSignal])
+            : timeoutSignal;
+        const sourceBytes = Uint8Array.from(request.image.bytes);
+        const form = new FormData();
+        form.set("model", model);
+        form.append(
+            "image[]",
+            new Blob([sourceBytes], { type: request.image.mimeType }),
+            request.image.filename?.trim() ||
+                `source.${extensionFor(request.image.mimeType)}`,
+        );
+        form.set("prompt", prompt);
+        form.set("n", "1");
+        form.set("size", request.size ?? "1600x1200");
+        form.set("quality", request.quality ?? "low");
+        form.set("output_format", outputFormat);
+
+        let response: Response;
+        try {
+            response = await this.#fetch(`${this.#baseUrl}/images/edits`, {
+                method: "POST",
+                headers: { authorization: `Bearer ${this.#apiKey}` },
+                body: form,
+                signal,
+            });
+        } catch (error) {
+            throw new OpenAIImageGenerationError(
+                "The GPT Image edit did not reach a successful response",
+                { cause: error },
+            );
+        }
+
+        return readGeneratedImage(response);
+    }
+}
+
+async function readGeneratedImage(response: Response): Promise<GeneratedImage> {
+    const requestId = readRequestId(response.headers);
+    const body = await readJson(response);
+    if (!response.ok) {
+        const apiError = readApiError(body);
+        throw new OpenAIImageGenerationError(
+            `GPT Image returned HTTP ${response.status}${apiError.message ? `: ${apiError.message}` : ""}`,
+            {
+                status: response.status,
+                ...(requestId ? { requestId } : {}),
+                ...(apiError.code ? { code: apiError.code } : {}),
+            },
+        );
+    }
+
+    const image = readFirstImage(body);
+    const bytes = decodeBase64Image(image.b64Json);
+    const detected = detectImage(bytes);
+    if (!detected) {
+        throw new OpenAIImageGenerationError(
+            "GPT Image returned data that is not a supported raster image",
+            { ...(requestId ? { requestId } : {}) },
+        );
+    }
+
+    return {
+        bytes,
+        mimeType: detected.mimeType,
+        outputFormat: detected.outputFormat,
+        ...(detected.width === undefined ? {} : { width: detected.width }),
+        ...(detected.height === undefined ? {} : { height: detected.height }),
+        ...(requestId ? { requestId } : {}),
+        ...(image.revisedPrompt ? { revisedPrompt: image.revisedPrompt } : {}),
+        ...readUsage(body),
+    };
+}
+
+function extensionFor(
+    mimeType: EditImageRequest["image"]["mimeType"],
+): GptImageOutputFormat {
+    if (mimeType === "image/jpeg") return "jpeg";
+    if (mimeType === "image/webp") return "webp";
+    return "png";
 }
 
 function readRequestId(headers: Headers): string | undefined {

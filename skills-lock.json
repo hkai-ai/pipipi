@@ -13,6 +13,12 @@
             "skillPath": "SKILL.md",
             "computedHash": "d4e1199623ee4d98e948189308eedc601f83ab0ae923568c6e9240f89c783b8b"
         },
+        "tait-crt-interface-skill": {
+            "source": "TaiT-tt/tait-crt-interface-skill",
+            "sourceType": "github",
+            "skillPath": "SKILL.md",
+            "computedHash": "b3f9bbab118e839a5ae7e79f3406e8bebd3383e3f3ad18c8ed91b9efa30c04a9"
+        },
         "maintain-test-plan": {
             "source": "techidsk/skills",
             "sourceType": "github",

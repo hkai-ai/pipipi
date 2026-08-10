@@ -66,6 +66,66 @@ describe("OpenAI image generation Adapter", () => {
         });
     });
 
+    it("edits one uploaded raster through GPT Image 2 multipart input", async () => {
+        const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
+            new Response(
+                JSON.stringify({
+                    data: [{ b64_json: minimalPng.toString("base64") }],
+                }),
+                {
+                    status: 200,
+                    headers: { "x-request-id": "image-edit-request-1" },
+                },
+            ),
+        );
+        const client = new OpenAIImageGenerationClient({
+            apiKey: "test-key",
+            baseUrl: "https://gateway.example/v1/",
+            fetch: fetchMock,
+        });
+
+        const image = await client.edit({
+            image: {
+                bytes: minimalPng,
+                mimeType: "image/png",
+                filename: "portrait.png",
+            },
+            prompt: "Rebuild this portrait as a CRT interface",
+            model: "gpt-image-2",
+            size: "1600x1200",
+            quality: "medium",
+            outputFormat: "png",
+        });
+
+        expect(fetchMock).toHaveBeenCalledOnce();
+        const [url, request] = fetchMock.mock.calls[0] ?? [];
+        expect(url).toBe("https://gateway.example/v1/images/edits");
+        expect(request?.headers).toEqual({ authorization: "Bearer test-key" });
+        const body = request?.body;
+        expect(body).toBeInstanceOf(FormData);
+        if (!(body instanceof FormData)) throw new Error("Expected FormData");
+        expect(body.get("model")).toBe("gpt-image-2");
+        expect(body.get("prompt")).toBe(
+            "Rebuild this portrait as a CRT interface",
+        );
+        expect(body.get("n")).toBe("1");
+        expect(body.get("size")).toBe("1600x1200");
+        expect(body.get("quality")).toBe("medium");
+        expect(body.get("output_format")).toBe("png");
+        const source = body.get("image[]");
+        expect(source).toBeInstanceOf(File);
+        if (!(source instanceof File)) throw new Error("Expected File");
+        expect(source.name).toBe("portrait.png");
+        expect(source.type).toBe("image/png");
+        expect(Buffer.from(await source.arrayBuffer())).toEqual(minimalPng);
+        expect(image).toMatchObject({
+            bytes: minimalPng,
+            mimeType: "image/png",
+            outputFormat: "png",
+            requestId: "image-edit-request-1",
+        });
+    });
+
     it("returns a typed error without exposing the API key", async () => {
         const client = new OpenAIImageGenerationClient({
             apiKey: "never-print-this-key",
@@ -113,5 +173,21 @@ describe("OpenAI image generation Adapter", () => {
         await expect(client.generate({ prompt: "A poster" })).rejects.toThrow(
             "not a supported raster image",
         );
+    });
+
+    it("rejects an image edit without source bytes before making a request", async () => {
+        const fetchMock = vi.fn<typeof fetch>();
+        const client = new OpenAIImageGenerationClient({
+            apiKey: "test-key",
+            fetch: fetchMock,
+        });
+
+        await expect(
+            client.edit({
+                image: { bytes: new Uint8Array(), mimeType: "image/png" },
+                prompt: "Rebuild this portrait",
+            }),
+        ).rejects.toThrow("requires source image bytes");
+        expect(fetchMock).not.toHaveBeenCalled();
     });
 });

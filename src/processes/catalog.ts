@@ -4,6 +4,9 @@ import {
     type ContentProcessConfig,
     createContentRegistration,
 } from "./content/registration.js";
+import type { CrtAgent } from "./crt/agent.js";
+import type { CrtRenderingCapability } from "./crt/capability.js";
+import { createCrtRegistration } from "./crt/registration.js";
 import type { PosterAgent } from "./poster/agent.js";
 import type { PosterRenderingCapability } from "./poster/capability.js";
 import { createPosterRegistration } from "./poster/registration.js";
@@ -31,6 +34,10 @@ export type ProcessRuntimeOptions = {
     poster?: {
         agent: PosterAgent;
         capability: PosterRenderingCapability;
+    };
+    crt?: {
+        agent: CrtAgent;
+        capability: CrtRenderingCapability;
     };
 };
 
@@ -63,6 +70,9 @@ export function createProcessRuntime(
     ];
     if (options.poster) {
         registrations.push(createPosterRegistration(options.poster));
+    }
+    if (options.crt) {
+        registrations.push(createCrtRegistration(options.crt));
     }
     const registry = createProcessRegistry(registrations);
 

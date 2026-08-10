@@ -56,6 +56,8 @@ Codex 先把需求归入一种变化：
 
 `minimal-zine-poster/v1` 是现有的两阶段示例。调用方只提交 `brief` 和可选 `text`。无 Tool Agent 先按固定 Runtime Skill 编译 Prompt；Registration 验证四段结构、六轴 recipe 和原文保留；Poster Rendering Capability 再生成并持久化图片。公开输出返回图片 URL 和元数据，不返回供应商、模型、Skill 路径、存储配置或原始图片字节。主流程见 [`src/processes/poster/registration.ts`](../src/processes/poster/registration.ts)。
 
+`crt-interface-image/v1` 展示参考图流程如何保持同一边界。产品先从独立上传 Interface 获得 `sourceImageId`，再只提交资产标识、调色板和画幅；无 Tool Agent 看不到图片，只编译内部 Prompt 与 recipe；CRT Rendering Capability 负责资产解析、GPT Image 2 编辑、确定性后处理和存储。完整开发契约见 [`developing-crt-interface-image.md`](developing-crt-interface-image.md)。
+
 ### 实现和注册
 
 实施遵循 [`development.md` 的“新增 Business Process”步骤](development.md#新增-business-process)。当前稳定形状是：一个 Registration factory 聚合版本契约与获准依赖，`createProcessExecutor` 的显式 catalog 决定它是否进入生产。本文不重复代码步骤。

@@ -22,6 +22,7 @@
 | --- | --- | --- | --- | --- | --- |
 | `content-processing/v1` | [`content/registration.ts`](../src/processes/content/registration.ts) | [`content/agent.ts`](../src/processes/content/agent.ts)、[`content/pi.ts`](../src/processes/content/pi.ts) | [`content/skills.ts`](../src/processes/content/skills.ts)、[`content-optimization`](../.pi/skills/content-optimization/SKILL.md)、[`content-integrity`](../.pi/skills/content-integrity/SKILL.md) | [`content/capability.ts`](../src/processes/content/capability.ts)、[`content/http.ts`](../src/processes/content/http.ts) | [`test/agent-runtime.test.ts`](../test/agent-runtime.test.ts)、[`test/runtime-skills.test.ts`](../test/runtime-skills.test.ts)、[`test/execute-process.test.ts`](../test/execute-process.test.ts)、[`examples/agent-smoke.ts`](../examples/agent-smoke.ts) |
 | `minimal-zine-poster/v1` | [`poster/registration.ts`](../src/processes/poster/registration.ts) | [`poster/agent.ts`](../src/processes/poster/agent.ts)、[`poster/pi.ts`](../src/processes/poster/pi.ts) | [`poster/skills.ts`](../src/processes/poster/skills.ts)、[`minimal-zine-poster-prompt`](../.pi/skills/minimal-zine-poster-prompt/SKILL.md) | [`poster/capability.ts`](../src/processes/poster/capability.ts)、[`poster/http.ts`](../src/processes/poster/http.ts) | [`test/poster-process.test.ts`](../test/poster-process.test.ts)、[`test/runtime-skills.test.ts`](../test/runtime-skills.test.ts)、[`examples/poster-business-acceptance.ts`](../examples/poster-business-acceptance.ts) |
+| `crt-interface-image/v1` | [`crt/registration.ts`](../src/processes/crt/registration.ts) | [`crt/agent.ts`](../src/processes/crt/agent.ts)、[`crt/pi.ts`](../src/processes/crt/pi.ts) | [`crt/skills.ts`](../src/processes/crt/skills.ts)、[`tait-crt-interface-prompt`](../.pi/skills/tait-crt-interface-prompt/SKILL.md) | [`crt/capability.ts`](../src/processes/crt/capability.ts)、[`crt/http.ts`](../src/processes/crt/http.ts) | [`developing-crt-interface-image.md`](developing-crt-interface-image.md)、[`test/crt-process.test.ts`](../test/crt-process.test.ts)、[`test/crt-http.test.ts`](../test/crt-http.test.ts)、[`examples/crt-gpt-image-smoke.ts`](../examples/crt-gpt-image-smoke.ts) |
 
 要修改流程顺序、校验、失败或副作用，先编辑 `registration.ts`；要修改模型交互或 Tool 暴露，编辑 `agent.ts` 和具体 Adapter；要修改获准 Skill 名称、顺序或路径，编辑 `skills.ts` 和生产 Composition Root；要修改模型任务说明，编辑对应 `.pi/skills/<name>/SKILL.md`。新增 Process 还必须更新显式 production catalog。
 
@@ -114,7 +115,7 @@ Runtime Skill 必须服务于一个明确的 Process Registration。集成步骤
 7. 用 mock Agent 做确定性契约测试，再按需运行显式的真实集成或业务验收；
 8. 记录来源、不可变 ref、内容哈希、适配改动和回滚版本。
 
-当前 Pi Agent 路径接受非空 `SkillRef[]`。具体 Process 的 `skills.ts` 固定 Skill 名称、顺序、默认本地路径和 Tool 名称；通用 [`src/processes/agent/skills.ts`](../src/processes/agent/skills.ts) 只负责精确加载。名称必须唯一，并且必须精确解析一次。Runtime 按声明顺序读取所有 `SKILL.md`，把正文作为一个经过评审的指令集交给 Agent，同时只暴露 Registration 已授权的 Tool。`content-processing/v1` 最多让一次 Tool 调用触达 Business Capability，并要求成功输出与 Tool 结果一致。`minimal-zine-poster/v1` 不给 Agent Tool；Registration 先验证 Agent 编译结果，再自行调用 Poster Rendering Capability。Runtime 不自动读取附加 reference、运行 Skill script 或连接 MCP。需要这些能力的 Skill 不能直接接入；应先设计窄 Runtime Interface、权限和测试，再扩展实现。当前限制和真实验证方法见 [`experiments.md`](experiments.md)。
+当前 Pi Agent 路径接受非空 `SkillRef[]`。具体 Process 的 `skills.ts` 固定 Skill 名称、顺序、默认本地路径和 Tool 名称；通用 [`src/processes/agent/skills.ts`](../src/processes/agent/skills.ts) 只负责精确加载。名称必须唯一，并且必须精确解析一次。Runtime 按声明顺序读取所有 `SKILL.md`，把正文作为一个经过评审的指令集交给 Agent，同时只暴露 Registration 已授权的 Tool。`content-processing/v1` 最多让一次 Tool 调用触达 Business Capability，并要求成功输出与 Tool 结果一致。`minimal-zine-poster/v1` 与 `crt-interface-image/v1` 都不给 Agent Tool；Registration 先验证 Agent 编译结果，再自行调用对应 Rendering Capability。Runtime 不自动读取附加 reference、运行 Skill script 或连接 MCP。需要这些能力的 Skill 不能直接接入；应先设计窄 Runtime Interface、权限和测试，再扩展实现。当前限制和真实验证方法见 [`experiments.md`](experiments.md)。
 
 ## 线上边界
 
@@ -132,9 +133,11 @@ Runtime Skill 必须服务于一个明确的 Process Registration。集成步骤
 
 ## 当前能力与提案
 
-当前 `content-processing/v1` 在 `src/processes/content/skills.ts` 绑定 `content-optimization` 和 `content-integrity`；`minimal-zine-poster/v1` 在 `src/processes/poster/skills.ts` 绑定 `minimal-zine-poster-prompt`。生产组装、确定性测试和真实业务验收共用这些事实来源。`PI_SKILL_DIRECTORY` 与 `PI_POSTER_SKILL_DIRECTORY` 各自只替换一个固定路径，不改变绑定名称或集合。Runtime 会拒绝空集合、重名绑定和无法精确解析的名称。
+当前 `content-processing/v1` 在 `src/processes/content/skills.ts` 绑定 `content-optimization` 和 `content-integrity`；`minimal-zine-poster/v1` 在 `src/processes/poster/skills.ts` 绑定 `minimal-zine-poster-prompt`；`crt-interface-image/v1` 在 `src/processes/crt/skills.ts` 绑定 `tait-crt-interface-prompt`。生产组装和确定性测试共用这些事实来源。`PI_SKILL_DIRECTORY`、`PI_POSTER_SKILL_DIRECTORY` 与 `PI_CRT_SKILL_DIRECTORY` 各自只替换一个固定路径，不改变绑定名称或集合。Runtime 会拒绝空集合、重名绑定和无法精确解析的名称。
 
 海报 Runtime Skill 是上游 `gc-minimal-zine-poster-v0-1` 的受限适配。`.pi/skills/minimal-zine-poster-prompt/SOURCE.md` 记录上游仓库、原始 `SKILL.md` SHA-256、许可证、审查清单、适配差异和回滚方式；`skills-lock.json` 固定同一上游哈希。快照不包含仅供展示的 JPEG，也移除了内置图片生成权限。项目仍没有通用 Git/URL 下载器、自动 revision 解析或 Runtime Skill catalog；单项 provenance 记录不等于通用安装机制。
+
+CRT Runtime Skill 是 `TaiT-tt/tait-crt-interface-skill` 在 commit `972a99bc85f725537bddadae6a6cea53516470f2` 上的受限 Prompt 编译适配。`.pi/skills/tait-crt-interface-prompt/SOURCE.md` 记录完整文件清点、内容哈希、脚本权限审查、适配差异和回滚方式；`skills-lock.json` 固定上游 `SKILL.md` 哈希。生产快照不含示例图片、交互资产或 Python finalizer，Agent 也不能读取参考图、调用图片模型或执行脚本。上游 Git tree 没有许可证声明，因此 `NOASSERTION` 是发布门禁，不是默认授权。具体 Process 开发见 [`developing-crt-interface-image.md`](developing-crt-interface-image.md)。
 
 若后续要把多个外部来源自动化为生产快照，新增开发期 `Skill Installer` 和只读 `Installed Skill Catalog`。前者把 path、Git 或 archive URL 解析为经过验证、带固定 revision 和 digest 的本地快照；后者让 Startup Construction 和 Process Registration 只绑定准确的 installed Skill。两者都不进入 `/execute` 请求路径。该设计目前是提案，不是已实现能力。
 

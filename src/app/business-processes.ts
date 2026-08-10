@@ -8,6 +8,9 @@ import { parseBusinessApiBaseUrl } from "../processes/content/config.js";
 import { HttpContentProcessingCapability } from "../processes/content/http.js";
 import { PiContentAgent } from "../processes/content/pi.js";
 import { createContentSkillRefs } from "../processes/content/skills.js";
+import { HttpCrtRenderingCapability } from "../processes/crt/http.js";
+import { PiCrtAgent } from "../processes/crt/pi.js";
+import { createCrtSkillRefs } from "../processes/crt/skills.js";
 import { HttpPosterRenderingCapability } from "../processes/poster/http.js";
 import { PiPosterAgent } from "../processes/poster/pi.js";
 import { createPosterSkillRefs } from "../processes/poster/skills.js";
@@ -61,6 +64,26 @@ export function createProductionRuntime(
                     environment.POSTER_API_TIMEOUT_MS,
                     90_000,
                     "POSTER_API_TIMEOUT_MS",
+                ),
+            }),
+        },
+        crt: {
+            agent: new PiCrtAgent({
+                skills: createCrtSkillRefs({
+                    path: environment.PI_CRT_SKILL_DIRECTORY,
+                }),
+                provider: environment.PI_PROVIDER,
+                model: environment.PI_MODEL,
+                openAIBaseUrl: environment.OPENAI_BASE_URL,
+                openAIApiMode,
+                agentDir: environment.PI_AGENT_DIR,
+            }),
+            capability: new HttpCrtRenderingCapability({
+                baseUrl,
+                timeoutMs: parsePositiveInteger(
+                    environment.CRT_API_TIMEOUT_MS,
+                    180_000,
+                    "CRT_API_TIMEOUT_MS",
                 ),
             }),
         },

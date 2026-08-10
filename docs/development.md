@@ -77,6 +77,7 @@ curl --fail -X POST http://127.0.0.1:3000/execute \
 | `npm run smoke:staging` | 验证已部署的受控环境 | 是 |
 | `npm run test:skill-ab` | 运行三组 Skill 对比 | 是，可能产生模型费用 |
 | `npm run accept:poster-business`（`smoke:poster-process`、`test:gpt-image-2` 别名） | 从产品 `POST /execute` 验收 `minimal-zine-poster/v1`、真实图片与可选上传 | 是，可能产生模型和存储费用 |
+| `npm run smoke:crt-gpt-image` | 验证一张本地参考图可通过 GPT Image 2 edit stage 生成 PNG；不运行 finalizer 或完整 Process | 是，读取本地图片、产生模型费用并写 `artifacts/` |
 | `npm run smoke:oss` | 上传已有文件并读取首字节 | 是，会写对象存储 |
 
 真实集成命令的配置、判据和产物见 [`experiments.md`](experiments.md)。默认测试套件不调用模型、OSS 或外部业务系统。
@@ -211,7 +212,7 @@ Webhook 重试状态以 PostgreSQL 为准，不依赖 BullMQ 的 Job attempts。
 | `src/bin/` | API、Dispatcher、Worker、Cleaner、Operations 和 Recovery 的可执行入口；不放业务规则 |
 | `src/app/` | 各可执行角色的 Composition Root、启动配置和后台角色生命周期 |
 | `src/api/` | HTTP Application、路由和 caller identity；不组装业务与基础设施 |
-| `src/processes/` | Process Runtime、共享 Agent 基础设施、production catalog，以及按 `content/`、`titled-content/`、`poster/` 分组的具体 Business Process |
+| `src/processes/` | Process Runtime、共享 Agent 基础设施、production catalog，以及按 `content/`、`titled-content/`、`poster/`、`crt/` 分组的具体 Business Process |
 | `src/process-runs/` | Async Process Runs，以及按 `store/`、`queue/`、`outbox/`、`worker/`、`recovery/`、`retention/` 和 `ops/` 分组的内部 Module |
 | `src/webhooks/` | Webhook Delivery，以及按 `delivery/`、`store/`、`queue/`、`outbox/` 分组的内部 Module |
 | `examples/support/` | 只供真实集成与业务验收使用的 OpenAI Images 和对象存储 Adapter；不进入生产 `dist/` |
@@ -238,6 +239,10 @@ Webhook 重试状态以 PostgreSQL 为准，不依赖 BullMQ 的 Job attempts。
 | `src/processes/poster/agent.ts`、`pi.ts` | 无 Tool 的 Poster Agent Interface 与 Pi Prompt 编译 Adapter |
 | `src/processes/poster/capability.ts`、`http.ts` | Poster Rendering Capability、图片引用契约与生产 HTTP Adapter |
 | `src/processes/poster/skills.ts` | `minimal-zine-poster/v1` 绑定的准确 Runtime Skill |
+| `src/processes/crt/registration.ts` | `crt-interface-image/v1` 的上传资产引用、Prompt/recipe 校验、顺序和稳定失败 |
+| `src/processes/crt/agent.ts`、`pi.ts` | 看不到参考图和资产标识的无 Tool CRT Agent Interface 与 Pi Adapter |
+| `src/processes/crt/capability.ts`、`http.ts` | CRT Rendering Capability、PNG 引用契约与 `POST /crt-images` Adapter |
+| `src/processes/crt/style.ts`、`skills.ts` | 固定调色板、画幅和准确 Runtime Skill 绑定 |
 | `src/process-runs/index.ts` | 异步提交、owner 隔离、caller-scoped idempotency 和公共状态投影 |
 | `src/process-runs/store/index.ts`、`src/process-runs/store/postgres.ts` | 权威状态转换，以及内存和 PostgreSQL Adapter |
 | `src/process-runs/queue/index.ts`、`src/process-runs/queue/bullmq.ts` | 最小 Job Interface，以及内存和 BullMQ Adapter |
@@ -252,7 +257,7 @@ Webhook 重试状态以 PostgreSQL 为准，不依赖 BullMQ 的 Job attempts。
 
 顶层目录使用明确的领域名，子目录对应实际 Module。父目录已经提供的上下文不在文件名中重复，例如使用 `src/process-runs/store/postgres.ts`，不用 `src/process-runs/store/postgres-process-run-store.ts`；Adapter 文件只保留 `postgres.ts`、`bullmq.ts`、`http.ts` 等技术名称。不要新增 `common/`、`shared/`、`utils/` 或横向的 `controllers/services/repositories` 目录。无法明确归属的代码应先重新检查 Module 和 Seam。
 
-完整 Module 关系见 [`process-runtime-design.md`](process-runtime-design.md)。海报 Business Process 和受控 HTTP Adapter 已进入 production catalog；供应商专用的 OpenAI Images 与阿里云 OSS Adapter 仍只由 `examples/` 中的显式集成和业务验收使用。
+完整 Module 关系见 [`process-runtime-design.md`](process-runtime-design.md)。海报与 CRT Business Process 及其受控 HTTP Adapter 已进入 production catalog；供应商专用的 OpenAI Images 与阿里云 OSS Adapter 仍只由 `examples/` 中的显式集成和业务验收使用。CRT 的上传、后处理和完整发布门禁见 [`developing-crt-interface-image.md`](developing-crt-interface-image.md)。
 
 ## 命名规则
 
@@ -328,7 +333,7 @@ JSON-safe snapshot。业务 input payload 默认上限为 262144 UTF-8 bytes，�
 5. 通过 Registration Seam 测试接受、JSON 往返、单次解析、策略和输出。Agent 流程还要验证 Tool 调用次数、下游幂等键和最终结果来源；通过 Process Attempt Runner 测试预分配 `runId`、超时与错误净化；通过真实本地 `/execute` 测试产品行为和 HTTP 映射。
 6. 更新 README 的当前能力、`CONTEXT.md` 的产品契约，以及受影响的设计或发布文档。
 
-[`src/processes/titled-content/registration.ts`](../src/processes/titled-content/registration.ts) 是最小示例；[`src/processes/poster/registration.ts`](../src/processes/poster/registration.ts) 展示 Agent 编译后再调用 Business Capability 的两阶段流程。新版本必须新建 Registration 并显式加入 catalog；不要加入 `latest`、默认版本、自动发现或回退。
+[`src/processes/titled-content/registration.ts`](../src/processes/titled-content/registration.ts) 是最小示例；[`src/processes/poster/registration.ts`](../src/processes/poster/registration.ts) 展示 Agent 编译后再调用 Business Capability 的两阶段流程；[`src/processes/crt/registration.ts`](../src/processes/crt/registration.ts) 展示如何把预上传资产保持为不透明业务字段。新版本必须新建 Registration 并显式加入 catalog；不要加入 `latest`、默认版本、自动发现或回退。
 
 流程需要外部 Skill 时，先按 [`integrating-runtime-skills.md`](integrating-runtime-skills.md) 在开发期解析、审查和固定来源。Process Registration 可以绑定一个或多个随应用发布的本地 Runtime Skill；完整集合必须一起评审。产品请求不接收 Skill 名称、路径或 URL。
 
@@ -377,10 +382,11 @@ Run Record 是运行排障数据，不是聊天历史。产品聊天记录应由
 - 只把稳定运行策略放入环境配置。Process 拓扑、Schema 和业务语义留在代码中。
 - 成组配置在启动时一起校验。例如 `PI_PROVIDER` 与 `PI_MODEL` 必须同时设置。
 - 异步功能关闭时忽略数据库和网关专用配置；启用后缺少任一必需值都在监听前失败。
-- `CONTENT_PROCESSING_MODE=direct` 只关闭文本 Agent；`minimal-zine-poster/v1` 始终使用 Agent，因此共享的 Pi provider、model 和 API mode 仍须有效。
+- `CONTENT_PROCESSING_MODE=direct` 只关闭文本 Agent；`minimal-zine-poster/v1` 与 `crt-interface-image/v1` 始终使用 Agent，因此共享的 Pi provider、model 和 API mode 仍须有效。
 - `POSTER_API_TIMEOUT_MS` 只控制受控 `POST /posters` Adapter，默认 `90000`；Process 总超时仍由 `PROCESS_TIMEOUT_MS` 治理。
-- `PI_SKILL_DIRECTORY` 与 `PI_POSTER_SKILL_DIRECTORY` 分别覆盖一个固定绑定，不改变 Skill 名称、集合或顺序。
-- `.env.example` 把 `PROCESS_TIMEOUT_MS` 设为 `120000`，用于受控发布形状；未设置变量时，代码默认值仍为 `30000`。
+- `CRT_API_TIMEOUT_MS` 只控制受控 `POST /crt-images` Adapter，默认 `180000`。受控发布必须让 `PROCESS_TIMEOUT_MS` 长于它，平台请求超时再长于 Process 总超时。
+- `PI_SKILL_DIRECTORY`、`PI_POSTER_SKILL_DIRECTORY` 与 `PI_CRT_SKILL_DIRECTORY` 分别覆盖一个固定绑定，不改变 Skill 名称、集合或顺序。
+- `.env.example` 把 `PROCESS_TIMEOUT_MS` 设为 `240000`，用于同时容纳 CRT edit 和 finalizer 的受控发布形状；未设置变量时，代码默认值仍为 `30000`。
 - Secret 只由本地 `.env` 或部署平台注入。日志和错误响应不得包含凭证、Base URL、远端正文或模型错误。
 
 ## 测试策略

@@ -1,6 +1,6 @@
 # 受控 Business Process MVP 发布手册
 
-本手册面向发布与运维人员，用于发布现有同步 Business Process 服务，包括文本处理与 `minimal-zine-poster/v1`。生产服务通过受控 Poster Rendering Capability 获取图片 URL；供应商专用的 OpenAI Images 和 OSS Adapter 只用于显式真实集成与本地业务验收。本文不发布异步作业或公网匿名接口。项目范围以
+本手册面向发布与运维人员，用于发布现有同步 Business Process 服务，包括文本处理、`minimal-zine-poster/v1` 与 `crt-interface-image/v1`。生产服务通过受控 Rendering Capability 获取图片 URL；供应商专用的 OpenAI Images 和 OSS Adapter 只用于显式真实集成与本地业务验收。CRT 候选还依赖产品图片上传、`POST /crt-images`、确定性 finalizer 和来源权利确认；缺少任一门禁时不得发布包含该 catalog 的候选镜像。本文不发布异步作业或公网匿名接口。项目范围以
 [`CONTEXT.md`](../CONTEXT.md) 为准；文档维护要求见 [`docs/README.md`](README.md)。
 
 ## 发布边界
@@ -18,8 +18,9 @@
 | 请求体 | 262144 字节 | 用 `HTTP_MAX_REQUEST_BODY_BYTES` 调整 |
 | Business Capability 超时 | 10 秒 | `BUSINESS_API_TIMEOUT_MS=10000` |
 | Poster Rendering Capability 超时 | 90 秒 | `POSTER_API_TIMEOUT_MS=90000` |
-| Process Run 超时 | 120 秒 | 本发布显式设置 `PROCESS_TIMEOUT_MS=120000`；代码默认 30 秒 |
-| 平台请求超时 | 150–180 秒 | 必须长于 Process Run 超时 |
+| CRT Rendering Capability 超时 | 180 秒 | `CRT_API_TIMEOUT_MS=180000` |
+| Process Run 超时 | 240 秒 | 本发布显式设置 `PROCESS_TIMEOUT_MS=240000`；代码默认 30 秒 |
+| 平台请求超时 | 270–300 秒 | 必须长于 Process Run 超时 |
 
 服务在上限以内并发执行请求。每个 Agent 请求建立独立内存会话；实例之间不共享业务会话，因此平台可以水平扩容。提升并发或实例数前，先检查实例内存、P95 延迟、Business Capability 容量、模型配额和单次运行成本。
 
@@ -29,24 +30,26 @@
 
 | 变量 | 要求 |
 | --- | --- |
-| `BUSINESS_API_BASE_URL` | 必填；必须指向容器可达且实现 `POST /process` 与 `POST /posters` 的真实 Business API，禁止使用 `localhost` 演示地址 |
+| `BUSINESS_API_BASE_URL` | 必填；必须指向容器可达且实现 `POST /process`、`POST /posters` 与 `POST /crt-images` 的真实 Business API，禁止使用 `localhost` 演示地址 |
 | `PORT` | 可选；默认 `3000` |
 | `CONTENT_PROCESSING_MODE` | `direct` 或 `agent`；默认 `direct` |
 | `HTTP_MAX_REQUEST_BODY_BYTES` | 正整数；默认 `262144` |
 | `MAX_CONCURRENT_EXECUTIONS` | 正整数；默认 `4` |
 | `BUSINESS_API_TIMEOUT_MS` | 正整数；代码默认 `10000`，本发布显式设置 `10000` |
 | `POSTER_API_TIMEOUT_MS` | 正整数；代码默认 `90000`，本发布显式设置 `90000` |
-| `PROCESS_TIMEOUT_MS` | 正整数；代码默认 `30000`，本发布必须显式设置 `120000` |
+| `CRT_API_TIMEOUT_MS` | 正整数；代码默认 `180000`，本发布显式设置 `180000` |
+| `PROCESS_TIMEOUT_MS` | 正整数；代码默认 `30000`，本发布必须显式设置 `240000` |
 | `ASYNC_PROCESS_RUNS_ENABLED` | 本同步 MVP 必须保持 `false`；异步生产发布使用独立 Runbook |
-| `PI_PROVIDER`、`PI_MODEL` | 按组设置；海报流程始终使用 Agent |
+| `PI_PROVIDER`、`PI_MODEL` | 按组设置；海报与 CRT 流程始终使用 Agent |
 | `OPENAI_BASE_URL`、`OPENAI_API_MODE` | 使用 OpenAI 或兼容网关时设置 |
 | `PI_SKILL_DIRECTORY` | 可选；只覆盖固定的 `content-optimization` 路径，不改变 Skill 集合 |
 | `PI_POSTER_SKILL_DIRECTORY` | 可选；只覆盖固定的 `minimal-zine-poster-prompt` 路径 |
+| `PI_CRT_SKILL_DIRECTORY` | 可选；只覆盖固定的 `tait-crt-interface-prompt` 路径 |
 | `OPENAI_API_KEY` | 执行使用 OpenAI 的 Agent 时由平台 Secret 注入；禁止写入镜像、仓库或普通配置 |
 
-若 Business Capability 需要认证，优先使用私网身份、工作负载身份或服务网格。当前 HTTP Adapter 不发送调用方提供的任意认证头。`POST /posters` 必须以 `Idempotency-Key: <runId>` 去重，并返回在声明期限内可访问的 HTTP(S) 图片 URL；短期签名 URL 必须返回 `expiresAt`。
+若 Business Capability 需要认证，优先使用私网身份、工作负载身份或服务网格。当前 HTTP Adapter 不发送调用方提供的任意认证头。`POST /posters` 与 `POST /crt-images` 必须以 `Idempotency-Key: <runId>` 去重，并返回在声明期限内可访问的 HTTP(S) 图片 URL；短期签名 URL 必须返回 `expiresAt`。CRT endpoint 还必须只解析服务端资产标识，不能抓取调用方 URL。
 
-`PROCESS_TIMEOUT_MS=120000` 是本手册的受控发布覆盖值，不改变代码的 30 秒默认值。候选镜像、部署平台和回滚配置都必须显式保留该覆盖值。
+`PROCESS_TIMEOUT_MS=240000` 是本手册的受控发布覆盖值，不改变代码的 30 秒默认值。它必须长于 `CRT_API_TIMEOUT_MS`；候选镜像、部署平台和回滚配置都必须显式保留该覆盖值。启用异步 Worker 时，`PROCESS_RUN_CLAIM_LEASE_MS` 还必须长于 Process 总超时。
 
 ## 运行时兼容性
 
@@ -82,7 +85,7 @@ docker image inspect pi-business-processing-service:rc --format '{{.Id}}'
 ```bash
 docker run --rm --entrypoint id pi-business-processing-service:rc -u
 docker run --rm --entrypoint sh pi-business-processing-service:rc -c \
-  'test -f .pi/skills/content-optimization/SKILL.md && test -f .pi/skills/content-integrity/SKILL.md && test -f .pi/skills/minimal-zine-poster-prompt/SKILL.md && test ! -d node_modules/typescript && test ! -d node_modules/vitest'
+  'test -f .pi/skills/content-optimization/SKILL.md && test -f .pi/skills/content-integrity/SKILL.md && test -f .pi/skills/minimal-zine-poster-prompt/SKILL.md && test -f .pi/skills/tait-crt-interface-prompt/SKILL.md && test ! -d node_modules/typescript && test ! -d node_modules/vitest'
 ```
 
 用生产形状的非秘密配置启动候选镜像。健康检查不得访问模型或 Business Capability：
@@ -93,7 +96,8 @@ docker run --rm -d --name pi-business-processing-rc \
   -e BUSINESS_API_BASE_URL=http://business-capability.internal \
   -e BUSINESS_API_TIMEOUT_MS=10000 \
   -e POSTER_API_TIMEOUT_MS=90000 \
-  -e PROCESS_TIMEOUT_MS=120000 \
+  -e CRT_API_TIMEOUT_MS=180000 \
+  -e PROCESS_TIMEOUT_MS=240000 \
   -e HTTP_MAX_REQUEST_BODY_BYTES=262144 \
   -e MAX_CONCURRENT_EXECUTIONS=4 \
   -e ASYNC_PROCESS_RUNS_ENABLED=false \
@@ -125,7 +129,8 @@ docker build -t pi-business-processing-service:rc .
 5. 日志系统必须收到单行 JSON，并能按 `runId`、`process`、`status` 和 `errorCode` 检索。
 6. `BUSINESS_API_BASE_URL` 必须连接真实 Business Capability。
 7. `POST /posters` 必须按 `runId` 去重，并验证图片 URL 的访问控制、有效期、媒体类型和尺寸。
-8. 若候选版本注入了 Run Record Adapter，必须验证成功和失败记录可按 `runId` 查询，并验证存储故障不影响 `/execute` 结果。
+8. `POST /crt-images` 必须按 `runId` 去重，并验证资产权限、GPT Image 2 编辑、finalizer、PNG 引用、费用和删除生命周期。
+9. 若候选版本注入了 Run Record Adapter，必须验证成功和失败记录可按 `runId` 查询，并验证存储故障不影响 `/execute` 结果。
 
 Agent 模式启用后，先在受控发布 runner 中连接真实模型和 Business Capability。该命令强制使用 Agent 模式；若 Agent 未恰好调用一次 Business Capability、最终输出并非来自 Tool 结果，或默认受保护内容在 Tool 输入中发生变化，命令会失败。它可能产生模型费用：
 
@@ -152,6 +157,15 @@ npm run accept:poster-business
 
 通过后检查报告中的 `POST /execute` HTTP 200、单次 `POST /posters`、`runId` 幂等键、`minimal-zine-poster/v1`、四段 Prompt、六轴 recipe、图片字节、3:5 尺寸和 URL 下载哈希。该命令使用本地受控 Business API，不替代目标部署对 `POST /posters` 容量、权限和 URL 生命周期的验收。
 
+CRT 候选先运行显式 GPT Image 2 edit smoke。它读取本地参考图、产生模型费用并写 `artifacts/`；确认图片不敏感、凭证和费用范围后再运行：
+
+```bash
+CRT_SOURCE_IMAGE_FILE=/absolute/path/to/non-sensitive-test-image.png \
+npm run smoke:crt-gpt-image
+```
+
+该 smoke 不运行 Runtime Skill Agent、production catalog、资产服务、finalizer 或对象存储。发布前还必须按 [`developing-crt-interface-image.md`](developing-crt-interface-image.md) 完成来源授权、上传安全、确定性后处理和全链路业务验收。当前仓库尚未提供 `accept:crt-business`；在该命令实现并从产品 `POST /execute` 验证单次 `POST /crt-images`、`runId` 幂等、参考图关系、九种调色板、四种画幅、PNG 下载和删除生命周期之前，CRT 候选不满足发布门禁。
+
 ## 发布与回滚
 
 保留上一版本的镜像摘要。先把少量受控流量切到新 revision，观察 5xx、503、超时、内存、模型配额和下游错误，再逐步增加流量。
@@ -160,4 +174,4 @@ npm run accept:poster-business
 
 ## 本次不发布
 
-本次 MVP 不增加应用用户系统、RBAC、多租户、数据库、持久化或跨实例执行历史、Run Record 查询接口、通用幂等、队列、自动重试、CORS、应用内 OSS Adapter、参考图片输入、生成后视觉质检、自动重绘或全量基础设施即代码。海报流程已有模型费用和图片持久化副作用，必须保持调用权限、`runId` 幂等、并发和费用门禁。
+本次 MVP 不增加应用用户系统、RBAC、多租户、数据库、持久化或跨实例执行历史、Run Record 查询接口、通用幂等、队列、自动重试、CORS、应用内 OSS Adapter、生成后自动视觉质检、自动重绘或全量基础设施即代码。CRT 的上传 Interface 和资产服务属于产品图片平台，不由本服务公开；产品只把预上传资产的 `sourceImageId` 交给 `/execute`。两个图片流程都有模型费用和图片持久化副作用，必须保持调用权限、`runId` 幂等、并发和费用门禁。

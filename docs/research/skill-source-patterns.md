@@ -192,8 +192,8 @@ host、防止本地路径越过允许根目录、限制 bundle 大小和文件�
 本项目已经有显式的本地 Skill 入口。各流程的 `skills.ts` 提供固定 `SkillRef[]`，共享的
 [`src/processes/agent/skills.ts`](../../src/processes/agent/skills.ts) 负责精确加载。`content-processing/v1`
 绑定 `content-optimization` 与 `content-integrity`；`minimal-zine-poster/v1` 绑定
-`minimal-zine-poster-prompt`。Runtime 要求名称唯一、每项精确解析一次，并按声明顺序把选中的
-`SKILL.md` 正文交给独立 Agent Session。Docker image 显式复制这三个 Skill
+`minimal-zine-poster-prompt`；`crt-interface-image/v1` 绑定 `tait-crt-interface-prompt`。Runtime 要求名称唯一、每项精确解析一次，并按声明顺序把选中的
+`SKILL.md` 正文交给独立 Agent Session。Docker image 显式复制这四个 Skill
 [`Dockerfile`](../../Dockerfile)。
 
 所以当前多 Skill 能力只在以下约束下成立：
@@ -201,13 +201,13 @@ host、防止本地路径越过允许根目录、限制 bundle 大小和文件�
 - 路径对服务进程或容器可见；
 - 目录能被现有 Pi loader 读取；
 - 每个 Skill 名和本地路径都必须由服务端绑定；`PI_SKILL_DIRECTORY` 只覆盖固定的
-  `content-optimization` 路径，`PI_POSTER_SKILL_DIRECTORY` 只覆盖固定的海报 Skill 路径；
+  `content-optimization` 路径，`PI_POSTER_SKILL_DIRECTORY` 与 `PI_CRT_SKILL_DIRECTORY` 分别只覆盖固定的图片 Prompt Skill 路径；
 - 增加或替换 Skill 只改变现有 Agent-backed Process 的 Implementation，不会自动创建新的
   Business Process；
-- 文本 Agent 只能使用 `process_business_content` Tool；海报 Agent 没有 Tool。
+- 文本 Agent 只能使用 `process_business_content` Tool；海报与 CRT Agent 都没有 Tool。
 
-海报 Runtime Skill 已在同目录 `SOURCE.md` 记录上游仓库、原始 Skill digest、许可证、适配差异和
-回滚方式，并由 `skills-lock.json` 固定原始 digest。项目仍没有通用 Git/URL 下载、自动 revision
+两个图片 Runtime Skill 都已在同目录 `SOURCE.md` 记录上游仓库、原始 Skill digest、许可证、适配差异和
+回滚方式，并由 `skills-lock.json` 固定原始 digest；CRT 来源没有许可证声明，因此仍有明确发布门禁。项目仍没有通用 Git/URL 下载、自动 revision
 解析、同名 catalog 或受审更新流程。也不应为了远端来源把这些职责直接塞进 Agent Adapter；
 否则网络、认证、缓存、校验和业务执行会失去 Locality。
 

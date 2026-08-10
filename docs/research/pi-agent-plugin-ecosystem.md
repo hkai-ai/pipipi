@@ -95,6 +95,6 @@ Pi extension、Development Skill 和 Runtime Skill 不能互换：
 
 - extension 是在 coding-agent 进程内执行的 TypeScript，默认继承该进程的全部权限；
 - `.agents/skills/` 中的 Development Skill 指导 Codex 开发仓库；
-- `.pi/skills/` 中的 Runtime Skill 只为服务端受限 Agent 提供任务说明，不会授予权限；Agent Adapter 与 Process Registration 共同固定 Tool 和 Capability 边界，海报 Agent 可以完全没有 Tool。
+- `.pi/skills/` 中的 Runtime Skill 只为服务端受限 Agent 提供任务说明，不会授予权限；Agent Adapter 与 Process Registration 共同固定 Tool 和 Capability 边界，海报与 CRT Agent 可以完全没有 Tool。
 
 因此，不能把一个社区 extension 复制到 `.pi/skills/` 后就称为生产接入，也不应为了兼容它而关闭 `noExtensions`。如果某个 extension 的能力值得产品化，应先提取稳定业务语义，设计窄 Business Capability Interface 和 Adapter，绑定到准确版本的 Process Registration，再以确定性测试和显式真实集成或业务验收验证。外部调用方仍只选择 Business Process 和版本，不能选择 extension、Skill、MCP server 或 Tool 配置。

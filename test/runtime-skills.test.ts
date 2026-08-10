@@ -10,6 +10,10 @@ import {
     createContentSkillRefs,
 } from "../src/processes/content/skills.js";
 import {
+    createCrtSkillRefs,
+    crtSkillName,
+} from "../src/processes/crt/skills.js";
+import {
     createPosterSkillRefs,
     posterSkillName,
 } from "../src/processes/poster/skills.js";
@@ -201,6 +205,61 @@ describe("Runtime Skill set", () => {
             {
                 name: posterSkillName,
                 path: "/reviewed/poster-prompt",
+            },
+        ]);
+    });
+
+    it("loads the reviewed prompt-only Skill for crt-interface-image/v1", () => {
+        const refs = createCrtSkillRefs();
+        const loaded = createSkillSet(refs, process.cwd()).load();
+
+        expect(loaded.names).toEqual([crtSkillName]);
+        expect(loaded.instructions).toContain(
+            "This Runtime Skill performs prompt compilation only.",
+        );
+        expect(loaded.instructions).toContain(
+            "Do not inspect an image, invoke a Tool, read files, access the network",
+        );
+        expect(loaded.instructions).toContain("tait-crt-interface-skill");
+
+        const ref = refs[0];
+        expect(ref).toBeDefined();
+        if (!ref) throw new Error("CRT Skill ref is unavailable");
+        expect(readdirSync(ref.path).sort()).toEqual(["SKILL.md", "SOURCE.md"]);
+        expect(readFileSync("Dockerfile", "utf8")).toContain(
+            `COPY --chown=node:node ${ref.path} ./${ref.path}`,
+        );
+        expect(readFileSync(".dockerignore", "utf8")).toContain(
+            `!${ref.path}/**`,
+        );
+    });
+
+    it("records the immutable upstream CRT Skill identity and license gate", () => {
+        const digest =
+            "b3f9bbab118e839a5ae7e79f3406e8bebd3383e3f3ad18c8ed91b9efa30c04a9";
+        const lock = JSON.parse(readFileSync("skills-lock.json", "utf8")) as {
+            skills: Record<string, { computedHash?: string }>;
+        };
+        const provenance = readFileSync(
+            ".pi/skills/tait-crt-interface-prompt/SOURCE.md",
+            "utf8",
+        );
+
+        expect(lock.skills["tait-crt-interface-skill"]?.computedHash).toBe(
+            digest,
+        );
+        expect(provenance).toContain(
+            "972a99bc85f725537bddadae6a6cea53516470f2",
+        );
+        expect(provenance).toContain(digest);
+        expect(provenance).toContain("not declared (`NOASSERTION`)");
+    });
+
+    it("only lets production configuration replace the CRT Skill path", () => {
+        expect(createCrtSkillRefs({ path: "/reviewed/crt-prompt" })).toEqual([
+            {
+                name: crtSkillName,
+                path: "/reviewed/crt-prompt",
             },
         ]);
     });

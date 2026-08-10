@@ -4,23 +4,26 @@
 
 ## 当前能力
 
-生产 catalog 包含三个 Business Process：
+生产 catalog 包含四个 Business Process：
 
 | Process | 输入 | 输出 |
 | --- | --- | --- |
 | `content-processing/v1` | `{ "content": string }` | `{ "content": string }` |
 | `titled-content-processing/v1` | `{ "title": string, "body": string }` | `{ "title": string, "content": string }` |
 | `minimal-zine-poster/v1` | `{ "brief": string, "text"?: string }` | `{ "prompt", "recipe", "interpretation", "image" }` |
+| `crt-interface-image/v1` | `{ "sourceImageId", "palette", "aspectRatio" }` | `{ "aspectRatio", "image" }` |
 
-三个流程共享同一个 `POST /execute` Interface。每个明确版本由 Process Registration 绑定业务定义、Schema、依赖和策略，再进入不可变 Process Registry。Process Runner 统一处理 `runId`、精确版本查找、超时、取消、错误净化和可选 Run Record。
+四个流程共享同一个 `POST /execute` Interface。每个明确版本由 Process Registration 绑定业务定义、Schema、依赖和策略，再进入不可变 Process Registry。Process Runner 统一处理 `runId`、精确版本查找、超时、取消、错误净化和可选 Run Record。
 
 `content-processing/v1` 的 Agent 路径会同时加载服务端固定的 `content-optimization` 和 `content-integrity`。两项 Skill 作为一个经过评审的指令集执行，但仍只获得 `process_business_content` Tool。Registration 只接受一次 Tool 调用，并要求 Agent 最终结果与 Tool 结果一致；调用方不能提交或覆盖 Skill。
 
 `minimal-zine-poster/v1` 固定加载 `minimal-zine-poster-prompt`。这个 Runtime Skill 只把 brief 编译成四段 Prompt 和六轴 recipe，不获得任何 Tool。Registration 校验 Prompt、recipe 和可选原文后，以 `runId` 为幂等键调用一次 Poster Rendering Capability。Capability 返回 HTTP(S) 图片 URL、类型和尺寸；原始图片字节不进入 `/execute` JSON。
 
+`crt-interface-image/v1` 把服务端资产标识、调色板和画幅收敛为参考图转换。无 Tool Agent 固定加载 `tait-crt-interface-prompt`，只编译内部 Prompt 和十四轴 recipe；Registration 校验后，以 `runId` 为幂等键调用一次 CRT Rendering Capability。产品输出只返回画幅和 PNG 引用，不返回 Prompt、recipe、模型、Skill 或源图片字节。完整开发契约和上线门禁见 [`docs/developing-crt-interface-image.md`](docs/developing-crt-interface-image.md)。
+
 ## 在代码中查看流程
 
-海报流程的主线集中在一个目录，不与文本流程混放：
+图片流程分别集中在自己的目录，不与文本流程混放：
 
 | 想看什么 | 文件 |
 | --- | --- |
@@ -31,8 +34,11 @@
 | Runtime Skill 的准确规则与来源 | [`.pi/skills/minimal-zine-poster-prompt/SKILL.md`](.pi/skills/minimal-zine-poster-prompt/SKILL.md) 与 [`.pi/skills/minimal-zine-poster-prompt/SOURCE.md`](.pi/skills/minimal-zine-poster-prompt/SOURCE.md) |
 | 哪些流程进入生产 catalog | [`src/processes/catalog.ts`](src/processes/catalog.ts) 与 [`src/app/business-processes.ts`](src/app/business-processes.ts) |
 | 真实业务验收 | [`examples/poster-business-acceptance.ts`](examples/poster-business-acceptance.ts) |
+| CRT 参考图流程与开发门禁 | [`src/processes/crt/`](src/processes/crt) 与 [`docs/developing-crt-interface-image.md`](docs/developing-crt-interface-image.md) |
+| CRT Runtime Skill 与来源 | [`.pi/skills/tait-crt-interface-prompt/SKILL.md`](.pi/skills/tait-crt-interface-prompt/SKILL.md) 与 [`.pi/skills/tait-crt-interface-prompt/SOURCE.md`](.pi/skills/tait-crt-interface-prompt/SOURCE.md) |
+| GPT Image 2 参考图编辑 smoke | [`examples/crt-gpt-image-smoke.ts`](examples/crt-gpt-image-smoke.ts) |
 
-实际顺序是：`brief → 无 Tool Agent 编译 → Registration 校验 → Poster Rendering Capability → 图片 URL`。
+海报顺序是：`brief → 无 Tool Agent 编译 → Registration 校验 → Poster Rendering Capability → 图片 URL`。CRT 顺序是：`sourceImageId + palette + aspectRatio → 无 Tool Agent 编译 → Registration 校验 → CRT Rendering Capability → PNG URL`。
 
 产品请求只有业务字段：
 
@@ -66,7 +72,7 @@ cp .env.example .env
 npm run dev:business-api
 ```
 
-这个演示服务只实现文本用的 `POST /process`。执行海报 Process 时，`BUSINESS_API_BASE_URL` 必须指向实现 `POST /posters` 的受控 Business API。`npm run accept:poster-business` 会临时启动真实图片 Capability 和生产 Composition，再从产品 `POST /execute` 完成一次业务验收；`smoke:poster-process` 与 `test:gpt-image-2` 保留为兼容别名。
+这个演示服务只实现文本用的 `POST /process`。执行海报 Process 时，`BUSINESS_API_BASE_URL` 必须指向实现 `POST /posters` 的受控 Business API。执行 CRT Process 时，同一地址还必须实现 `POST /crt-images`，并能通过服务端资产标识解析已上传图片。`npm run accept:poster-business` 会临时启动真实图片 Capability 和生产 Composition，再从产品 `POST /execute` 完成一次海报业务验收；`smoke:poster-process` 与 `test:gpt-image-2` 保留为兼容别名。`npm run smoke:crt-gpt-image` 只验证 GPT Image 2 参考图编辑，不替代 CRT finalizer 或完整业务验收。
 
 在第二个终端启动处理服务：
 
@@ -129,7 +135,9 @@ curl http://127.0.0.1:3000/healthz
 
 仓库内已有 Async Process Runs Module、事务化 PostgreSQL Store、Process/Webhook Outbox，以及相互隔离的 BullMQ Process Queue 和 Webhook Queue。`npm run start:api`、`npm run start:dispatcher`、`npm run start:worker`、`npm run start:webhook-worker` 和 `npm run start:retention-cleaner` 从同一构建产物启动独立角色。Process 默认只执行一次，只有服务端 Registration 明确声明安全错误、次数和退避时才会重试；Webhook 已支持精简终态事件、Standard Webhooks 签名、PostgreSQL 权威的有界重试、Attempt 审计、受控人工重放、加密 Secret 和防 SSRF 的固定目标连接。Retention Cleaner 按固定 cutoff 分批删除到期内容，批次审计和返回游标允许安全续跑。Redis Queue 丢失时，`npm run recover:queue` 默认先做 PostgreSQL 权威的 dry-run，再由运维人员显式 `--apply` 重建所有仍需执行的 Job；终态 Run 永不进入恢复候选。`npm run observe:async` 从 PostgreSQL 和两个 Queue 读取不含业务内容的运维快照，Dashboard/alert 字段固定在 `ops/async-observability.json`。
 
-`minimal-zine-poster/v1` 已进入 production catalog，但生产 Adapter 只依赖受控 Business API 的 `POST /posters`，不把 OpenAI、OSS 或模型参数暴露给产品调用方。仓库中的 OpenAI Images、阿里云 OSS、业务验收和 Skill A/B 命令都必须显式运行，不进入默认测试。当前海报版本不接收参考图片，也不执行自动看图质检或重绘。
+`minimal-zine-poster/v1` 和 `crt-interface-image/v1` 已进入 production catalog，但生产 Adapter 只依赖受控 Business API 的 `POST /posters` 与 `POST /crt-images`，不把 OpenAI、OSS 或模型参数暴露给产品调用方。仓库中的 OpenAI Images、阿里云 OSS、业务验收和 Skill A/B 命令都必须显式运行，不进入默认测试。当前海报版本不接收参考图片；CRT 版本只接收预先上传后获得的服务端资产标识。两者都不执行自动看图质检或重绘。
+
+CRT 流程的 Registration、Runtime Skill、HTTP Adapter 和确定性测试已经完成。正式发布仍受三项门禁约束：产品必须提供受鉴权上传和 `POST /crt-images`，受控图片服务必须执行确定性 CRT 后处理与完整验收，上游 Skill 的再分发和生产使用权必须得到确认。
 
 ## 文档导航
 
@@ -140,6 +148,7 @@ curl http://127.0.0.1:3000/healthz
 | [`docs/development.md`](docs/development.md) | 开发者 | 本地开发、代码地图、改动路径和验证要求 |
 | [`docs/authoring-business-processes.md`](docs/authoring-business-processes.md) | 产品与开发者 | 如何把自然语言流程描述封装为版本化 Business Process |
 | [`docs/integrating-runtime-skills.md`](docs/integrating-runtime-skills.md) | 开发者 | 如何从本地路径或远程来源审查、固定并接入 Skill |
+| [`docs/developing-crt-interface-image.md`](docs/developing-crt-interface-image.md) | 产品与开发者 | 如何开发上传参考图、GPT Image 2 编辑、CRT 后处理与发布验收 |
 | [`docs/process-runtime-design.md`](docs/process-runtime-design.md) | 开发者 | Module、Interface、执行 invariant 和错误归属 |
 | [`docs/async-process-runs-design.md`](docs/async-process-runs-design.md) | 开发者 | 异步提交、持久化查询、BullMQ Worker 和 Webhook 设计 |
 | [`docs/async-process-runs-development-plan.md`](docs/async-process-runs-development-plan.md) | 开发者 | 异步能力的开发批次、测试门槛和发布顺序 |
