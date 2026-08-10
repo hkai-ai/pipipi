@@ -66,7 +66,7 @@ cp .env.example .env
 npm run dev:business-api
 ```
 
-这个演示服务只实现文本用的 `POST /process`。执行海报 Process 时，`BUSINESS_API_BASE_URL` 必须指向实现 `POST /posters` 的受控 Business API。执行 CRT Process 时，同一地址还必须实现 `POST /crt-images`，并能通过服务端资产标识解析已上传图片。`npm run accept:poster-business` 会临时启动真实图片 Capability 和生产 Composition，再从产品 `POST /execute` 完成一次海报业务验收；`smoke:poster-process` 与 `test:gpt-image-2` 保留为兼容别名。`npm run smoke:crt-gpt-image` 只验证 GPT Image 2 参考图编辑，不替代 CRT finalizer 或完整业务验收。付费图片命令默认使用 OpenAI Images；当兼容网关缺少 GPT Image 2 图片编辑时，设置 `IMAGE_PROVIDER=fal` 与 `FAL_KEY` 即可改用 FAL。
+这个演示服务只实现文本用的 `POST /process`。执行海报 Process 时，`BUSINESS_API_BASE_URL` 必须指向实现 `POST /posters` 的受控 Business API。执行 CRT Process 时，同一地址还必须实现 `POST /crt-images`，并能通过服务端资产标识解析已上传图片。`npm run accept:poster-business` 会临时启动真实图片 Capability 和生产 Composition，再从产品 `POST /execute` 完成一次海报业务验收；`smoke:poster-process` 与 `test:gpt-image-2` 保留为兼容别名。`npm run smoke:crt-gpt-image` 只验证 GPT Image 2 参考图编辑；`npm run accept:crt-business` 还会临时启动本地上传、`POST /crt-images` 和确定性 finalizer，从产品 `POST /execute` 完成无 OSS 业务验收，并按服务端策略保留原图、模型原始图、最终图和脱敏 manifest。付费图片命令默认使用 OpenAI Images；当兼容网关缺少 GPT Image 2 图片编辑时，设置 `IMAGE_PROVIDER=fal` 与 `FAL_KEY` 即可改用 FAL。
 
 在第二个终端启动处理服务：
 
@@ -131,7 +131,7 @@ curl http://127.0.0.1:3000/healthz
 
 `minimal-zine-poster/v1` 和 `crt-interface-image/v1` 已进入 production catalog，但生产 Adapter 只依赖受控 Business API 的 `POST /posters` 与 `POST /crt-images`，不把 OpenAI、OSS 或模型参数暴露给产品调用方。仓库中的 OpenAI Images、阿里云 OSS、业务验收和 Skill A/B 命令都必须显式运行，不进入默认测试。当前海报版本不接收参考图片；CRT 版本只接收预先上传后获得的服务端资产标识。两者都不执行自动看图质检或重绘。
 
-CRT 流程的 Registration、Runtime Skill、HTTP Adapter 和确定性测试已经完成。正式发布仍受三项门禁约束：产品必须提供受鉴权上传和 `POST /crt-images`，受控图片服务必须执行确定性 CRT 后处理与完整验收，上游 Skill 的再分发和生产使用权必须得到确认。
+CRT 流程的 Registration、Runtime Skill、HTTP Adapter、独立实现的 finalizer 和无 OSS 本地业务验收已经完成。正式发布仍受四项门禁约束：产品必须提供受鉴权上传和生产 `POST /crt-images`，受控图片服务必须持久化结果并完成目标环境验收，生产证据保留必须默认关闭，上游 Skill 的再分发和生产使用权必须得到确认。
 
 ## 文档导航
 

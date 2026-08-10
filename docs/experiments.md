@@ -21,6 +21,7 @@
 | `npm run test:skill-ab` | Direct、控制 Skill、候选 Skill 的行为差异 | 多次模型调用、业务请求 | `artifacts/skill-ab/latest.*` |
 | `npm run accept:poster-business`（兼容别名：`smoke:poster-process`、`test:gpt-image-2`） | 从产品 HTTP Interface 验收 `minimal-zine-poster/v1` | Agent、OpenAI Images 或 FAL 请求，可选 OSS PUT | `artifacts/gpt-image-2/latest.*` |
 | `npm run smoke:crt-gpt-image` | 用一张本地参考图验证 GPT Image 2 edit stage | 读取本地图片、OpenAI Images 或 FAL 请求、本地写入 | `artifacts/crt-interface-image/latest.*` |
+| `npm run accept:crt-business` | 从本地上传与产品 HTTP Interface 无 OSS 验收 `crt-interface-image/v1` | Agent、OpenAI Images 或 FAL 请求、本地临时资产与产物写入 | `artifacts/crt-interface-image/acceptance/latest.*` |
 | `npm run smoke:oss` | 已有文件的上传、URL 生成和首字节读取 | OSS PUT 与 GET | `artifacts/object-storage/latest.json` |
 | `npm run smoke:staging` | 已部署环境的健康、成功与拒绝契约 | 受控环境请求 | 终端判据 |
 
@@ -48,7 +49,7 @@ Smoke 会临时启动 Agent 模式服务，完成一次 `/execute` 请求，并�
 
 生产 Agent 可以按服务端声明顺序加载多个单文件 Skill，要求名称唯一且每项精确解析一次。它适合规则、分类、抽取、改写、Prompt 编译和少量受控 Tool，但不会自动读取 Skill 的附加参考文件、运行 Skill 脚本、使用 MCP、保存持久记忆或看图后重试。
 
-海报与 CRT 流程都只让 Agent 编译 Prompt；Registration 校验结果后调用各自的窄 Rendering Capability。生产 HTTP Adapter 要求 Capability 返回已持久化图片的 URL。海报业务验收会临时启动受控 `POST /posters` Capability，由它调用所选 OpenAI 或 FAL Adapter 和可选 OSS。CRT smoke 只调用 GPT Image 2 edit stage，不替代 `POST /crt-images`、finalizer 或完整 Process 验收。当前流程仍没有自动视觉检查、有限重绘或跨 Run 变化记忆；不要为了补齐这些能力直接开放 Coding Tools。
+海报与 CRT 流程都只让 Agent 编译 Prompt；Registration 校验结果后调用各自的窄 Rendering Capability。生产 HTTP Adapter 要求 Capability 返回已持久化图片的 URL。海报业务验收会临时启动受控 `POST /posters` Capability，由它调用所选 OpenAI 或 FAL Adapter 和可选 OSS。CRT edit smoke 只调用图片阶段；CRT 业务验收还会临时启动本地上传、`POST /crt-images` 和 finalizer，并从产品 `POST /execute` 进入 production catalog。当前流程仍没有自动视觉检查、有限重绘或跨 Run 变化记忆；不要为了补齐这些能力直接开放 Coding Tools。
 
 ## Skill A/B 对比
 
@@ -125,7 +126,7 @@ npm run test:gpt-image-2
 
 ## CRT 参考图编辑 smoke
 
-`crt-interface-image/v1` 的产品契约、上传边界、`POST /crt-images` 协议、finalizer 和完整验收标准见 [`processes/crt-interface-image/`](processes/crt-interface-image/)。仓库当前提供一个更窄的付费 smoke，用来确认一张 PNG、JPEG 或 WebP 能通过所选 OpenAI 或 FAL GPT Image 2 Adapter 生成 PNG：
+`crt-interface-image/v1` 的产品契约、上传边界、`POST /crt-images` 协议、finalizer 和完整验收标准见 [`processes/crt-interface-image/`](processes/crt-interface-image/)。仓库当前提供一个更窄的付费 smoke，用来确认一张 PNG、JPEG 或 WebP 能通过所选 GPT Image 2 edit Adapter 生成 PNG：
 
 ```bash
 CRT_SOURCE_IMAGE_FILE=/absolute/path/to/non-sensitive-test-image.png \
@@ -134,22 +135,54 @@ npm run smoke:crt-gpt-image
 
 运行前必须配置所选图片供应商：OpenAI Adapter 读取 `OPENAI_IMAGE_API_KEY`，未设置时回退到 `OPENAI_API_KEY`；FAL Adapter 读取 `FAL_KEY`。源文件不得超过 50 MB；命令通过 magic bytes 判断格式，不把原图像素、Prompt 正文或凭证写入报告。可以用 `IMAGE_PROVIDER`、`CRT_IMAGE_MODEL`、`CRT_IMAGE_SIZE`、`CRT_IMAGE_QUALITY`、`CRT_IMAGE_TIMEOUT_MS` 和 `CRT_IMAGE_REPORT_DIRECTORY` 覆盖显式实验参数。FAL Adapter 只接受 `gpt-image-2`。`CRT_IMAGE_PROMPT` 只用于评审后的 Prompt 变更实验，不能成为产品字段。
 
-兼容网关缺少 `/images/edits` 时，可让图片阶段改用 FAL：
-
-```bash
-IMAGE_PROVIDER=fal
-FAL_KEY=replace-with-fal-key
-```
-
-FAL Adapter 固定调用 `openai/gpt-image-2` 与 `openai/gpt-image-2/edit`，把本地参考图编码为 Data URI，并设置 `sync_mode=true` 直接取回结果。供应商返回的 request ID 会进入本地报告；凭证、Prompt 正文、参考图像素和远端错误正文不会进入报告。生产采用 FAL 前必须评审图片数据保留、区域、费用、队列超时和删除要求。
-
 产物包括：
 
 - `artifacts/crt-interface-image/latest.png`
 - `artifacts/crt-interface-image/latest.json`
 - `artifacts/crt-interface-image/latest.md`
 
-`passed: true` 只证明 edit stage 返回一张可解码、带尺寸的非平凡 PNG。它不证明主体完整、风格合格、调色板准确，也不运行 Runtime Skill Agent、production catalog、资产服务、确定性 CRT 后处理或对象存储。完成这些依赖后，必须再新增并运行从产品 `POST /execute` 开始的完整业务验收。
+`passed: true` 只证明 edit stage 返回一张可解码、带尺寸的非平凡 PNG。它不证明主体完整、风格合格、调色板准确，也不运行 Runtime Skill Agent、production catalog、资产服务、确定性 CRT 后处理或对象存储。用下一节的本地业务验收检查完整本地链路。
+
+## CRT 无 OSS 本地业务验收
+
+确认参考图不敏感、所选供应商支持 GPT Image 2 编辑，并接受一次 Agent 与一次图片编辑用量后运行：
+
+```bash
+CRT_SOURCE_IMAGE_FILE=/absolute/path/to/non-sensitive-test-image.png \
+npm run accept:crt-business
+```
+
+命令临时启动回环 `POST /assets` 与 `POST /crt-images`，把原图放入临时目录，再从产品 `POST /execute` 调用 production catalog、真实 Agent、生产 HTTP Adapter、所选 GPT Image 2 Adapter 和确定性 finalizer。验收默认启用 `full` 证据模式，并把摘要和本次 Run 的完整证据写入：
+
+- `artifacts/crt-interface-image/acceptance/latest.png`
+- `artifacts/crt-interface-image/acceptance/latest.json`
+- `artifacts/crt-interface-image/acceptance/latest.md`
+- `artifacts/crt-interface-image/acceptance/runs/<runId>/source.*`
+- `artifacts/crt-interface-image/acceptance/runs/<runId>/raw-gpt-image-2.*`
+- `artifacts/crt-interface-image/acceptance/runs/<runId>/final-crt.png`
+- `artifacts/crt-interface-image/acceptance/runs/<runId>/manifest.json`
+
+临时服务关闭后删除工作目录；`full` 模式保留上面列出的审计副本。`metadata` 只保留 manifest，`off` 不创建每次 Run 的证据目录。用 `CRT_IMAGE_EVIDENCE_MODE` 选择模式，用 `CRT_IMAGE_EVIDENCE_DIRECTORY` 覆盖目录。命令不读取 OSS 配置，也不执行远端存储写入。`passed: true` 证明本地上传、单次图片编辑、`runId` 幂等键、目标尺寸、不透明 PNG、精确调色板、证据策略、下载哈希和无 OSS 判据通过；它不替代生产身份、资产隔离、持久化、删除生命周期、容量与人工视觉验收。字段和核对步骤见 [`crt-interface-image` 的证据保留说明](processes/crt-interface-image/evidence-retention.md)。
+
+若 Agent 和图片阶段使用不同 API，可直连 OpenAI Images：
+
+```dotenv
+OPENAI_BASE_URL=https://chat-gateway.example/v1
+OPENAI_API_KEY=replace-with-chat-key
+OPENAI_IMAGE_BASE_URL=https://api.openai.com/v1
+OPENAI_IMAGE_API_KEY=replace-with-images-key
+```
+
+未设置 `OPENAI_IMAGE_*` 时，图片阶段沿用 `OPENAI_*`。兼容网关仅在 `/models` 列出 `gpt-image-2` 不足以证明可用；运行付费验收前应确认它实现标准 `/images/edits` 路由。
+
+兼容网关缺少 `/images/edits` 时，可让图片阶段改用 FAL：
+
+```dotenv
+IMAGE_PROVIDER=fal
+FAL_KEY=replace-with-fal-key
+```
+
+FAL Adapter 固定调用 `openai/gpt-image-2` 与 `openai/gpt-image-2/edit`，把本地参考图编码为 Data URI，并设置 `sync_mode=true` 直接取回结果。供应商返回的 request ID 会进入本地报告；凭证、Prompt 正文、参考图像素和远端错误正文不会进入报告。生产采用 FAL 前必须评审图片数据保留、区域、费用、队列超时和删除要求。
 
 ## 阿里云 OSS 上传
 

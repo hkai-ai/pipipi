@@ -9,7 +9,7 @@
 | `content-processing/v1` | [`content-processing/`](content-processing/) | 规范化并处理文本，可由服务端选择 Direct 或受限 Agent 路径 |
 | `titled-content-processing/v1` | [`titled-content-processing/`](titled-content-processing/) | 组合标题与正文并复用文本处理能力 |
 | `minimal-zine-poster/v1` | [`minimal-zine-poster/`](minimal-zine-poster/) | 编译固定海报风格 Prompt，并生成和持久化图片 |
-| `crt-interface-image/v1` | [`crt-interface-image/`](crt-interface-image/) | 用已上传参考图生成 CRT 界面风格 PNG |
+| `crt-interface-image/v1` | [`crt-interface-image/`](crt-interface-image/) | 用已上传参考图生成 CRT 界面风格 PNG，并提供同类图片流程开发模板 |
 
 production catalog 的准确清单由 [`src/processes/catalog.ts`](../../src/processes/catalog.ts) 和 [`src/app/business-processes.ts`](../../src/app/business-processes.ts) 决定。若本文与运行行为冲突，以 `src/` 和 `test/` 为准，并在同一改动中修正文档。
 
@@ -20,10 +20,13 @@ production catalog 的准确清单由 [`src/processes/catalog.ts`](../../src/pro
 ```text
 docs/processes/
 └── <process-id>/
-    └── README.md
+    ├── README.md
+    └── <process-specific-topic>.md
 ```
 
 `README.md` 是该 Process 的稳定入口。只有一个已注册版本时，入口直接记录该版本；多个版本需要长期并存或契约差异较大时，在同一目录增加 `v1.md`、`v2.md` 等版本页，并由 `README.md` 路由。不要为版本创建另一个平级 Process 目录。
+
+开发模板、证据保留、迁移或其他仅属于该 Process 的专题也放在同一目录，并从 `README.md` 链接。不要把这些专题平铺到 `docs/` 根目录。
 
 Process 目录只保存该 Process 独有的知识。跨 Process 的 Runtime、异步执行、Skill 接入、实验和发布规则继续由 [`docs/README.md`](../README.md) 列出的仓库级文档负责。
 

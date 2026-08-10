@@ -143,6 +143,98 @@ describe("crt-interface-image/v1", () => {
         expect(JSON.stringify(result)).not.toContain("recipe");
     });
 
+    it("retries one malformed Agent response before rendering once", async () => {
+        let agentCalls = 0;
+        let transformCalls = 0;
+        const executor = createCrtExecutor(
+            {
+                compile: async () => {
+                    agentCalls += 1;
+                    if (agentCalls === 1) {
+                        throw new SyntaxError("malformed Agent JSON");
+                    }
+                    return compiledCrt;
+                },
+            },
+            {
+                transform: async () => {
+                    transformCalls += 1;
+                    return crtImage;
+                },
+            },
+        );
+
+        const result = await executor.execute({
+            process: "crt-interface-image",
+            version: "v1",
+            input: {
+                sourceImageId: "asset_portrait_01",
+                palette: "经典",
+                aspectRatio: "4:3",
+            },
+        });
+
+        expect(result).toMatchObject({ status: "succeeded" });
+        expect(agentCalls).toBe(2);
+        expect(transformCalls).toBe(1);
+    });
+
+    it("accepts a concrete 30% connected open-field instruction", async () => {
+        const executor = createCrtExecutor(
+            {
+                compile: async () => ({
+                    ...compiledCrt,
+                    prompt: compiledCrt.prompt.replace(
+                        "20%-30% connected open field",
+                        "30% connected open field",
+                    ),
+                }),
+            },
+            { transform: async () => crtImage },
+        );
+
+        const result = await executor.execute({
+            process: "crt-interface-image",
+            version: "v1",
+            input: {
+                sourceImageId: "asset_portrait_01",
+                palette: "经典",
+                aspectRatio: "4:3",
+            },
+        });
+
+        expect(result).toMatchObject({ status: "succeeded" });
+    });
+
+    it("accepts equivalent source-image and exclusion wording", async () => {
+        const executor = createCrtExecutor(
+            {
+                compile: async () => ({
+                    ...compiledCrt,
+                    prompt: compiledCrt.prompt
+                        .replace(
+                            "attached source image",
+                            "provided source image",
+                        )
+                        .replace("Avoid tracing", "Exclude tracing"),
+                }),
+            },
+            { transform: async () => crtImage },
+        );
+
+        const result = await executor.execute({
+            process: "crt-interface-image",
+            version: "v1",
+            input: {
+                sourceImageId: "asset_portrait_01",
+                palette: "经典",
+                aspectRatio: "4:3",
+            },
+        });
+
+        expect(result).toMatchObject({ status: "succeeded" });
+    });
+
     it("accepts the source-derived palette contract", async () => {
         const executor = createCrtExecutor(
             {

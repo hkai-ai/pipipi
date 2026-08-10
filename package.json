@@ -29,6 +29,7 @@
         "smoke:poster-process": "npm run accept:poster-business",
         "test:gpt-image-2": "npm run accept:poster-business",
         "smoke:crt-gpt-image": "node --env-file-if-exists=.env --import tsx examples/crt-gpt-image-smoke.ts",
+        "accept:crt-business": "node --env-file-if-exists=.env --import tsx examples/crt-business-acceptance.ts",
         "check": "biome check .",
         "check:fix": "biome check --write .",
         "lint": "biome lint .",
@@ -56,6 +57,7 @@
         "@types/node": "24.13.3",
         "@types/pg": "^8.21.0",
         "node-pg-migrate": "^9.0.0",
+        "sharp": "^0.35.3",
         "tsx": "4.23.11",
         "typescript": "7.0.2",
         "vitest": "4.1.10"

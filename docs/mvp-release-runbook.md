@@ -47,7 +47,7 @@
 | `PI_CRT_SKILL_DIRECTORY` | 可选；只覆盖固定的 `tait-crt-interface-prompt` 路径 |
 | `OPENAI_API_KEY` | 执行使用 OpenAI 的 Agent 时由平台 Secret 注入；禁止写入镜像、仓库或普通配置 |
 
-若 Business Capability 需要认证，优先使用私网身份、工作负载身份或服务网格。当前 HTTP Adapter 不发送调用方提供的任意认证头。`POST /posters` 与 `POST /crt-images` 必须以 `Idempotency-Key: <runId>` 去重，并返回在声明期限内可访问的 HTTP(S) 图片 URL；短期签名 URL 必须返回 `expiresAt`。CRT endpoint 还必须只解析服务端资产标识，不能抓取调用方 URL。
+若 Business Capability 需要认证，优先使用私网身份、工作负载身份或服务网格。当前 HTTP Adapter 不发送调用方提供的任意认证头。`POST /posters` 与 `POST /crt-images` 必须以 `Idempotency-Key: <runId>` 去重，并返回在声明期限内可访问的 HTTP(S) 图片 URL；短期签名 URL 必须返回 `expiresAt`。CRT endpoint 还必须只解析服务端资产标识，不能抓取调用方 URL。生产 Business API 必须把 CRT 证据模式固定为 `off`；`CRT_IMAGE_EVIDENCE_MODE` 属于该服务的部署配置，不注入产品请求。
 
 `PROCESS_TIMEOUT_MS=240000` 是本手册的受控发布覆盖值，不改变代码的 30 秒默认值。它必须长于 `CRT_API_TIMEOUT_MS`；候选镜像、部署平台和回滚配置都必须显式保留该覆盖值。启用异步 Worker 时，`PROCESS_RUN_CLAIM_LEASE_MS` 还必须长于 Process 总超时。
 
@@ -129,7 +129,7 @@ docker build -t pi-business-processing-service:rc .
 5. 日志系统必须收到单行 JSON，并能按 `runId`、`process`、`status` 和 `errorCode` 检索。
 6. `BUSINESS_API_BASE_URL` 必须连接真实 Business Capability。
 7. `POST /posters` 必须按 `runId` 去重，并验证图片 URL 的访问控制、有效期、媒体类型和尺寸。
-8. `POST /crt-images` 必须按 `runId` 去重，并验证资产权限、GPT Image 2 编辑、finalizer、PNG 引用、费用和删除生命周期。
+8. `POST /crt-images` 必须按 `runId` 去重，并验证资产权限、GPT Image 2 编辑、finalizer、PNG 引用、费用和删除生命周期；生产证据模式必须为 `off`，或有单独批准的数据保留策略。
 9. 若候选版本注入了 Run Record Adapter，必须验证成功和失败记录可按 `runId` 查询，并验证存储故障不影响 `/execute` 结果。
 
 Agent 模式启用后，先在受控发布 runner 中连接真实模型和 Business Capability。该命令强制使用 Agent 模式；若 Agent 未恰好调用一次 Business Capability、最终输出并非来自 Tool 结果，或默认受保护内容在 Tool 输入中发生变化，命令会失败。它可能产生模型费用：
@@ -164,7 +164,16 @@ CRT_SOURCE_IMAGE_FILE=/absolute/path/to/non-sensitive-test-image.png \
 npm run smoke:crt-gpt-image
 ```
 
-该 smoke 不运行 Runtime Skill Agent、production catalog、资产服务、finalizer 或对象存储。若 Agent 网关不实现标准 Images API，可用 `OPENAI_IMAGE_BASE_URL` 和 `OPENAI_IMAGE_API_KEY` 直连 OpenAI Images，也可设置 `IMAGE_PROVIDER=fal` 与 `FAL_KEY` 改用 FAL。发布前还必须按 [`processes/crt-interface-image/`](processes/crt-interface-image/) 完成来源授权、上传安全、确定性后处理和全链路业务验收。当前仓库尚未提供 `accept:crt-business`；在该命令实现并从产品 `POST /execute` 验证单次 `POST /crt-images`、`runId` 幂等、参考图关系、九种调色板、四种画幅、PNG 下载和删除生命周期之前，CRT 候选不满足发布门禁。
+该 smoke 不运行 Runtime Skill Agent、production catalog、资产服务或 finalizer。随后用同一张非敏感参考图运行无 OSS 本地业务验收：
+
+```bash
+CRT_SOURCE_IMAGE_FILE=/absolute/path/to/non-sensitive-test-image.png \
+npm run accept:crt-business
+```
+
+该命令从临时 `POST /assets` 上传进入产品 `POST /execute`，验证真实 Agent、单次 `POST /crt-images`、`runId` 幂等、GPT Image 2 编辑、确定性 finalizer、目标尺寸与调色板、PNG 下载和无 OSS 判据。默认 `full` 证据模式还会按 `runId` 保存原图、模型原始图、最终图和脱敏 manifest，供发布负责人核对真实调用链。若 Agent 网关不实现标准 Images API，可用 `OPENAI_IMAGE_BASE_URL` 和 `OPENAI_IMAGE_API_KEY` 直连 OpenAI Images，也可设置 `IMAGE_PROVIDER=fal` 与 `FAL_KEY` 改用 FAL。发布门禁必须记录实际供应商，并单独评审凭证、数据保留、费用和故障语义。
+
+本地通过仍不满足生产发布门禁。发布前必须按 [`processes/crt-interface-image/`](processes/crt-interface-image/) 完成来源授权、生产上传的身份与资产安全、生产 `POST /crt-images`、持久化 URL、删除生命周期、九种调色板、四种画幅和人工视觉验收，并按 [CRT 图片证据保留](processes/crt-interface-image/evidence-retention.md) 确认生产模式与清理责任。
 
 ## 发布与回滚
 

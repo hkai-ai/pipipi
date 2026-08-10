@@ -45,7 +45,7 @@ Business Processing Service 让产品调用方通过一个稳定的 HTTP Interfa
 
 `minimal-zine-poster/v1` 已进入 `/execute` catalog。它返回图片 HTTP(S) URL、媒体类型、尺寸和可选过期时间，不把大体积图片字节写入 Process output。调用方不能选择 Skill、模型、图片供应商或存储。OpenAI Images、FAL 与阿里云 OSS 只用于显式真实集成和海报业务验收；Skill A/B 仍是独立实验。
 
-`crt-interface-image/v1` 也已进入 `/execute` catalog。调用方只提交预先上传后得到的不透明 `sourceImageId`、固定调色板名和画幅；请求不接收图片字节、任意 URL、Prompt 或实现配置。Registration 在 Agent 编译结果通过校验后调用一次 CRT Rendering Capability，并只公开画幅和 PNG 引用。仓库已提供支持 OpenAI Images 与 FAL 的 GPT Image 2 reference-edit smoke，但受鉴权上传、`POST /crt-images`、确定性 finalizer 和完整业务验收仍由产品图片服务完成；上游 Runtime Skill 未声明许可证，正式发布前必须确认权利。开发边界见 [`docs/processes/crt-interface-image/`](docs/processes/crt-interface-image/)。
+`crt-interface-image/v1` 也已进入 `/execute` catalog。调用方只提交预先上传后得到的不透明 `sourceImageId`、固定调色板名和画幅；请求不接收图片字节、任意 URL、Prompt 或实现配置。Registration 在 Agent 编译结果通过校验后调用一次 CRT Rendering Capability，并只公开画幅和 PNG 引用。仓库已提供支持 OpenAI Images 与 FAL 的 GPT Image 2 reference-edit smoke，以及包含临时上传、`POST /crt-images`、确定性 finalizer、下载与报告的无 OSS 本地业务验收。验收按服务端策略选择不保留证据、只保留脱敏 metadata，或按 `runId` 保留原图、模型原始图、最终图和 manifest；产品请求不能选择该策略。生产受鉴权上传、资产所有权与生命周期、持久化图片服务仍由产品图片平台完成，证据模式必须默认关闭；上游 Runtime Skill 未声明许可证，正式发布前必须确认权利。开发边界见 [`docs/processes/crt-interface-image/`](docs/processes/crt-interface-image/)。
 
 ## 运行与信任模型
 
@@ -64,7 +64,7 @@ Agent 只获得 Process Registration 明确绑定的 Runtime Skill 集合与窄 
 - 允许 Agent 使用 Coding Tools 的通用 Skill 执行环境；
 - `minimal-zine-poster/v1` 的参考图片输入，以及任一图片流程的自动视觉检查、跨 Run 变化记忆或自动重绘。
 
-`minimal-zine-poster/v1` 与 `crt-interface-image/v1` 会产生模型费用和图片持久化副作用。两个 Registration 都默认不重试，并把稳定 `runId` 作为下游幂等键；部署方仍须限制调用权限、并发、超时和费用。CRT 流程还处理用户上传资产，必须在产品图片服务中明确所有权、保留、删除和敏感内容策略。新增发布、扣费、发送等副作用前，必须先明确幂等、审计和补偿策略。
+`minimal-zine-poster/v1` 与 `crt-interface-image/v1` 会产生模型费用和图片持久化副作用。海报 Registration 不重试 Agent；CRT Registration 可以在任何图片调用前重试一次无副作用的 Agent 编译。两个 Registration 都只调用一次图片 Capability，并把稳定 `runId` 作为下游幂等键；部署方仍须限制调用权限、并发、超时和费用。CRT 流程还处理用户上传资产，必须在产品图片服务中明确所有权、保留、删除和敏感内容策略。新增发布、扣费、发送等副作用前，必须先明确幂等、审计和补偿策略。
 
 异步 Process Run 的持久化提交、owner 查询、HTTP Interface、Outbox 调度、BullMQ Worker、受控 Process 重试和故障恢复已完成。终态事务会为已注册 Endpoint 创建精简 Webhook Delivery；独立 Webhook Worker 使用 Standard Webhooks HMAC 签名，并以 PostgreSQL 管理有界重试、逐次 Attempt 审计、稳定 event ID 和受控人工重放。Endpoint Secret 使用 AES-256-GCM 信封加密；注册和每次投递都重新解析目标、拒绝非公网地址并把连接固定到已检查的 IP，且不跟随重定向。独立 Retention Cleaner 已按 accepted input、公开结果、Run metadata 和 Delivery Attempt 历史的期限分批清理；结果到期不改变终态，metadata 到期删除前还会保护未完成或仍在保留期内的 Delivery 引用。Process Recovery 以 PostgreSQL Run/Outbox 为事实来源，检查 BullMQ 中稳定 `runId` Job 是否仍存在，分批恢复 queued 和租约过期 running Run；全量模式会明确报告仍有活跃租约的 Run，但在租约到期前不抢占。PostgreSQL acceptance 事务还执行 caller/global backlog admission，运维快照和结构化日志覆盖 Run、Outbox、Queue、Worker、Webhook、清理、恢复与存储，API 的 canary/production readiness 固定发布门槛。功能仍默认关闭；启用必须遵循 [`docs/async-process-runs-runbook.md`](docs/async-process-runs-runbook.md)。该设计保留现有 Business Process 模型：外部调用方仍只选择准确 Process 和版本；Queue Job、Endpoint、重试与 Worker 配置由服务端拥有。
 

@@ -125,6 +125,8 @@ const compiledSchema = z.strictObject({
     recipe: recipeSchema,
 });
 
+const agentCompileAttempts = 2;
+
 const outputSchema = z
     .strictObject({
         aspectRatio: z.enum(crtAspectRatios),
@@ -175,29 +177,12 @@ export function createCrtRegistration(
         inputSchema,
         outputSchema,
         execute: async (input, context) => {
-            let compiled: z.infer<typeof compiledSchema>;
-            try {
-                const result = compiledSchema.safeParse(
-                    await agent.compile({
-                        palette: input.palette,
-                        aspectRatio: input.aspectRatio,
-                        signal: context.signal,
-                    }),
-                );
-                if (
-                    !result.success ||
-                    !matchesRequest(
-                        result.data.prompt,
-                        input.palette,
-                        input.aspectRatio,
-                    )
-                ) {
-                    return agentFailure();
-                }
-                compiled = result.data;
-            } catch {
-                return agentFailure();
-            }
+            const compiled = await compileAgentResult(
+                agent,
+                input,
+                context.signal,
+            );
+            if (!compiled) return agentFailure();
 
             try {
                 const image = await capability.transform(
@@ -224,6 +209,39 @@ export function createCrtRegistration(
             }
         },
     });
+}
+
+async function compileAgentResult(
+    agent: CrtAgent,
+    input: z.infer<typeof inputSchema>,
+    signal: AbortSignal,
+): Promise<z.infer<typeof compiledSchema> | undefined> {
+    for (let attempt = 0; attempt < agentCompileAttempts; attempt += 1) {
+        try {
+            const result = compiledSchema.safeParse(
+                await agent.compile({
+                    palette: input.palette,
+                    aspectRatio: input.aspectRatio,
+                    signal,
+                }),
+            );
+            if (
+                result.success &&
+                matchesRequest(
+                    result.data.prompt,
+                    input.palette,
+                    input.aspectRatio,
+                )
+            ) {
+                return result.data;
+            }
+        } catch {
+            // The Agent has no side effects, so one malformed response is safe
+            // to retry before any rendering call can occur.
+        }
+        if (signal.aborted) return undefined;
+    }
+    return undefined;
 }
 
 type RecipeCompatibility = {
@@ -261,10 +279,12 @@ function hasFourParagraphs(value: string): boolean {
 
 function hasCoreVisualRules(value: string): boolean {
     return (
-        /attached source image/iu.test(value) &&
+        /source image/iu.test(value) &&
         /(?:roster|prominent|interacting)/iu.test(value) &&
         /(?:5[-– ]9|five[- ]to[- ]nine).{0,40}(?:mass|shape)/iu.test(value) &&
-        /20%[-– ]30%|20% to 30%/iu.test(value) &&
+        /20%[-– ]30%|20% to 30%|(?:2\d|30)%[^.\n]{0,30}connected open field/iu.test(
+            value,
+        ) &&
         /French/iu.test(value) &&
         /exactly one cursor/iu.test(value) &&
         /tait-crt-interface-skill/u.test(value) &&
@@ -272,7 +292,7 @@ function hasCoreVisualRules(value: string): boolean {
         /(?:shared|global).{0,30}(?:grid|lattice|cell)/iu.test(value) &&
         /outer 10%/iu.test(value) &&
         /barrel/iu.test(value) &&
-        /avoid/iu.test(value)
+        /(?:avoid|exclude|show no|do not (?:show|include|use))/iu.test(value)
     );
 }
 

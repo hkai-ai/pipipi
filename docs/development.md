@@ -78,6 +78,7 @@ curl --fail -X POST http://127.0.0.1:3000/execute \
 | `npm run test:skill-ab` | 运行三组 Skill 对比 | 是，可能产生模型费用 |
 | `npm run accept:poster-business`（`smoke:poster-process`、`test:gpt-image-2` 别名） | 从产品 `POST /execute` 验收 `minimal-zine-poster/v1`、真实图片与可选上传 | 是，可能产生模型和存储费用 |
 | `npm run smoke:crt-gpt-image` | 验证一张本地参考图可通过 GPT Image 2 edit stage 生成 PNG；不运行 finalizer 或完整 Process | 是，读取本地图片、产生模型费用并写 `artifacts/` |
+| `npm run accept:crt-business` | 从本地上传和产品 `POST /execute` 无 OSS 验收 `crt-interface-image/v1`、真实图片、finalizer 与可配置证据 | 是，读取本地图片、产生模型费用并写 `artifacts/` |
 | `npm run smoke:oss` | 上传已有文件并读取首字节 | 是，会写对象存储 |
 
 真实集成命令的配置、判据和产物见 [`experiments.md`](experiments.md)。默认测试套件不调用模型、OSS 或外部业务系统。
@@ -386,6 +387,8 @@ Run Record 是运行排障数据，不是聊天历史。产品聊天记录应由
 - `POSTER_API_TIMEOUT_MS` 只控制受控 `POST /posters` Adapter，默认 `90000`；Process 总超时仍由 `PROCESS_TIMEOUT_MS` 治理。
 - `CRT_API_TIMEOUT_MS` 只控制受控 `POST /crt-images` Adapter，默认 `180000`。受控发布必须让 `PROCESS_TIMEOUT_MS` 长于它，平台请求超时再长于 Process 总超时。
 - `IMAGE_PROVIDER=openai|fal` 选择真实图片集成 Adapter，默认 `openai`。OpenAI Adapter 可用 `OPENAI_IMAGE_API_KEY` 与 `OPENAI_IMAGE_BASE_URL` 脱离 Agent 网关；未设置时回退到 `OPENAI_API_KEY` 与 `OPENAI_BASE_URL`。FAL Adapter 只读取服务端 `FAL_KEY`，并固定调用 GPT Image 2 生成与编辑 endpoint。
+- `CRT_IMAGE_EVIDENCE_MODE=off|metadata|full` 控制 `crt-interface-image/v1` 的服务端证据副本。产品请求不能覆盖它；本地完整验收默认 `full`，生产 `POST /crt-images` 必须默认 `off`。
+- `CRT_IMAGE_EVIDENCE_DIRECTORY` 只在 `metadata` 或 `full` 时使用。完整字段、敏感数据边界和清理责任见 [`crt-interface-image` 的证据保留说明](processes/crt-interface-image/evidence-retention.md)。
 - `PI_SKILL_DIRECTORY`、`PI_POSTER_SKILL_DIRECTORY` 与 `PI_CRT_SKILL_DIRECTORY` 分别覆盖一个固定绑定，不改变 Skill 名称、集合或顺序。
 - `.env.example` 把 `PROCESS_TIMEOUT_MS` 设为 `240000`，用于同时容纳 CRT edit 和 finalizer 的受控发布形状；未设置变量时，代码默认值仍为 `30000`。
 - Secret 只由本地 `.env` 或部署平台注入。日志和错误响应不得包含凭证、Base URL、远端正文或模型错误。

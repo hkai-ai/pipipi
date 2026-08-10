@@ -125,6 +125,8 @@ export class PiCrtAgent implements CrtAgent {
             }
             await session.prompt(
                 `Compile one source-image transformation with palette ${JSON.stringify(request.palette)} and aspect ratio ${JSON.stringify(request.aspectRatio)}. ` +
+                    "Return one valid JSON object on a single logical line. JSON-escape every quote and encode each paragraph separator inside prompt as \\n\\n; prompt must decode to exactly four paragraphs. " +
+                    'Use the exact phrases "attached source image", "20%-30% connected open field", and "avoid" in prompt so the host can verify the visual contract. ' +
                     "Return only JSON matching " +
                     '{"prompt":"exactly four paragraphs separated by blank lines","recipe":{"wallpaperPlacement":"allowed value","crop":"allowed value","subjectCoverage":70,"windowCount":4,"windowConstellation":"allowed value","sizeHierarchy":"allowed value","dominantApplication":"allowed value","extractionCount":2,"extractionGeometry":"allowed value","cartoonTreatment":"allowed value","caricatureMutation":"allowed value","midtoneMap":"allowed value","polarity":"allowed value","signalEmphasis":"allowed value"}}.',
             );

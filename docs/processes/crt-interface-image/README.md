@@ -1,6 +1,8 @@
 # `crt-interface-image/v1` Business Process
 
-本文面向实现、测试和发布 `crt-interface-image/v1` 的开发者。结论是：用户上传参考图后，用 GPT Image 2 生成 TaiT CRT 界面风格图片是可行的。仓库已经实现 Process Registration、受限 Agent、固定 Runtime Skill、CRT Rendering Capability Interface、生产 HTTP Adapter、确定性测试和显式的 GPT Image 2 编辑 smoke；正式对产品开放前，还必须实现受鉴权的图片上传、受控 `POST /crt-images` Business API、确定性后处理、对象存储和完整业务验收。
+本文面向实现、测试和发布 `crt-interface-image/v1` 的开发者。用户上传参考图后，用 GPT Image 2 生成 TaiT CRT 界面风格图片是可行的。仓库已经实现 Process Registration、受限 Agent、固定 Runtime Skill、CRT Rendering Capability Interface、生产 HTTP Adapter、确定性 finalizer、GPT Image 2 编辑 smoke，以及从本地上传到 PNG 下载的无 OSS 业务验收。验收还支持按服务端策略保存原图、模型原始图、最终图和脱敏 manifest。正式对产品开放前，仍须实现受鉴权上传、生产 `POST /crt-images`、资产所有权与生命周期、持久化存储，并确认上游 Skill 的使用权。
+
+要开发同类“上传参考图 → 模型编辑 → 确定性后处理 → 图片引用”流程，先阅读 [参考图转换 Business Process 开发模板](development-template.md)。它把本流程已验证的 Module 边界、配置归属、证据策略、测试分层和完成标准整理成可复制步骤。
 
 上游 `TaiT-tt/tait-crt-interface-skill` 没有声明许可证。固定版本、审查结果和适配差异记录在 [Runtime Skill 来源记录](../../../.pi/skills/tait-crt-interface-prompt/SOURCE.md)；发布负责人确认再分发和生产使用权之前，不得把该快照发布到未获授权的环境。
 
@@ -74,11 +76,11 @@ flowchart LR
 5. 受控 Business API 解析资产，调用 GPT Image 2 图片编辑，执行同尺寸后处理，持久化 PNG，并返回图片引用。
 6. Registration 验证媒体类型、尺寸和比例后，才向产品返回结果。
 
-GPT Image 2 的官方图片指南明确支持通过 Images API 编辑一张或多张参考图，并支持符合约束的自定义输出尺寸；开发时以 [Edit images](https://developers.openai.com/api/docs/guides/image-generation#edit-images) 和 [Customize image output](https://developers.openai.com/api/docs/guides/image-generation#customize-image-output) 为准。FAL 提供独立的 [GPT Image 2 Edit API](https://fal.ai/models/openai/gpt-image-2/edit/api)，可在 OpenAI 兼容网关缺少标准图片编辑时由服务端选择。模型和供应商配置固定在 Business API 内，不进入产品请求。
+GPT Image 2 的官方图片指南明确支持通过 Images API 编辑一张或多张参考图，并支持符合约束的自定义输出尺寸；开发时以 [Edit images](https://developers.openai.com/api/docs/guides/image-generation#edit-images) 和 [Customize image output](https://developers.openai.com/api/docs/guides/image-generation#customize-image-output) 为准。FAL 也提供 [`openai/gpt-image-2/edit`](https://fal.ai/models/openai/gpt-image-2/edit/api)，接受 Data URI、`image_urls`、自定义尺寸、质量和 PNG 输出。模型和供应商配置固定在 Business API 内，不进入产品请求。
 
 ## 上传与资产服务
 
-本仓库没有上传 endpoint。产品或资产平台必须先提供独立的受鉴权 Interface，并满足以下约束：
+仓库没有可供产品使用的生产上传 endpoint。`accept:crt-business` 只在回环地址临时启动 `POST /assets`，把测试原图写入临时目录并签发不透明 `sourceImageId`；命令结束后删除临时资产。产品或资产平台仍须提供独立的受鉴权 Interface，并满足以下约束：
 
 - 验证调用方对上传和后续读取的权限；资产标识不可枚举，不能让另一个受控调用方读取同一图片。
 - 检查文件 magic bytes、MIME、像素尺寸、文件大小、解码资源上限和恶意内容；不要只相信文件名或浏览器声明。
@@ -114,8 +116,9 @@ Idempotency-Key: 123e4567-e89b-42d3-a456-426614174000
 2. 从私有资产服务解析 `sourceImageId`，验证可用性、授权范围、MIME 和像素上限。
 3. 按画幅选择固定尺寸，并调用已配置的 GPT Image 2 Adapter：OpenAI Adapter 把一张参考图作为 multipart `image[]` 发送到 `POST /v1/images/edits`；FAL Adapter 把参考图编码为 Data URI 后发送到 `openai/gpt-image-2/edit`。两者都固定单张 PNG 输出。
 4. 对模型 PNG 执行确定性后处理和输出检查。
-5. 用 `runId` 派生稳定对象键，写入私有或受控分发存储，再保存幂等结果。
-6. 返回与产品输出中 `image` 相同的 JSON 结构；不要返回供应商响应、Prompt、内部对象键或凭证。
+5. 按服务端证据策略选择不保存、只保存 manifest，或保存原图、模型原始图、最终图和 manifest；产品请求不能覆盖该策略。
+6. 用 `runId` 派生稳定对象键，写入私有或受控分发存储，再保存幂等结果。
+7. 返回与产品输出中 `image` 相同的 JSON 结构；不要返回供应商响应、Prompt、内部对象键或凭证。
 
 建议的固定尺寸如下，全部符合当前 GPT Image 2 自定义尺寸边界：
 
@@ -138,9 +141,15 @@ GPT Image 2 负责识别参考图、保留主体关系和重绘整体构图，�
 - 以同一 bitmap grid 锁定右上标题栏中的 `tait-crt-interface-skill` 签名。
 - 输出不含 alpha 的 PNG，并重新验证尺寸、比例、调色板和解码完整性。
 
-上游 Python 脚本只作为已审查的行为参考，没有随 Runtime Skill 安装。取得明确许可后，可以把等价算法移植到受控图片服务；未取得许可时，应根据上述公开输出约束独立实现，不复制脚本源码。Agent 不能运行 finalizer，也不能获得文件系统、Shell 或通用网络权限。
+[`examples/support/crt-finalizer.ts`](../../../examples/support/crt-finalizer.ts) 根据上述公开输出约束独立实现本地验收 finalizer，没有复制上游 Python 源码。它用 Sharp 完成目标尺寸、调色板量化、共享格、扫描线、边缘扰动、桶形外缘和固定签名。上游 Python 脚本只作为已审查的行为参考，没有随 Runtime Skill 安装。生产图片服务可以复用经过权利与性能评审的独立算法，但 Agent 不能运行 finalizer，也不能获得文件系统、Shell 或通用网络权限。
 
 后处理无法修复主体遗漏、重复、手部关系错误或构图偏差。上线前需要人工或受控视觉验收；若以后加入自动质检与重绘，应发布新版本，明确最大尝试次数、费用、幂等和失败语义。
+
+## 可配置证据保留
+
+图片证据属于 `crt-interface-image/v1` 的服务端运行策略，不属于产品 Interface。仓库内的本地 Business API 支持三档模式：`off` 不创建调试证据，`metadata` 只保存脱敏 manifest，`full` 按 `runId` 保存上传原图、GPT Image 2 原始返回、CRT 最终图和 manifest。`accept:crt-business` 默认使用 `full`；生产 `POST /crt-images` 必须默认使用 `off`。
+
+`off` 不影响产品最终图片的持久化。证据副本和产品资产使用独立的授权、保留和删除策略。配置、目录结构、manifest 字段、失败语义和开发核对步骤见 [CRT 图片证据保留](evidence-retention.md)。
 
 ## 错误契约
 
@@ -148,7 +157,7 @@ GPT Image 2 负责识别参考图、保留主体关系和重绘整体构图，�
 | --- | --- | --- |
 | 输入接受 | `INVALID_INPUT` | 缺少字段、未知调色板或画幅、非法资产标识、额外实现字段 |
 | Prompt 编译 | `AGENT_FAILURE` | Agent 调用失败，或 Prompt/recipe 未通过 Registration 校验 |
-| 图片依赖 | `DEPENDENCY_FAILURE` | 资产不可用、图片编辑、后处理、存储或图片引用解析失败 |
+| 图片依赖 | `DEPENDENCY_FAILURE` | 资产不可用、图片编辑、后处理、启用的证据写入、存储或图片引用解析失败 |
 | 输出验证 | `INVALID_OUTPUT` | Capability 返回的图片类型、URL、尺寸或比例不符合契约 |
 | 执行治理 | `PROCESS_TIMEOUT` | Process 总超时先于结果完成 |
 | 意外异常 | `INTERNAL_ERROR` | 未分类的 Implementation 错误 |
@@ -161,7 +170,7 @@ GPT Image 2 负责识别参考图、保留主体关系和重绘整体构图，�
 
 ```bash
 npm test -- test/crt-process.test.ts test/crt-http.test.ts test/runtime-skills.test.ts test/startup-construction.test.ts
-npm test -- test/openai-image-generation.test.ts test/fal-image-generation.test.ts test/image-generation-config.test.ts
+npm test -- test/openai-image-generation.test.ts test/fal-image-generation.test.ts test/openai-image-config.test.ts test/image-generation-config.test.ts test/crt-local-business-api.test.ts test/crt-evidence.test.ts
 npm run check
 npm run typecheck
 npm test
@@ -179,18 +188,30 @@ FAL_KEY=replace-with-local-secret \
 npm run smoke:crt-gpt-image
 ```
 
-该命令只验证参考图能通过 GPT Image 2 edit stage 生成 PNG，并记录不含 Prompt 正文、凭证或原图像素的报告。默认使用 OpenAI Adapter；上例显式切换到 FAL。它不运行 finalizer，也不经过产品 `POST /execute`，因此不能代替完整业务验收。
+该命令只验证参考图能通过 GPT Image 2 edit stage 生成 PNG，并记录不含 Prompt 正文、凭证或原图像素的报告。它不运行 finalizer，也不经过产品 `POST /execute`，因此不能代替完整业务验收。
 
-完整业务验收必须从产品 `POST /execute` 进入 production catalog，经过真实 Agent、生产 HTTP Adapter、受控 `POST /crt-images`、资产解析、GPT Image 2、finalizer 和对象存储，再下载返回 URL 检查：
+无 OSS 本地业务验收从产品 `POST /execute` 进入 production catalog，经过真实 Agent、生产 HTTP Adapter、临时 `POST /crt-images`、本地资产解析、GPT Image 2 和确定性 finalizer，再下载回环 URL。命令把最终图片和报告复制到 `artifacts/crt-interface-image/acceptance/`，但不上传 OSS：
+
+```bash
+CRT_SOURCE_IMAGE_FILE=/absolute/path/to/non-sensitive-test-image.png \
+npm run accept:crt-business
+```
+
+验收默认使用 `经典`、`4:3`、`gpt-image-2`、`low`、OpenAI Adapter 和 `full` 证据模式。可用 `CRT_IMAGE_PALETTE`、`CRT_IMAGE_ASPECT_RATIO`、`CRT_IMAGE_MODEL`、`CRT_IMAGE_QUALITY`、`CRT_IMAGE_EVIDENCE_MODE` 与 `CRT_IMAGE_EVIDENCE_DIRECTORY` 覆盖服务端测试配置。若 Agent 使用的 `OPENAI_BASE_URL` 不实现标准 Images API，可单独设置 `OPENAI_IMAGE_BASE_URL` 和 `OPENAI_IMAGE_API_KEY`；也可设置 `IMAGE_PROVIDER=fal` 与 `FAL_KEY` 改用 FAL。FAL Adapter 只接受 `gpt-image-2`。
+
+`latest.json` 和 `latest.md` 记录上传、Process、Adapter、图片编辑、幂等键、finalizer、下载、证据模式和无 OSS 判据。成功时 `latest.png` 是最终图片；`full` 模式还在 `acceptance/runs/<runId>/` 保存 `source.*`、`raw-gpt-image-2.*`、`final-crt.png` 和 `manifest.json`。主报告和 manifest 不记录 API key、Prompt 正文、revised Prompt 或 Base URL；失败时只记录经过裁剪的图片依赖错误类型、状态码和稳定错误码。
+
+本地业务验收检查：
 
 - 每个显著或互动主体只出现一次，前后、接触、遮挡和持有物关系正确；
 - 主体已重构为 5–9 个块面，而非描摹、自动像素化或简单滤镜；
 - 窗口数量、层级、法文菜单、唯一光标、开放区域和固定签名满足 Prompt；
 - 输出只使用选定调色板，共享网格、checkerboard、扫描线和四边桶形畸变清晰；
-- 图片是目标尺寸 PNG，URL 权限、过期时间、下载哈希和删除生命周期正确；
+- 图片是目标尺寸 PNG，回环 URL 可下载且下载哈希正确；
+- 启用证据保留时，原图、模型原始图、最终图和 manifest 由同一个 `runId` 与 SHA-256 关联；
 - 同一 `runId` 重复到达 `POST /crt-images` 时不重复调用模型或写新对象。
 
-当前仓库尚未提供这条完整验收命令。`POST /crt-images` 与 finalizer 完成后，开发者应仿照 [`poster-business-acceptance.ts`](../../../examples/poster-business-acceptance.ts) 新增 `accept:crt-business`，并把它列入发布门禁。
+这条本地命令证明 Process 组装、参考图编辑和 finalizer 可以协同运行，但不证明生产上传的身份隔离、持久化存储、URL 生命周期、删除、容量或视觉质量。发布验收必须把临时 `POST /assets`、本地磁盘和回环 URL 换成目标环境的受鉴权资产服务、生产 `POST /crt-images` 和受控存储，再复查同一组判据。
 
 ## 发布与回滚
 
@@ -200,6 +221,7 @@ npm run smoke:crt-gpt-image
 - 上传与资产服务通过身份、隔离、文件安全、保留和删除评审；
 - `POST /crt-images` 完成幂等、超时、费用、模型错误、后处理和存储测试；
 - 图片供应商的凭证、数据保留、区域、费用、队列超时与删除要求已经评审；
+- 生产证据模式默认为 `off`；任何 `metadata` 或 `full` 覆盖都已通过数据授权、隔离、期限和删除评审；
 - `PROCESS_TIMEOUT_MS` 长于 `CRT_API_TIMEOUT_MS`，平台超时再长于 Process 总超时；
 - 确定性测试、GPT Image 2 edit smoke 和完整业务验收全部通过；
 - 测试样本覆盖单人、多人、手持物、复杂遮挡、明暗图片、九种调色板和四种画幅；
@@ -217,5 +239,8 @@ npm run smoke:crt-gpt-image
 | Capability 与 HTTP 协议 | [`src/processes/crt/capability.ts`](../../../src/processes/crt/capability.ts)、[`src/processes/crt/http.ts`](../../../src/processes/crt/http.ts) |
 | Skill 绑定与来源 | [`src/processes/crt/skills.ts`](../../../src/processes/crt/skills.ts)、[Runtime Skill](../../../.pi/skills/tait-crt-interface-prompt) |
 | GPT Image edit Adapter 与配置 | [`examples/support/openai-image-generation.ts`](../../../examples/support/openai-image-generation.ts)、[`examples/support/fal-image-generation.ts`](../../../examples/support/fal-image-generation.ts)、[`examples/support/image-generation-config.ts`](../../../examples/support/image-generation-config.ts) |
+| 无 OSS 本地业务验收 | [`examples/crt-business-acceptance.ts`](../../../examples/crt-business-acceptance.ts)、[`examples/support/local-crt-business-api.ts`](../../../examples/support/local-crt-business-api.ts)、[`examples/support/crt-finalizer.ts`](../../../examples/support/crt-finalizer.ts) |
+| 证据策略与开发说明 | [`examples/support/crt-evidence.ts`](../../../examples/support/crt-evidence.ts)、[CRT 图片证据保留](evidence-retention.md) |
+| 同类流程开发模板 | [参考图转换 Business Process 开发模板](development-template.md) |
 | 编辑 smoke | [`examples/crt-gpt-image-smoke.ts`](../../../examples/crt-gpt-image-smoke.ts) |
-| 确定性测试 | [`test/crt-process.test.ts`](../../../test/crt-process.test.ts)、[`test/crt-http.test.ts`](../../../test/crt-http.test.ts)、[`test/openai-image-generation.test.ts`](../../../test/openai-image-generation.test.ts)、[`test/fal-image-generation.test.ts`](../../../test/fal-image-generation.test.ts)、[`test/image-generation-config.test.ts`](../../../test/image-generation-config.test.ts) |
+| 确定性测试 | [`test/crt-process.test.ts`](../../../test/crt-process.test.ts)、[`test/crt-http.test.ts`](../../../test/crt-http.test.ts)、[`test/openai-image-generation.test.ts`](../../../test/openai-image-generation.test.ts)、[`test/fal-image-generation.test.ts`](../../../test/fal-image-generation.test.ts)、[`test/image-generation-config.test.ts`](../../../test/image-generation-config.test.ts)、[`test/crt-local-business-api.test.ts`](../../../test/crt-local-business-api.test.ts)、[`test/crt-evidence.test.ts`](../../../test/crt-evidence.test.ts) |
