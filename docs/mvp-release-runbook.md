@@ -72,9 +72,9 @@ Vercel Functions、Netlify Functions 和 Cloudflare Workers 不能直接运行�
 
 ## 单服务器 GitHub Actions 发布
 
-仓库通过 [production CI/CD](../.github/workflows/production-ci-cd.yml) 把同步 API 发布到一台 Linux 服务器。Pull Request 只执行确定性检查；`main` 推送和手动触发在检查通过后生成发布包，通过 SSH 上传并激活。生产 Job 使用 GitHub `production` Environment 和 `pipipi-production` 并发组，同一时间只允许一次部署。
+仓库通过 [production CI/CD](../.github/workflows/production-ci-cd.yml) 把同步 API 发布到一台 Linux Docker 服务器。Pull Request 执行确定性检查并构建生产镜像；`main` 推送和手动触发在检查通过后把镜像归档与生产 Compose 上传服务器并激活。生产 Job 使用 GitHub `production` Environment 和 `pipipi-production` 并发组，同一时间只允许一次部署。
 
-发布包只包含 `dist/`、生产依赖清单、PM2 配置和固定 Runtime Skill，不包含源码、`.env` 或凭证。服务器把每个 commit 解压到 `REMOTE_PATH/releases/<commit>`，安装 production dependencies，再原子切换 `REMOTE_PATH/current`。激活步骤删除旧 PM2 进程并从目标 release 重新启动，随后校验 `/proc/<pid>/cwd` 与目标目录一致，避免旧进程通过健康检查造成假成功。新版本必须同时通过 `GET /healthz` 与 `GET /readyz`；失败时部署脚本恢复上一 release 并重新启动 PM2。
+生产镜像固定 Node.js 24、编译产物、生产依赖和四个 Runtime Skill，不包含源码、`.env` 或凭证。服务器加载 `pipipi:<commit>` 镜像，再通过 [`compose.production.yaml`](../compose.production.yaml) 重建单个 `pipipi` API 容器。部署脚本同时校验容器 image tag 与 revision label，随后检查 `GET /healthz` 和 `GET /readyz`；失败时恢复部署前的镜像。首次从 PM2 迁移失败时，脚本会恢复服务器原有 PM2 服务。
 
 ### GitHub 配置
 
@@ -96,32 +96,28 @@ Repository variables：
 
 workflow 的生产 Job 仍使用 GitHub `production` Environment 记录部署并执行并发控制。可以在 Settings → Environments 创建 `production`，配置 required reviewer 和 `main` 分支限制；不需要在 Environment 中重复配置上述 Secret 和 Variable。
 
-Actions 私钥只用于连接服务器。服务器不需要读取 Git 仓库，因为流水线直接上传 CI 生成的发布包。
+Actions 私钥只用于连接服务器。服务器不需要读取 Git 仓库或访问镜像仓库，因为流水线直接上传 CI 生成的镜像归档和 Compose 文件。
 
 ### 服务器初始化
 
-以下命令会安装软件、创建系统目录并修改服务状态，只能由有 sudo 权限的运维人员在目标服务器执行：
+以下命令会安装软件和创建系统目录，只能由有 sudo 权限的运维人员在目标服务器执行：
 
 ```bash
 sudo apt update
-sudo apt install -y curl
+sudo apt install -y curl docker.io docker-compose-v2
 ```
 
-安装 Node.js 24、npm 和 PM2。流水线按部署账户的 NVM 路径加载 Node.js，因此使用该账户执行：
+1Panel 已安装 Docker 时不要重复安装；只需确认 Docker Engine 与 Compose 可用：
 
 ```bash
-curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.6/install.sh | bash
-export NVM_DIR="$HOME/.nvm"
-. "$NVM_DIR/nvm.sh"
-nvm install 24
-nvm use 24
-npm install --global pm2
+docker version
+docker compose version
 ```
 
-不要修改默认 Node 版本，也不要重启现有 PM2 daemon。先用 `systemctl is-enabled pm2-root` 检查开机启动；尚未配置时再执行 `pm2 startup`，并核对输出命令中的用户为 `root`、home 目录为 `/root`。随后建立部署目录：
+Node.js 24 和生产 npm 依赖都在镜像内，服务器不需要安装 Node.js、npm 或 PM2。随后建立共享配置目录：
 
 ```bash
-mkdir -p /opt/pipipi/releases /opt/pipipi/shared
+mkdir -p /opt/pipipi/shared
 chmod 700 /opt/pipipi/shared
 ```
 
@@ -163,7 +159,7 @@ ssh-keygen -t ed25519 -C "pipipi-github-actions" -f ./pipipi-deploy
 
 ### 1Panel、OpenResty 与防火墙
 
-PM2 监听 `0.0.0.0:4300`。服务器防火墙不得向公网开放 `4300`；1Panel 管理的 OpenResty 负责 TLS、调用方认证和反向代理。
+生产容器使用 host 网络并监听 `0.0.0.0:4300`，从而保持现有 OpenResty 上游地址，也允许未来访问宿主机上的受控 Business API。服务器防火墙不得向公网开放 `4300`；1Panel 管理的 OpenResty 负责 TLS、调用方认证和反向代理。
 
 在 1Panel 应用商店安装 OpenResty后，通过“网站 → 创建网站 → 反向代理”转发到 `http://<服务器内网IP>:4300`。OpenResty 运行在容器中时，不要默认使用指向容器自身的 `127.0.0.1`。以下配置仅用于说明等价的代理参数：
 
@@ -193,48 +189,44 @@ server {
 首次发布前，在服务器确认以下命令成功：
 
 ```bash
-node --version
-npm --version
-pm2 --version
+docker version
+docker compose version
 test -f /opt/pipipi/shared/.env
 curl --version
 ```
 
-随后在 GitHub Actions 手动运行 `Production CI/CD`，或把已评审改动合入 `main`。流水线依次执行 `npm ci`、`npm run check`、`npm run typecheck`、`npm test`、`npm run build`、上传发布包、安装生产依赖、切换 release、重新启动 PM2、核对进程工作目录，并检查两个健康端点。
+随后在 GitHub Actions 手动运行 `Production CI/CD`，或把已评审改动合入 `main`。流水线依次执行 `npm ci`、`npm run check`、`npm run typecheck`、`npm test`、`npm run build`、构建生产镜像、上传镜像归档、加载镜像、用 Compose 重建容器、核对 image/revision，并检查两个健康端点。
 
 发布成功后在服务器确认：
 
 ```bash
-readlink -f /opt/pipipi/current
-pm2 status pipipi
-PID="$(pm2 pid pipipi)"
-readlink -f "/proc/$PID/cwd"
+docker compose --project-name pipipi \
+  --file /opt/pipipi/shared/compose.production.yaml ps
+docker inspect pipipi \
+  --format 'image={{.Config.Image}} revision={{index .Config.Labels "com.pipipi.revision"}} status={{.State.Status}} health={{.State.Health.Status}}'
 curl --fail http://127.0.0.1:4300/healthz
 curl --fail http://127.0.0.1:4300/readyz
 ```
 
 流水线不会运行付费图片流程。完成确定性健康检查后，发布负责人按本手册“发布门禁”从受控入口执行对应 smoke 和图片业务验收。
 
-### 回滚与 release 清理
+### 回滚与镜像清理
 
-健康检查失败时，流水线自动把 `current` 恢复为部署前的 release。已经成功发布但随后出现业务问题时，运维人员选择已知正常的 release 手工切换：
+健康检查失败时，流水线自动恢复部署前的镜像。已经成功发布但随后出现业务问题时，运维人员选择已知正常的本地镜像 tag 手工切换：
 
 ```bash
-cd /opt/pipipi
-ln -s "$(pwd)/releases/<known-good-commit>" current.next
-mv -Tf current.next current
-TARGET="$(readlink -f current)"
-cd "$TARGET"
-pm2 delete pipipi 2>/dev/null || true
-pm2 start ecosystem.config.cjs --update-env
-PID="$(pm2 pid pipipi)"
-test "$(readlink -f "/proc/$PID/cwd")" = "$TARGET"
+IMAGE="pipipi:<known-good-commit>"
+PIPIPI_IMAGE="$IMAGE" \
+PIPIPI_REVISION="<known-good-commit>" \
+PIPIPI_ENV_FILE="/opt/pipipi/shared/.env" \
+  docker compose --project-name pipipi \
+  --file /opt/pipipi/shared/compose.production.yaml \
+  up -d --force-recreate --no-build
 curl --fail http://127.0.0.1:4300/healthz
 curl --fail http://127.0.0.1:4300/readyz
-pm2 save
 ```
 
-确认当前版本和回滚候选后，才删除不再需要的旧 release。不要删除 `current` 指向的目录，也不要在同一次回滚中修改数据库或生产 `.env`。
+确认当前版本和至少一个回滚镜像后，才用 `docker image rm pipipi:<commit>` 删除不再需要的旧镜像。不要删除当前容器或回滚候选使用的镜像，也不要在同一次回滚中修改生产 `.env`。
 
 ## Run Record 策略
 

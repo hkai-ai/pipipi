@@ -15,7 +15,9 @@ RUN npm run build
 
 FROM node:24-bookworm-slim AS runtime
 
-ENV NODE_ENV=production
+ENV NODE_ENV=production \
+    PORT=4300 \
+    ASYNC_PROCESS_RUNS_ENABLED=false
 WORKDIR /app
 
 COPY --from=production-dependencies --chown=node:node /app/node_modules ./node_modules
@@ -27,9 +29,9 @@ COPY --chown=node:node .pi/skills/minimal-zine-poster-prompt ./.pi/skills/minima
 COPY --chown=node:node .pi/skills/tait-crt-interface-prompt ./.pi/skills/tait-crt-interface-prompt
 
 USER node
-EXPOSE 3000
+EXPOSE 4300
 
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-  CMD node -e "fetch('http://127.0.0.1:' + (process.env.PORT || '3000') + '/healthz').then((response) => { if (!response.ok) process.exit(1); }).catch(() => process.exit(1))"
+  CMD node -e "fetch('http://127.0.0.1:' + (process.env.PORT || '4300') + '/healthz').then((response) => { if (!response.ok) process.exit(1); }).catch(() => process.exit(1))"
 
 CMD ["node", "dist/bin/api.js"]

@@ -1,0 +1,14 @@
+services:
+  api:
+    image: ${PIPIPI_IMAGE:?PIPIPI_IMAGE is required}
+    container_name: pipipi
+    restart: unless-stopped
+    network_mode: host
+    env_file:
+      - ${PIPIPI_ENV_FILE:-/opt/pipipi/shared/.env}
+    environment:
+      NODE_ENV: production
+      PORT: "4300"
+      ASYNC_PROCESS_RUNS_ENABLED: "false"
+    labels:
+      com.pipipi.revision: ${PIPIPI_REVISION:?PIPIPI_REVISION is required}

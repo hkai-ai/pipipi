@@ -39,10 +39,9 @@
 
 ## 单服务器发布
 
-- 标准单服务器发布入口是 `.github/workflows/production-ci-cd.yml`。CI 构建发布包，生产 Job 通过 SSH 把版本部署到 `REMOTE_PATH/releases/<commit>`，再用 PM2 切换 `current`。
-- 同步 API 的生产端口固定为 `4300`，只向本机反向代理开放。基础流水线保持 `ASYNC_PROCESS_RUNS_ENABLED=false`；异步角色必须按独立 Runbook 发布。
-- 服务器环境变量保存在 `REMOTE_PATH/shared/.env`，不得写入 GitHub Actions 日志、发布包或仓库。切换 release 后必须从目标目录重新创建 PM2 进程，并校验 `/proc/<pid>/cwd` 等于该 release；只通过健康检查不能证明新版本已激活。
-- 部署后必须同时通过 `/healthz` 与 `/readyz`，失败时用同一 PM2 进程重建和目录校验步骤切回上一 release。
+- 标准单服务器发布入口是 `.github/workflows/production-ci-cd.yml`。CI 构建不可变的 `pipipi:<commit>` 镜像，生产 Job 通过 SSH 上传镜像归档，再用 `compose.production.yaml` 重建单个 API 容器；不要恢复 PM2 或 release 目录作为日常发布路径。
+- 同步 API 容器固定使用 host 网络和端口 `4300`，服务器防火墙不得向公网开放该端口。基础 Compose 保持 `ASYNC_PROCESS_RUNS_ENABLED=false`，不包含 PostgreSQL、Redis 或异步角色；异步角色必须按独立 Runbook 发布。
+- 服务器环境变量保存在 `REMOTE_PATH/shared/.env`，不得写入 GitHub Actions 日志、镜像或仓库。部署必须校验容器 image tag、`com.pipipi.revision` label、`/healthz` 和 `/readyz`；任一失败都切回上一镜像。
 
 ## Agent skills
 

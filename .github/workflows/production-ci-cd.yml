@@ -43,22 +43,23 @@ jobs:
       - name: Build
         run: npm run build
 
-      - name: Package release
+      - name: Build production image
+        run: docker build --pull --tag "pipipi:${GITHUB_SHA}" .
+
+      - name: Package production image
         if: github.event_name != 'pull_request'
         run: |
-          tar -czf pipipi-release.tar.gz \
-            dist \
-            package.json \
-            package-lock.json \
-            ecosystem.config.cjs \
-            .pi/skills
+          docker save "pipipi:${GITHUB_SHA}" | gzip > "pipipi-${GITHUB_SHA}.image.tar.gz"
+          cp compose.production.yaml "pipipi-${GITHUB_SHA}.compose.yaml"
 
       - name: Upload release
         if: github.event_name != 'pull_request'
         uses: actions/upload-artifact@v4
         with:
           name: pipipi-${{ github.sha }}
-          path: pipipi-release.tar.gz
+          path: |
+            pipipi-${{ github.sha }}.image.tar.gz
+            pipipi-${{ github.sha }}.compose.yaml
           if-no-files-found: error
           retention-days: 7
 
@@ -95,8 +96,9 @@ jobs:
         run: |
           set -Eeuo pipefail
           scp -o StrictHostKeyChecking=no \
-            pipipi-release.tar.gz \
-            "$REMOTE_USER@$REMOTE_HOST:/tmp/pipipi-${GITHUB_SHA}.tar.gz"
+            "pipipi-${GITHUB_SHA}.image.tar.gz" \
+            "pipipi-${GITHUB_SHA}.compose.yaml" \
+            "$REMOTE_USER@$REMOTE_HOST:/tmp/"
 
       - name: Activate release
         env:
@@ -107,58 +109,56 @@ jobs:
           set -Eeuo pipefail
           ssh -o StrictHostKeyChecking=no \
             "$REMOTE_USER@$REMOTE_HOST" \
-            bash -s -- "$REMOTE_PATH" "$GITHUB_SHA" "/tmp/pipipi-${GITHUB_SHA}.tar.gz" <<'REMOTE'
+            bash -s -- "$REMOTE_PATH" "$GITHUB_SHA" \
+              "/tmp/pipipi-${GITHUB_SHA}.image.tar.gz" \
+              "/tmp/pipipi-${GITHUB_SHA}.compose.yaml" <<'REMOTE'
           set -Eeuo pipefail
 
           app_root="$1"
           revision="$2"
-          archive="$3"
-          release_dir="$app_root/releases/$revision"
+          image_archive="$3"
+          compose_source="$4"
+          image="pipipi:$revision"
           shared_env="$app_root/shared/.env"
-          current_link="$app_root/current"
-          previous_release=""
+          compose_file="$app_root/shared/compose.production.yaml"
+          previous_image=""
+          previous_revision=""
+          legacy_pm2="false"
 
-          export NVM_DIR="$HOME/.nvm"
-          if [ -s "$NVM_DIR/nvm.sh" ]; then
-              . "$NVM_DIR/nvm.sh"
-          fi
-          nvm use 24
-          command -v pm2 >/dev/null
+          command -v docker >/dev/null
+          docker compose version >/dev/null
 
           if [ ! -f "$shared_env" ]; then
               echo "Missing production environment file: $shared_env" >&2
               exit 1
           fi
 
-          mkdir -p "$app_root/releases" "$release_dir"
-          tar -xzf "$archive" -C "$release_dir"
-          ln -sfn "$shared_env" "$release_dir/.env"
+          mkdir -p "$app_root/shared"
+          gzip -dc "$image_archive" | docker load
+          install -m 600 "$compose_source" "$compose_file"
 
-          cd "$release_dir"
-          npm ci --omit=dev
-
-          if [ -L "$current_link" ]; then
-              previous_release="$(readlink -f "$current_link")"
+          if docker inspect pipipi >/dev/null 2>&1; then
+              previous_image="$(docker inspect pipipi --format '{{.Config.Image}}')"
+              previous_revision="$(docker inspect pipipi --format '{{index .Config.Labels "com.pipipi.revision"}}')"
+          elif command -v pm2 >/dev/null && \
+              pm2 describe pipipi >/dev/null 2>&1; then
+              legacy_pm2="true"
           fi
 
           activate() {
-              target="$1"
-              ln -sfn "$target" "$app_root/current.next"
-              mv -Tf "$app_root/current.next" "$current_link"
-              cd "$target"
-              pm2 delete pipipi >/dev/null 2>&1 || true
-              pm2 start ecosystem.config.cjs --update-env
+              target_image="$1"
+              target_revision="$2"
+              PIPIPI_IMAGE="$target_image" \
+              PIPIPI_REVISION="$target_revision" \
+              PIPIPI_ENV_FILE="$shared_env" \
+                  docker compose --project-name pipipi \
+                  --file "$compose_file" up -d --force-recreate --no-build
 
-              pid="$(pm2 pid pipipi | head -n 1)"
-              expected_cwd="$(readlink -f "$target")"
-              if [ -z "$pid" ] || [ "$pid" = "0" ] || \
-                  [ ! -d "/proc/$pid" ]; then
-                  echo "PM2 did not start pipipi" >&2
-                  return 1
-              fi
-              actual_cwd="$(readlink -f "/proc/$pid/cwd")"
-              if [ "$actual_cwd" != "$expected_cwd" ]; then
-                  echo "PM2 is running $actual_cwd, expected $expected_cwd" >&2
+              actual_image="$(docker inspect pipipi --format '{{.Config.Image}}')"
+              actual_revision="$(docker inspect pipipi --format '{{index .Config.Labels "com.pipipi.revision"}}')"
+              if [ "$actual_image" != "$target_image" ] || \
+                  [ "$actual_revision" != "$target_revision" ]; then
+                  echo "Container revision mismatch: image=$actual_image revision=$actual_revision" >&2
                   return 1
               fi
           }
@@ -179,22 +179,41 @@ jobs:
           }
 
           rollback() {
-              if [ -z "$previous_release" ] || [ ! -d "$previous_release" ]; then
-                  echo "No previous release is available for rollback" >&2
-                  return 1
+              if [ -n "$previous_image" ]; then
+                  echo "Rolling back to $previous_image" >&2
+                  activate "$previous_image" "$previous_revision"
+                  healthy
+                  return
               fi
-              echo "Rolling back to $previous_release" >&2
-              activate "$previous_release"
-              healthy
+              if [ "$legacy_pm2" = "true" ]; then
+                  echo "Rolling back to the legacy PM2 deployment" >&2
+                  PIPIPI_IMAGE="$image" PIPIPI_REVISION="$revision" \
+                  PIPIPI_ENV_FILE="$shared_env" \
+                      docker compose --project-name pipipi \
+                      --file "$compose_file" down
+                  legacy_release="$(readlink -f "$app_root/current")"
+                  cd "$legacy_release"
+                  pm2 start ecosystem.config.cjs --update-env
+                  healthy
+                  return
+              fi
+              echo "No previous deployment is available for rollback" >&2
+              return 1
           }
 
-          if ! activate "$release_dir" || ! healthy; then
-              pm2 logs pipipi --lines 100 --nostream || true
+          if [ "$legacy_pm2" = "true" ]; then
+              pm2 delete pipipi >/dev/null 2>&1 || true
+          fi
+
+          if ! activate "$image" "$revision" || ! healthy; then
+              docker logs --tail 100 pipipi || true
               rollback || true
               exit 1
           fi
 
-          pm2 save
-          rm -f "$archive"
+          if [ "$legacy_pm2" = "true" ]; then
+              pm2 save --force >/dev/null
+          fi
+          rm -f "$image_archive" "$compose_source"
           echo "Deployed revision $revision"
           REMOTE
