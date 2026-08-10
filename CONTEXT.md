@@ -45,7 +45,7 @@ Business Processing Service 让产品调用方通过一个稳定的 HTTP Interfa
 
 `minimal-zine-poster/v1` 已进入 `/execute` catalog。它返回图片 HTTP(S) URL、媒体类型、尺寸和可选过期时间，不把大体积图片字节写入 Process output。调用方不能选择 Skill、模型、图片供应商或存储。OpenAI Images 与阿里云 OSS 只用于显式真实集成和海报业务验收；Skill A/B 仍是独立实验。
 
-`crt-interface-image/v1` 也已进入 `/execute` catalog。调用方只提交预先上传后得到的不透明 `sourceImageId`、固定调色板名和画幅；请求不接收图片字节、任意 URL、Prompt 或实现配置。Registration 在 Agent 编译结果通过校验后调用一次 CRT Rendering Capability，并只公开画幅和 PNG 引用。仓库已提供 GPT Image 2 reference-edit smoke，但受鉴权上传、`POST /crt-images`、确定性 finalizer 和完整业务验收仍由产品图片服务完成；上游 Runtime Skill 未声明许可证，正式发布前必须确认权利。开发边界见 [`docs/developing-crt-interface-image.md`](docs/developing-crt-interface-image.md)。
+`crt-interface-image/v1` 也已进入 `/execute` catalog。调用方只提交预先上传后得到的不透明 `sourceImageId`、固定调色板名和画幅；请求不接收图片字节、任意 URL、Prompt 或实现配置。Registration 在 Agent 编译结果通过校验后调用一次 CRT Rendering Capability，并只公开画幅和 PNG 引用。仓库已提供 GPT Image 2 reference-edit smoke，但受鉴权上传、`POST /crt-images`、确定性 finalizer 和完整业务验收仍由产品图片服务完成；上游 Runtime Skill 未声明许可证，正式发布前必须确认权利。开发边界见 [`docs/processes/crt-interface-image/`](docs/processes/crt-interface-image/)。
 
 ## 运行与信任模型
 
@@ -128,8 +128,8 @@ Startup Construction 是生产组装 Seam；Process Executor 是同步传输与 
 | 异步部署、观测、故障演练与回滚 | [`docs/async-process-runs-runbook.md`](docs/async-process-runs-runbook.md) |
 | 本地开发与改动流程 | [`docs/development.md`](docs/development.md) |
 | 从自然语言封装 Business Process | [`docs/authoring-business-processes.md`](docs/authoring-business-processes.md) |
+| 查看各 production Business Process | [`docs/processes/README.md`](docs/processes/README.md) |
 | 从本地或远程来源集成 Skill | [`docs/integrating-runtime-skills.md`](docs/integrating-runtime-skills.md) |
-| 开发参考图到 CRT 界面图片流程 | [`docs/developing-crt-interface-image.md`](docs/developing-crt-interface-image.md) |
 | 同步 MVP 部署、验收和回滚 | [`docs/mvp-release-runbook.md`](docs/mvp-release-runbook.md) |
 | 异步角色部署、验收和回滚 | [`docs/async-process-runs-runbook.md`](docs/async-process-runs-runbook.md) |
 | 配置键与示例值 | [`.env.example`](.env.example) 与配置解析测试 |

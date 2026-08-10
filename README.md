@@ -19,26 +19,20 @@
 
 `minimal-zine-poster/v1` 固定加载 `minimal-zine-poster-prompt`。这个 Runtime Skill 只把 brief 编译成四段 Prompt 和六轴 recipe，不获得任何 Tool。Registration 校验 Prompt、recipe 和可选原文后，以 `runId` 为幂等键调用一次 Poster Rendering Capability。Capability 返回 HTTP(S) 图片 URL、类型和尺寸；原始图片字节不进入 `/execute` JSON。
 
-`crt-interface-image/v1` 把服务端资产标识、调色板和画幅收敛为参考图转换。无 Tool Agent 固定加载 `tait-crt-interface-prompt`，只编译内部 Prompt 和十四轴 recipe；Registration 校验后，以 `runId` 为幂等键调用一次 CRT Rendering Capability。产品输出只返回画幅和 PNG 引用，不返回 Prompt、recipe、模型、Skill 或源图片字节。完整开发契约和上线门禁见 [`docs/developing-crt-interface-image.md`](docs/developing-crt-interface-image.md)。
+`crt-interface-image/v1` 把服务端资产标识、调色板和画幅收敛为参考图转换。无 Tool Agent 固定加载 `tait-crt-interface-prompt`，只编译内部 Prompt 和十四轴 recipe；Registration 校验后，以 `runId` 为幂等键调用一次 CRT Rendering Capability。产品输出只返回画幅和 PNG 引用，不返回 Prompt、recipe、模型、Skill 或源图片字节。完整开发契约和上线门禁见 [`docs/processes/crt-interface-image/`](docs/processes/crt-interface-image/)。
 
-## 在代码中查看流程
+## 按 Business Process 查看
 
-图片流程分别集中在自己的目录，不与文本流程混放：
+每个 production Process 都有独立文档目录。先从对应目录确认产品契约、执行顺序、依赖、错误和验证入口，再进入 Implementation：
 
-| 想看什么 | 文件 |
-| --- | --- |
-| 流程名称、输入输出、执行顺序和失败 | [`src/processes/poster/registration.ts`](src/processes/poster/registration.ts) |
-| Agent 可做什么 | [`src/processes/poster/agent.ts`](src/processes/poster/agent.ts) 与 [`src/processes/poster/pi.ts`](src/processes/poster/pi.ts) |
-| 图片 Capability 契约与 HTTP Adapter | [`src/processes/poster/capability.ts`](src/processes/poster/capability.ts) 与 [`src/processes/poster/http.ts`](src/processes/poster/http.ts) |
-| 绑定哪个 Runtime Skill | [`src/processes/poster/skills.ts`](src/processes/poster/skills.ts) |
-| Runtime Skill 的准确规则与来源 | [`.pi/skills/minimal-zine-poster-prompt/SKILL.md`](.pi/skills/minimal-zine-poster-prompt/SKILL.md) 与 [`.pi/skills/minimal-zine-poster-prompt/SOURCE.md`](.pi/skills/minimal-zine-poster-prompt/SOURCE.md) |
-| 哪些流程进入生产 catalog | [`src/processes/catalog.ts`](src/processes/catalog.ts) 与 [`src/app/business-processes.ts`](src/app/business-processes.ts) |
-| 真实业务验收 | [`examples/poster-business-acceptance.ts`](examples/poster-business-acceptance.ts) |
-| CRT 参考图流程与开发门禁 | [`src/processes/crt/`](src/processes/crt) 与 [`docs/developing-crt-interface-image.md`](docs/developing-crt-interface-image.md) |
-| CRT Runtime Skill 与来源 | [`.pi/skills/tait-crt-interface-prompt/SKILL.md`](.pi/skills/tait-crt-interface-prompt/SKILL.md) 与 [`.pi/skills/tait-crt-interface-prompt/SOURCE.md`](.pi/skills/tait-crt-interface-prompt/SOURCE.md) |
-| GPT Image 2 参考图编辑 smoke | [`examples/crt-gpt-image-smoke.ts`](examples/crt-gpt-image-smoke.ts) |
+| Process | 独立文档 | 主要 Registration |
+| --- | --- | --- |
+| `content-processing/v1` | [`docs/processes/content-processing/`](docs/processes/content-processing/) | [`src/processes/content/registration.ts`](src/processes/content/registration.ts) |
+| `titled-content-processing/v1` | [`docs/processes/titled-content-processing/`](docs/processes/titled-content-processing/) | [`src/processes/titled-content/registration.ts`](src/processes/titled-content/registration.ts) |
+| `minimal-zine-poster/v1` | [`docs/processes/minimal-zine-poster/`](docs/processes/minimal-zine-poster/) | [`src/processes/poster/registration.ts`](src/processes/poster/registration.ts) |
+| `crt-interface-image/v1` | [`docs/processes/crt-interface-image/`](docs/processes/crt-interface-image/) | [`src/processes/crt/registration.ts`](src/processes/crt/registration.ts) |
 
-海报顺序是：`brief → 无 Tool Agent 编译 → Registration 校验 → Poster Rendering Capability → 图片 URL`。CRT 顺序是：`sourceImageId + palette + aspectRatio → 无 Tool Agent 编译 → Registration 校验 → CRT Rendering Capability → PNG URL`。
+总目录和新 Process 的放置规则见 [`docs/processes/README.md`](docs/processes/README.md)。production catalog 的准确清单由 [`src/processes/catalog.ts`](src/processes/catalog.ts) 和 [`src/app/business-processes.ts`](src/app/business-processes.ts) 决定。
 
 产品请求只有业务字段：
 
@@ -147,8 +141,8 @@ CRT 流程的 Registration、Runtime Skill、HTTP Adapter 和确定性测试已�
 | [`docs/README.md`](docs/README.md) | 所有维护者 | 文档索引、分类和维护规范 |
 | [`docs/development.md`](docs/development.md) | 开发者 | 本地开发、代码地图、改动路径和验证要求 |
 | [`docs/authoring-business-processes.md`](docs/authoring-business-processes.md) | 产品与开发者 | 如何把自然语言流程描述封装为版本化 Business Process |
+| [`docs/processes/README.md`](docs/processes/README.md) | 产品与开发者 | 每个 production Business Process 的独立文档入口 |
 | [`docs/integrating-runtime-skills.md`](docs/integrating-runtime-skills.md) | 开发者 | 如何从本地路径或远程来源审查、固定并接入 Skill |
-| [`docs/developing-crt-interface-image.md`](docs/developing-crt-interface-image.md) | 产品与开发者 | 如何开发上传参考图、GPT Image 2 编辑、CRT 后处理与发布验收 |
 | [`docs/process-runtime-design.md`](docs/process-runtime-design.md) | 开发者 | Module、Interface、执行 invariant 和错误归属 |
 | [`docs/async-process-runs-design.md`](docs/async-process-runs-design.md) | 开发者 | 异步提交、持久化查询、BullMQ Worker 和 Webhook 设计 |
 | [`docs/async-process-runs-development-plan.md`](docs/async-process-runs-development-plan.md) | 开发者 | 异步能力的开发批次、测试门槛和发布顺序 |

@@ -1,8 +1,8 @@
-# 开发 CRT 界面图片流程
+# `crt-interface-image/v1` Business Process
 
 本文面向实现、测试和发布 `crt-interface-image/v1` 的开发者。结论是：用户上传参考图后，用 GPT Image 2 生成 TaiT CRT 界面风格图片是可行的。仓库已经实现 Process Registration、受限 Agent、固定 Runtime Skill、CRT Rendering Capability Interface、生产 HTTP Adapter、确定性测试和显式的 GPT Image 2 编辑 smoke；正式对产品开放前，还必须实现受鉴权的图片上传、受控 `POST /crt-images` Business API、确定性后处理、对象存储和完整业务验收。
 
-上游 `TaiT-tt/tait-crt-interface-skill` 没有声明许可证。固定版本、审查结果和适配差异记录在 [Runtime Skill 来源记录](../.pi/skills/tait-crt-interface-prompt/SOURCE.md)；发布负责人确认再分发和生产使用权之前，不得把该快照发布到未获授权的环境。
+上游 `TaiT-tt/tait-crt-interface-skill` 没有声明许可证。固定版本、审查结果和适配差异记录在 [Runtime Skill 来源记录](../../../.pi/skills/tait-crt-interface-prompt/SOURCE.md)；发布负责人确认再分发和生产使用权之前，不得把该快照发布到未获授权的环境。
 
 ## 当前产品契约
 
@@ -189,7 +189,7 @@ npm run smoke:crt-gpt-image
 - 图片是目标尺寸 PNG，URL 权限、过期时间、下载哈希和删除生命周期正确；
 - 同一 `runId` 重复到达 `POST /crt-images` 时不重复调用模型或写新对象。
 
-当前仓库尚未提供这条完整验收命令。`POST /crt-images` 与 finalizer 完成后，开发者应仿照 [`poster-business-acceptance.ts`](../examples/poster-business-acceptance.ts) 新增 `accept:crt-business`，并把它列入发布门禁。
+当前仓库尚未提供这条完整验收命令。`POST /crt-images` 与 finalizer 完成后，开发者应仿照 [`poster-business-acceptance.ts`](../../../examples/poster-business-acceptance.ts) 新增 `accept:crt-business`，并把它列入发布门禁。
 
 ## 发布与回滚
 
@@ -209,10 +209,10 @@ npm run smoke:crt-gpt-image
 
 | 目标 | 文件 |
 | --- | --- |
-| 产品契约、顺序与错误 | [`src/processes/crt/registration.ts`](../src/processes/crt/registration.ts) |
-| Agent Interface 与 Pi Adapter | [`src/processes/crt/agent.ts`](../src/processes/crt/agent.ts)、[`src/processes/crt/pi.ts`](../src/processes/crt/pi.ts) |
-| 调色板和画幅 | [`src/processes/crt/style.ts`](../src/processes/crt/style.ts) |
-| Capability 与 HTTP 协议 | [`src/processes/crt/capability.ts`](../src/processes/crt/capability.ts)、[`src/processes/crt/http.ts`](../src/processes/crt/http.ts) |
-| Skill 绑定与来源 | [`src/processes/crt/skills.ts`](../src/processes/crt/skills.ts)、[Runtime Skill](../.pi/skills/tait-crt-interface-prompt) |
-| GPT Image edit Adapter 与 smoke | [`examples/support/openai-image-generation.ts`](../examples/support/openai-image-generation.ts)、[`examples/crt-gpt-image-smoke.ts`](../examples/crt-gpt-image-smoke.ts) |
-| 确定性测试 | [`test/crt-process.test.ts`](../test/crt-process.test.ts)、[`test/crt-http.test.ts`](../test/crt-http.test.ts)、[`test/openai-image-generation.test.ts`](../test/openai-image-generation.test.ts) |
+| 产品契约、顺序与错误 | [`src/processes/crt/registration.ts`](../../../src/processes/crt/registration.ts) |
+| Agent Interface 与 Pi Adapter | [`src/processes/crt/agent.ts`](../../../src/processes/crt/agent.ts)、[`src/processes/crt/pi.ts`](../../../src/processes/crt/pi.ts) |
+| 调色板和画幅 | [`src/processes/crt/style.ts`](../../../src/processes/crt/style.ts) |
+| Capability 与 HTTP 协议 | [`src/processes/crt/capability.ts`](../../../src/processes/crt/capability.ts)、[`src/processes/crt/http.ts`](../../../src/processes/crt/http.ts) |
+| Skill 绑定与来源 | [`src/processes/crt/skills.ts`](../../../src/processes/crt/skills.ts)、[Runtime Skill](../../../.pi/skills/tait-crt-interface-prompt) |
+| GPT Image edit Adapter 与 smoke | [`examples/support/openai-image-generation.ts`](../../../examples/support/openai-image-generation.ts)、[`examples/crt-gpt-image-smoke.ts`](../../../examples/crt-gpt-image-smoke.ts) |
+| 确定性测试 | [`test/crt-process.test.ts`](../../../test/crt-process.test.ts)、[`test/crt-http.test.ts`](../../../test/crt-http.test.ts)、[`test/openai-image-generation.test.ts`](../../../test/openai-image-generation.test.ts) |

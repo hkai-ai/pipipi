@@ -164,7 +164,7 @@ CRT_SOURCE_IMAGE_FILE=/absolute/path/to/non-sensitive-test-image.png \
 npm run smoke:crt-gpt-image
 ```
 
-该 smoke 不运行 Runtime Skill Agent、production catalog、资产服务、finalizer 或对象存储。发布前还必须按 [`developing-crt-interface-image.md`](developing-crt-interface-image.md) 完成来源授权、上传安全、确定性后处理和全链路业务验收。当前仓库尚未提供 `accept:crt-business`；在该命令实现并从产品 `POST /execute` 验证单次 `POST /crt-images`、`runId` 幂等、参考图关系、九种调色板、四种画幅、PNG 下载和删除生命周期之前，CRT 候选不满足发布门禁。
+该 smoke 不运行 Runtime Skill Agent、production catalog、资产服务、finalizer 或对象存储。发布前还必须按 [`processes/crt-interface-image/`](processes/crt-interface-image/) 完成来源授权、上传安全、确定性后处理和全链路业务验收。当前仓库尚未提供 `accept:crt-business`；在该命令实现并从产品 `POST /execute` 验证单次 `POST /crt-images`、`runId` 幂等、参考图关系、九种调色板、四种画幅、PNG 下载和删除生命周期之前，CRT 候选不满足发布门禁。
 
 ## 发布与回滚
 

@@ -172,7 +172,7 @@ Production catalog 由
 - `content-processing/v1` 捕获 Content Processing Capability、可选 Agent 和 `mode`。流程 Module 的 `skills.ts` 拥有两个准确 Runtime Skill 的名称、顺序、默认路径和唯一 Tool 名称；Composition Root 只提供路径覆盖、模型和供应商等部署配置。Pi Adapter 只加载该集合，不扫描或启用其他 Skill。路径在构造时固定；空集合或重复引用会阻止构造。文件在首次 Agent 请求时读取并缓存，缺失、重复解析或空正文会映射为 `AGENT_FAILURE`。Registration 最多让一次 Agent Tool 调用触达 Business Capability，始终使用 `runId` 作为下游幂等键，并只接受与该 Tool 结果一致的 Agent 输出。
 - `titled-content-processing/v1` 捕获 Content Processing Capability 和 `separator`。
 - `minimal-zine-poster/v1` 捕获 Poster Agent 与 Poster Rendering Capability。Agent 只加载 `minimal-zine-poster-prompt`，不获得 Tool；Registration 要求四段 Prompt、六个固定 recipe 轴和可选原文逐字保留。验证通过后，Registration 只调用一次 Capability，并以 `runId` 作为下游幂等键。Capability 必须返回 HTTP(S) 图片 URL、受限媒体类型、尺寸和可选过期时间；原始图片字节不进入 Process output。
-- `crt-interface-image/v1` 捕获 CRT Agent 与 CRT Rendering Capability。产品只提交不透明 `sourceImageId`、固定调色板和画幅；Agent 只加载 `tait-crt-interface-prompt`，不获得 Tool，也看不到参考图或资产标识。Registration 要求四段 Prompt、十四个固定 recipe 轴、请求画幅、准确调色板和核心 CRT 约束；验证通过后只调用一次 Capability，并以 `runId` 作为下游幂等键。Capability 必须返回符合 GPT Image 2 尺寸边界和请求比例的 PNG 引用；Prompt、recipe 和原始图片字节不进入 Process output。上传、图片编辑和 finalizer 边界见 [`developing-crt-interface-image.md`](developing-crt-interface-image.md)。
+- `crt-interface-image/v1` 捕获 CRT Agent 与 CRT Rendering Capability。产品只提交不透明 `sourceImageId`、固定调色板和画幅；Agent 只加载 `tait-crt-interface-prompt`，不获得 Tool，也看不到参考图或资产标识。Registration 要求四段 Prompt、十四个固定 recipe 轴、请求画幅、准确调色板和核心 CRT 约束；验证通过后只调用一次 Capability，并以 `runId` 作为下游幂等键。Capability 必须返回符合 GPT Image 2 尺寸边界和请求比例的 PNG 引用；Prompt、recipe 和原始图片字节不进入 Process output。上传、图片编辑和 finalizer 边界见 [`processes/crt-interface-image/`](processes/crt-interface-image/)。
 - Execution Context 只携带请求级的 `runId` 与 `AbortSignal`。
 
 依赖按 Seam 类型处理：

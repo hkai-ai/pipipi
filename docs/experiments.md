@@ -125,7 +125,7 @@ npm run test:gpt-image-2
 
 ## CRT 参考图编辑 smoke
 
-`crt-interface-image/v1` 的产品契约、上传边界、`POST /crt-images` 协议、finalizer 和完整验收标准见 [`developing-crt-interface-image.md`](developing-crt-interface-image.md)。仓库当前提供一个更窄的付费 smoke，用来确认一张 PNG、JPEG 或 WebP 能通过 GPT Image 2 的 `POST /images/edits` 生成 PNG：
+`crt-interface-image/v1` 的产品契约、上传边界、`POST /crt-images` 协议、finalizer 和完整验收标准见 [`processes/crt-interface-image/`](processes/crt-interface-image/)。仓库当前提供一个更窄的付费 smoke，用来确认一张 PNG、JPEG 或 WebP 能通过 GPT Image 2 的 `POST /images/edits` 生成 PNG：
 
 ```bash
 CRT_SOURCE_IMAGE_FILE=/absolute/path/to/non-sensitive-test-image.png \
