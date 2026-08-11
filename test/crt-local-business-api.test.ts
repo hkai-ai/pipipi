@@ -98,13 +98,21 @@ describe("local CRT Business API", () => {
                 body: JSON.stringify(request),
             });
             expect(firstResponse.status).toBe(200);
-            const first = readRecord(await firstResponse.json());
+            const firstResult = readRecord(await firstResponse.json());
+            const first = readRecord(firstResult.image);
+            const firstRaw = readRecord(firstResult.rawImage);
             expect(first).toMatchObject({
                 contentType: "image/png",
                 width: 1600,
                 height: 1200,
             });
             expect(first.url).toBe(`${api.url}/images/run-1.png`);
+            expect(firstRaw.url).toBe(`${api.url}/raw-images/run-1.png`);
+            expect(firstRaw).toMatchObject({ contentType: "image/png" });
+
+            const rawResponse = await fetch(String(firstRaw.url));
+            expect(rawResponse.status).toBe(200);
+            expect(rawResponse.headers.get("content-type")).toBe("image/png");
 
             const imageResponse = await fetch(String(first.url));
             expect(imageResponse.status).toBe(200);
@@ -129,7 +137,7 @@ describe("local CRT Business API", () => {
                 body: JSON.stringify(request),
             });
             expect(repeatedResponse.status).toBe(200);
-            expect(await repeatedResponse.json()).toEqual(first);
+            expect(await repeatedResponse.json()).toEqual(firstResult);
             expect(edit).toHaveBeenCalledOnce();
             expect(edit).toHaveBeenCalledWith(
                 expect.objectContaining({ imageUrl: sourceImageUrl }),
@@ -235,12 +243,24 @@ describe("local CRT Business API", () => {
 
             expect(response.status).toBe(200);
             expect(await response.json()).toMatchObject({
-                url: "https://assets.example.com/crt/run-oss.png",
-                expiresAt: "2026-08-11T01:00:00.000Z",
+                image: {
+                    url: "https://assets.example.com/crt/run-oss.png",
+                    expiresAt: "2026-08-11T01:00:00.000Z",
+                },
+                rawImage: {
+                    url: "https://assets.example.com/crt/run-oss.png",
+                },
             });
             expect(upload).toHaveBeenCalledWith(
                 expect.objectContaining({
-                    objectKey: "crt-production/run-oss.png",
+                    objectKey: "crt-production/result/run-oss.png",
+                    contentType: "image/png",
+                }),
+                expect.objectContaining({ signal: expect.any(AbortSignal) }),
+            );
+            expect(upload).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    objectKey: "crt-production/raw/run-oss.png",
                     contentType: "image/png",
                 }),
                 expect.objectContaining({ signal: expect.any(AbortSignal) }),
@@ -268,11 +288,13 @@ describe("local CRT Business API", () => {
                 });
                 expect(repeated.status).toBe(200);
                 expect(await repeated.json()).toMatchObject({
-                    url: "https://assets.example.com/crt/run-oss.png",
+                    image: {
+                        url: "https://assets.example.com/crt/run-oss.png",
+                    },
                 });
                 expect(afterRestart).not.toHaveBeenCalled();
                 expect(edit).toHaveBeenCalledOnce();
-                expect(upload).toHaveBeenCalledOnce();
+                expect(upload).toHaveBeenCalledTimes(2);
             } finally {
                 await restarted.close();
             }

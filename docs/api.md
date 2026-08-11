@@ -172,13 +172,26 @@ Content-Type: application/json
 {
   "aspectRatio": "4:3",
   "image": {
-    "url": "https://assets.example.com/crt/result.png",
+    "url": "https://assets.example.com/crt/result/run.png",
+    "contentType": "image/png",
+    "width": 1600,
+    "height": 1200
+  },
+  "rawImage": {
+    "url": "https://assets.example.com/crt/raw/run.png",
     "contentType": "image/png",
     "width": 1600,
     "height": 1200
   }
 }
 ```
+
+| 字段 | 说明 |
+| --- | --- |
+| `image` | CRT 处理后的最终产物，结构见[图片对象](#图片对象) |
+| `rawImage` | CRT 处理**之前**的模型原图。保留它即可在之后换一个 `grain` 重新出图而不必再次调用模型；它使用供应商返回的栅格格式，尺寸不受 CRT 输出约束 |
+
+两者写入不同的对象前缀（`result/` 与 `raw/`），便于分别配置生命周期规则。
 
 服务端把 `sourceImageUrl` 原样交给 FAL。图片来源不能依赖 Cookie、内网地址或本机服务。
 

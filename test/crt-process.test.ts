@@ -44,12 +44,21 @@ const crtImage = {
     expiresAt: "2026-08-10T12:00:00.000Z",
 };
 
+const crtRawImage = {
+    url: "https://assets.example/crt/raw/run-1.png",
+    contentType: "image/png" as const,
+    width: 1_600,
+    height: 1_200,
+};
+
+const rendered = { image: crtImage, rawImage: crtRawImage };
+
 describe("crt-interface-image/v1", () => {
     it("exposes the exact versioned contract through POST /execute", async () => {
         const application = createProcessingApplication({
             executor: createCrtExecutor(
                 { compile: async () => compiledCrt },
-                { transform: async () => crtImage },
+                { transform: async () => rendered },
             ),
         });
         const { url } = await application.listen();
@@ -103,7 +112,7 @@ describe("crt-interface-image/v1", () => {
                     ...input,
                     idempotencyKey: options.idempotencyKey,
                 });
-                return crtImage;
+                return rendered;
             },
         };
         const executor = createCrtExecutor(agent, capability);
@@ -123,7 +132,11 @@ describe("crt-interface-image/v1", () => {
             process: "crt-interface-image",
             version: "v1",
             status: "succeeded",
-            output: { aspectRatio: "4:3", image: crtImage },
+            output: {
+                aspectRatio: "4:3",
+                image: crtImage,
+                rawImage: crtRawImage,
+            },
         });
         expect(agentRequests).toHaveLength(1);
         expect(agentRequests[0]).toMatchObject({
@@ -161,7 +174,7 @@ describe("crt-interface-image/v1", () => {
             {
                 transform: async () => {
                     transformCalls += 1;
-                    return crtImage;
+                    return rendered;
                 },
             },
         );
@@ -192,7 +205,7 @@ describe("crt-interface-image/v1", () => {
                     ),
                 }),
             },
-            { transform: async () => crtImage },
+            { transform: async () => rendered },
         );
 
         const result = await executor.execute({
@@ -221,7 +234,7 @@ describe("crt-interface-image/v1", () => {
                         .replace("Avoid tracing", "Exclude tracing"),
                 }),
             },
-            { transform: async () => crtImage },
+            { transform: async () => rendered },
         );
 
         const result = await executor.execute({
@@ -247,9 +260,8 @@ describe("crt-interface-image/v1", () => {
             },
             {
                 transform: async () => ({
-                    ...crtImage,
-                    width: 1_152,
-                    height: 2_048,
+                    ...rendered,
+                    image: { ...crtImage, width: 1_152, height: 2_048 },
                 }),
             },
         );
@@ -282,7 +294,7 @@ describe("crt-interface-image/v1", () => {
                     return compiledCrt;
                 },
             },
-            { transform: async () => crtImage },
+            { transform: async () => rendered },
         );
 
         const result = await executor.execute({
@@ -318,7 +330,7 @@ describe("crt-interface-image/v1", () => {
                     return compiledCrt;
                 },
             },
-            { transform: async () => crtImage },
+            { transform: async () => rendered },
         );
 
         const result = await executor.execute({
@@ -353,7 +365,7 @@ describe("crt-interface-image/v1", () => {
             {
                 transform: async () => {
                     transformCalls += 1;
-                    return crtImage;
+                    return rendered;
                 },
             },
         );
@@ -387,7 +399,7 @@ describe("crt-interface-image/v1", () => {
                     },
                 }),
             },
-            { transform: async () => crtImage },
+            { transform: async () => rendered },
         );
 
         const result = await executor.execute({
@@ -419,7 +431,7 @@ describe("crt-interface-image/v1", () => {
             {
                 transform: async (input) => {
                     transformCalls.push({ ...input });
-                    return crtImage;
+                    return rendered;
                 },
             },
         );
@@ -468,7 +480,7 @@ describe("crt-interface-image/v1", () => {
             {
                 transform: async () => {
                     transformCalls += 1;
-                    return crtImage;
+                    return rendered;
                 },
             },
         );
@@ -564,18 +576,20 @@ describe("crt-interface-image/v1", () => {
             {
                 transform: async () =>
                     ({
-                        ...crtImage,
-                        url: "file:///private/crt.png",
-                    }) as typeof crtImage,
+                        ...rendered,
+                        image: {
+                            ...crtImage,
+                            url: "file:///private/crt.png",
+                        },
+                    }) as typeof rendered,
             },
         );
         const wrongRatioExecutor = createCrtExecutor(
             { compile: async () => compiledCrt },
             {
                 transform: async () => ({
-                    ...crtImage,
-                    width: 1_024,
-                    height: 1_024,
+                    ...rendered,
+                    image: { ...crtImage, width: 1_024, height: 1_024 },
                 }),
             },
         );
@@ -653,7 +667,7 @@ describe("crt-interface-image/v1", () => {
                         );
                     }),
             },
-            { transform: async () => crtImage },
+            { transform: async () => rendered },
             5,
         );
 

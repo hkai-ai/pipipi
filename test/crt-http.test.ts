@@ -10,11 +10,20 @@ const image = {
     expiresAt: "2026-08-10T12:00:00.000Z",
 };
 
+const rawImage = {
+    url: "https://assets.example/crt/raw/run-1.png",
+    contentType: "image/png" as const,
+    width: 1_600,
+    height: 1_200,
+};
+
+const rendered = { image, rawImage };
+
 describe("CRT Rendering HTTP Adapter", () => {
     it("calls the owned API with the run id and validates its image reference", async () => {
         const fetchMock = vi
             .fn<typeof fetch>()
-            .mockResolvedValue(new Response(JSON.stringify(image)));
+            .mockResolvedValue(new Response(JSON.stringify(rendered)));
         const capability = new HttpCrtRenderingCapability({
             baseUrl: "https://business.example/base/",
             fetch: fetchMock,
@@ -34,7 +43,7 @@ describe("CRT Rendering HTTP Adapter", () => {
             },
         );
 
-        expect(result).toEqual(image);
+        expect(result).toEqual(rendered);
         expect(fetchMock).toHaveBeenCalledOnce();
         const [url, request] = fetchMock.mock.calls[0] ?? [];
         expect(String(url)).toBe("https://business.example/crt-images");
@@ -58,8 +67,8 @@ describe("CRT Rendering HTTP Adapter", () => {
             fetch: vi.fn<typeof fetch>().mockResolvedValue(
                 new Response(
                     JSON.stringify({
-                        ...image,
-                        contentType: "image/jpeg",
+                        ...rendered,
+                        image: { ...image, contentType: "image/jpeg" },
                     }),
                 ),
             ),

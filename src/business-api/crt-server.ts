@@ -9,9 +9,9 @@ import {
 import { join } from "node:path";
 import sharp from "sharp";
 import {
-    type CrtImage,
+    type CrtRenderingResult,
     isPublicSourceImageUrl,
-    parseCrtImage,
+    parseCrtRenderingResult,
 } from "../processes/crt/capability.js";
 import {
     type CrtAspectRatio,
@@ -116,11 +116,13 @@ export async function startCrtBusinessApi(
     const directory = options.directory;
     const outputDirectory = join(directory, "images");
     const resultDirectory = join(directory, "results");
+    const rawDirectory = join(directory, "raw-images");
     const newsOutputDirectory = join(directory, "news-images");
     const newsResultDirectory = join(directory, "news-results");
     await Promise.all([
         mkdir(outputDirectory, { recursive: true }),
         mkdir(resultDirectory, { recursive: true }),
+        mkdir(rawDirectory, { recursive: true }),
         mkdir(newsOutputDirectory, { recursive: true }),
         mkdir(newsResultDirectory, { recursive: true }),
     ]);
@@ -131,8 +133,9 @@ export async function startCrtBusinessApi(
     const evidencePolicy = options.evidencePolicy ?? { mode: "off" };
     const objectPrefix = normalizeObjectPrefix(options.objectPrefix);
     const outputs = new Map<string, string>();
+    const rawOutputs = new Map<string, string>();
     const newsOutputs = new Map<string, string>();
-    const transforms = new Map<string, PendingTransform<CrtImage>>();
+    const transforms = new Map<string, PendingTransform<CrtRenderingResult>>();
     const newsTransforms = new Map<string, PendingTransform<NewsImage>>();
     let serviceUrl = "";
     let requests = 0;
@@ -190,6 +193,16 @@ export async function startCrtBusinessApi(
                 : null;
         if (imageMatch) {
             await serveImage(imageMatch[1], response);
+            return;
+        }
+        const rawImageMatch =
+            request.method === "GET"
+                ? /^\/raw-images\/([A-Za-z0-9_-]+)\.(png|jpg|webp)$/u.exec(
+                      request.url ?? "",
+                  )
+                : null;
+        if (rawImageMatch) {
+            await serveRawImage(rawImageMatch[1], response);
             return;
         }
         const newsImageMatch =
@@ -251,7 +264,7 @@ export async function startCrtBusinessApi(
                 resultDirectory,
                 requestKey,
                 digest,
-                parseCrtImage,
+                parseCrtRenderingResult,
                 "CRT",
             );
             if (claim.kind === "conflict") {
@@ -500,7 +513,7 @@ export async function startCrtBusinessApi(
         input: CrtRequest,
         requestKey: string,
         signal: AbortSignal,
-    ): Promise<CrtImage> {
+    ): Promise<CrtRenderingResult> {
         const target = crtImageDimensions(input.aspectRatio);
         renderingFailure = undefined;
         editAttempts += 1;
@@ -534,7 +547,7 @@ export async function startCrtBusinessApi(
         requestKey: string,
         signal: AbortSignal,
         generated: GeneratedImage,
-    ): Promise<CrtImage> {
+    ): Promise<CrtRenderingResult> {
         const raw = Buffer.from(generated.bytes);
         const rawContentType = parseImageContentType(generated.mimeType);
         if (!rawContentType || detectImageContentType(raw) !== rawContentType) {
@@ -587,10 +600,13 @@ export async function startCrtBusinessApi(
         colors = finalized.colors;
         blockSize = finalized.blockSize;
         imageRequestId = generated.requestId;
+        // `result/` and `raw/` are separate segments so the caller can attach a
+        // different lifecycle rule to each: the delivered product and the model
+        // output that lets them re-derive another grain without a new render.
         const stored = options.storage
             ? await options.storage.upload(
                   {
-                      objectKey: `${objectPrefix}/${requestKey}.png`,
+                      objectKey: `${objectPrefix}/result/${requestKey}.png`,
                       bytes: finalized.bytes,
                       contentType: "image/png",
                       cacheControl: "private, max-age=31536000, immutable",
@@ -598,12 +614,42 @@ export async function startCrtBusinessApi(
                   { signal },
               )
             : undefined;
+        const rawExtension = extensionForRaster(rawContentType);
+        const rawPath = join(rawDirectory, `${requestKey}.${rawExtension}`);
+        await writeFile(rawPath, raw, { mode: 0o600 });
+        rawOutputs.set(requestKey, rawPath);
+        const storedRaw = options.storage
+            ? await options.storage.upload(
+                  {
+                      objectKey: `${objectPrefix}/raw/${requestKey}.${rawExtension}`,
+                      bytes: raw,
+                      contentType: rawContentType,
+                      cacheControl: "private, max-age=31536000, immutable",
+                  },
+                  { signal },
+              )
+            : undefined;
         return Object.freeze({
-            url: stored?.url ?? `${serviceUrl}/images/${requestKey}.png`,
-            contentType: "image/png",
-            width: finalized.width,
-            height: finalized.height,
-            ...(stored?.urlExpiresAt ? { expiresAt: stored.urlExpiresAt } : {}),
+            image: Object.freeze({
+                url: stored?.url ?? `${serviceUrl}/images/${requestKey}.png`,
+                contentType: "image/png" as const,
+                width: finalized.width,
+                height: finalized.height,
+                ...(stored?.urlExpiresAt
+                    ? { expiresAt: stored.urlExpiresAt }
+                    : {}),
+            }),
+            rawImage: Object.freeze({
+                url:
+                    storedRaw?.url ??
+                    `${serviceUrl}/raw-images/${requestKey}.${rawExtension}`,
+                contentType: rawContentType,
+                width: rawMetadata.width,
+                height: rawMetadata.height,
+                ...(storedRaw?.urlExpiresAt
+                    ? { expiresAt: storedRaw.urlExpiresAt }
+                    : {}),
+            }),
         });
     }
 
@@ -612,6 +658,24 @@ export async function startCrtBusinessApi(
         response: ServerResponse,
     ): Promise<void> {
         await serveStoredImage(outputs, key, response);
+    }
+
+    async function serveRawImage(
+        key: string,
+        response: ServerResponse,
+    ): Promise<void> {
+        const path = rawOutputs.get(key);
+        if (!path) {
+            response.writeHead(404).end();
+            return;
+        }
+        const bytes = await readFile(path);
+        response.writeHead(200, {
+            "content-type": contentTypeForExtension(path),
+            "content-length": String(bytes.length),
+            "cache-control": "no-store",
+        });
+        response.end(bytes);
     }
 
     async function serveStoredImage(
@@ -857,6 +921,18 @@ function normalizeObjectPrefix(value: string | undefined): string {
         throw new Error("CRT image object prefix is invalid");
     }
     return prefix;
+}
+
+function extensionForRaster(contentType: RasterContentType): string {
+    if (contentType === "image/jpeg") return "jpg";
+    if (contentType === "image/webp") return "webp";
+    return "png";
+}
+
+function contentTypeForExtension(path: string): RasterContentType {
+    if (path.endsWith(".jpg")) return "image/jpeg";
+    if (path.endsWith(".webp")) return "image/webp";
+    return "image/png";
 }
 
 function parseImageContentType(

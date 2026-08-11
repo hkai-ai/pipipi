@@ -1,9 +1,9 @@
 import {
-    type CrtImage,
     type CrtRenderingCapability,
+    type CrtRenderingResult,
     CrtRenderingUnavailable,
     crtRenderingIncompleteCode,
-    parseCrtImage,
+    parseCrtRenderingResult,
 } from "./capability.js";
 import type { CrtAspectRatio, CrtGrain, CrtPalette } from "./style.js";
 
@@ -34,7 +34,7 @@ export class HttpCrtRenderingCapability implements CrtRenderingCapability {
             grain: CrtGrain;
         },
         options: { signal: AbortSignal; idempotencyKey: string },
-    ): Promise<CrtImage> {
+    ): Promise<CrtRenderingResult> {
         try {
             const response = await this.#fetch(this.#endpoint, {
                 method: "POST",
@@ -53,7 +53,7 @@ export class HttpCrtRenderingCapability implements CrtRenderingCapability {
                     committed: await isCommittedFailure(response),
                 });
             }
-            return parseCrtImage(await response.json());
+            return parseCrtRenderingResult(await response.json());
         } catch (error) {
             if (error instanceof CrtRenderingUnavailable) throw error;
             throw new CrtRenderingUnavailable({ cause: error });

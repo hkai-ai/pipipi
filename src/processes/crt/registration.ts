@@ -9,6 +9,7 @@ import {
     type CrtRenderingCapability,
     CrtRenderingUnavailable,
     crtImageSchema,
+    crtRawImageSchema,
     isPublicSourceImageUrl,
 } from "./capability.js";
 import {
@@ -138,6 +139,7 @@ const outputSchema = z
     .strictObject({
         aspectRatio: z.enum(crtAspectRatios),
         image: crtImageSchema,
+        rawImage: crtRawImageSchema,
     })
     .superRefine((output, context) => {
         if (
@@ -204,7 +206,7 @@ export function createCrtRegistration(
             }
 
             try {
-                const image = await context.runActivity(
+                const rendered = await context.runActivity(
                     "crt_rendering",
                     async () =>
                         capability.transform(
@@ -221,7 +223,11 @@ export function createCrtRegistration(
                             },
                         ),
                 );
-                return { aspectRatio: input.aspectRatio, image };
+                return {
+                    aspectRatio: input.aspectRatio,
+                    image: rendered.image,
+                    rawImage: rendered.rawImage,
+                };
             } catch (error) {
                 if (error instanceof CrtRenderingUnavailable) {
                     return error.committed
