@@ -11,6 +11,7 @@
 | Content-Type | `application/json` |
 | 鉴权 | 应用不校验鉴权请求头；网关启用鉴权时，按网关要求携带凭证 |
 | 字符编码 | UTF-8 |
+| `X-Request-Id` | 可选。调用方自己的 trace id，会写入本次请求的每一条运行日志，包括没有 `runId` 的传输层拒绝。限 1–200 个字符，字符集 `A-Za-z0-9_.:-`；不合规的取值被忽略，不影响执行，也不回显 |
 
 请求使用严格 Schema。多余字段、错误类型、未知 Process 和未知版本都会被拒绝。
 
@@ -152,7 +153,8 @@ Content-Type: application/json
   "input": {
     "sourceImageUrl": "https://assets.example.com/source.png",
     "palette": "经典",
-    "aspectRatio": "4:3"
+    "aspectRatio": "4:3",
+    "grain": "normal"
   }
 }
 ```
@@ -162,6 +164,7 @@ Content-Type: application/json
 | `sourceImageUrl` | string | 是 | FAL 可匿名读取的公网 HTTPS URL，最长 2048 个字符；不接受 IP、端口、片段或认证信息 |
 | `palette` | string | 是 | `经典`、`粉黛`、`极客01`、`极客02`、`复古01`、`复古02`、`游戏01`、`游戏02` 或 `如图` |
 | `aspectRatio` | string | 是 | `3:4`、`4:3`、`9:16` 或 `16:9` |
+| `grain` | string | 否 | 像素颗粒度 `fine`、`normal` 或 `coarse`，缺省 `normal`；`normal` 与未引入该字段时的输出字节级一致 |
 
 响应 `output`：
 
@@ -303,7 +306,8 @@ HTTP 层在执行前拒绝请求时，不返回 `runId`：
 | 500 | `INVALID_OUTPUT` | Process 输出不符合契约 |
 | 500 | `INTERNAL_ERROR` | 服务端发生内部错误 |
 | 502 | `AGENT_FAILURE` | Agent 未能完成任务 |
-| 502 | `DEPENDENCY_FAILURE` | Business Capability、图片服务或存储服务不可用 |
+| 502 | `DEPENDENCY_FAILURE` | Business Capability、图片服务或存储服务不可用；失败发生在图片生成计费之前，重试不额外产生费用 |
+| 502 | `DEPENDENCY_FAILURE_AFTER_COMMIT` | 图片已生成并计费，但后处理、存储或引用解析失败导致无法交付；重试会再次产生费用，不得自动重试 |
 | 503 | `SERVICE_BUSY` | 同步执行容量已满；按 `Retry-After` 重试 |
 | 504 | `PROCESS_TIMEOUT` | 执行超时 |
 
