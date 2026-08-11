@@ -4,7 +4,10 @@ import {
     type ConsoleHttpOptions,
     createProcessingRequestListener,
 } from "../src/api/http.js";
-import type { ProcessExecutor } from "../src/process-runtime/index.js";
+import type {
+    ProcessExecutor,
+    ProcessRunLogRecord,
+} from "../src/process-runtime/index.js";
 import type { ProcessRunRecord } from "../src/process-runtime/records.js";
 
 type RunningService = { url: string; close: () => Promise<void> };
@@ -24,6 +27,17 @@ const storedRecord: ProcessRunRecord = {
     process: "news-image-pale-watercolor",
     version: "v1",
     status: "succeeded",
+};
+
+const storedActivity: ProcessRunLogRecord = {
+    schemaVersion: 1,
+    timestamp: "2026-08-11T10:00:00.000Z",
+    runId: "run-1",
+    process: "news-image-pale-watercolor",
+    version: "v1",
+    attemptNumber: 1,
+    sequence: 1,
+    event: "process_run_attempt_started",
 };
 
 describe("operator console HTTP boundary", () => {
@@ -99,6 +113,58 @@ describe("operator console HTTP boundary", () => {
         });
     });
 
+    it("serves an Attempt timeline for a run", async () => {
+        const requested: string[] = [];
+        const service = await startConsole({
+            findActivities: async (runId) => {
+                requested.push(runId);
+                return [storedActivity];
+            },
+        });
+
+        const response = await fetch(
+            `${service.url}/console/runs/run-1/activities`,
+        );
+
+        expect(response.status).toBe(200);
+        expect(await response.json()).toEqual({
+            runId: "run-1",
+            activities: [storedActivity],
+        });
+        expect(requested).toEqual(["run-1"]);
+    });
+
+    it("does not mistake a deeper path for a run id", async () => {
+        const service = await startConsole();
+
+        expect(
+            (await fetch(`${service.url}/console/runs/a/b/activities`)).status,
+        ).toBe(404);
+        expect((await fetch(`${service.url}/console/runs/a/b`)).status).toBe(
+            404,
+        );
+    });
+
+    it("omits the timeline route when activities are not configured", async () => {
+        const service = await startRequestListener(
+            createProcessingRequestListener(rejectingExecutor(), {
+                console: {
+                    basePath: "/console",
+                    records: {
+                        list: async () => ({ records: [storedRecord] }),
+                        find: async () => storedRecord,
+                    },
+                },
+            }),
+        );
+
+        const response = await fetch(
+            `${service.url}/console/runs/run-1/activities`,
+        );
+
+        expect(response.status).toBe(404);
+    });
+
     it("never executes a Business Process from a console route", async () => {
         let executions = 0;
         const service = await startConsole({
@@ -136,6 +202,9 @@ async function startConsole(
         basePath?: string;
         list?: ConsoleHttpOptions["records"]["list"];
         find?: ConsoleHttpOptions["records"]["find"];
+        findActivities?: NonNullable<
+            ConsoleHttpOptions["activities"]
+        >["findByRun"];
         executor?: ProcessExecutor;
     } = {},
 ): Promise<RunningService> {
@@ -150,6 +219,11 @@ async function startConsole(
                             options.list ??
                             (async () => ({ records: [storedRecord] })),
                         find: options.find ?? (async () => storedRecord),
+                    },
+                    activities: {
+                        findByRun:
+                            options.findActivities ??
+                            (async () => [storedActivity]),
                     },
                 },
             },

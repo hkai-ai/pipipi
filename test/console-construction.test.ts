@@ -61,6 +61,59 @@ describe("operator console construction", () => {
         expect(page.records.map((entry) => entry.runId)).toEqual([runId]);
     });
 
+    it("serves the Attempt timeline of an executed run", async () => {
+        const directory = await mkdtemp(join(tmpdir(), "pipipi-console-"));
+        const businessApi = await startBusinessApi();
+        const url = await startService({
+            BUSINESS_API_BASE_URL: businessApi,
+            PROCESS_RUN_RECORD_DIRECTORY: directory,
+            PROCESS_RUN_RECORD_CONTENT: "accepted-input-and-output",
+            CONSOLE_ENABLED: "true",
+        });
+
+        const execution = await fetch(`${url}/execute`, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+                process: "content-processing",
+                version: "v1",
+                input: { content: "整理这段内容" },
+            }),
+        });
+        const { runId } = (await execution.json()) as { runId: string };
+        const timeline = await waitForTimeline(url, runId);
+
+        expect(timeline.runId).toBe(runId);
+        expect(timeline.activities.map((entry) => entry.event)).toEqual([
+            "process_run_attempt_started",
+            "process_run_activity_started",
+            "process_run_activity_finished",
+            "process_run_attempt_finished",
+        ]);
+        expect(timeline.activities[1]?.activity).toBe("content_processing");
+        expect(timeline.activities.at(-1)?.durationMs).toBeGreaterThanOrEqual(
+            0,
+        );
+    });
+
+    it("returns an empty timeline for an unknown run", async () => {
+        const directory = await mkdtemp(join(tmpdir(), "pipipi-console-"));
+        const url = await startService({
+            PROCESS_RUN_RECORD_DIRECTORY: directory,
+            CONSOLE_ENABLED: "true",
+        });
+
+        const response = await fetch(
+            `${url}/console/runs/does-not-exist/activities`,
+        );
+
+        expect(response.status).toBe(200);
+        expect(await response.json()).toEqual({
+            runId: "does-not-exist",
+            activities: [],
+        });
+    });
+
     it("keeps recording off and the console unmounted by default", async () => {
         const url = await startService({});
 
@@ -123,6 +176,43 @@ async function startBusinessApi(): Promise<string> {
         throw new Error("Expected an IP address for the stub Business API");
     }
     return `http://127.0.0.1:${address.port}`;
+}
+
+type ConsoleTimeline = Readonly<{
+    runId: string;
+    activities: readonly Readonly<{
+        event: string;
+        activity?: string;
+        outcome?: string;
+        durationMs?: number;
+    }>[];
+}>;
+
+/**
+ * The Run Record and the activity records are two independent best-effort
+ * writes, so the record can be readable while the closing activity line is
+ * still settling. Wait for the Attempt to be reported as finished rather than
+ * assuming one write implies the other.
+ */
+async function waitForTimeline(
+    url: string,
+    runId: string,
+): Promise<ConsoleTimeline> {
+    for (let attempt = 0; attempt < 50; attempt += 1) {
+        const response = await fetch(`${url}/console/runs/${runId}/activities`);
+        if (response.ok) {
+            const timeline = (await response.json()) as ConsoleTimeline;
+            if (
+                timeline.activities.some(
+                    (entry) => entry.event === "process_run_attempt_finished",
+                )
+            ) {
+                return timeline;
+            }
+        }
+        await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    throw new Error(`Attempt timeline for ${runId} never finished`);
 }
 
 /**

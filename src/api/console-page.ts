@@ -112,6 +112,15 @@ td.run-id { font-family: ui-monospace, monospace; font-size: 11px; color: var(--
 .thumb { width: 96px; height: auto; border-radius: 4px; border: 1px solid var(--line); display: block; }
 .record-input { max-width: 360px; white-space: pre-wrap; word-break: break-word; color: var(--muted); font-size: 12px; margin: 0; }
 .table-scroll { overflow-x: auto; }
+.trace-toggle {
+    padding: 2px 6px; font-family: ui-monospace, monospace; font-size: 11px;
+    color: var(--muted); background: none; border: 1px dashed var(--line);
+}
+.trace-toggle:hover { color: var(--ink); border-style: solid; }
+.timeline {
+    margin: 4px 0; padding-left: 20px;
+    font-family: ui-monospace, monospace; font-size: 12px; line-height: 1.8;
+}
 `;
 
 const consoleScript = `
@@ -284,11 +293,76 @@ function renderRecords(records, { reset }) {
 
         const runId = document.createElement("td");
         runId.className = "run-id";
-        runId.textContent = record.runId;
+        const trace = document.createElement("button");
+        trace.type = "button";
+        trace.className = "trace-toggle";
+        trace.textContent = record.runId;
+        trace.title = "展开活动时间线";
+        runId.append(trace);
         row.append(runId);
 
-        body.append(row);
+        const timelineRow = document.createElement("tr");
+        const timelineCell = document.createElement("td");
+        timelineCell.colSpan = 6;
+        timelineRow.hidden = true;
+        timelineRow.append(timelineCell);
+        trace.addEventListener("click", () =>
+            toggleTimeline(record.runId, timelineRow, timelineCell),
+        );
+
+        body.append(row, timelineRow);
     }
+}
+
+async function toggleTimeline(runId, timelineRow, timelineCell) {
+    if (!timelineRow.hidden) {
+        timelineRow.hidden = true;
+        return;
+    }
+    timelineRow.hidden = false;
+    if (timelineCell.dataset.loaded === "true") return;
+    timelineCell.textContent = "读取活动时间线…";
+    try {
+        const response = await fetch(
+            basePath + "/runs/" + encodeURIComponent(runId) + "/activities",
+            { headers: { accept: "application/json" } },
+        );
+        if (!response.ok) throw new Error("HTTP " + response.status);
+        const { activities } = await response.json();
+        timelineCell.replaceChildren(renderTimeline(activities));
+        timelineCell.dataset.loaded = "true";
+    } catch (error) {
+        timelineCell.textContent = "读取活动时间线失败：" + String(error);
+    }
+}
+
+function renderTimeline(activities) {
+    if (activities.length === 0) {
+        const empty = document.createElement("p");
+        empty.className = "hint";
+        empty.textContent = "没有活动记录。执行可能发生在启用持久化之前。";
+        return empty;
+    }
+    const list = document.createElement("ol");
+    list.className = "timeline";
+    for (const entry of activities) {
+        const item = document.createElement("li");
+        const label = entry.activity
+            ? entry.event + " · " + entry.activity
+            : entry.event;
+        const outcome = entry.outcome ? " → " + entry.outcome : "";
+        const duration =
+            entry.durationMs === undefined ? "" : " (" + entry.durationMs + " ms)";
+        item.textContent =
+            "#" + entry.attemptNumber + "." + entry.sequence + "  " +
+            label + outcome + duration +
+            (entry.errorCode ? "  " + entry.errorCode : "");
+        if (entry.outcome && entry.outcome !== "succeeded") {
+            item.className = "status-failed";
+        }
+        list.append(item);
+    }
+    return list;
 }
 
 async function loadRecords({ reset }) {

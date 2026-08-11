@@ -1,7 +1,8 @@
 import { parseOpenAIApiMode } from "../agent-runtime/pi.js";
-import type {
-    ProcessRetryPolicy,
-    ProcessRunLogSink,
+import {
+    combineProcessRunLogSinks,
+    type ProcessRetryPolicy,
+    type ProcessRunLogSink,
 } from "../process-runtime/index.js";
 import type { ProcessRunRecords } from "../process-runtime/records.js";
 import {
@@ -33,14 +34,26 @@ export function createProductionRuntime(
     environment: StartupEnvironment,
     options: {
         runLogSink?: ProcessRunLogSink;
+        /**
+         * Extra destinations for the same activity records, composed with the
+         * Pino Sink rather than replacing it. Persisting activity records must
+         * not change what operators already read from stdout.
+         */
+        additionalRunLogSinks?: readonly ProcessRunLogSink[];
         runRecords?: ProcessRunRecords;
     } = {},
 ): ProcessRuntime {
-    const runLogSink =
+    const baseRunLogSink =
         options.runLogSink ??
         createPinoProcessRunLogSink({
             level: environment.PROCESS_RUN_LOG_LEVEL,
         });
+    const runLogSink = options.additionalRunLogSinks?.length
+        ? combineProcessRunLogSinks(
+              baseRunLogSink,
+              ...options.additionalRunLogSinks,
+          )
+        : baseRunLogSink;
     const mode = parseContentMode(environment.CONTENT_PROCESSING_MODE);
     const baseUrl = parseBusinessApiBaseUrl(environment.BUSINESS_API_BASE_URL);
     const crtBaseUrl = parseBusinessApiBaseUrl(

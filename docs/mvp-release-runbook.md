@@ -261,7 +261,11 @@ curl --fail http://127.0.0.1:4400/healthz
 
 生产启动构造在设置 `PROCESS_RUN_RECORD_DIRECTORY` 时注入 JSONL Run Record Adapter，把每次终态执行按 UTC 日期写入 `runs-YYYY-MM-DD.jsonl`。目录必须是宿主机卷：容器每次发布都会重建，容器内磁盘等同于丢失。生产 Compose 把 `/opt/pipipi/shared/run-records` 挂到容器的 `/var/lib/pipipi-run-records`。不设置该变量时不记录任何内容，行为与之前一致。
 
-Run Record 是给运维看的观测记录，不是异步 Run Store：它只保存已终态的结果，不承载排队与运行中状态，也没有任何代码读它来决定业务状态、重试或投递。Pino 活动日志仍然是 Attempt 级排障的来源，两者互补。
+Run Record 是给运维看的观测记录，不是异步 Run Store：它只保存已终态的结果，不承载排队与运行中状态，也没有任何代码读它来决定业务状态、重试或投递。
+
+同一个目录还保存 Run Activity 归档（`activities-YYYY-MM-DD.jsonl`）。Pino 输出到 stdout 的活动日志会同时写入这里，因此 Attempt 与活动级时间线在容器重建后仍可按 `runId` 还原。Pino 侧行为不变，既有日志采集不受影响；持久化侧失败被隔离，不影响 stdout 输出，也不改变 Process 结果。
+
+两个归档是各自独立的尽力而为写入，都发生在响应路径之外。这意味着 `/execute` 返回后，Run Record 可能先于最后一条活动记录落盘；读取方不应假设其中一个可读就代表另一个已完整。
 
 `PROCESS_RUN_RECORD_CONTENT` 决定内容边界：
 
@@ -287,6 +291,7 @@ Run Record 是给运维看的观测记录，不是异步 Run Store：它只保�
 | `GET {base}` | 控制台页面，含七个 Process 的提交表单与记录列表 |
 | `GET {base}/runs?limit=&before=` | 按记录时间倒序读取 Run Record |
 | `GET {base}/runs/{runId}` | 读取单条 Run Record |
+| `GET {base}/runs/{runId}/activities` | 读取该 Run 的 Attempt 与活动时间线，按 Attempt 序号和 sequence 排序 |
 
 启用前必须理解的三件事：
 

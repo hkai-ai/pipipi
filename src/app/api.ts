@@ -24,6 +24,11 @@ import { createProductionRuntime } from "./business-processes.js";
 import type { StartupEnvironment } from "./config.js";
 import { assertDeploymentEnvironment } from "./deployment-environment.js";
 import {
+    createJsonlProcessRunActivityArchive,
+    type ProcessRunActivityArchive,
+    pruneProcessRunActivities,
+} from "./process-run-activities.js";
+import {
     createJsonlProcessRunRecordArchive,
     defaultProcessRunRecordRetentionDays,
     type ProcessRunRecordArchive,
@@ -48,7 +53,12 @@ export function constructProcessingService(
     const httpConfiguration = loadHttpConfiguration(environment);
     const archive = constructProcessRunRecordArchive(environment);
     const runtime = createProductionRuntime(environment, {
-        ...(archive ? { runRecords: archive.records } : {}),
+        ...(archive
+            ? {
+                  runRecords: archive.records,
+                  additionalRunLogSinks: [archive.activities.record],
+              }
+            : {}),
     });
     const asyncProcessRuns = constructAsyncProcessRuns(
         environment,
@@ -83,6 +93,7 @@ function constructProcessRunRecordArchive(environment: StartupEnvironment):
     | Readonly<{
           records: ProcessRunRecords;
           archive: ProcessRunRecordArchive;
+          activities: ProcessRunActivityArchive;
       }>
     | undefined {
     const directory = environment.PROCESS_RUN_RECORD_DIRECTORY?.trim();
@@ -97,11 +108,19 @@ function constructProcessRunRecordArchive(environment: StartupEnvironment):
         directory,
         retentionDays,
     });
+    const activities = createJsonlProcessRunActivityArchive({
+        directory,
+        retentionDays,
+    });
     // Best effort: a failed prune must not keep the service from listening.
     void pruneProcessRunRecords({ directory, retentionDays }).catch(() => {});
+    void pruneProcessRunActivities({ directory, retentionDays }).catch(
+        () => {},
+    );
 
     return Object.freeze({
         archive,
+        activities,
         records: createProcessRunRecords({
             adapter: archive,
             content: parseProcessRunRecordContent(
@@ -113,7 +132,12 @@ function constructProcessRunRecordArchive(environment: StartupEnvironment):
 
 function constructConsole(
     environment: StartupEnvironment,
-    archive: Readonly<{ archive: ProcessRunRecordArchive }> | undefined,
+    archive:
+        | Readonly<{
+              archive: ProcessRunRecordArchive;
+              activities: ProcessRunActivityArchive;
+          }>
+        | undefined,
 ): NonNullable<ProcessingHttpOptions["console"]> | undefined {
     if (!parseFeatureFlag(environment.CONSOLE_ENABLED, "CONSOLE_ENABLED")) {
         return undefined;
@@ -128,6 +152,9 @@ function constructConsole(
         records: Object.freeze({
             list: archive.archive.list,
             find: archive.archive.find,
+        }),
+        activities: Object.freeze({
+            findByRun: archive.activities.findByRun,
         }),
     });
 }

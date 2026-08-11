@@ -3,11 +3,12 @@ export {
     type ProcessAttemptRequest,
     type ProcessAttemptRunner,
 } from "./attempt.js";
-export type {
-    ProcessRunActivity,
-    ProcessRunLogClock,
-    ProcessRunLogRecord,
-    ProcessRunLogSink,
+export {
+    combineProcessRunLogSinks,
+    type ProcessRunActivity,
+    type ProcessRunLogClock,
+    type ProcessRunLogRecord,
+    type ProcessRunLogSink,
 } from "./logging.js";
 export {
     type AcceptedProcessInput,

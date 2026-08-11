@@ -178,6 +178,25 @@ export function createProcessRunAttemptLog(options: {
     });
 }
 
+/**
+ * Fans one activity record out to several Sinks. A Sink that throws is isolated
+ * so a failing destination cannot silence the others, and logging stays unable
+ * to change a Process Run's result.
+ */
+export function combineProcessRunLogSinks(
+    ...sinks: readonly ProcessRunLogSink[]
+): ProcessRunLogSink {
+    return (record) => {
+        for (const sink of sinks) {
+            try {
+                sink(record);
+            } catch {
+                // A destination failure must not affect the others.
+            }
+        }
+    };
+}
+
 function tryTimestamp(clock: ProcessRunLogClock): string | undefined {
     try {
         return clock.timestamp();

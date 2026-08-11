@@ -11,6 +11,7 @@ import type {
 import type {
     ProcessErrorCode,
     ProcessExecutor,
+    ProcessRunLogRecord,
     ProcessRunResult,
 } from "../process-runtime/index.js";
 import type { ProcessRunRecord } from "../process-runtime/records.js";
@@ -57,6 +58,9 @@ export type ConsoleHttpOptions = Readonly<{
             query: Readonly<{ limit?: number; before?: string }>,
         ) => Promise<ConsoleRecordPage>;
         find: (runId: string) => Promise<ProcessRunRecord | undefined>;
+    }>;
+    activities?: Readonly<{
+        findByRun: (runId: string) => Promise<readonly ProcessRunLogRecord[]>;
     }>;
 }>;
 
@@ -376,6 +380,18 @@ async function handleConsole(
         return true;
     }
 
+    const activityRunId = options.activities
+        ? consoleRunIdFromPath(path, base, "/activities")
+        : undefined;
+    if (options.activities && activityRunId !== undefined) {
+        response.setHeader("cache-control", "no-store");
+        writeJson(response, 200, {
+            runId: activityRunId,
+            activities: await options.activities.findByRun(activityRunId),
+        });
+        return true;
+    }
+
     const runId = consoleRunIdFromPath(path, base);
     if (runId !== undefined) {
         const record = await options.records.find(runId);
@@ -406,12 +422,21 @@ function parseListLimitParameter(
     return limit >= 1 ? limit : "invalid";
 }
 
+/**
+ * Extracts the run id from `{base}/runs/{runId}{suffix}`. The id may not
+ * contain a slash, so a deeper path never resolves to a run.
+ */
 function consoleRunIdFromPath(
     path: string,
     basePath: string,
+    suffix = "",
 ): string | undefined {
-    if (!path.startsWith(`${basePath}/runs/`)) return undefined;
-    const candidate = path.slice(`${basePath}/runs/`.length);
+    const prefix = `${basePath}/runs/`;
+    if (!path.startsWith(prefix) || !path.endsWith(suffix)) return undefined;
+    const candidate = path.slice(
+        prefix.length,
+        suffix.length === 0 ? undefined : -suffix.length,
+    );
     if (candidate.length === 0 || candidate.includes("/")) return undefined;
     try {
         return decodeURIComponent(candidate);
