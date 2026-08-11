@@ -72,9 +72,16 @@ export function createPostgresProcessRunRecordArchive(options: {
             const { rows } = await pool.query(
                 `${recordSelect}
                  where ($1::timestamptz is null or recorded_at < $1::timestamptz)
+                   and ($3::text is null or process_id = $3::text)
+                   and ($4::text is null or status = $4::text)
                  order by recorded_at desc, run_id desc
                  limit $2`,
-                [query.before ?? null, limit + 1],
+                [
+                    query.before ?? null,
+                    limit + 1,
+                    query.process ?? null,
+                    query.status ?? null,
+                ],
             );
             const records = rows.slice(0, limit).map(toRecord);
             return Object.freeze(

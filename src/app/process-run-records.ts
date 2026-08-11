@@ -18,6 +18,8 @@ export type ProcessRunRecordPage = Readonly<{
 export type ProcessRunRecordQuery = Readonly<{
     limit?: number;
     before?: string;
+    process?: string;
+    status?: "succeeded" | "failed";
 }>;
 
 /**
@@ -81,6 +83,7 @@ export function createJsonlProcessRunRecordArchive(options: {
                     if (before !== undefined && record.recordedAt >= before) {
                         continue;
                     }
+                    if (!matchesFilters(record, query)) continue;
                     page.push(record);
                     if (page.length > limit) {
                         return Object.freeze({
@@ -167,6 +170,16 @@ function createRecordDayFiles(
         clock,
         parse: (value) => (isProcessRunRecord(value) ? value : undefined),
     });
+}
+
+function matchesFilters(
+    record: ProcessRunRecord,
+    query: ProcessRunRecordQuery,
+): boolean {
+    return (
+        (query.process === undefined || record.process === query.process) &&
+        (query.status === undefined || record.status === query.status)
+    );
 }
 
 function parseListLimit(value: number | undefined): number {

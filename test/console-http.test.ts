@@ -1,5 +1,8 @@
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { createServer, type RequestListener, type Server } from "node:http";
-import { afterEach, describe, expect, it } from "vitest";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, beforeAll, describe, expect, it } from "vitest";
 import {
     type ConsoleHttpOptions,
     createProcessingRequestListener,
@@ -11,6 +14,27 @@ import type {
 import type { ProcessRunRecord } from "../src/process-runtime/records.js";
 
 type RunningService = { url: string; close: () => Promise<void> };
+
+/**
+ * A stand-in for the build output, so the serving contract can be tested
+ * without first running the console build.
+ */
+let builtConsoleDirectory = "";
+
+beforeAll(async () => {
+    builtConsoleDirectory = await mkdtemp(join(tmpdir(), "pipipi-console-"));
+    await mkdir(join(builtConsoleDirectory, "assets"));
+    await writeFile(
+        join(builtConsoleDirectory, "index.html"),
+        '<!doctype html>\n<html>\n<head>\n<title>Business Process 控制台</title>\n</head>\n<body><div id="console"></div><script type="module" src="./assets/index-abc123.js"></script></body>\n</html>\n',
+        "utf8",
+    );
+    await writeFile(
+        join(builtConsoleDirectory, "assets", "index-abc123.js"),
+        "export const built = true;\n",
+        "utf8",
+    );
+});
 
 const runningServices: RunningService[] = [];
 
@@ -61,6 +85,53 @@ describe("operator console HTTP boundary", () => {
         expect(response.headers.get("cache-control")).toBe("no-store");
         expect(response.headers.get("x-robots-tag")).toBe("noindex, nofollow");
         expect(await response.text()).toContain("Business Process 控制台");
+    });
+
+    it("resolves assets against the deployed base path", async () => {
+        const service = await startConsole({ basePath: "/ops-7f3a" });
+
+        const document = await (await fetch(`${service.url}/ops-7f3a`)).text();
+
+        expect(document).toContain('<base href="/ops-7f3a/">');
+    });
+
+    it("serves the document with or without a trailing slash", async () => {
+        const service = await startConsole();
+
+        expect((await fetch(`${service.url}/console`)).status).toBe(200);
+        expect((await fetch(`${service.url}/console/`)).status).toBe(200);
+    });
+
+    it("serves a built asset as an immutable file", async () => {
+        const service = await startConsole();
+
+        const response = await fetch(
+            `${service.url}/console/assets/index-abc123.js`,
+        );
+
+        expect(response.status).toBe(200);
+        expect(response.headers.get("content-type")).toBe(
+            "text/javascript; charset=utf-8",
+        );
+        expect(response.headers.get("cache-control")).toContain("immutable");
+    });
+
+    it("refuses to serve anything outside the asset directory", async () => {
+        const service = await startConsole();
+
+        for (const name of [
+            "../index.html",
+            "..%2Findex.html",
+            "%2e%2e%2f%2e%2e%2fetc%2fpasswd",
+            "sub/dir.js",
+            "index-abc123.txt",
+            "unknown-asset.js",
+        ]) {
+            const response = await fetch(
+                `${service.url}/console/assets/${name}`,
+            );
+            expect(response.status, name).toBe(404);
+        }
     });
 
     it("serves the console from an unguessable base path only", async () => {
@@ -158,6 +229,7 @@ describe("operator console HTTP boundary", () => {
             createProcessingRequestListener(rejectingExecutor(), {
                 console: {
                     basePath: "/console",
+                    assetDirectory: builtConsoleDirectory,
                     records: {
                         list: async () => ({ records: [storedRecord] }),
                         find: async () => storedRecord,
@@ -200,6 +272,7 @@ describe("operator console HTTP boundary", () => {
             createProcessingRequestListener(rejectingExecutor(), {
                 console: {
                     basePath: "/console",
+                    assetDirectory: builtConsoleDirectory,
                     records: {
                         list: async () => ({ records: [storedRecord] }),
                         find: async () => storedRecord,
@@ -262,6 +335,7 @@ describe("operator console HTTP boundary", () => {
             createProcessingRequestListener(rejectingExecutor(), {
                 console: {
                     basePath: "/console",
+                    assetDirectory: builtConsoleDirectory,
                     records: {
                         list: async () => ({ records: [storedRecord] }),
                         find: async () => storedRecord,
@@ -324,6 +398,7 @@ async function startConsole(
             {
                 console: {
                     basePath: options.basePath ?? "/console",
+                    assetDirectory: builtConsoleDirectory,
                     records: {
                         list:
                             options.list ??

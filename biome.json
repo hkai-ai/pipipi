@@ -8,6 +8,7 @@
     "files": {
         "includes": [
             "src/**",
+            "console/**",
             "test/**",
             "examples/**",
             "migrations/**",

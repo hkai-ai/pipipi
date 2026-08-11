@@ -60,14 +60,17 @@ curl --fail -X POST http://127.0.0.1:3000/execute \
 | `npm run dev:webhook-worker` | 启动 Webhook Outbox 与 Delivery Worker 角色 | 是，访问 PostgreSQL、Redis 与已注册 Endpoint |
 | `npm run dev:retention-cleaner` | 启动分批内容清理角色 | 是，会删除 PostgreSQL 中已到期内容 |
 | `npm run dev:business-api` | 启动本地演示 Business Capability | 否 |
+| `npm run dev:console` | 启动控制台的 Vite 开发服务器，接口代理到本地 `:4300` | 否；需要另开一个 `npm run dev` |
 | `npm run check` | 只读运行 Biome 格式、lint 和 import 排序检查 | 否 |
 | `npm run check:fix` | 写入 Biome 格式和安全修复 | 否；会修改工作区文件 |
 | `npm run lint` | 只读运行 Biome lint | 否 |
 | `npm run format` | 用 Biome 格式化受管文件 | 否；会修改工作区文件 |
-| `npm run typecheck` | 严格 TypeScript 检查 | 否 |
+| `npm run typecheck` | 严格 TypeScript 检查，覆盖服务端与控制台两个 project | 否 |
 | `npm test` | 运行确定性测试 | 否 |
 | `npm run test:watch` | 监听并运行 Vitest | 否 |
-| `npm run build` | 编译 `src/` 到 `dist/` | 否 |
+| `npm run build` | 编译 `src/` 到 `dist/`，并把控制台构建到 `dist/console` | 否 |
+| `npm run build:console` | 只构建控制台 | 否 |
+| `npm run test:integration:observation` | Run 观测的 PostgreSQL 契约测试 | 是，需要名称以 `_test` 结尾的库 |
 | `npm run check:deployment-env -- <role>` | 从已编译产物聚合检查一个部署角色的必填环境变量 | 否 |
 | `npm run db:migrate` | 对 `DATABASE_URL` 执行受锁保护的 PostgreSQL migration | 是，会修改指定数据库 |
 | `npm run recover:queue -- ...` | dry-run 或修复 PostgreSQL 与 Process Queue 的差异 | 是；`--apply` 会写 Queue、Outbox 与审计表 |

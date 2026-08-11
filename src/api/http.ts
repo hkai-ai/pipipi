@@ -15,7 +15,7 @@ import type {
     ProcessRunResult,
 } from "../process-runtime/index.js";
 import type { ProcessRunRecord } from "../process-runtime/records.js";
-import { renderConsolePage } from "./console-page.js";
+import { createConsoleAssets } from "./console-assets.js";
 import type { CallerIdentityResolver } from "./identity.js";
 
 export const defaultHttpMaxRequestBodyBytes = 262_144;
@@ -53,9 +53,16 @@ export type ConsoleRecordPage = Readonly<{
  */
 export type ConsoleHttpOptions = Readonly<{
     basePath: string;
+    /** Directory holding the built console: `index.html` plus `assets/`. */
+    assetDirectory: string;
     records: Readonly<{
         list: (
-            query: Readonly<{ limit?: number; before?: string }>,
+            query: Readonly<{
+                limit?: number;
+                before?: string;
+                process?: string;
+                status?: "succeeded" | "failed";
+            }>,
         ) => Promise<ConsoleRecordPage>;
         find: (runId: string) => Promise<ProcessRunRecord | undefined>;
     }>;
@@ -406,12 +413,14 @@ async function handleConsole(
     if (path !== base && !path.startsWith(`${base}/`)) return false;
 
     if (path === base || path === `${base}/`) {
-        response.writeHead(200, {
-            "content-type": "text/html; charset=utf-8",
-            "cache-control": "no-store",
-            "x-robots-tag": "noindex, nofollow",
-        });
-        response.end(renderConsolePage(base));
+        await assetsFor(options).writeDocument(response, base);
+        return true;
+    }
+
+    if (path.startsWith(`${base}/assets/`)) {
+        const name = path.slice(`${base}/assets/`.length);
+        if (await assetsFor(options).writeAsset(response, name)) return true;
+        writeFailureJson(response, 404, "ROUTE_NOT_FOUND", "Route not found");
         return true;
     }
 
@@ -452,7 +461,22 @@ async function handleConsole(
             );
             return true;
         }
+        const status = url.searchParams.get("status") ?? undefined;
+        if (
+            status !== undefined &&
+            status !== "succeeded" &&
+            status !== "failed"
+        ) {
+            writeFailureJson(
+                response,
+                400,
+                "INVALID_INPUT",
+                "status must be succeeded or failed",
+            );
+            return true;
+        }
         const before = url.searchParams.get("before") ?? undefined;
+        const process = url.searchParams.get("process") ?? undefined;
         response.setHeader("cache-control", "no-store");
         writeJson(
             response,
@@ -460,6 +484,8 @@ async function handleConsole(
             await options.records.list({
                 ...(limit === undefined ? {} : { limit }),
                 ...(before === undefined ? {} : { before }),
+                ...(process === undefined ? {} : { process }),
+                ...(status === undefined ? {} : { status }),
             }),
         );
         return true;
@@ -496,6 +522,23 @@ async function handleConsole(
 
     writeFailureJson(response, 404, "ROUTE_NOT_FOUND", "Route not found");
     return true;
+}
+
+/**
+ * One reader per asset directory: the build output never changes for the life
+ * of a release, so its files are read once and shared by every request.
+ */
+const consoleAssetsByDirectory = new Map<
+    string,
+    ReturnType<typeof createConsoleAssets>
+>();
+
+function assetsFor(options: ConsoleHttpOptions) {
+    const existing = consoleAssetsByDirectory.get(options.assetDirectory);
+    if (existing) return existing;
+    const created = createConsoleAssets({ directory: options.assetDirectory });
+    consoleAssetsByDirectory.set(options.assetDirectory, created);
+    return created;
 }
 
 function parseStatsHours(value: string | null): number | "invalid" {

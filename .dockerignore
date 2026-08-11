@@ -8,6 +8,8 @@
 !src/**
 !migrations/
 !migrations/**
+!console/
+!console/**
 !.pi/
 !.pi/skills/
 !.pi/skills/content-optimization/

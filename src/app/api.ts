@@ -1,3 +1,4 @@
+import { fileURLToPath } from "node:url";
 import { Pool } from "pg";
 import {
     createProcessingApplication,
@@ -232,6 +233,18 @@ function buildPostgresObservation(
     };
 }
 
+/**
+ * The built console ships beside the compiled server, so the default is derived
+ * from this module's own location rather than a working directory. An override
+ * exists for running the server from a different layout.
+ */
+function consoleAssetDirectory(environment: StartupEnvironment): string {
+    const override = environment.CONSOLE_ASSET_DIRECTORY?.trim();
+    return override && override.length > 0
+        ? override
+        : fileURLToPath(new URL("../console", import.meta.url));
+}
+
 function parseRecordStore(value: string | undefined): "file" | "postgres" {
     if (value === undefined || value === "file") return "file";
     if (value === "postgres") return "postgres";
@@ -259,6 +272,7 @@ function constructConsole(
     }
     return Object.freeze({
         basePath: parseConsoleBasePath(environment.CONSOLE_BASE_PATH),
+        assetDirectory: consoleAssetDirectory(environment),
         records: Object.freeze({
             list: archive.archive.list,
             find: archive.archive.find,

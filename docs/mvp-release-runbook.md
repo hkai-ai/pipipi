@@ -320,11 +320,21 @@ Schema 由部署脚本在激活新容器前执行 `npm run db:migrate` 应用，
 
 | 路由 | 用途 |
 | --- | --- |
-| `GET {base}` | 控制台页面，含七个 Process 的提交表单与记录列表 |
-| `GET {base}/runs?limit=&before=` | 按记录时间倒序读取 Run Record |
+| `GET {base}` | 控制台页面。带不带尾斜杠都可以 |
+| `GET {base}/assets/<file>` | 构建产物。文件名带内容哈希，因此按不可变缓存返回 |
+| `GET {base}/runs?limit=&before=&process=&status=` | 按记录时间倒序读取 Run Record，可按 Process 与状态筛选 |
 | `GET {base}/runs/{runId}` | 读取单条 Run Record |
 | `GET {base}/runs/{runId}/activities` | 读取该 Run 的 Attempt 与活动时间线，按 Attempt 序号和 sequence 排序 |
 | `GET {base}/processes` | 读取生产 catalog：精确版本、固定活动名、Registration 级重试策略，以及输入输出字段表 |
+| `GET {base}/stats?hours=` | 窗口内的执行计数、失败分布、Attempt 耗时分位数，以及实时并发占用。`hours` 为 1–720，缺省 24 |
+
+页面是 Preact + Vite 构建的单页应用，四个视图：运行记录（检索、筛选、翻页）、服务压力、Process 目录、提交任务。它由 `npm run build` 一并构建到 `dist/console`，随镜像发布，由 API 同源提供——服务不启用 CORS，控制台不能独立部署到其他源。
+
+构建工具与框架是 devDependencies，生产镜像用 `--omit=dev` 安装运行时依赖，因此它们不进入运行时容器，只有构建产物进入。
+
+资源路由只提供构建输出 `assets` 目录下的单个文件，文件名按严格模式校验而不是解析为路径，因此请求无法走出构建目录。页面本身按部署的 `CONSOLE_BASE_PATH` 注入 `<base>`，所以改路径不需要重新构建。
+
+提交表单由 `{base}/processes` 返回的 Schema 生成：新增 Process 或改字段不需要改控制台。
 
 `{base}/processes` 的字段表由每个 Process Registration 自己的 Zod Schema 推导，因此不会与 `accept` 实际执行的校验漂移。它**不取代** [`docs/api.md`](api.md)：错误语义、计费边界、提交后依赖失败不可自动重试这类约束无法从 Schema 推导，仍以那份文档为准。某个 Schema 无法表示为 JSON Schema 时，该字段被省略而不是让整个目录视图失败。
 
