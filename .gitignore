@@ -6,3 +6,4 @@ artifacts/gpt-image-2/
 artifacts/crt-interface-image/
 artifacts/object-storage/
 .DS_Store
+.pg-server.crt

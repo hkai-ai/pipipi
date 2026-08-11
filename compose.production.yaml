@@ -40,11 +40,16 @@ services:
       - ${PIPIPI_ENV_FILE:-/opt/pipipi/shared/.env}
     volumes:
       - ${PIPIPI_RUN_RECORD_DIRECTORY:-/opt/pipipi/shared/run-records}:/var/lib/pipipi-run-records
+      - ${PIPIPI_DATABASE_CA_FILE:-/opt/pipipi/shared/pg-server.crt}:/etc/pipipi/pg-server.crt:ro
     environment:
       NODE_ENV: production
       PORT: "4300"
       ASYNC_PROCESS_RUNS_ENABLED: "false"
       CRT_BUSINESS_API_BASE_URL: http://127.0.0.1:4400
+      # PostgreSQL is the production record store; DATABASE_URL comes from the
+      # shared env file and must point sslrootcert at the mounted certificate.
+      PROCESS_RUN_RECORD_STORE: postgres
+      # Kept so switching back to the file store needs no Compose change.
       PROCESS_RUN_RECORD_DIRECTORY: /var/lib/pipipi-run-records
       PROCESS_RUN_RECORD_CONTENT: accepted-input-and-output
       CONSOLE_ENABLED: "true"

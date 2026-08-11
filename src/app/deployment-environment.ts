@@ -68,9 +68,16 @@ const asyncApiVariables = Object.freeze([
 
 /**
  * The console can only show what was recorded, and records only survive a
- * release when they are written to a directory outside the container.
+ * release when they are written outside the container: a host volume for the
+ * file store, a database for the PostgreSQL store.
  */
-const consoleApiVariables = Object.freeze(["PROCESS_RUN_RECORD_DIRECTORY"]);
+function consoleApiVariables(
+    environment: StartupEnvironment,
+): readonly string[] {
+    return environment.PROCESS_RUN_RECORD_STORE === "postgres"
+        ? Object.freeze(["DATABASE_URL"])
+        : Object.freeze(["PROCESS_RUN_RECORD_DIRECTORY"]);
+}
 
 const agentRoles: readonly DeploymentRole[] = Object.freeze([
     "api",
@@ -88,7 +95,11 @@ export function checkDeploymentEnvironment(
             ? asyncApiVariables
             : []),
         ...(role === "api" && environment.CONSOLE_ENABLED === "true"
-            ? consoleApiVariables
+            ? consoleApiVariables(environment)
+            : []),
+        ...(role === "api" &&
+        environment.PROCESS_RUN_RECORD_STORE === "postgres"
+            ? ["DATABASE_URL"]
             : []),
         ...(options.includeProviderCredentials &&
         agentRoles.includes(role) &&

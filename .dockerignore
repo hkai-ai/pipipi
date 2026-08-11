@@ -6,6 +6,8 @@
 !tsconfig.build.json
 !src/
 !src/**
+!migrations/
+!migrations/**
 !.pi/
 !.pi/skills/
 !.pi/skills/content-optimization/

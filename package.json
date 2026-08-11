@@ -40,6 +40,7 @@
         "test": "vitest run",
         "test:watch": "vitest",
         "test:integration:postgres": "RUN_POSTGRES_INTEGRATION=1 vitest run test/postgres-process-run-store.integration.test.ts",
+        "test:integration:observation": "RUN_POSTGRES_INTEGRATION=1 vitest run test/postgres-run-observation.integration.test.ts",
         "test:integration:async": "RUN_ASYNC_INTEGRATION=1 vitest run test/bullmq-process-runtime.integration.test.ts",
         "db:migrate": "node-pg-migrate up --migrations-dir migrations --advisory-lock-mode wait"
     },
@@ -49,6 +50,7 @@
         "ali-oss": "^6.23.0",
         "bullmq": "6.0.9",
         "ioredis": "6.0.0",
+        "node-pg-migrate": "^9.0.0",
         "pg": "^8.23.0",
         "pino": "^10.3.1",
         "sharp": "^0.35.3",
@@ -60,7 +62,6 @@
         "@types/ali-oss": "^6.23.3",
         "@types/node": "24.13.3",
         "@types/pg": "^8.21.0",
-        "node-pg-migrate": "^9.0.0",
         "tsx": "4.23.11",
         "typescript": "7.0.2",
         "vitest": "4.1.10"

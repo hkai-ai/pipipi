@@ -20,7 +20,7 @@
 
 每个实际开始的 Process Attempt 都通过 Pino 输出无业务内容的单行 JSON 活动日志。运维系统可按 `runId`、`attemptNumber` 和 `sequence` 还原 Attempt 开始、固定活动开始/结束和 Attempt 结果；活动结束记录包含结果与耗时。日志不保存 input、output、Prompt、Tool 参数、模型消息或内部异常正文。
 
-设置 `PROCESS_RUN_RECORD_DIRECTORY` 后，每次终态执行还会作为 Run Record 按 UTC 日期写入 JSONL 文件，同一目录还保存同样按日分文件的 Run Activity 归档。stdout 的 Pino 活动日志随容器重建消失，这份归档留在宿主机卷上，因此可以按 `runId` 还原完整的 Attempt 与活动时间线——每步活动、结果和耗时。日志随容器重建而消失，Run Record 写在宿主机卷上，因此跨发布保留。`PROCESS_RUN_RECORD_CONTENT=accepted-input-and-output` 时记录附带已校验输入与成功输出，`crt-interface-image` 的 `sourceImageUrl` 始终只保存 SHA-256 摘要。`CONSOLE_ENABLED=true` 时，API 在 `CONSOLE_BASE_PATH`（默认 `/console`）挂载运维控制台，可提交七个 Process、回看历史记录与产出图片、展开任一 Run 的活动时间线，并查看由 Registration Schema 推导的 Process 目录与字段约束。控制台没有自带鉴权，且表单会真实触发付费出图；上线前的访问控制要求见 [`docs/mvp-release-runbook.md`](docs/mvp-release-runbook.md#运维控制台)。
+启用记录后，每次终态执行还会作为 Run Record 持久化，同一存储里还保存 Attempt 活动归档。stdout 的 Pino 活动日志随容器重建消失，这份归档不会，因此可以按 `runId` 还原完整的 Attempt 与活动时间线——每步活动、结果和耗时。`PROCESS_RUN_RECORD_STORE` 选择存储：生产用 `postgres`（有备份，聚合是查询），本地开发用 `file`（按 UTC 日期分文件的 JSONL，不依赖数据库）。两个实现通过同一套契约测试。日志随容器重建而消失，Run Record 写在宿主机卷上，因此跨发布保留。`PROCESS_RUN_RECORD_CONTENT=accepted-input-and-output` 时记录附带已校验输入与成功输出，`crt-interface-image` 的 `sourceImageUrl` 始终只保存 SHA-256 摘要。`CONSOLE_ENABLED=true` 时，API 在 `CONSOLE_BASE_PATH`（默认 `/console`）挂载运维控制台，可提交七个 Process、回看历史记录与产出图片、展开任一 Run 的活动时间线，并查看由 Registration Schema 推导的 Process 目录与字段约束。控制台没有自带鉴权，且表单会真实触发付费出图；上线前的访问控制要求见 [`docs/mvp-release-runbook.md`](docs/mvp-release-runbook.md#运维控制台)。
 
 `content-processing/v1` 的 Agent 路径会同时加载服务端固定的 `content-optimization` 和 `content-integrity`。两项 Skill 作为一个经过评审的指令集执行，但仍只获得 `process_business_content` Tool。Registration 只接受一次 Tool 调用，并要求 Agent 最终结果与 Tool 结果一致；调用方不能提交或覆盖 Skill。
 

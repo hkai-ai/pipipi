@@ -54,7 +54,7 @@ export function createJsonlProcessRunRecordArchive(options: {
         store: (record) =>
             files.append(
                 utcDayOf(record.recordedAt, clock),
-                redactRecord(record),
+                redactProcessRunRecord(record),
             ),
 
         find: async (runId) => {
@@ -151,8 +151,13 @@ function parseListLimit(value: number | undefined): number {
  * `crt-interface-image` accepts a public reference URL, and a full source URL
  * must not reach a log or a stored record. The record keeps a digest so the
  * same source is still recognisable across runs.
+ *
+ * Every Run Record Adapter applies this before writing, so the boundary holds
+ * no matter which storage a deployment chooses.
  */
-function redactRecord(record: ProcessRunRecord): ProcessRunRecord {
+export function redactProcessRunRecord(
+    record: ProcessRunRecord,
+): ProcessRunRecord {
     const input = record.content?.input;
     if (
         record.process !== "crt-interface-image" ||

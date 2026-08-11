@@ -142,6 +142,14 @@ jobs:
               "$app_root/shared/run-records"
           export PIPIPI_BUSINESS_DATA_DIRECTORY="$app_root/shared/crt-business-api"
           export PIPIPI_RUN_RECORD_DIRECTORY="$app_root/shared/run-records"
+          export PIPIPI_DATABASE_CA_FILE="$app_root/shared/pg-server.crt"
+
+          # The database certificate is public, but the deploy must not invent
+          # one: a missing file would silently mount as a directory.
+          if [ ! -f "$app_root/shared/pg-server.crt" ]; then
+              echo "Missing database certificate: $app_root/shared/pg-server.crt" >&2
+              exit 1
+          fi
           gzip -dc "$image_archive" | docker load
 
           docker run --rm --env-file "$shared_env" \
@@ -149,6 +157,21 @@ jobs:
               --env OBJECT_STORAGE_PROVIDER=aliyun-oss \
               --entrypoint node "$image" \
               dist/bin/check-deployment-environment.js crt-business-api
+
+          # The API records Runs into PostgreSQL, so its own required variables
+          # are checked with the same Compose-owned values before anything is
+          # replaced.
+          docker run --rm --env-file "$shared_env" \
+              --env PROCESS_RUN_RECORD_STORE=postgres \
+              --env CONSOLE_ENABLED=true \
+              --entrypoint node "$image" \
+              dist/bin/check-deployment-environment.js api
+
+          # Apply the schema before the new container serves, otherwise
+          # recording fails silently: Run Record writes are best effort.
+          docker run --rm --env-file "$shared_env" \
+              --volume "$app_root/shared/pg-server.crt:/etc/pipipi/pg-server.crt:ro" \
+              --entrypoint npm "$image" run db:migrate
 
           if docker inspect pipipi >/dev/null 2>&1; then
               previous_image="$(docker inspect pipipi --format '{{.Config.Image}}')"

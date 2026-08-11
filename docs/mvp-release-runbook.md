@@ -42,7 +42,10 @@
 | `PROCESS_TIMEOUT_MS` | 正整数；代码默认 `30000`，本发布必须显式设置 `240000` |
 | `PROCESS_RUN_LOG_LEVEL` | Pino 阈值；默认 `info`，生产建议保留 `info` 以观察完整活动时间线 |
 | `ASYNC_PROCESS_RUNS_ENABLED` | 本同步 MVP 必须保持 `false`；异步生产发布使用独立 Runbook |
-| `PROCESS_RUN_RECORD_DIRECTORY` | Run Record 目录；必须是宿主机卷。生产 Compose 固定为 `/var/lib/pipipi-run-records`。留空则不记录 |
+| `PROCESS_RUN_RECORD_STORE` | `file` 或 `postgres`；默认 `file`，生产 Compose 固定为 `postgres` |
+| `DATABASE_URL` | `PROCESS_RUN_RECORD_STORE=postgres` 时必填。必须启用 TLS；自签证书用 `uselibpqcompat=true&sslmode=verify-ca&sslrootcert=<挂载路径>` 固定证书 |
+| `PROCESS_RUN_RECORD_POOL_MAX` | 记录存储独占的连接上限；默认 `4`，与异步角色的池分开，避免记录挤占业务连接 |
+| `PROCESS_RUN_RECORD_DIRECTORY` | 文件存储的目录；必须是宿主机卷。生产 Compose 保留为 `/var/lib/pipipi-run-records`，以便回退到文件存储时不改 Compose |
 | `PROCESS_RUN_RECORD_CONTENT` | `omit` 或 `accepted-input-and-output`；默认 `omit`，生产设为后者 |
 | `PROCESS_RUN_RECORD_RETENTION_DAYS` | 正整数；默认 `30`。应与对象存储生命周期规则对齐 |
 | `CONSOLE_ENABLED` | `true` 或 `false`；默认 `false`。为 `true` 时必须同时设置 `PROCESS_RUN_RECORD_DIRECTORY` |
@@ -259,11 +262,20 @@ curl --fail http://127.0.0.1:4400/healthz
 
 ## Run Record 策略
 
-生产启动构造在设置 `PROCESS_RUN_RECORD_DIRECTORY` 时注入 JSONL Run Record Adapter，把每次终态执行按 UTC 日期写入 `runs-YYYY-MM-DD.jsonl`。目录必须是宿主机卷：容器每次发布都会重建，容器内磁盘等同于丢失。生产 Compose 把 `/opt/pipipi/shared/run-records` 挂到容器的 `/var/lib/pipipi-run-records`。不设置该变量时不记录任何内容，行为与之前一致。
+`PROCESS_RUN_RECORD_STORE` 选择记录存储，两个实现通过同一套契约测试：
+
+| 取值 | 存储 | 必需配置 | 用途 |
+| --- | --- | --- | --- |
+| `postgres` | PostgreSQL 两张表 | `DATABASE_URL` | 生产。数据库有备份，列表、筛选与聚合是查询而不是手写扫描 |
+| `file`（默认） | 按 UTC 日期分文件的 JSONL | `PROCESS_RUN_RECORD_DIRECTORY` | 本地开发与测试，不依赖数据库 |
+
+无论哪种，存储都必须在容器之外：容器每次发布都会重建。文件存储不设置目录时不记录任何内容，行为与引入前一致。
+
+记录**不受 `ASYNC_PROCESS_RUNS_ENABLED` 影响**。同步发布同样需要说清楚自己做过什么，因此记录与异步开关是独立关注点，只共用 `DATABASE_URL`。
 
 Run Record 是给运维看的观测记录，不是异步 Run Store：它只保存已终态的结果，不承载排队与运行中状态，也没有任何代码读它来决定业务状态、重试或投递。
 
-同一个目录还保存 Run Activity 归档（`activities-YYYY-MM-DD.jsonl`）。Pino 输出到 stdout 的活动日志会同时写入这里，因此 Attempt 与活动级时间线在容器重建后仍可按 `runId` 还原。Pino 侧行为不变，既有日志采集不受影响；持久化侧失败被隔离，不影响 stdout 输出，也不改变 Process 结果。
+同一个存储还保存 Run Activity 归档（PostgreSQL 的 `process_run_activities` 表，或 `activities-YYYY-MM-DD.jsonl`）。Pino 输出到 stdout 的活动日志会同时写入这里，因此 Attempt 与活动级时间线在容器重建后仍可按 `runId` 还原。Pino 侧行为不变，既有日志采集不受影响；持久化侧失败被隔离，不影响 stdout 输出，也不改变 Process 结果。
 
 两个归档是各自独立的尽力而为写入，都发生在响应路径之外。这意味着 `/execute` 返回后，Run Record 可能先于最后一条活动记录落盘；读取方不应假设其中一个可读就代表另一个已完整。
 
@@ -281,6 +293,26 @@ Run Record 是给运维看的观测记录，不是异步 Run Store：它只保�
 3. 记录中的图片 URL 指向对象存储。`PROCESS_RUN_RECORD_RETENTION_DAYS`（默认 30）应与 OSS 生命周期规则对齐，否则过期对象会在控制台留下死链。
 4. Adapter 写入失败不得改变 Process Run 的返回结果；记录发生在响应路径之外，因此记录可能比响应稍晚落盘。
 5. 保留期以整日文件为单位，超出窗口的文件在启动时删除。
+
+### 数据库前置条件
+
+发布前，`REMOTE_PATH/shared/` 下必须同时具备：
+
+1. `.env` 里的 `DATABASE_URL`，指向应用专用数据库，并带 TLS 参数；
+2. `pg-server.crt`，即 `DATABASE_URL` 中 `sslrootcert` 指向的证书。
+
+两者缺任何一个，发布都会在替换容器**之前**失败：部署脚本会先跑 api 角色的环境预检，再检查证书文件是否存在。这是刻意的——记录写入是尽力而为，配置错误不会让服务崩溃，只会让它安静地什么都不记录，因此必须在部署期拦截而不是等到上线后发现空白页面。
+
+证书是公开信息，不是密钥，但不进仓库。导出方式：
+
+```bash
+openssl s_client -starttls postgres -connect <数据库主机:端口> </dev/null 2>/dev/null \
+  | openssl x509 -outform PEM > /opt/pipipi/shared/pg-server.crt
+```
+
+Schema 由部署脚本在激活新容器前执行 `npm run db:migrate` 应用，因此 `node-pg-migrate` 与 `migrations/` 随生产镜像发布。迁移使用 advisory lock，重复执行安全。
+
+自签证书且按 IP 连接时不能用 `verify-full`：它校验主机名，而证书的 SAN 通常只有内部主机名。`verify-ca` 配合固定证书等价于证书 pinning，主动中间人无法用另一张证书冒充。`uselibpqcompat=true` 不能省，否则当前 `pg` 版本会把 `verify-ca` 也当成 `verify-full`。
 
 ## 运维控制台
 

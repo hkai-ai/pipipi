@@ -129,6 +129,51 @@ describe("operator console construction", () => {
         ).toThrow(/PROCESS_RUN_RECORD_DIRECTORY/);
     });
 
+    it("refuses the PostgreSQL record store without a database", () => {
+        expect(() =>
+            constructProcessingService({
+                BUSINESS_API_BASE_URL: "https://business.example",
+                PROCESS_RUN_RECORD_STORE: "postgres",
+                CONSOLE_ENABLED: "true",
+            }),
+        ).toThrow(/DATABASE_URL/);
+    });
+
+    it("refuses an unknown record store", () => {
+        expect(() =>
+            constructProcessingService({
+                BUSINESS_API_BASE_URL: "https://business.example",
+                PROCESS_RUN_RECORD_STORE: "mysql",
+            }),
+        ).toThrow(/PROCESS_RUN_RECORD_STORE/);
+    });
+
+    it("records without the async feature being enabled", async () => {
+        const directory = await mkdtemp(join(tmpdir(), "pipipi-console-"));
+        const businessApi = await startBusinessApi();
+        const url = await startService({
+            BUSINESS_API_BASE_URL: businessApi,
+            PROCESS_RUN_RECORD_DIRECTORY: directory,
+            CONSOLE_ENABLED: "true",
+            ASYNC_PROCESS_RUNS_ENABLED: "false",
+        });
+
+        const execution = await fetch(`${url}/execute`, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+                process: "content-processing",
+                version: "v1",
+                input: { content: "内容" },
+            }),
+        });
+        const { runId } = (await execution.json()) as { runId: string };
+
+        expect(await waitForRecord(url, runId)).toMatchObject({
+            status: "succeeded",
+        });
+    });
+
     it("refuses a base path that would shadow a service route", async () => {
         const directory = await mkdtemp(join(tmpdir(), "pipipi-console-"));
 

@@ -23,6 +23,11 @@ import {
 import { createProductionRuntime } from "./business-processes.js";
 import type { StartupEnvironment } from "./config.js";
 import { assertDeploymentEnvironment } from "./deployment-environment.js";
+import {
+    createPostgresProcessRunActivityArchive,
+    createPostgresProcessRunRecordArchive,
+    pruneProcessRunObservation,
+} from "./postgres-run-observation.js";
 import { describeProcessCatalog } from "./process-catalog.js";
 import {
     createJsonlProcessRunActivityArchive,
@@ -52,7 +57,7 @@ export function constructProcessingService(
     });
     const port = parsePort(environment.PORT);
     const httpConfiguration = loadHttpConfiguration(environment);
-    const archive = constructProcessRunRecordArchive(environment);
+    const archive = constructProcessRunObservation(environment);
     const runtime = createProductionRuntime(environment, {
         ...(archive
             ? {
@@ -81,58 +86,148 @@ export function constructProcessingService(
                     : {}),
                 ...(consoleOptions ? { console: consoleOptions } : {}),
             },
-            ...(asyncProcessRuns
-                ? { closeResources: asyncProcessRuns.close }
-                : {}),
+            ...closeResourcesOption([asyncProcessRuns?.close, archive?.close]),
         }),
         port,
     };
 }
 
 /**
- * Builds the durable Run Record archive when a directory is configured. The
- * directory must be a volume that outlives the container: without it a release
- * loses every record of what the service produced.
+ * Closes every resource the service opened, even if an earlier one fails, so a
+ * shutdown cannot leak a connection pool behind a failing one.
  */
-function constructProcessRunRecordArchive(environment: StartupEnvironment):
-    | Readonly<{
-          records: ProcessRunRecords;
-          archive: ProcessRunRecordArchive;
-          activities: ProcessRunActivityArchive;
-      }>
-    | undefined {
-    const directory = environment.PROCESS_RUN_RECORD_DIRECTORY?.trim();
-    if (!directory) return undefined;
+function closeResourcesOption(
+    closers: readonly ((() => Promise<void>) | undefined)[],
+): Readonly<{ closeResources?: () => Promise<void> }> {
+    const present = closers.filter(
+        (close): close is () => Promise<void> => close !== undefined,
+    );
+    if (present.length === 0) return {};
+    return {
+        closeResources: async () => {
+            const results = await Promise.allSettled(
+                present.map((close) => close()),
+            );
+            const failure = results.find(
+                (result): result is PromiseRejectedResult =>
+                    result.status === "rejected",
+            );
+            if (failure) throw failure.reason;
+        },
+    };
+}
 
+type ConstructedObservation = Readonly<{
+    records: ProcessRunRecords;
+    archive: ProcessRunRecordArchive;
+    activities: ProcessRunActivityArchive;
+    close?: () => Promise<void>;
+}>;
+
+/**
+ * Builds the durable Run Record and activity archives.
+ *
+ * `postgres` is the production choice: the database is backed up and listing
+ * and aggregation are queries. `file` keeps local development and tests free of
+ * a database. Either way the storage must outlive the container, because a
+ * release otherwise loses every record of what the service produced.
+ *
+ * Recording is deliberately independent of `ASYNC_PROCESS_RUNS_ENABLED`: a
+ * synchronous release should still be able to say what it did.
+ */
+function constructProcessRunObservation(
+    environment: StartupEnvironment,
+): ConstructedObservation | undefined {
+    const store = parseRecordStore(environment.PROCESS_RUN_RECORD_STORE);
     const retentionDays = parsePositiveInteger(
         environment.PROCESS_RUN_RECORD_RETENTION_DAYS,
         defaultProcessRunRecordRetentionDays,
         "PROCESS_RUN_RECORD_RETENTION_DAYS",
     );
-    const archive = createJsonlProcessRunRecordArchive({
-        directory,
-        retentionDays,
+    const content = parseProcessRunRecordContent(
+        environment.PROCESS_RUN_RECORD_CONTENT,
+    );
+
+    const built =
+        store === "postgres"
+            ? buildPostgresObservation(environment, retentionDays)
+            : buildFileObservation(environment, retentionDays);
+    if (!built) return undefined;
+
+    return Object.freeze({
+        ...built,
+        records: createProcessRunRecords({
+            adapter: built.archive,
+            content,
+        }),
     });
-    const activities = createJsonlProcessRunActivityArchive({
-        directory,
-        retentionDays,
-    });
+}
+
+function buildFileObservation(
+    environment: StartupEnvironment,
+    retentionDays: number,
+): Omit<ConstructedObservation, "records"> | undefined {
+    const directory = environment.PROCESS_RUN_RECORD_DIRECTORY?.trim();
+    if (!directory) return undefined;
+
     // Best effort: a failed prune must not keep the service from listening.
     void pruneProcessRunRecords({ directory, retentionDays }).catch(() => {});
     void pruneProcessRunActivities({ directory, retentionDays }).catch(
         () => {},
     );
-
-    return Object.freeze({
-        archive,
-        activities,
-        records: createProcessRunRecords({
-            adapter: archive,
-            content: parseProcessRunRecordContent(
-                environment.PROCESS_RUN_RECORD_CONTENT,
-            ),
+    return {
+        archive: createJsonlProcessRunRecordArchive({
+            directory,
+            retentionDays,
         }),
+        activities: createJsonlProcessRunActivityArchive({
+            directory,
+            retentionDays,
+        }),
+    };
+}
+
+function buildPostgresObservation(
+    environment: StartupEnvironment,
+    retentionDays: number,
+): Omit<ConstructedObservation, "records"> {
+    const pool = new Pool({
+        connectionString: parsePostgresConnectionString(
+            environment.DATABASE_URL,
+        ),
+        max: parsePositiveInteger(
+            environment.PROCESS_RUN_RECORD_POOL_MAX,
+            4,
+            "PROCESS_RUN_RECORD_POOL_MAX",
+        ),
+        connectionTimeoutMillis: parsePositiveInteger(
+            environment.ASYNC_POSTGRES_CONNECTION_TIMEOUT_MS,
+            5_000,
+            "ASYNC_POSTGRES_CONNECTION_TIMEOUT_MS",
+        ),
+        application_name: "pipipi-run-observation",
     });
+    pool.on("error", () => {
+        console.error(
+            JSON.stringify({
+                event: "postgres_pool_error",
+                role: "pipipi-run-observation",
+                timestamp: new Date().toISOString(),
+            }),
+        );
+    });
+    void pruneProcessRunObservation({ pool, retentionDays }).catch(() => {});
+    return {
+        archive: createPostgresProcessRunRecordArchive({ pool }),
+        activities: createPostgresProcessRunActivityArchive({ pool }),
+        close: () => pool.end(),
+    };
+}
+
+function parseRecordStore(value: string | undefined): "file" | "postgres" {
+    if (value === undefined || value === "file") return "file";
+    if (value === "postgres") return "postgres";
+    throw new Error("PROCESS_RUN_RECORD_STORE must be file or postgres");
 }
 
 function constructConsole(
