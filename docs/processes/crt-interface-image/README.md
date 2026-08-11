@@ -254,6 +254,8 @@ npm run accept:crt-business
 | 生产 Business API、finalizer 与 OSS | [`src/bin/crt-business-api.ts`](../../../src/bin/crt-business-api.ts)、[`src/business-api/crt-server.ts`](../../../src/business-api/crt-server.ts)、[`src/business-api/crt-finalizer.ts`](../../../src/business-api/crt-finalizer.ts)、[`src/business-api/object-storage-config.ts`](../../../src/business-api/object-storage-config.ts) |
 | 公网 URL 业务验收 | [`examples/crt-business-acceptance.ts`](../../../examples/crt-business-acceptance.ts) |
 | 证据策略与开发说明 | [`src/business-api/crt-evidence.ts`](../../../src/business-api/crt-evidence.ts)、[CRT 图片证据保留](evidence-retention.md) |
+| 外部接入契约与对齐结论 | [`crt-interface-image/v1` 接入契约](integration-contract.md) |
+| 接入对齐的实施顺序与门槛 | [CRT 接入对齐开发计划](development-plan.md) |
 | 同类流程开发模板 | [参考图转换 Business Process 开发模板](development-template.md) |
 | 编辑 smoke | [`examples/crt-gpt-image-smoke.ts`](../../../examples/crt-gpt-image-smoke.ts) |
 | 确定性测试 | [`test/crt-process.test.ts`](../../../test/crt-process.test.ts)、[`test/crt-http.test.ts`](../../../test/crt-http.test.ts)、[`test/openai-image-generation.test.ts`](../../../test/openai-image-generation.test.ts)、[`test/fal-image-generation.test.ts`](../../../test/fal-image-generation.test.ts)、[`test/image-generation-config.test.ts`](../../../test/image-generation-config.test.ts)、[`test/crt-local-business-api.test.ts`](../../../test/crt-local-business-api.test.ts)、[`test/crt-evidence.test.ts`](../../../test/crt-evidence.test.ts) |
