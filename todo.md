@@ -2,34 +2,40 @@
 
 本文件记录尚未实现的计划，不代表当前系统已经具备这些能力。
 
-## P0：运维控制台的后续项
+## P1：运维控制台的后续项
 
-JSONL Run Record 归档与运维控制台已经落地（`src/app/process-run-records.ts`、`src/api/console-page.ts`）。以下是本次明确没有做、并且已知需要补上的部分。
+控制台已经落地：Run Record 与活动时间线持久化到 PostgreSQL（本地开发用 JSONL），
+Process 目录由 Registration Schema 推导，聚合统计与 Preact 单页界面均已交付。
+以下是明确没有做、且已知需要跟进的部分。
 
 ### 访问控制（上线前必须处理）
 
-- [ ] 在 OpenResty 为 `CONSOLE_BASE_PATH` 加 Basic Auth 或 `auth_request`。当前控制台没有任何鉴权，页面上的提交表单会真实调用 `POST /execute` 并产生图片费用。
-- [ ] 决定是否把 `CONSOLE_BASE_PATH` 从默认 `/console` 改成不可猜路径。这只是缓解手段，不能替代上一条。
-- [ ] 评估把控制台绑到独立端口并只监听 `127.0.0.1`，通过 SSH 隧道访问，作为不依赖网关配置的替代方案。
+- [ ] 在 OpenResty 为 `CONSOLE_BASE_PATH` 加 Basic Auth 或 `auth_request`。控制台没有应用内鉴权，页面上的提交表单会真实调用 `POST /execute` 并产生图片费用，Process 目录还会暴露内部 Schema。
+- [ ] 把 `CONSOLE_BASE_PATH` 从默认 `/console` 改成不可猜路径。这只是缓解手段，不能替代上一条。
+- [ ] 收紧数据库 `pg_hba.conf`：当前唯一允许远程连接的规则是 `host all postgres 0.0.0.0/0`，超级用户对全网开放且允许非 TLS 连接。专用账户 `pipipi_app` 已建好但没有 HBA 规则，放开后把连接串换成它并删掉 `options=-c role=`。
 
-### 存储演进
+### 数据与运维
 
-- [ ] 记录量或查询需求超出单机文件时，实现数据库版 `ProcessRunRecordAdapter`。适配器是唯一需要替换的部件，HTTP 层、控制台页面和 Process 定义都不受影响。
-- [ ] 若选 MySQL：需要新增 `mysql2` 依赖和建表脚本。注意它只能承载 Run Record，无法承载异步 Process Run —— 后者的 `ProcessRunStore`、Outbox、Recovery、Retention 全部是 PostgreSQL 专用实现。
-- [ ] 把 `PROCESS_RUN_RECORD_RETENTION_DAYS` 与对象存储生命周期规则对齐，避免记录里留下过期图片的死链。
-- [ ] 当前保留期清理只在启动时执行一次。长期运行的实例需要按日触发清理，或交给外部定时任务。
+- [ ] 把 `PROCESS_RUN_RECORD_RETENTION_DAYS` 与对象存储生命周期规则对齐。控制台已经把加载失败的图片标为"对象已过期"，但保留期不匹配仍会让历史里出现大量死链。
+- [ ] 保留期清理目前只在启动时执行一次。长期运行的实例需要按日触发，或交给外部定时任务。
+- [ ] 数据库证书 2035 年到期，且 SAN 里没有 IP。若重签出带 `IP` SAN 的证书，可把连接串从 `verify-ca` 改回 `verify-full`。
 
 ### 控制台功能
 
-- [ ] 记录列表当前不能按 Process、状态或时间范围过滤，也没有全文检索。记录量上来后需要补。
-- [ ] 失败记录只显示错误码，没有关联到对应的 Pino 活动日志。可考虑在控制台按 `runId` 给出日志检索入口。
-- [ ] 控制台的提交是同步的，出图最长阻塞 `PROCESS_TIMEOUT_MS`（生产 240000 毫秒）。真正的排队进度视图依赖异步 Process Run。
+- [ ] 时间范围筛选。当前只有 Process、状态和游标翻页，事故对齐时间窗仍要手动翻。
+- [ ] 失败记录关联到对应的 Pino 活动日志检索入口。
+- [ ] 从记录一键重跑。记录已含完整输入，技术上可行，但会真实计费，等鉴权到位再加。
+- [ ] 同输入不同参数的并排对比（CRT 保留 `rawImage` 正是为此）。
+- [ ] 筛选结果导出 CSV/JSON。
+- [ ] 费用视图。按 Process 的执行计数已经有了，缺的是单价配置与汇总。
 
 ### 已知限制
 
-- Run Record 写入发生在响应路径之外，`/execute` 返回后记录可能稍晚落盘；写入失败被吞掉，不改变执行结果。
-- 归档只保存终态执行。进程在执行中途被杀掉时不会留下任何记录，只有 Pino 日志里的 Attempt 开始事件。
-- 同一 `runId` 重复出现时，读取以最后一行为准。
+- 归档只保存终态执行。进程执行中途被杀不会留下终态记录，只有活动日志里的开始事件。
+- Run Record 与活动记录是两条独立的尽力而为写入，`/execute` 返回后记录可能先于最后一条活动落盘。
+- 同一 `runId` 重复出现时，记录以最新一条为准。
+- 统计的耗时只取 Attempt 级完成事件；Registration 内部的重试（如 CRT 的 Agent 编译）不计为 Attempt，因此不出现在分位数里。
+- 控制台不做按调用方隔离：任何能访问它的人都能看到全部记录。
 
 ## P0：Execution Telemetry 与 Trace
 
