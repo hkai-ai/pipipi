@@ -216,7 +216,7 @@ Webhook 重试状态以 PostgreSQL 为准，不依赖 BullMQ 的 Job attempts。
 | `src/api/` | HTTP Application、路由和 caller identity；不组装业务与基础设施 |
 | `src/process-runtime/` | 跨 Business Process 复用的 Registration、Registry、Runner、Attempt、结果和观测治理 |
 | `src/agent-runtime/` | 跨 Business Process 复用的 Pi provider 配置、Agent JSON 解析和 Runtime Skill 精确加载 |
-| `src/processes/` | production catalog，以及按 `content/`、`titled-content/`、`poster/`、`crt/` 分组的具体 Business Process；不放通用 Runtime |
+| `src/processes/` | production catalog，以及按 `content/`、`titled-content/`、`poster/`、`crt/`、`news-image/` 分组的具体 Business Process；不放通用 Runtime |
 | `src/process-runs/` | Async Process Runs，以及按 `store/`、`queue/`、`outbox/`、`worker/`、`recovery/`、`retention/` 和 `ops/` 分组的内部 Module |
 | `src/webhooks/` | Webhook Delivery，以及按 `delivery/`、`store/`、`queue/`、`outbox/` 分组的内部 Module |
 | `src/business-api/` | CRT Business API、FAL、finalizer、证据和对象存储 Adapter |

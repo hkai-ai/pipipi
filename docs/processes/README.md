@@ -10,6 +10,11 @@
 | `titled-content-processing/v1` | [`titled-content-processing/`](titled-content-processing/) | 组合标题与正文并复用文本处理能力 |
 | `minimal-zine-poster/v1` | [`minimal-zine-poster/`](minimal-zine-poster/) | 编译固定海报风格 Prompt，并生成和持久化图片 |
 | `crt-interface-image/v1` | [`crt-interface-image/`](crt-interface-image/) | 用已上传参考图生成 CRT 界面风格 PNG，并提供同类图片流程开发模板 |
+| `news-image-narrative-monument/v1` | [`news-image-narrative-monument/`](news-image-narrative-monument/) | 人物叙事碑式新闻封面 |
+| `news-image-pale-watercolor/v1` | [`news-image-pale-watercolor/`](news-image-pale-watercolor/) | 淡彩绘本新闻插画 |
+| `news-image-raw-humanism/v1` | [`news-image-raw-humanism/`](news-image-raw-humanism/) | 原质人文主义新闻插画 |
+
+三个新闻图片 Process 的统一请求、响应和错误契约见 [`news-image-api.md`](news-image-api.md)。
 
 production catalog 的准确清单由 [`src/processes/catalog.ts`](../../src/processes/catalog.ts) 和 [`src/app/business-processes.ts`](../../src/app/business-processes.ts) 决定。若本文与运行行为冲突，以 `src/` 和 `test/` 为准，并在同一改动中修正文档。
 

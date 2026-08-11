@@ -49,7 +49,7 @@ Smoke 会临时启动 Agent 模式服务，完成一次 `/execute` 请求，并�
 
 生产 Agent 可以按服务端声明顺序加载多个单文件 Skill，要求名称唯一且每项精确解析一次。它适合规则、分类、抽取、改写、Prompt 编译和少量受控 Tool，但不会自动读取 Skill 的附加参考文件、运行 Skill 脚本、使用 MCP、保存持久记忆或看图后重试。
 
-海报与 CRT 流程都只让 Agent 编译 Prompt；Registration 校验结果后调用各自的窄 Rendering Capability。生产 HTTP Adapter 要求 Capability 返回已持久化图片的 URL。海报业务验收会临时启动受控 `POST /posters` Capability，由它调用所选 OpenAI 或 FAL Adapter 和可选 OSS。CRT edit smoke 只调用图片阶段；CRT 业务验收还会临时启动本地上传、`POST /crt-images` 和 finalizer，并从产品 `POST /execute` 进入 production catalog。当前流程仍没有自动视觉检查、有限重绘或跨 Run 变化记忆；不要为了补齐这些能力直接开放 Coding Tools。
+海报、CRT 与新闻图片流程都只让 Agent 编译 Prompt；Registration 校验结果后调用各自的窄 Rendering Capability。生产 HTTP Adapter 要求 Capability 返回已持久化图片的 URL。当前流程仍没有自动视觉检查、有限重绘或跨 Run 变化记忆；不要为了补齐这些能力直接开放 Coding Tools。
 
 ## Skill A/B 对比
 

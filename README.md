@@ -4,7 +4,7 @@
 
 ## 当前能力
 
-生产 catalog 包含四个 Business Process：
+生产 catalog 包含七个 Business Process：
 
 | Process | 输入 | 输出 |
 | --- | --- | --- |
@@ -12,8 +12,11 @@
 | `titled-content-processing/v1` | `{ "title": string, "body": string }` | `{ "title": string, "content": string }` |
 | `minimal-zine-poster/v1` | `{ "brief": string, "text"?: string }` | `{ "prompt", "recipe", "interpretation", "image" }` |
 | `crt-interface-image/v1` | `{ "sourceImageUrl", "palette", "aspectRatio" }` | `{ "aspectRatio", "image" }` |
+| `news-image-narrative-monument/v1` | `{ "title", "summary" }` | `{ "style", "image" }` |
+| `news-image-pale-watercolor/v1` | `{ "title", "summary" }` | `{ "style", "image" }` |
+| `news-image-raw-humanism/v1` | `{ "title", "summary" }` | `{ "style", "image" }` |
 
-四个流程共享同一个 `POST /execute` Interface。每个明确版本由 Process Registration 绑定业务定义、Schema、依赖、运行活动和策略，再进入不可变 Process Registry。Process Runner 统一处理 `runId`、精确版本查找、超时、取消、错误净化和可选 Run Record。
+七个流程共享同一个 `POST /execute` Interface。每个明确版本由 Process Registration 绑定业务定义、Schema、依赖、运行活动和策略，再进入不可变 Process Registry。Process Runner 统一处理 `runId`、精确版本查找、超时、取消、错误净化和可选 Run Record。
 
 每个实际开始的 Process Attempt 都通过 Pino 输出无业务内容的单行 JSON 活动日志。运维系统可按 `runId`、`attemptNumber` 和 `sequence` 还原 Attempt 开始、固定活动开始/结束和 Attempt 结果；活动结束记录包含结果与耗时。日志不保存 input、output、Prompt、Tool 参数、模型消息或内部异常正文。
 
@@ -22,6 +25,8 @@
 `minimal-zine-poster/v1` 固定加载 `minimal-zine-poster-prompt`。这个 Runtime Skill 只把 brief 编译成四段 Prompt 和六轴 recipe，不获得任何 Tool。Registration 校验 Prompt、recipe 和可选原文后，以 `runId` 为幂等键调用一次 Poster Rendering Capability。Capability 返回 HTTP(S) 图片 URL、类型和尺寸；原始图片字节不进入 `/execute` JSON。
 
 `crt-interface-image/v1` 把服务端资产标识、调色板和画幅收敛为参考图转换。无 Tool Agent 固定加载 `tait-crt-interface-prompt`，只编译内部 Prompt 和十四轴 recipe；Registration 校验后，以 `runId` 为幂等键调用一次 CRT Rendering Capability。产品输出只返回画幅和 PNG 引用，不返回 Prompt、recipe、模型、Skill 或源图片字节。完整开发契约和上线门禁见 [`docs/processes/crt-interface-image/`](docs/processes/crt-interface-image/)。
+
+三个新闻图片 Process 都接收标题和摘要，并分别固定人物叙事碑式封面、淡彩绘本和原质人文主义 Runtime Skill。Registration 校验后调用同一个受控图片 Capability，生成并持久化 1600×1200 PNG。调用方不能选择 Skill、模型或图片供应商。
 
 ## 按 Business Process 查看
 
@@ -33,6 +38,9 @@
 | `titled-content-processing/v1` | [`docs/processes/titled-content-processing/`](docs/processes/titled-content-processing/) | [`src/processes/titled-content/registration.ts`](src/processes/titled-content/registration.ts) |
 | `minimal-zine-poster/v1` | [`docs/processes/minimal-zine-poster/`](docs/processes/minimal-zine-poster/) | [`src/processes/poster/registration.ts`](src/processes/poster/registration.ts) |
 | `crt-interface-image/v1` | [`docs/processes/crt-interface-image/`](docs/processes/crt-interface-image/) | [`src/processes/crt/registration.ts`](src/processes/crt/registration.ts) |
+| `news-image-narrative-monument/v1` | [`docs/processes/news-image-narrative-monument/`](docs/processes/news-image-narrative-monument/) | [`src/processes/news-image/registration-narrative-monument.ts`](src/processes/news-image/registration-narrative-monument.ts) |
+| `news-image-pale-watercolor/v1` | [`docs/processes/news-image-pale-watercolor/`](docs/processes/news-image-pale-watercolor/) | [`src/processes/news-image/registration.ts`](src/processes/news-image/registration.ts) |
+| `news-image-raw-humanism/v1` | [`docs/processes/news-image-raw-humanism/`](docs/processes/news-image-raw-humanism/) | [`src/processes/news-image/registration-raw-humanism.ts`](src/processes/news-image/registration-raw-humanism.ts) |
 
 总目录和新 Process 的放置规则见 [`docs/processes/README.md`](docs/processes/README.md)。production catalog 的准确清单由 [`src/processes/catalog.ts`](src/processes/catalog.ts) 和 [`src/app/business-processes.ts`](src/app/business-processes.ts) 决定。
 
@@ -70,7 +78,7 @@ cp .env.example .env
 npm run dev:business-api
 ```
 
-文本演示服务只实现 `POST /process`。海报 Process 仍要求 `BUSINESS_API_BASE_URL` 指向实现 `POST /posters` 的受控服务；CRT Process 可以通过 `CRT_BUSINESS_API_BASE_URL` 单独指向仓库提供的生产 CRT Business API。`npm run accept:poster-business` 会完成一次海报业务验收。`npm run smoke:crt-gpt-image` 只验证本地参考图编辑；`npm run accept:crt-business` 则从产品 `POST /execute` 使用公网 `sourceImageUrl` 调用 FAL、执行确定性 finalizer，并可把最终 PNG 上传阿里云 OSS。
+文本演示服务只实现 `POST /process`。海报 Process 仍要求 `BUSINESS_API_BASE_URL` 指向实现 `POST /posters` 的受控服务；CRT 与新闻图片 Process 通过 `CRT_BUSINESS_API_BASE_URL` 使用仓库提供的内部图片 Business API。新闻图片的产品调用契约见 [`docs/processes/news-image-api.md`](docs/processes/news-image-api.md)。
 
 在第二个终端启动处理服务：
 

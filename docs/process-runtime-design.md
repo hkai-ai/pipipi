@@ -161,7 +161,7 @@ Activity Log 只允许 `runId`、Process identity、Attempt、固定 activity、
 ## Composition 与依赖
 
 [`constructProcessingService`](../src/app/api.ts) 拥有 API 的生产 Composition Root。
-它先校验通用配置，创建 Pino Process Run Log Adapter，再组装四个精确 Registration。`CONTENT_PROCESSING_MODE` 只在文本流程中
+它先校验通用配置，创建 Pino Process Run Log Adapter，再组装七个精确 Registration。`CONTENT_PROCESSING_MODE` 只在文本流程中
 选择 `direct` 或 `agent`；海报与 CRT 流程始终构造无 Tool Agent。共享的 provider/model 与 OpenAI API
 mode 在启动时成组校验，Skill 文件和外部依赖保持惰性，不影响 liveness。配置错误会在
 Application 监听端口前抛出。
@@ -183,8 +183,8 @@ HTTP Sender，不加载 Business Process。四个角色的 liveness 不访问下
 
 Production catalog 由
 [`createProcessExecutor`](../src/processes/catalog.ts)
-定义，也是唯一知道全部具体 Business Process 的位置。生产 Composition Root 向它提供四组
-依赖；它创建四个 Registration、不可变 Registry 和 Process Runner，再向 Application 返回 ready
+定义，也是唯一知道全部具体 Business Process 的位置。生产 Composition Root 向它提供七组
+流程依赖；它创建七个 Registration、不可变 Registry 和 Process Runner，再向 Application 返回 ready
 `ProcessExecutor`。测试和 smoke 可以省略图片流程依赖以构造更小的隔离 catalog，生产组装始终提供。
 
 每个 Registration factory 只捕获该流程获准使用的依赖：
@@ -193,6 +193,7 @@ Production catalog 由
 - `titled-content-processing/v1` 捕获 Content Processing Capability 和 `separator`。
 - `minimal-zine-poster/v1` 捕获 Poster Agent 与 Poster Rendering Capability。Agent 只加载 `minimal-zine-poster-prompt`，不获得 Tool；Registration 要求四段 Prompt、六个固定 recipe 轴和可选原文逐字保留。验证通过后，Registration 只调用一次 Capability，并以 `runId` 作为下游幂等键。Capability 必须返回 HTTP(S) 图片 URL、受限媒体类型、尺寸和可选过期时间；原始图片字节不进入 Process output。
 - `crt-interface-image/v1` 捕获 CRT Agent 与 CRT Rendering Capability。产品只提交公网 HTTPS `sourceImageUrl`、固定调色板和画幅；Agent 只加载 `tait-crt-interface-prompt`，不获得 Tool，也看不到参考图 URL。Registration 要求四段 Prompt、十四个固定 recipe 轴、请求画幅、准确调色板和核心 CRT 约束；验证通过后只调用一次 Capability，并以 `runId` 作为下游幂等键。Capability 必须返回符合 GPT Image 2 尺寸边界和请求比例的 PNG 引用；Prompt、recipe、来源 URL 和图片字节不进入 Process output。图片 Business API 在自己的 Composition Root 固定 FAL、证据和存储策略。完整边界见 [`processes/crt-interface-image/`](processes/crt-interface-image/)。
+- 三个语义化新闻图片 Process 分别固定人物叙事碑式、淡彩绘本和原质人文主义 Runtime Skill。它们共享同一组受控 Prompt Agent、Rendering Capability 与 HTTP Adapter，但产品请求只能选择准确的 Process id/version，不能提交 Skill、模型或供应商。Registration 校验固定风格标识并只渲染一次，生产 Business API 按服务端配置选择 OSS 对象前缀。
 - Execution Context 只携带请求级的 `runId`、`AbortSignal` 与受控 `runActivity`；业务依赖和稳定策略仍由 Registration 捕获。
 
 依赖按 Seam 类型处理：

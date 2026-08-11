@@ -13,6 +13,7 @@
 | 修改带标题文本流程 | [`processes/titled-content-processing/`](processes/titled-content-processing/) | [`src/processes/titled-content/`](../src/processes/titled-content)、[`content/capability.ts`](../src/processes/content/capability.ts) | [`test/execute-process.test.ts`](../test/execute-process.test.ts) |
 | 修改极简 zine 海报流程 | [`processes/minimal-zine-poster/`](processes/minimal-zine-poster/) | [`src/processes/poster/`](../src/processes/poster)、[海报 Runtime Skill](../.pi/skills/minimal-zine-poster-prompt) | [`test/poster-process.test.ts`](../test/poster-process.test.ts)、[`test/poster-http.test.ts`](../test/poster-http.test.ts)、[`test/runtime-skills.test.ts`](../test/runtime-skills.test.ts) |
 | 修改 CRT 参考图流程 | [`processes/crt-interface-image/`](processes/crt-interface-image/) | [`src/processes/crt/`](../src/processes/crt)、[CRT Runtime Skill](../.pi/skills/tait-crt-interface-prompt) | [`test/crt-process.test.ts`](../test/crt-process.test.ts)、[`test/crt-http.test.ts`](../test/crt-http.test.ts)、[`test/openai-image-generation.test.ts`](../test/openai-image-generation.test.ts)、[`test/fal-image-generation.test.ts`](../test/fal-image-generation.test.ts) |
+| 修改新闻图片风格流程 | [`processes/news-image-api.md`](processes/news-image-api.md) | [`src/processes/news-image/`](../src/processes/news-image)、[新闻图片 Runtime Skills](../.pi/skills) | `npm run typecheck`、`npm run build` |
 | 修改跨 Process Agent Runtime | [`integrating-runtime-skills.md`](integrating-runtime-skills.md#项目级-agent-与-skill) | [`src/agent-runtime/`](../src/agent-runtime) | [`test/agent-runtime.test.ts`](../test/agent-runtime.test.ts)、[`test/runtime-skills.test.ts`](../test/runtime-skills.test.ts) |
 | 新增或修改 Codex Development Skill | [`integrating-runtime-skills.md`](integrating-runtime-skills.md#安装-development-skill) | [`.agents/skills/`](../.agents/skills)、[`AGENTS.md`](../AGENTS.md)、[`skills-lock.json`](../skills-lock.json) | Skill 结构校验、一个真实的显式调用和一个真实的隐式调用 |
 | 修改通用 Process Runtime 或 Seam | [`process-runtime-design.md`](process-runtime-design.md) | [`src/process-runtime/`](../src/process-runtime)、[`src/processes/catalog.ts`](../src/processes/catalog.ts) | [`test/process-runtime.test.ts`](../test/process-runtime.test.ts)、[`test/process-run-logging.test.ts`](../test/process-run-logging.test.ts)、[`test/execute-process.test.ts`](../test/execute-process.test.ts) |
@@ -40,6 +41,9 @@
 | [`processes/titled-content-processing/`](processes/titled-content-processing/) | 说明 `titled-content-processing/v1` 的契约、组合规则和验证 | 标题文本契约、分隔符、Capability 或错误变化 |
 | [`processes/minimal-zine-poster/`](processes/minimal-zine-poster/) | 说明 `minimal-zine-poster/v1` 的契约、Prompt 编译、图片能力和验收 | 海报契约、Skill、图片服务或验收变化 |
 | [`processes/crt-interface-image/`](processes/crt-interface-image/) | 说明 `crt-interface-image/v1` 的上传边界、GPT Image 2 编辑、后处理、证据保留、验收和同类流程开发模板 | CRT 契约、Skill、图片服务、证据策略、开发模板或发布门禁变化 |
+| [`processes/news-image-narrative-monument/`](processes/news-image-narrative-monument/) | 人物叙事碑式新闻封面契约 | 对应 Process、Skill 或存储变化 |
+| [`processes/news-image-pale-watercolor/`](processes/news-image-pale-watercolor/) | 淡彩绘本新闻图片契约 | 对应 Process、Skill 或存储变化 |
+| [`processes/news-image-raw-humanism/`](processes/news-image-raw-humanism/) | 原质人文主义新闻图片契约 | 对应 Process、Skill 或存储变化 |
 
 每个 production Process 只在自己的目录维护专属知识。精确运行行为仍以 Registration 和测试为准；通用 Runtime、Skill 接入和发布规则不复制进 Process 目录。
 

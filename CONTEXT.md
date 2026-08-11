@@ -30,7 +30,7 @@ Business Processing Service 让产品调用方通过一个稳定的 HTTP Interfa
 
 ## 当前能力
 
-生产 catalog 当前注册四个精确版本：
+生产 catalog 当前注册七个精确版本：
 
 | Business Process | 输入 | 输出 | 实现选择 |
 | --- | --- | --- | --- |
@@ -38,6 +38,9 @@ Business Processing Service 让产品调用方通过一个稳定的 HTTP Interfa
 | `titled-content-processing/v1` | `{ title: string, body: string }` | `{ title: string, content: string }` | 复用 Content Processing Capability |
 | `minimal-zine-poster/v1` | `{ brief: string, text?: string }` | `{ prompt, recipe, interpretation, image }` | 无 Tool Agent 编译固定 Runtime Skill；Poster Rendering Capability 生成并持久化图片 |
 | `crt-interface-image/v1` | `{ sourceImageUrl, palette, aspectRatio }` | `{ aspectRatio, image }` | 无 Tool Agent 编译固定 Runtime Skill；CRT Rendering Capability 用公网 HTTPS 参考图执行 FAL GPT Image 2 编辑、后处理并持久化 PNG |
+| `news-image-narrative-monument/v1` | `{ title, summary }` | `{ style, image }` | 固定人物叙事碑式封面 Runtime Skill |
+| `news-image-pale-watercolor/v1` | `{ title, summary }` | `{ style, image }` | 固定淡彩绘本 Runtime Skill |
+| `news-image-raw-humanism/v1` | `{ title, summary }` | `{ style, image }` | 固定原质人文主义 Runtime Skill |
 
 默认 HTTP 入口公开 `GET /healthz`、`GET /readyz` 和 `POST /execute`。每次执行生成独立 `runId`。显式启用并完整配置 Async Process Runs 后，API 还提供 `POST /process-runs` 和 `GET /process-runs/{runId}`；该功能默认关闭，只有按异步 Runbook 通过容量、恢复、安全、观测和 staged rollout 门禁后才能向外部调用方开放。默认同步生产构造不持久化 Run Record；同步与异步 Attempt 都通过 Pino Adapter 输出结构化运行活动日志。日志只保留 `runId`、Process identity、Attempt、服务端声明的活动、顺序、结果、稳定错误码和耗时，不保存业务内容、Prompt、Tool 参数、模型消息、隐藏推理或内部异常正文。
 
@@ -47,11 +50,13 @@ Business Processing Service 让产品调用方通过一个稳定的 HTTP Interfa
 
 `crt-interface-image/v1` 也已进入 `/execute` catalog。调用方提交可由 FAL 读取的公网 HTTPS `sourceImageUrl`、固定调色板名和画幅；请求不接收图片字节、Prompt 或实现配置。Registration 在 Agent 编译结果通过校验后调用一次 CRT Rendering Capability，并只公开画幅和 PNG 引用。仓库内的生产 CRT Business API 把 URL 原样放入 FAL `image_urls`、执行确定性 finalizer，并把最终 PNG 保存到阿里云 OSS；单服务器 Compose 只在宿主机回环地址暴露该内部服务。验收按服务端策略选择不保留证据、只保留脱敏 metadata，或按 `runId` 保留模型原始图、最终图和 manifest；生产部署固定关闭证据。生产必须限制调用权限、URL 长度和协议，并明确外部图片托管方与 FAL 的访问、过期和隐私约束。上游 Runtime Skill 未声明许可证，正式发布前必须确认权利。开发边界见 [`docs/processes/crt-interface-image/`](docs/processes/crt-interface-image/)。
 
+三个新闻图片 Process 已进入 `/execute` catalog。调用方只提交新闻标题和摘要；每个语义风格拥有独立 Registration、Runtime Skill 和 OSS 前缀，并复用同一个内部图片 Capability。调用方不能在一个请求中切换风格。来源目录未声明许可证，因此正式发布前必须确认生产使用和再分发权利。
+
 ## 运行与信任模型
 
 当前默认发布形状是无状态、受控、同步的 Node.js HTTP 服务。实例之间不共享 Agent 会话；每个 Agent 请求创建独立的内存会话。异步入口以 PostgreSQL 共享 Process Run，并要求可信网关删除客户端伪造的身份头、注入稳定 caller subject 和网关共享凭证。部署平台负责 TLS、私有入口、调用方认证、实例上限和 Secret 注入。
 
-Agent 只获得 Process Registration 明确绑定的 Runtime Skill 集合与窄 Tool。生产内容处理 Agent 同时加载 `content-optimization` 和 `content-integrity`，只能调用 `process_business_content`。海报 Agent 只加载 `minimal-zine-poster-prompt`，没有 Tool；它只返回待校验的 Prompt 计划。CRT Agent 只加载 `tait-crt-interface-prompt`，没有 Tool，也看不到参考图或资产标识；它只返回待校验的 Prompt 与 recipe。各图片 Registration 校验 Agent 结果后，再自行调用一次对应 Rendering Capability。三类 Agent 都不能使用 Shell、文件读写、代码编辑或任意远程工具。Skill 集合随应用发布；调用方不能选择、增加或排序 Skill。
+Agent 只获得 Process Registration 明确绑定的 Runtime Skill 集合与窄 Tool。生产内容处理 Agent 同时加载 `content-optimization` 和 `content-integrity`，只能调用 `process_business_content`。海报 Agent 只加载 `minimal-zine-poster-prompt`，没有 Tool；CRT Agent 只加载 `tait-crt-interface-prompt`，没有 Tool，也看不到参考图或资产标识。新闻图片 Agent 分别加载人物叙事碑式、淡彩绘本和原质人文主义固定 Runtime Skill，同样没有 Tool。各图片 Agent 只返回待校验的 Prompt 计划；Registration 校验后自行调用一次对应 Rendering Capability。所有 Agent 都不能使用 Shell、文件读写、代码编辑或任意远程工具。Skill 集合随应用发布；调用方不能选择、增加或排序 Skill。
 
 ## 当前不做
 
