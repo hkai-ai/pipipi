@@ -126,6 +126,9 @@ function hasPromptContract(prompt: string): boolean {
         if (next <= cursor) return false;
         cursor = next;
     }
+    const negativeConstraints = prompt.slice(
+        cursor + "NEGATIVE CONSTRAINTS:".length,
+    );
     return (
         prompt.includes(
             "No text, letters, numbers, logos or pseudo-text anywhere in the image.",
@@ -134,6 +137,7 @@ function hasPromptContract(prompt: string): boolean {
         /#FAF9F5/iu.test(prompt) &&
         /60%/u.test(prompt) &&
         /flat/iu.test(prompt) &&
-        /no (?:texture|gradients?)/iu.test(prompt)
+        /\btextures?\b/iu.test(negativeConstraints) &&
+        /\bgradients?\b/iu.test(negativeConstraints)
     );
 }
