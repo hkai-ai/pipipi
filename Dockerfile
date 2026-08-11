@@ -27,6 +27,9 @@ COPY --chown=node:node .pi/skills/content-optimization ./.pi/skills/content-opti
 COPY --chown=node:node .pi/skills/content-integrity ./.pi/skills/content-integrity
 COPY --chown=node:node .pi/skills/minimal-zine-poster-prompt ./.pi/skills/minimal-zine-poster-prompt
 COPY --chown=node:node .pi/skills/tait-crt-interface-prompt ./.pi/skills/tait-crt-interface-prompt
+COPY --chown=node:node .pi/skills/news-image-narrative-monument-prompt ./.pi/skills/news-image-narrative-monument-prompt
+COPY --chown=node:node .pi/skills/news-image-pale-watercolor-prompt ./.pi/skills/news-image-pale-watercolor-prompt
+COPY --chown=node:node .pi/skills/news-image-raw-humanism-prompt ./.pi/skills/news-image-raw-humanism-prompt
 
 USER node
 EXPOSE 4300

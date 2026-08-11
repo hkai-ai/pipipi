@@ -19,6 +19,24 @@
             "skillPath": "SKILL.md",
             "computedHash": "b3f9bbab118e839a5ae7e79f3406e8bebd3383e3f3ad18c8ed91b9efa30c04a9"
         },
+        "news-image-pale-watercolor": {
+            "source": "maintainer-supplied local bundle",
+            "sourceType": "local",
+            "skillPath": "news-image-style-07/SKILL.md",
+            "computedHash": "910582fcea2b580b746b03634b129cce8bbce9fbcd8fb3e97cdc82b7f44fe8bf"
+        },
+        "news-image-raw-humanism": {
+            "source": "maintainer-supplied local bundle",
+            "sourceType": "local",
+            "skillPath": "news-image-style-09/SKILL.md",
+            "computedHash": "260ec06e5548a6f2b2d2c08f6a7e7c7f954d7d85ff6a023d671f88f8d5db48d0"
+        },
+        "news-image-narrative-monument": {
+            "source": "maintainer-supplied local bundle",
+            "sourceType": "local",
+            "skillPath": "news-image-style-01/SKILL.md",
+            "computedHash": "df26ad6934dd3c1239fd39d98d82786a1bcc86d9975c7c1e0cfd8b47308a34ce"
+        },
         "maintain-test-plan": {
             "source": "techidsk/skills",
             "sourceType": "github",

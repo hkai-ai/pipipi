@@ -19,6 +19,7 @@
 - 本地路径或远程 URL 只作为开发、安装或构建期的 Skill Source。共享或生产使用前必须检查完整目录、来源、许可证、脚本、Tool 与网络权限，固定不可变版本并保存本地快照或可复现安装记录。
 - 生产请求路径只读取随应用发布、由服务端选择的本地 Runtime Skill。禁止按请求下载、更新或执行任意远程 Skill。
 - 当前没有通用 Skill Installer。生产确实需要多个来源类型时，可在开发工具链增加 Skill Installer 和只读 Installed Skill Catalog；它们不得进入产品请求路径。
+- 新增图片风格时，为每个稳定风格建立精确版本的 Process Registration，并复用受控图片生成与存储 Capability。产品请求只提交业务内容，不能选择 Skill、模型或供应商。
 
 ## Git 远端与同步
 
