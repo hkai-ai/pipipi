@@ -128,6 +128,7 @@ Startup Construction 是生产组装 Seam；Process Executor 是同步传输与 
 | --- | --- |
 | 项目为何存在、范围和术语 | 本文 |
 | 项目是什么、如何完成最短体验 | [`README.md`](README.md) |
+| 全部业务调用路由、请求、响应和错误 | [`docs/api.md`](docs/api.md) |
 | 精确运行行为和公开错误 | `src/` 与 `test/` |
 | Module、Interface、invariant 和测试面 | [`docs/process-runtime-design.md`](docs/process-runtime-design.md) |
 | 异步提交、查询、Queue 与 Webhook 设计 | [`docs/async-process-runs-design.md`](docs/async-process-runs-design.md) |

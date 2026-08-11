@@ -78,7 +78,7 @@ cp .env.example .env
 npm run dev:business-api
 ```
 
-文本演示服务只实现 `POST /process`。海报 Process 仍要求 `BUSINESS_API_BASE_URL` 指向实现 `POST /posters` 的受控服务；CRT 与新闻图片 Process 通过 `CRT_BUSINESS_API_BASE_URL` 使用仓库提供的内部图片 Business API。新闻图片的产品调用契约见 [`docs/processes/news-image-api.md`](docs/processes/news-image-api.md)。
+文本演示服务只实现 `POST /process`。海报 Process 仍要求 `BUSINESS_API_BASE_URL` 指向实现 `POST /posters` 的受控服务；CRT 与新闻图片 Process 通过 `CRT_BUSINESS_API_BASE_URL` 使用仓库提供的内部图片 Business API。全部产品调用契约见 [`docs/api.md`](docs/api.md)。
 
 在第二个终端启动处理服务：
 
@@ -151,6 +151,7 @@ CRT 流程的 Registration、Runtime Skill、HTTP Adapter、内部 Business API�
 | --- | --- | --- |
 | [`CONTEXT.md`](CONTEXT.md) | 产品与开发者 | 项目目的、范围、信任模型和共同语言 |
 | [`docs/README.md`](docs/README.md) | 所有维护者 | 文档索引、分类和维护规范 |
+| [`docs/api.md`](docs/api.md) | 产品调用方 | 全部业务调用路由、Process 入参、响应和错误 |
 | [`docs/development.md`](docs/development.md) | 开发者 | 本地开发、代码地图、改动路径和验证要求 |
 | [`docs/authoring-business-processes.md`](docs/authoring-business-processes.md) | 产品与开发者 | 如何把自然语言流程描述封装为版本化 Business Process |
 | [`docs/processes/README.md`](docs/processes/README.md) | 产品与开发者 | 每个 production Business Process 的独立文档入口 |

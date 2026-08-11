@@ -13,7 +13,7 @@
 | 修改带标题文本流程 | [`processes/titled-content-processing/`](processes/titled-content-processing/) | [`src/processes/titled-content/`](../src/processes/titled-content)、[`content/capability.ts`](../src/processes/content/capability.ts) | [`test/execute-process.test.ts`](../test/execute-process.test.ts) |
 | 修改极简 zine 海报流程 | [`processes/minimal-zine-poster/`](processes/minimal-zine-poster/) | [`src/processes/poster/`](../src/processes/poster)、[海报 Runtime Skill](../.pi/skills/minimal-zine-poster-prompt) | [`test/poster-process.test.ts`](../test/poster-process.test.ts)、[`test/poster-http.test.ts`](../test/poster-http.test.ts)、[`test/runtime-skills.test.ts`](../test/runtime-skills.test.ts) |
 | 修改 CRT 参考图流程 | [`processes/crt-interface-image/`](processes/crt-interface-image/) | [`src/processes/crt/`](../src/processes/crt)、[CRT Runtime Skill](../.pi/skills/tait-crt-interface-prompt) | [`test/crt-process.test.ts`](../test/crt-process.test.ts)、[`test/crt-http.test.ts`](../test/crt-http.test.ts)、[`test/openai-image-generation.test.ts`](../test/openai-image-generation.test.ts)、[`test/fal-image-generation.test.ts`](../test/fal-image-generation.test.ts) |
-| 修改新闻图片风格流程 | [`processes/news-image-api.md`](processes/news-image-api.md) | [`src/processes/news-image/`](../src/processes/news-image)、[新闻图片 Runtime Skills](../.pi/skills) | `npm run typecheck`、`npm run build` |
+| 修改新闻图片风格流程 | [`api.md`](api.md) 与对应 [`processes/`](processes/) 目录 | [`src/processes/news-image/`](../src/processes/news-image)、[新闻图片 Runtime Skills](../.pi/skills) | `npm run typecheck`、`npm run build` |
 | 修改跨 Process Agent Runtime | [`integrating-runtime-skills.md`](integrating-runtime-skills.md#项目级-agent-与-skill) | [`src/agent-runtime/`](../src/agent-runtime) | [`test/agent-runtime.test.ts`](../test/agent-runtime.test.ts)、[`test/runtime-skills.test.ts`](../test/runtime-skills.test.ts) |
 | 新增或修改 Codex Development Skill | [`integrating-runtime-skills.md`](integrating-runtime-skills.md#安装-development-skill) | [`.agents/skills/`](../.agents/skills)、[`AGENTS.md`](../AGENTS.md)、[`skills-lock.json`](../skills-lock.json) | Skill 结构校验、一个真实的显式调用和一个真实的隐式调用 |
 | 修改通用 Process Runtime 或 Seam | [`process-runtime-design.md`](process-runtime-design.md) | [`src/process-runtime/`](../src/process-runtime)、[`src/processes/catalog.ts`](../src/processes/catalog.ts) | [`test/process-runtime.test.ts`](../test/process-runtime.test.ts)、[`test/process-run-logging.test.ts`](../test/process-run-logging.test.ts)、[`test/execute-process.test.ts`](../test/execute-process.test.ts) |
@@ -29,6 +29,7 @@
 | --- | --- | --- |
 | [`../README.md`](../README.md) | 说明项目是什么、当前能力、最短体验路径和文档入口 | 产品能力、公开 Interface 或快速开始变化 |
 | [`../CONTEXT.md`](../CONTEXT.md) | 记录项目目的、范围、信任模型和共同语言 | 产品方向、范围、核心约束或术语变化 |
+| [`api.md`](api.md) | 汇总全部业务调用路由、Process 入参、响应和错误 | 业务路由、请求、响应、错误或 production catalog 变化 |
 
 项目说明面向第一次接触仓库的人。它描述当前事实，不承担详细实现、实验记录或发布操作。
 
@@ -45,7 +46,7 @@
 | [`processes/news-image-pale-watercolor/`](processes/news-image-pale-watercolor/) | 淡彩绘本新闻图片契约 | 对应 Process、Skill 或存储变化 |
 | [`processes/news-image-raw-humanism/`](processes/news-image-raw-humanism/) | 原质人文主义新闻图片契约 | 对应 Process、Skill 或存储变化 |
 
-每个 production Process 只在自己的目录维护专属知识。精确运行行为仍以 Registration 和测试为准；通用 Runtime、Skill 接入和发布规则不复制进 Process 目录。
+全部业务调用 Interface 统一维护在 [`api.md`](api.md)。健康检查等运维 Interface 留在 Runbook。每个 production Process 只在自己的目录维护业务行为与实现知识，不另建面向调用方的接口文档。精确运行行为仍以 Registration 和测试为准；通用 Runtime、Skill 接入和发布规则不复制进 Process 目录。
 
 ### 开发文档
 
@@ -85,6 +86,7 @@ Runbook 必须可按顺序执行。每一步都应说明前置条件、成功信
 新增文档前先确定读者要完成的任务：
 
 - 想理解项目：更新根目录 `README.md` 或 `CONTEXT.md`。
+- 想调用业务 HTTP Interface：阅读或更新 `docs/api.md`。
 - 想理解或修改某个现有 Process：阅读或更新 `docs/processes/<process-id>/README.md`。
 - 想修改代码：更新 `docs/development.md` 或对应 `*-design.md`。
 - 想把自然语言流程封装为产品能力：阅读或更新 `docs/authoring-business-processes.md`。
@@ -102,6 +104,7 @@ Runbook 必须可按顺序执行。每一步都应说明前置条件、成功信
 同一事实只保留一个规范性来源，其他文档用链接和短摘要引导：
 
 - 目的、范围和术语以 [`../CONTEXT.md`](../CONTEXT.md) 为准。
+- 业务 HTTP 路由、请求、响应和错误以 [`api.md`](api.md) 为统一入口。
 - 精确行为、默认值和错误映射以 `src/` 与 `test/` 为准。
 - Process 专属说明和代码入口以对应的 `docs/processes/<process-id>/README.md` 为入口。
 - 环境变量清单以 [`.env.example`](../.env.example) 和配置解析测试为准。
