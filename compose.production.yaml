@@ -38,11 +38,16 @@ services:
     network_mode: host
     env_file:
       - ${PIPIPI_ENV_FILE:-/opt/pipipi/shared/.env}
+    volumes:
+      - ${PIPIPI_RUN_RECORD_DIRECTORY:-/opt/pipipi/shared/run-records}:/var/lib/pipipi-run-records
     environment:
       NODE_ENV: production
       PORT: "4300"
       ASYNC_PROCESS_RUNS_ENABLED: "false"
       CRT_BUSINESS_API_BASE_URL: http://127.0.0.1:4400
+      PROCESS_RUN_RECORD_DIRECTORY: /var/lib/pipipi-run-records
+      PROCESS_RUN_RECORD_CONTENT: accepted-input-and-output
+      CONSOLE_ENABLED: "true"
     labels:
       com.pipipi.revision: ${PIPIPI_REVISION:?PIPIPI_REVISION is required}
       com.pipipi.role: api

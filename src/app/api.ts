@@ -16,9 +16,20 @@ import {
 } from "../process-runs/ops/postgres.js";
 import { createPostgresProcessRunStore } from "../process-runs/store/postgres.js";
 import type { ProcessRegistry } from "../process-runtime/index.js";
+import {
+    createProcessRunRecords,
+    type ProcessRunRecords,
+} from "../process-runtime/records.js";
 import { createProductionRuntime } from "./business-processes.js";
 import type { StartupEnvironment } from "./config.js";
 import { assertDeploymentEnvironment } from "./deployment-environment.js";
+import {
+    createJsonlProcessRunRecordArchive,
+    defaultProcessRunRecordRetentionDays,
+    type ProcessRunRecordArchive,
+    parseProcessRunRecordContent,
+    pruneProcessRunRecords,
+} from "./process-run-records.js";
 
 export type { StartupEnvironment } from "./config.js";
 
@@ -35,11 +46,15 @@ export function constructProcessingService(
     });
     const port = parsePort(environment.PORT);
     const httpConfiguration = loadHttpConfiguration(environment);
-    const runtime = createProductionRuntime(environment);
+    const archive = constructProcessRunRecordArchive(environment);
+    const runtime = createProductionRuntime(environment, {
+        ...(archive ? { runRecords: archive.records } : {}),
+    });
     const asyncProcessRuns = constructAsyncProcessRuns(
         environment,
         runtime.registry,
     );
+    const consoleOptions = constructConsole(environment, archive);
 
     return {
         application: createProcessingApplication({
@@ -49,6 +64,7 @@ export function constructProcessingService(
                 ...(asyncProcessRuns
                     ? { asyncProcessRuns: asyncProcessRuns.http }
                     : {}),
+                ...(consoleOptions ? { console: consoleOptions } : {}),
             },
             ...(asyncProcessRuns
                 ? { closeResources: asyncProcessRuns.close }
@@ -56,6 +72,87 @@ export function constructProcessingService(
         }),
         port,
     };
+}
+
+/**
+ * Builds the durable Run Record archive when a directory is configured. The
+ * directory must be a volume that outlives the container: without it a release
+ * loses every record of what the service produced.
+ */
+function constructProcessRunRecordArchive(environment: StartupEnvironment):
+    | Readonly<{
+          records: ProcessRunRecords;
+          archive: ProcessRunRecordArchive;
+      }>
+    | undefined {
+    const directory = environment.PROCESS_RUN_RECORD_DIRECTORY?.trim();
+    if (!directory) return undefined;
+
+    const retentionDays = parsePositiveInteger(
+        environment.PROCESS_RUN_RECORD_RETENTION_DAYS,
+        defaultProcessRunRecordRetentionDays,
+        "PROCESS_RUN_RECORD_RETENTION_DAYS",
+    );
+    const archive = createJsonlProcessRunRecordArchive({
+        directory,
+        retentionDays,
+    });
+    // Best effort: a failed prune must not keep the service from listening.
+    void pruneProcessRunRecords({ directory, retentionDays }).catch(() => {});
+
+    return Object.freeze({
+        archive,
+        records: createProcessRunRecords({
+            adapter: archive,
+            content: parseProcessRunRecordContent(
+                environment.PROCESS_RUN_RECORD_CONTENT,
+            ),
+        }),
+    });
+}
+
+function constructConsole(
+    environment: StartupEnvironment,
+    archive: Readonly<{ archive: ProcessRunRecordArchive }> | undefined,
+): NonNullable<ProcessingHttpOptions["console"]> | undefined {
+    if (!parseFeatureFlag(environment.CONSOLE_ENABLED, "CONSOLE_ENABLED")) {
+        return undefined;
+    }
+    if (!archive) {
+        throw new Error(
+            "PROCESS_RUN_RECORD_DIRECTORY is required when CONSOLE_ENABLED is true",
+        );
+    }
+    return Object.freeze({
+        basePath: parseConsoleBasePath(environment.CONSOLE_BASE_PATH),
+        records: Object.freeze({
+            list: archive.archive.list,
+            find: archive.archive.find,
+        }),
+    });
+}
+
+/**
+ * The console has no authentication of its own. An unguessable base path is
+ * the only mitigation available when the entry gateway does not add one, so
+ * the value is configurable and validated as a single safe path segment set.
+ */
+function parseConsoleBasePath(value: string | undefined): string {
+    const candidate = value?.trim();
+    if (candidate === undefined || candidate.length === 0) return "/console";
+    if (
+        !/^(\/[A-Za-z0-9._~-]+)+$/.test(candidate) ||
+        candidate.length > 200 ||
+        candidate.startsWith("/execute") ||
+        candidate.startsWith("/process-runs") ||
+        candidate.startsWith("/healthz") ||
+        candidate.startsWith("/readyz")
+    ) {
+        throw new Error(
+            "CONSOLE_BASE_PATH must be a path of safe segments that does not shadow a service route",
+        );
+    }
+    return candidate;
 }
 
 function constructAsyncProcessRuns(
@@ -265,10 +362,13 @@ function parseRequiredPositiveInteger(
     return parsePositiveInteger(value, 1, name);
 }
 
-function parseFeatureFlag(value: string | undefined): boolean {
+function parseFeatureFlag(
+    value: string | undefined,
+    name = "ASYNC_PROCESS_RUNS_ENABLED",
+): boolean {
     if (value === undefined || value === "false") return false;
     if (value === "true") return true;
-    throw new Error("ASYNC_PROCESS_RUNS_ENABLED must be true or false");
+    throw new Error(`${name} must be true or false`);
 }
 
 function parsePostgresConnectionString(value: string | undefined): string {

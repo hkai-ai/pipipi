@@ -66,6 +66,12 @@ const asyncApiVariables = Object.freeze([
     "ASYNC_BACKLOG_RETRY_AFTER_SECONDS",
 ]);
 
+/**
+ * The console can only show what was recorded, and records only survive a
+ * release when they are written to a directory outside the container.
+ */
+const consoleApiVariables = Object.freeze(["PROCESS_RUN_RECORD_DIRECTORY"]);
+
 const agentRoles: readonly DeploymentRole[] = Object.freeze([
     "api",
     "process-worker",
@@ -80,6 +86,9 @@ export function checkDeploymentEnvironment(
         ...variablesByRole[role],
         ...(role === "api" && environment.ASYNC_PROCESS_RUNS_ENABLED === "true"
             ? asyncApiVariables
+            : []),
+        ...(role === "api" && environment.CONSOLE_ENABLED === "true"
+            ? consoleApiVariables
             : []),
         ...(options.includeProviderCredentials &&
         agentRoles.includes(role) &&

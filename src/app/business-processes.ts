@@ -3,6 +3,7 @@ import type {
     ProcessRetryPolicy,
     ProcessRunLogSink,
 } from "../process-runtime/index.js";
+import type { ProcessRunRecords } from "../process-runtime/records.js";
 import {
     createProcessRuntime,
     type ProcessRuntime,
@@ -30,7 +31,10 @@ import { createPinoProcessRunLogSink } from "./process-run-logging.js";
 
 export function createProductionRuntime(
     environment: StartupEnvironment,
-    options: { runLogSink?: ProcessRunLogSink } = {},
+    options: {
+        runLogSink?: ProcessRunLogSink;
+        runRecords?: ProcessRunRecords;
+    } = {},
 ): ProcessRuntime {
     const runLogSink =
         options.runLogSink ??
@@ -177,6 +181,7 @@ export function createProductionRuntime(
             "PROCESS_TIMEOUT_MS",
         ),
         runLogSink,
+        ...(options.runRecords ? { runRecords: options.runRecords } : {}),
         processes: {
             contentProcessing: {
                 mode,

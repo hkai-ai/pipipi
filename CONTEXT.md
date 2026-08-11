@@ -54,7 +54,7 @@ Business Processing Service 让产品调用方通过一个稳定的 HTTP Interfa
 
 ## 运行与信任模型
 
-当前默认发布形状是无状态、受控、同步的 Node.js HTTP 服务。实例之间不共享 Agent 会话；每个 Agent 请求创建独立的内存会话。异步入口以 PostgreSQL 共享 Process Run，并要求可信网关删除客户端伪造的身份头、注入稳定 caller subject 和网关共享凭证。部署平台负责 TLS、私有入口、调用方认证、实例上限和 Secret 注入。
+当前默认发布形状是受控、同步的 Node.js HTTP 服务。执行本身不依赖实例状态；唯一的本地持久化是可选的 Run Record 归档，它把每次终态执行写到宿主机卷上的按日 JSONL 文件，供运维控制台回看。Run Record 是观测记录，不是异步 Run Store：没有代码读它来决定业务状态、重试或投递，关闭它不改变任何执行行为。实例之间不共享 Agent 会话；每个 Agent 请求创建独立的内存会话。异步入口以 PostgreSQL 共享 Process Run，并要求可信网关删除客户端伪造的身份头、注入稳定 caller subject 和网关共享凭证。部署平台负责 TLS、私有入口、调用方认证、实例上限和 Secret 注入。
 
 Agent 只获得 Process Registration 明确绑定的 Runtime Skill 集合与窄 Tool。生产内容处理 Agent 同时加载 `content-optimization` 和 `content-integrity`，只能调用 `process_business_content`。海报 Agent 只加载 `minimal-zine-poster-prompt`，没有 Tool；CRT Agent 只加载 `tait-crt-interface-prompt`，没有 Tool，也看不到参考图或资产标识。新闻图片 Agent 分别加载人物叙事碑式、淡彩绘本和原质人文主义固定 Runtime Skill，同样没有 Tool。各图片 Agent 只返回待校验的 Prompt 计划；Registration 校验后自行调用一次对应 Rendering Capability。所有 Agent 都不能使用 Shell、文件读写、代码编辑或任意远程工具。Skill 集合随应用发布；调用方不能选择、增加或排序 Skill。
 
@@ -65,7 +65,7 @@ Agent 只获得 Process Registration 明确绑定的 Runtime Skill 集合与窄 
 - 动态 Process Definition、运行时注册、自动发现、默认版本或版本回退；
 - 通用工作流编排、已开放的生产 Queue、跨请求 Agent 记忆或调用方控制的重试；
 - 应用内用户系统、RBAC、多租户、CORS 或公网匿名调用；
-- 同步 Run Record 的生产查询、聊天历史、跨 caller 管理搜索或通用幂等；
+- 运维控制台的应用内鉴权、按 caller 隔离的记录视图、聊天历史或通用幂等；
 - 允许 Agent 使用 Coding Tools 的通用 Skill 执行环境；
 - `minimal-zine-poster/v1` 的参考图片输入，以及任一图片流程的自动视觉检查、跨 Run 变化记忆或自动重绘。
 

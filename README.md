@@ -20,6 +20,8 @@
 
 每个实际开始的 Process Attempt 都通过 Pino 输出无业务内容的单行 JSON 活动日志。运维系统可按 `runId`、`attemptNumber` 和 `sequence` 还原 Attempt 开始、固定活动开始/结束和 Attempt 结果；活动结束记录包含结果与耗时。日志不保存 input、output、Prompt、Tool 参数、模型消息或内部异常正文。
 
+设置 `PROCESS_RUN_RECORD_DIRECTORY` 后，每次终态执行还会作为 Run Record 按 UTC 日期写入 JSONL 文件。日志随容器重建而消失，Run Record 写在宿主机卷上，因此跨发布保留。`PROCESS_RUN_RECORD_CONTENT=accepted-input-and-output` 时记录附带已校验输入与成功输出，`crt-interface-image` 的 `sourceImageUrl` 始终只保存 SHA-256 摘要。`CONSOLE_ENABLED=true` 时，API 在 `CONSOLE_BASE_PATH`（默认 `/console`）挂载运维控制台，可提交七个 Process 并回看历史记录与产出图片。控制台没有自带鉴权，且表单会真实触发付费出图；上线前的访问控制要求见 [`docs/mvp-release-runbook.md`](docs/mvp-release-runbook.md#运维控制台)。
+
 `content-processing/v1` 的 Agent 路径会同时加载服务端固定的 `content-optimization` 和 `content-integrity`。两项 Skill 作为一个经过评审的指令集执行，但仍只获得 `process_business_content` Tool。Registration 只接受一次 Tool 调用，并要求 Agent 最终结果与 Tool 结果一致；调用方不能提交或覆盖 Skill。
 
 `minimal-zine-poster/v1` 固定加载 `minimal-zine-poster-prompt`。这个 Runtime Skill 只把 brief 编译成四段 Prompt 和六轴 recipe，不获得任何 Tool。Registration 校验 Prompt、recipe 和可选原文后，以 `runId` 为幂等键调用一次 Poster Rendering Capability。Capability 返回 HTTP(S) 图片 URL、类型和尺寸；原始图片字节不进入 `/execute` JSON。

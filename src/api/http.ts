@@ -13,6 +13,8 @@ import type {
     ProcessExecutor,
     ProcessRunResult,
 } from "../process-runtime/index.js";
+import type { ProcessRunRecord } from "../process-runtime/records.js";
+import { renderConsolePage } from "./console-page.js";
 import type { CallerIdentityResolver } from "./identity.js";
 
 export const defaultHttpMaxRequestBodyBytes = 262_144;
@@ -35,7 +37,28 @@ export type ProcessingHttpOptions = {
     logSink?: ProcessingLogSink;
     clock?: ProcessingClock;
     asyncProcessRuns?: AsyncProcessRunsHttpOptions;
+    console?: ConsoleHttpOptions;
 };
+
+export type ConsoleRecordPage = Readonly<{
+    records: readonly ProcessRunRecord[];
+    nextBefore?: string;
+}>;
+
+/**
+ * Serves the operator console and the Run Records behind it. This is an
+ * operations Interface, not part of the product contract: it is mounted only
+ * when a durable Run Record archive is configured.
+ */
+export type ConsoleHttpOptions = Readonly<{
+    basePath: string;
+    records: Readonly<{
+        list: (
+            query: Readonly<{ limit?: number; before?: string }>,
+        ) => Promise<ConsoleRecordPage>;
+        find: (runId: string) => Promise<ProcessRunRecord | undefined>;
+    }>;
+}>;
 
 export type AsyncProcessRunsHttpOptions = Readonly<{
     runs: AsyncProcessRuns;
@@ -124,6 +147,7 @@ type RequestHandlingContext = {
     tryAcquireExecution: () => (() => void) | undefined;
     logging: RequestLoggingContext;
     asyncProcessRuns?: AsyncProcessRunsHttpOptions;
+    console?: ConsoleHttpOptions;
 };
 
 type TransportFailure = {
@@ -178,6 +202,7 @@ export function createProcessingRequestListener(
                 ...(requestId === undefined ? {} : { requestId }),
             },
             asyncProcessRuns: options.asyncProcessRuns,
+            console: options.console,
         };
         void handleRequest(request, response, context).catch(() => {
             emitLog(context.logging, {
@@ -222,6 +247,11 @@ async function handleRequest(
     if (request.method === "GET" && request.url === "/readyz") {
         await handleReadiness(response, context.asyncProcessRuns);
         return;
+    }
+
+    if (context.console && request.method === "GET") {
+        const handled = await handleConsole(request, response, context.console);
+        if (handled) return;
     }
 
     if (
@@ -294,6 +324,99 @@ async function handleRequest(
         writeJson(response, statusFor(result), result);
     } finally {
         releaseExecution();
+    }
+}
+
+/**
+ * Handles the console document and its Run Record reads. Returns `false` when
+ * the request is not addressed to the console, so unrelated paths keep falling
+ * through to the business routes.
+ */
+async function handleConsole(
+    request: IncomingMessage,
+    response: ServerResponse,
+    options: ConsoleHttpOptions,
+): Promise<boolean> {
+    const url = new URL(request.url ?? "/", "http://console.invalid");
+    const path = url.pathname;
+    const base = options.basePath;
+    if (path !== base && !path.startsWith(`${base}/`)) return false;
+
+    if (path === base || path === `${base}/`) {
+        response.writeHead(200, {
+            "content-type": "text/html; charset=utf-8",
+            "cache-control": "no-store",
+            "x-robots-tag": "noindex, nofollow",
+        });
+        response.end(renderConsolePage(base));
+        return true;
+    }
+
+    if (path === `${base}/runs`) {
+        const limit = parseListLimitParameter(url.searchParams.get("limit"));
+        if (limit === "invalid") {
+            writeFailureJson(
+                response,
+                400,
+                "INVALID_INPUT",
+                "limit must be a positive integer",
+            );
+            return true;
+        }
+        const before = url.searchParams.get("before") ?? undefined;
+        response.setHeader("cache-control", "no-store");
+        writeJson(
+            response,
+            200,
+            await options.records.list({
+                ...(limit === undefined ? {} : { limit }),
+                ...(before === undefined ? {} : { before }),
+            }),
+        );
+        return true;
+    }
+
+    const runId = consoleRunIdFromPath(path, base);
+    if (runId !== undefined) {
+        const record = await options.records.find(runId);
+        response.setHeader("cache-control", "no-store");
+        if (!record) {
+            writeFailureJson(
+                response,
+                404,
+                "PROCESS_RUN_RECORD_NOT_FOUND",
+                "Process Run Record not found",
+            );
+            return true;
+        }
+        writeJson(response, 200, record);
+        return true;
+    }
+
+    writeFailureJson(response, 404, "ROUTE_NOT_FOUND", "Route not found");
+    return true;
+}
+
+function parseListLimitParameter(
+    value: string | null,
+): number | undefined | "invalid" {
+    if (value === null) return undefined;
+    if (!/^\d+$/.test(value)) return "invalid";
+    const limit = Number(value);
+    return limit >= 1 ? limit : "invalid";
+}
+
+function consoleRunIdFromPath(
+    path: string,
+    basePath: string,
+): string | undefined {
+    if (!path.startsWith(`${basePath}/runs/`)) return undefined;
+    const candidate = path.slice(`${basePath}/runs/`.length);
+    if (candidate.length === 0 || candidate.includes("/")) return undefined;
+    try {
+        return decodeURIComponent(candidate);
+    } catch {
+        return undefined;
     }
 }
 

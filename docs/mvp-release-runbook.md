@@ -42,6 +42,11 @@
 | `PROCESS_TIMEOUT_MS` | 正整数；代码默认 `30000`，本发布必须显式设置 `240000` |
 | `PROCESS_RUN_LOG_LEVEL` | Pino 阈值；默认 `info`，生产建议保留 `info` 以观察完整活动时间线 |
 | `ASYNC_PROCESS_RUNS_ENABLED` | 本同步 MVP 必须保持 `false`；异步生产发布使用独立 Runbook |
+| `PROCESS_RUN_RECORD_DIRECTORY` | Run Record 目录；必须是宿主机卷。生产 Compose 固定为 `/var/lib/pipipi-run-records`。留空则不记录 |
+| `PROCESS_RUN_RECORD_CONTENT` | `omit` 或 `accepted-input-and-output`；默认 `omit`，生产设为后者 |
+| `PROCESS_RUN_RECORD_RETENTION_DAYS` | 正整数；默认 `30`。应与对象存储生命周期规则对齐 |
+| `CONSOLE_ENABLED` | `true` 或 `false`；默认 `false`。为 `true` 时必须同时设置 `PROCESS_RUN_RECORD_DIRECTORY` |
+| `CONSOLE_BASE_PATH` | 控制台挂载路径；默认 `/console`，不得遮蔽 `/execute`、`/process-runs`、`/healthz` 或 `/readyz` |
 | `PI_PROVIDER`、`PI_MODEL` | 按组设置；海报与 CRT 流程始终使用 Agent |
 | `OPENAI_BASE_URL`、`OPENAI_API_MODE` | 使用 OpenAI 或兼容网关时设置 |
 | `PI_SKILL_DIRECTORY` | 可选；只覆盖固定的 `content-optimization` 路径，不改变 Skill 集合 |
@@ -254,17 +259,50 @@ curl --fail http://127.0.0.1:4400/healthz
 
 ## Run Record 策略
 
-当前生产启动构造没有注入 Run Record 存储。MVP 依靠部署平台收集 Pino newline-delimited JSON，并按 `runId`、Process、状态和错误码检索。`runId` 是运行排障索引，不是聊天会话 ID；聊天历史应由产品数据库单独保存。
+生产启动构造在设置 `PROCESS_RUN_RECORD_DIRECTORY` 时注入 JSONL Run Record Adapter，把每次终态执行按 UTC 日期写入 `runs-YYYY-MM-DD.jsonl`。目录必须是宿主机卷：容器每次发布都会重建，容器内磁盘等同于丢失。生产 Compose 把 `/opt/pipipi/shared/run-records` 挂到容器的 `/var/lib/pipipi-run-records`。不设置该变量时不记录任何内容，行为与之前一致。
 
-仓库提供的内存 Run Record Adapter 只用于开发或单实例测试。它有容量上限，但重启即丢失，也不在实例之间共享。不要把容器内存或容器磁盘当作生产记录存储。
+Run Record 是给运维看的观测记录，不是异步 Run Store：它只保存已终态的结果，不承载排队与运行中状态，也没有任何代码读它来决定业务状态、重试或投递。Pino 活动日志仍然是 Attempt 级排障的来源，两者互补。
 
-以后接入 Postgres 或可观测平台时，应实现 `ProcessRunRecordAdapter`，并保持以下边界：
+`PROCESS_RUN_RECORD_CONTENT` 决定内容边界：
 
-1. 默认只保存运行元数据，不保存输入和输出。
-2. 保存业务内容前，先确定授权、租户隔离、加密、脱敏和保留期限。
-3. 不保存系统 Prompt、Tool 过程、模型消息、隐藏推理、无效请求内容或内部错误详情；图片 URL 可能是 bearer credential，保存前必须纳入内容授权与保留期评审。
-4. Adapter 写入失败不得改变 Process Run 的返回结果。
-5. 对外查询记录前，另行增加受鉴权的查询接口；本次发布不包含该接口。
+| 取值 | 保存内容 |
+| --- | --- |
+| `omit`（默认） | 只保存 `runId`、Process、版本、状态、错误码和记录时间 |
+| `accepted-input-and-output` | 追加已校验的业务输入与成功输出 |
+
+生产当前使用 `accepted-input-and-output`，以便控制台回看每次执行提交了什么、产出了哪张图。以下边界仍然成立：
+
+1. `crt-interface-image` 的 `sourceImageUrl` 永远只保存 SHA-256 摘要，完整 URL 不进入记录。
+2. 不保存系统 Prompt、Tool 过程、模型消息、隐藏推理、无效请求内容或内部错误详情。
+3. 记录中的图片 URL 指向对象存储。`PROCESS_RUN_RECORD_RETENTION_DAYS`（默认 30）应与 OSS 生命周期规则对齐，否则过期对象会在控制台留下死链。
+4. Adapter 写入失败不得改变 Process Run 的返回结果；记录发生在响应路径之外，因此记录可能比响应稍晚落盘。
+5. 保留期以整日文件为单位，超出窗口的文件在启动时删除。
+
+## 运维控制台
+
+`CONSOLE_ENABLED=true` 时，API 在 `CONSOLE_BASE_PATH`（默认 `/console`）挂载一个自包含的运维页面。它是运维 Interface，不属于产品契约，也不在 [`docs/api.md`](api.md) 中记录。
+
+| 路由 | 用途 |
+| --- | --- |
+| `GET {base}` | 控制台页面，含七个 Process 的提交表单与记录列表 |
+| `GET {base}/runs?limit=&before=` | 按记录时间倒序读取 Run Record |
+| `GET {base}/runs/{runId}` | 读取单条 Run Record |
+
+启用前必须理解的三件事：
+
+- **控制台没有自带鉴权。** 页面上的提交表单会真实调用 `POST /execute`，每次都产生图片费用。公网入口必须在 OpenResty 一侧加 Basic Auth 或 `auth_request`；在加上之前，`CONSOLE_BASE_PATH` 设为不可猜路径只是缓解，不是访问控制。
+- **必须先配置 `PROCESS_RUN_RECORD_DIRECTORY`。** 缺少它时部署环境预检和启动构造都会直接失败，避免上线一个永远空白的页面。
+- **提交是同步的。** 出图最长等待 `PROCESS_TIMEOUT_MS`（生产 240000 毫秒）。页面关闭不影响执行，结果仍会写入 Run Record。
+
+OpenResty 上为控制台加 Basic Auth 的等价配置：
+
+```nginx
+location /console {
+    auth_basic "pipipi console";
+    auth_basic_user_file /etc/nginx/conf.d/console.htpasswd;
+    proxy_pass http://<服务器内网IP>:4300;
+}
+```
 
 ## 构建并检查镜像
 

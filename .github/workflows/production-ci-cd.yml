@@ -138,7 +138,10 @@ jobs:
           mkdir -p "$app_root/shared"
           install -d -m 700 -o 1000 -g 1000 \
               "$app_root/shared/crt-business-api"
+          install -d -m 700 -o 1000 -g 1000 \
+              "$app_root/shared/run-records"
           export PIPIPI_BUSINESS_DATA_DIRECTORY="$app_root/shared/crt-business-api"
+          export PIPIPI_RUN_RECORD_DIRECTORY="$app_root/shared/run-records"
           gzip -dc "$image_archive" | docker load
 
           docker run --rm --env-file "$shared_env" \
