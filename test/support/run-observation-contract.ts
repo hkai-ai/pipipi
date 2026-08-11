@@ -1,12 +1,14 @@
 import { expect, it } from "vitest";
 import type { ProcessRunActivityArchive } from "../../src/app/process-run-activities.js";
 import type { ProcessRunRecordArchive } from "../../src/app/process-run-records.js";
+import type { RunObservationStats } from "../../src/app/run-observation-stats.js";
 import type { ProcessRunLogRecord } from "../../src/process-runtime/index.js";
 import type { ProcessRunRecord } from "../../src/process-runtime/records.js";
 
 export type ObservationBackend = Readonly<{
     archive: ProcessRunRecordArchive;
     activities: ProcessRunActivityArchive;
+    stats: RunObservationStats;
     /** Resolves once every best-effort write has settled. */
     settle: () => Promise<void>;
 }>;
@@ -262,4 +264,116 @@ export function describeRunObservationContract(
 
         expect(await activities.findByRun("never-ran")).toEqual([]);
     });
+
+    it("counts outcomes per Process inside the window", async () => {
+        const { archive, stats } = await createBackend();
+        await archive.store(
+            processRunRecord({ runId: "a", recordedAt: inWindow(1) }),
+        );
+        await archive.store(
+            processRunRecord({ runId: "b", recordedAt: inWindow(2) }),
+        );
+        await archive.store(
+            processRunRecord({
+                runId: "c",
+                recordedAt: inWindow(3),
+                process: "crt-interface-image",
+                status: "failed",
+                errorCode: "AGENT_FAILURE",
+            }),
+        );
+
+        const summary = await stats.summarise({ since: windowStart });
+
+        expect(summary.totals).toEqual({ succeeded: 2, failed: 1 });
+        expect(summary.byProcess).toEqual([
+            {
+                process: "news-image-pale-watercolor",
+                version: "v1",
+                succeeded: 2,
+                failed: 0,
+            },
+            {
+                process: "crt-interface-image",
+                version: "v1",
+                succeeded: 0,
+                failed: 1,
+            },
+        ]);
+        expect(summary.byErrorCode).toEqual([
+            { errorCode: "AGENT_FAILURE", count: 1 },
+        ]);
+    });
+
+    it("excludes records older than the window", async () => {
+        const { archive, stats } = await createBackend();
+        await archive.store(
+            processRunRecord({
+                runId: "old",
+                recordedAt: "2026-08-01T00:00:00.000Z",
+            }),
+        );
+        await archive.store(
+            processRunRecord({ runId: "new", recordedAt: inWindow(1) }),
+        );
+
+        expect((await stats.summarise({ since: windowStart })).totals).toEqual({
+            succeeded: 1,
+            failed: 0,
+        });
+    });
+
+    it("summarises Attempt durations from finished Attempts only", async () => {
+        const { activities, stats, settle } = await createBackend();
+        for (const [index, durationMs] of [10, 20, 30, 40].entries()) {
+            activities.record(
+                processRunActivity({
+                    runId: `run-${index}`,
+                    timestamp: inWindow(index + 1),
+                    sequence: 4,
+                    event: "process_run_attempt_finished",
+                    outcome: "succeeded",
+                    durationMs,
+                }),
+            );
+        }
+        // An activity-level duration must not be counted as an Attempt.
+        activities.record(
+            processRunActivity({
+                runId: "run-9",
+                timestamp: inWindow(5),
+                sequence: 3,
+                event: "process_run_activity_finished",
+                activity: "news_image_rendering",
+                outcome: "succeeded",
+                durationMs: 9_999,
+            }),
+        );
+        await settle();
+
+        const duration = (await stats.summarise({ since: windowStart }))
+            .attemptDurationMs;
+
+        expect(duration.samples).toBe(4);
+        expect(duration.max).toBe(40);
+        expect(duration.p50).toBe(20);
+        expect(duration.p95).toBe(40);
+    });
+
+    it("reports an empty summary when the window holds nothing", async () => {
+        const { stats } = await createBackend();
+
+        const summary = await stats.summarise({ since: windowStart });
+
+        expect(summary.totals).toEqual({ succeeded: 0, failed: 0 });
+        expect(summary.byProcess).toEqual([]);
+        expect(summary.byErrorCode).toEqual([]);
+        expect(summary.attemptDurationMs).toEqual({ samples: 0 });
+    });
+}
+
+const windowStart = "2026-08-11T00:00:00.000Z";
+
+function inWindow(minute: number): string {
+    return `2026-08-11T09:${String(minute).padStart(2, "0")}:00.000Z`;
 }

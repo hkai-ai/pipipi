@@ -64,7 +64,40 @@ export type ConsoleHttpOptions = Readonly<{
     }>;
     /** The fixed production catalog. Absent when catalog exposure is off. */
     processes?: readonly ConsoleProcessDescription[];
+    stats?: Readonly<{
+        summarise: (
+            query: Readonly<{ since: string }>,
+        ) => Promise<ConsoleStatsSummary>;
+    }>;
 }>;
+
+/**
+ * What the service has been doing, derived from the observation archive. Live
+ * concurrency is added by the HTTP layer, because occupancy exists only in the
+ * process serving the request.
+ */
+export type ConsoleStatsSummary = Readonly<{
+    since: string;
+    totals: Readonly<{ succeeded: number; failed: number }>;
+    byProcess: readonly Readonly<{
+        process: string;
+        version: string;
+        succeeded: number;
+        failed: number;
+    }>[];
+    byErrorCode: readonly Readonly<{ errorCode: string; count: number }>[];
+    attemptDurationMs: Readonly<{
+        samples: number;
+        p50?: number;
+        p95?: number;
+        max?: number;
+    }>;
+}>;
+
+export type ConsoleStats = ConsoleStatsSummary &
+    Readonly<{
+        concurrency: Readonly<{ active: number; limit: number }>;
+    }>;
 
 /**
  * How one registered Process version is described to operators. The Schemas are
@@ -168,7 +201,7 @@ type RequestLoggingContext = {
 type RequestHandlingContext = {
     executor: ProcessExecutor;
     maxRequestBodyBytes: number;
-    tryAcquireExecution: () => (() => void) | undefined;
+    admission: ExecutionAdmissionController;
     logging: RequestLoggingContext;
     asyncProcessRuns?: AsyncProcessRunsHttpOptions;
     console?: ConsoleHttpOptions;
@@ -208,7 +241,7 @@ export function createProcessingRequestListener(
         options.maxConcurrentExecutions ?? defaultMaxConcurrentExecutions;
     const logSink = options.logSink ?? writeStdoutLog;
     const clock = options.clock ?? systemClock;
-    const tryAcquireExecution = createExecutionAdmissionController(
+    const admission = createExecutionAdmissionController(
         maxConcurrentExecutions,
     );
     return (request, response) => {
@@ -218,7 +251,7 @@ export function createProcessingRequestListener(
         const context: RequestHandlingContext = {
             executor,
             maxRequestBodyBytes,
-            tryAcquireExecution,
+            admission,
             logging: {
                 logSink,
                 clock,
@@ -274,7 +307,12 @@ async function handleRequest(
     }
 
     if (context.console && request.method === "GET") {
-        const handled = await handleConsole(request, response, context.console);
+        const handled = await handleConsole(
+            request,
+            response,
+            context.console,
+            context.admission,
+        );
         if (handled) return;
     }
 
@@ -321,7 +359,7 @@ async function handleRequest(
         return;
     }
 
-    const releaseExecution = context.tryAcquireExecution();
+    const releaseExecution = context.admission.tryAcquire();
     if (!releaseExecution) {
         response.setHeader("retry-after", "1");
         rejectRequest(response, serviceBusyFailure, context.logging);
@@ -360,6 +398,7 @@ async function handleConsole(
     request: IncomingMessage,
     response: ServerResponse,
     options: ConsoleHttpOptions,
+    admission: ExecutionAdmissionController,
 ): Promise<boolean> {
     const url = new URL(request.url ?? "/", "http://console.invalid");
     const path = url.pathname;
@@ -373,6 +412,26 @@ async function handleConsole(
             "x-robots-tag": "noindex, nofollow",
         });
         response.end(renderConsolePage(base));
+        return true;
+    }
+
+    if (options.stats && path === `${base}/stats`) {
+        const hours = parseStatsHours(url.searchParams.get("hours"));
+        if (hours === "invalid") {
+            writeFailureJson(
+                response,
+                400,
+                "INVALID_INPUT",
+                "hours must be an integer between 1 and 720",
+            );
+            return true;
+        }
+        const since = new Date(Date.now() - hours * 3_600_000).toISOString();
+        response.setHeader("cache-control", "no-store");
+        writeJson(response, 200, {
+            ...(await options.stats.summarise({ since })),
+            concurrency: admission.occupancy(),
+        });
         return true;
     }
 
@@ -437,6 +496,13 @@ async function handleConsole(
 
     writeFailureJson(response, 404, "ROUTE_NOT_FOUND", "Route not found");
     return true;
+}
+
+function parseStatsHours(value: string | null): number | "invalid" {
+    if (value === null) return 24;
+    if (!/^\d+$/.test(value)) return "invalid";
+    const hours = Number(value);
+    return hours >= 1 && hours <= 720 ? hours : "invalid";
 }
 
 function parseListLimitParameter(
@@ -797,20 +863,29 @@ function isJsonMediaType(value: string | undefined): boolean {
     return value?.split(";", 1)[0]?.trim().toLowerCase() === "application/json";
 }
 
+type ExecutionAdmissionController = Readonly<{
+    tryAcquire: () => (() => void) | undefined;
+    /** Live occupancy, so operators can see how close the service is to 503. */
+    occupancy: () => Readonly<{ active: number; limit: number }>;
+}>;
+
 function createExecutionAdmissionController(
     maximum: number,
-): () => (() => void) | undefined {
+): ExecutionAdmissionController {
     let active = 0;
-    return () => {
-        if (active >= maximum) return undefined;
-        active += 1;
-        let released = false;
-        return () => {
-            if (released) return;
-            released = true;
-            active -= 1;
-        };
-    };
+    return Object.freeze({
+        tryAcquire: () => {
+            if (active >= maximum) return undefined;
+            active += 1;
+            let released = false;
+            return () => {
+                if (released) return;
+                released = true;
+                active -= 1;
+            };
+        },
+        occupancy: () => Object.freeze({ active, limit: maximum }),
+    });
 }
 
 async function readRequestBody(

@@ -40,6 +40,14 @@ const storedActivity: ProcessRunLogRecord = {
     event: "process_run_attempt_started",
 };
 
+const emptySummary = {
+    since: "2026-08-11T00:00:00.000Z",
+    totals: { succeeded: 0, failed: 0 },
+    byProcess: [],
+    byErrorCode: [],
+    attemptDurationMs: { samples: 0 },
+} as const;
+
 describe("operator console HTTP boundary", () => {
     it("serves the console document at the configured base path", async () => {
         const service = await startConsole();
@@ -205,6 +213,66 @@ describe("operator console HTTP boundary", () => {
         );
     });
 
+    it("adds live concurrency to the stored summary", async () => {
+        const service = await startConsole({
+            summarise: async ({ since }) => ({ ...emptySummary, since }),
+        });
+
+        const response = await fetch(`${service.url}/console/stats`);
+
+        expect(response.status).toBe(200);
+        expect(await response.json()).toMatchObject({
+            totals: { succeeded: 0, failed: 0 },
+            concurrency: { active: 0, limit: 4 },
+        });
+    });
+
+    it("derives the window start from the requested hours", async () => {
+        const windows: string[] = [];
+        const service = await startConsole({
+            summarise: async ({ since }) => {
+                windows.push(since);
+                return { ...emptySummary, since };
+            },
+        });
+
+        const before = Date.now();
+        await fetch(`${service.url}/console/stats?hours=6`);
+        const since = new Date(windows[0] as string).getTime();
+
+        expect(before - since).toBeGreaterThanOrEqual(6 * 3_600_000 - 5_000);
+        expect(before - since).toBeLessThanOrEqual(6 * 3_600_000 + 5_000);
+    });
+
+    it("rejects a window outside the supported range", async () => {
+        const service = await startConsole({
+            summarise: async ({ since }) => ({ ...emptySummary, since }),
+        });
+
+        for (const hours of ["0", "721", "abc"]) {
+            const response = await fetch(
+                `${service.url}/console/stats?hours=${hours}`,
+            );
+            expect(response.status, `hours=${hours}`).toBe(400);
+        }
+    });
+
+    it("omits the stats route when statistics are not configured", async () => {
+        const service = await startRequestListener(
+            createProcessingRequestListener(rejectingExecutor(), {
+                console: {
+                    basePath: "/console",
+                    records: {
+                        list: async () => ({ records: [storedRecord] }),
+                        find: async () => storedRecord,
+                    },
+                },
+            }),
+        );
+
+        expect((await fetch(`${service.url}/console/stats`)).status).toBe(404);
+    });
+
     it("never executes a Business Process from a console route", async () => {
         let executions = 0;
         const service = await startConsole({
@@ -246,6 +314,7 @@ async function startConsole(
             ConsoleHttpOptions["activities"]
         >["findByRun"];
         processes?: ConsoleHttpOptions["processes"];
+        summarise?: NonNullable<ConsoleHttpOptions["stats"]>["summarise"];
         executor?: ProcessExecutor;
     } = {},
 ): Promise<RunningService> {
@@ -268,6 +337,9 @@ async function startConsole(
                     },
                     ...(options.processes
                         ? { processes: options.processes }
+                        : {}),
+                    ...(options.summarise
+                        ? { stats: { summarise: options.summarise } }
                         : {}),
                 },
             },

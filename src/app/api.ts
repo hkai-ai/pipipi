@@ -26,6 +26,7 @@ import { assertDeploymentEnvironment } from "./deployment-environment.js";
 import {
     createPostgresProcessRunActivityArchive,
     createPostgresProcessRunRecordArchive,
+    createPostgresRunObservationStats,
     pruneProcessRunObservation,
 } from "./postgres-run-observation.js";
 import { describeProcessCatalog } from "./process-catalog.js";
@@ -41,6 +42,10 @@ import {
     parseProcessRunRecordContent,
     pruneProcessRunRecords,
 } from "./process-run-records.js";
+import {
+    createJsonlRunObservationStats,
+    type RunObservationStats,
+} from "./run-observation-stats.js";
 
 export type { StartupEnvironment } from "./config.js";
 
@@ -121,6 +126,7 @@ type ConstructedObservation = Readonly<{
     records: ProcessRunRecords;
     archive: ProcessRunRecordArchive;
     activities: ProcessRunActivityArchive;
+    stats: RunObservationStats;
     close?: () => Promise<void>;
 }>;
 
@@ -184,6 +190,7 @@ function buildFileObservation(
             directory,
             retentionDays,
         }),
+        stats: createJsonlRunObservationStats({ directory, retentionDays }),
     };
 }
 
@@ -220,6 +227,7 @@ function buildPostgresObservation(
     return {
         archive: createPostgresProcessRunRecordArchive({ pool }),
         activities: createPostgresProcessRunActivityArchive({ pool }),
+        stats: createPostgresRunObservationStats({ pool }),
         close: () => pool.end(),
     };
 }
@@ -236,6 +244,7 @@ function constructConsole(
         | Readonly<{
               archive: ProcessRunRecordArchive;
               activities: ProcessRunActivityArchive;
+              stats: RunObservationStats;
           }>
         | undefined,
     registry: ProcessRegistry,
@@ -258,6 +267,7 @@ function constructConsole(
             findByRun: archive.activities.findByRun,
         }),
         processes: describeProcessCatalog(registry),
+        stats: Object.freeze({ summarise: archive.stats.summarise }),
     });
 }
 

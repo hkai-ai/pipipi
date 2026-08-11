@@ -96,6 +96,36 @@ export function createJsonlProcessRunRecordArchive(options: {
 }
 
 /**
+ * Every record recorded at or after `since`. Aggregation reads the window whole
+ * rather than paging it, because a summary has no cursor to resume from.
+ */
+export function createJsonlProcessRunRecordReader(options: {
+    directory: string;
+    retentionDays?: number;
+    clock?: () => Date;
+}): (since: string) => Promise<ProcessRunRecord[]> {
+    const clock = options.clock ?? (() => new Date());
+    const files = createRecordDayFiles(options, clock);
+    return async (since) => {
+        const found: ProcessRunRecord[] = [];
+        for (const file of await files.files()) {
+            // Day files are named by UTC day, so a file entirely before the
+            // window cannot contain a record inside it.
+            if (
+                file.slice(filePrefix.length, filePrefix.length + 10) <
+                since.slice(0, 10)
+            ) {
+                continue;
+            }
+            for (const record of await files.read(file)) {
+                if (record.recordedAt >= since) found.push(record);
+            }
+        }
+        return found;
+    };
+}
+
+/**
  * Deletes day files outside the retention window. Called at startup so the
  * volume cannot grow without bound; it is best effort and never blocks the
  * service from listening.

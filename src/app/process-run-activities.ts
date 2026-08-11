@@ -64,6 +64,31 @@ export function createJsonlProcessRunActivityArchive(options: {
     });
 }
 
+/** Every activity record emitted at or after `since`, for aggregation. */
+export function createJsonlProcessRunActivityReader(options: {
+    directory: string;
+    retentionDays?: number;
+    clock?: () => Date;
+}): (since: string) => Promise<ProcessRunLogRecord[]> {
+    const clock = options.clock ?? (() => new Date());
+    const files = createActivityDayFiles(options, clock);
+    return async (since) => {
+        const found: ProcessRunLogRecord[] = [];
+        for (const file of await files.files()) {
+            if (
+                file.slice(filePrefix.length, filePrefix.length + 10) <
+                since.slice(0, 10)
+            ) {
+                continue;
+            }
+            for (const record of await files.read(file)) {
+                if (record.timestamp >= since) found.push(record);
+            }
+        }
+        return found;
+    };
+}
+
 export async function pruneProcessRunActivities(options: {
     directory: string;
     retentionDays?: number;

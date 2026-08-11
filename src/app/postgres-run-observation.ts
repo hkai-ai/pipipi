@@ -11,6 +11,10 @@ import {
     type ProcessRunRecordArchive,
     redactProcessRunRecord,
 } from "./process-run-records.js";
+import {
+    type RunObservationStats,
+    summariseRunObservation,
+} from "./run-observation-stats.js";
 
 /**
  * PostgreSQL-backed Run Record archive.
@@ -134,6 +138,95 @@ export function createPostgresProcessRunActivityArchive(options: {
         },
     });
 }
+
+/**
+ * PostgreSQL-backed statistics. Aggregation happens in the database rather than
+ * by loading the window into the service, which is the main reason production
+ * uses this store rather than files.
+ */
+export function createPostgresRunObservationStats(options: {
+    pool: Pool;
+}): RunObservationStats {
+    const pool = options.pool;
+
+    return Object.freeze({
+        summarise: async ({ since }) => {
+            const [counts, durations] = await Promise.all([
+                pool.query(
+                    `select coalesce(process_id, 'unknown') as process_id,
+                            coalesce(process_version, 'unknown') as process_version,
+                            status, error_code, count(*)::int as count
+                       from process_run_records
+                      where recorded_at >= $1
+                      group by 1, 2, 3, 4`,
+                    [since],
+                ),
+                pool.query(
+                    `select count(*)::int as samples,
+                            percentile_disc(0.5) within group (order by duration_ms) as p50,
+                            percentile_disc(0.95) within group (order by duration_ms) as p95,
+                            max(duration_ms) as max
+                       from process_run_activities
+                      where recorded_at >= $1
+                        and event = 'process_run_attempt_finished'
+                        and duration_ms is not null`,
+                    [since],
+                ),
+            ]);
+
+            // Expanding the grouped counts keeps one shaping function for both
+            // stores, so the two can never disagree about how a summary looks.
+            const records = counts.rows.flatMap(
+                (row: CountRow): ProcessRunRecord[] =>
+                    Array.from({ length: row.count }, () => ({
+                        schemaVersion: 1,
+                        recordedAt: since,
+                        runId: "aggregated",
+                        process: row.process_id,
+                        version: row.process_version,
+                        status: row.status,
+                        ...(row.error_code === null
+                            ? {}
+                            : { errorCode: row.error_code }),
+                    })) as ProcessRunRecord[],
+            );
+
+            const duration = durations.rows[0] as DurationRow | undefined;
+            return Object.freeze({
+                ...summariseRunObservation({
+                    since,
+                    records,
+                    attemptDurationsMs: [],
+                }),
+                attemptDurationMs: Object.freeze(
+                    duration && duration.samples > 0
+                        ? {
+                              samples: duration.samples,
+                              p50: duration.p50 ?? undefined,
+                              p95: duration.p95 ?? undefined,
+                              max: duration.max ?? undefined,
+                          }
+                        : { samples: 0 },
+                ),
+            });
+        },
+    });
+}
+
+type CountRow = Readonly<{
+    process_id: string;
+    process_version: string;
+    status: "succeeded" | "failed";
+    error_code: string | null;
+    count: number;
+}>;
+
+type DurationRow = Readonly<{
+    samples: number;
+    p50: number | null;
+    p95: number | null;
+    max: number | null;
+}>;
 
 /**
  * Deletes observation rows outside the retention window. Both tables are

@@ -5,6 +5,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import {
     createPostgresProcessRunActivityArchive,
     createPostgresProcessRunRecordArchive,
+    createPostgresRunObservationStats,
     pruneProcessRunObservation,
 } from "../src/app/postgres-run-observation.js";
 import {
@@ -44,6 +45,7 @@ postgresDescribe("PostgreSQL Run observation", () => {
     describeRunObservationContract(async () => ({
         archive: createPostgresProcessRunRecordArchive({ pool }),
         activities: createPostgresProcessRunActivityArchive({ pool }),
+        stats: createPostgresRunObservationStats({ pool }),
         // Activity writes are fire-and-forget; give them a turn to land.
         settle: () => new Promise((resolve) => setTimeout(resolve, 50)),
     }));
