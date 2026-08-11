@@ -39,7 +39,7 @@
 | [`processes/content-processing/`](processes/content-processing/) | 说明 `content-processing/v1` 的契约、Direct/Agent 路径和验证 | 文本处理契约、模式、Skill、Capability 或错误变化 |
 | [`processes/titled-content-processing/`](processes/titled-content-processing/) | 说明 `titled-content-processing/v1` 的契约、组合规则和验证 | 标题文本契约、分隔符、Capability 或错误变化 |
 | [`processes/minimal-zine-poster/`](processes/minimal-zine-poster/) | 说明 `minimal-zine-poster/v1` 的契约、Prompt 编译、图片能力和验收 | 海报契约、Skill、图片服务或验收变化 |
-| [`processes/crt-interface-image/`](processes/crt-interface-image/) | 说明 `crt-interface-image/v1` 的上传边界、GPT Image 2 编辑、后处理、证据保留、验收和同类流程开发模板 | CRT 契约、Skill、图片服务、证据策略、开发模板或发布门禁变化 |
+| [`processes/crt-interface-image/`](processes/crt-interface-image/) | 说明 `crt-interface-image/v1` 的上传边界、GPT Image 2 编辑、后处理、证据保留、验收、外部接入契约、接入对齐开发计划和同类流程开发模板 | CRT 契约、Skill、图片服务、证据策略、接入方对齐、实施顺序、开发模板或发布门禁变化 |
 
 每个 production Process 只在自己的目录维护专属知识。精确运行行为仍以 Registration 和测试为准；通用 Runtime、Skill 接入和发布规则不复制进 Process 目录。
 
