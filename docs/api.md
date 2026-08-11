@@ -6,7 +6,7 @@
 
 | 项目 | 值 |
 | --- | --- |
-| Base URL | 由部署方提供；下文使用 `https://api.example.com` |
+| Base URL | `https://pi.ganjiuwanshi.com` |
 | 业务入口 | `POST /execute` |
 | Content-Type | `application/json` |
 | 鉴权 | 应用不校验鉴权请求头；网关启用鉴权时，按网关要求携带凭证 |
@@ -19,7 +19,7 @@
 
 ```http
 POST /execute HTTP/1.1
-Host: api.example.com
+Host: pi.ganjiuwanshi.com
 Content-Type: application/json
 ```
 
@@ -318,7 +318,7 @@ HTTP 层在执行前拒绝请求时，不返回 `runId`：
 curl：
 
 ```bash
-curl -X POST 'https://api.example.com/execute' \
+curl -X POST 'https://pi.ganjiuwanshi.com/execute' \
   -H 'content-type: application/json' \
   -d '{
     "process": "news-image-pale-watercolor",
@@ -343,7 +343,7 @@ $body = @{
 } | ConvertTo-Json -Depth 4
 
 Invoke-RestMethod `
-    -Uri "https://api.example.com/execute" `
+    -Uri "https://pi.ganjiuwanshi.com/execute" `
     -Method Post `
     -ContentType "application/json" `
     -Body $body
