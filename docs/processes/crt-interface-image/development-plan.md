@@ -249,7 +249,7 @@ flowchart LR
 
 ### 任务
 
-- 修复异步入口幂等重放返回的状态恒为排队中的问题，使其反映真实状态。
+- ~~修复异步入口幂等重放返回的状态恒为排队中的问题，使其反映真实状态。~~ 已交付。
 - 修订 `AGENTS.md` 的「CRT 图片输入」：服务端在再出档路径下会下载调用方 URL，须写明适用范围与出站约束。
 - 把 [`integration-contract.md`](integration-contract.md) 中已交付的「计划」项迁入「当前行为」，并更新决策记录的落地状态。
 - 同步 [`README.md`](README.md)、[`../../development.md`](../../development.md) 与 [`../../experiments.md`](../../experiments.md) 中受影响的段落。

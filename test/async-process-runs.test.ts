@@ -417,7 +417,10 @@ describe("Async Process Runs", () => {
             callerId: "caller-a",
             idempotencyKey: "shared-key",
         });
-        expect(terminalReplay).toEqual(first);
+        expect(terminalReplay).toEqual({
+            ...first,
+            status: "succeeded",
+        });
         await expect(fixture.drain.drainOne()).resolves.toBe("empty");
     });
 

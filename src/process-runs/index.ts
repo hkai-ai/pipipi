@@ -86,7 +86,12 @@ export type ProcessRunSubmission =
           runId: string;
           process: string;
           version: string;
-          status: "queued";
+          /**
+           * The run's real status. A first submission is always `queued`, but an
+           * idempotent replay reports whatever the existing run has reached, so
+           * callers are never told a finished run is still waiting.
+           */
+          status: "queued" | "running" | "succeeded" | "failed";
           createdAt: string;
       }>
     | Readonly<{
@@ -198,7 +203,7 @@ export function createAsyncProcessRuns(options: {
                 runId: run.runId,
                 process: run.process,
                 version: run.version,
-                status: "queued",
+                status: run.status,
                 createdAt: run.createdAt,
             });
         },

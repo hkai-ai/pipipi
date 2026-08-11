@@ -139,7 +139,7 @@
 - 强制要求 `Idempotency-Key`（最长 512 字节），幂等作用域是 `(callerId, idempotencyKey)`。
 - 同 key 且请求指纹相同 → **`202` 返回原 `runId`**，不重新入队、不重新执行、不重复计费。指纹算的是 Registration 归一化后的输入，不是原始字节。
 - 同 key 但指纹不同 → `409 IDEMPOTENCY_CONFLICT`。
-- 重放返回的 `202` 响应体 `status` 当前恒为 `queued`，即使该 Run 已终结。调用方应只取 `runId`，状态一律通过 `GET` 获取。
+- 重放返回的 `202` 响应体带该 Run 的真实状态，已终结的 Run 不会再被报成排队中。完整结果仍需通过 `GET` 获取。
 - 准入上限 `ASYNC_CALLER_BACKLOG_LIMIT` 按 caller 计，`ASYNC_GLOBAL_BACKLOG_LIMIT` 按全局计，两者统计的都是 `queued` 与 `running` 之和。
 - 超限返回 `429 CALLER_BACKLOG_LIMIT_REACHED` 或 `503 ASYNC_SERVICE_CAPACITY_REACHED`，附 `Retry-After`。
 - **`429`、`503 ASYNC_SERVICE_CAPACITY_REACHED` 与 `503 ASYNC_SERVICE_UNAVAILABLE` 都不消耗幂等键。** 接收在单个数据库事务内执行，顺序是幂等重放查询 → backlog 计数 → 写入；超限抛错导致事务整体回滚，不留下任何行。调用方应当用同一个 key 重投，不要生成新 key。

@@ -218,6 +218,33 @@ describe("Async Process Runs HTTP Interface", () => {
         await expect(fixture.queue.take()).resolves.toBeUndefined();
     });
 
+    it("reports the real status when replaying a finished run", async () => {
+        const fixture = await startFixture();
+        const first = await submit(fixture.url, {
+            callerId: "caller-a",
+            idempotencyKey: "shared",
+        });
+        const accepted = (await first.json()) as {
+            runId: string;
+            status: string;
+        };
+        expect(accepted.status).toBe("queued");
+
+        await expect(fixture.drain.drainOne()).resolves.toBe("processed");
+
+        const replay = await submit(fixture.url, {
+            callerId: "caller-a",
+            idempotencyKey: "shared",
+        });
+
+        expect(replay.status).toBe(202);
+        expect(await replay.json()).toMatchObject({
+            runId: accepted.runId,
+            status: "succeeded",
+        });
+        await expect(fixture.queue.take()).resolves.toBeUndefined();
+    });
+
     it("returns a runId that resolves to the completed Business Process result", async () => {
         const fixture = await startFixture();
         const submission = await submit(fixture.url, {
