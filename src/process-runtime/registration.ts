@@ -25,7 +25,20 @@ type ProcessRegistrationRunContext = Readonly<{
     runActivity?: ProcessRunActivity;
 }>;
 
-export type ExpectedProcessErrorCode = "AGENT_FAILURE" | "DEPENDENCY_FAILURE";
+export type ExpectedProcessErrorCode =
+    | "AGENT_FAILURE"
+    | "DEPENDENCY_FAILURE"
+    | "DEPENDENCY_FAILURE_AFTER_COMMIT";
+
+/**
+ * Codes a Process may declare retryable. `DEPENDENCY_FAILURE_AFTER_COMMIT` is
+ * deliberately excluded: the dependency's priced effect already landed, so an
+ * automatic retry spends again and must stay a human decision.
+ */
+export type RetryableProcessErrorCode = Exclude<
+    ExpectedProcessErrorCode,
+    "DEPENDENCY_FAILURE_AFTER_COMMIT"
+>;
 
 const expectedProcessFailureBrand: unique symbol = Symbol(
     "ExpectedProcessFailure",
@@ -84,7 +97,7 @@ export type ProcessRegistrationAcceptance =
 
 export type ProcessRetryPolicy = Readonly<{
     maximumAttempts: number;
-    retryableErrorCodes: readonly ExpectedProcessErrorCode[];
+    retryableErrorCodes: readonly RetryableProcessErrorCode[];
     backoff: Readonly<{
         initialDelayMs: number;
         maximumDelayMs: number;

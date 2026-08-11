@@ -437,6 +437,39 @@ describe("crt-interface-image/v1", () => {
         expect(JSON.stringify(result)).not.toContain("private provider detail");
     });
 
+    it("maps a failure after the edit was charged to a separate public code", async () => {
+        const executor = createCrtExecutor(
+            { compile: async () => compiledCrt },
+            {
+                transform: async () => {
+                    throw new CrtRenderingUnavailable({
+                        committed: true,
+                        cause: new Error("private storage detail"),
+                    });
+                },
+            },
+        );
+
+        const result = await executor.execute({
+            process: "crt-interface-image",
+            version: "v1",
+            input: {
+                sourceImageUrl: "https://images.example.com/portrait-01.png",
+                palette: "经典",
+                aspectRatio: "4:3",
+            },
+        });
+
+        expect(result).toMatchObject({
+            status: "failed",
+            error: {
+                code: "DEPENDENCY_FAILURE_AFTER_COMMIT",
+                message: "The CRT image was rendered but could not be delivered",
+            },
+        });
+        expect(JSON.stringify(result)).not.toContain("private storage detail");
+    });
+
     it("maps malformed or wrong-ratio Capability output to INVALID_OUTPUT", async () => {
         const unsafeExecutor = createCrtExecutor(
             { compile: async () => compiledCrt },

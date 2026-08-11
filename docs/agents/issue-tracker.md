@@ -1,6 +1,6 @@
 # Issue Tracker
 
-本仓库的规格和工作项使用 `techidsk/pipipi` GitHub Issues。自动化工具在仓库 clone 内通过 `gh` CLI 操作，并从 `origin` 推断仓库。
+本仓库的规格和工作项使用 `hkai-ai/pipipi` GitHub Issues。自动化工具在仓库 clone 内通过 `gh` CLI 操作，并从 `origin` 推断仓库。
 
 ## 约定
 

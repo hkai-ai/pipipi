@@ -2,6 +2,7 @@ import {
     type CrtImage,
     type CrtRenderingCapability,
     CrtRenderingUnavailable,
+    crtRenderingIncompleteCode,
     parseCrtImage,
 } from "./capability.js";
 import type { CrtAspectRatio, CrtPalette } from "./style.js";
@@ -46,10 +47,38 @@ export class HttpCrtRenderingCapability implements CrtRenderingCapability {
                     AbortSignal.timeout(this.#timeoutMs),
                 ]),
             });
-            if (!response.ok) throw new Error("CRT API returned an error");
+            if (!response.ok) {
+                throw new CrtRenderingUnavailable({
+                    committed: await isCommittedFailure(response),
+                });
+            }
             return parseCrtImage(await response.json());
         } catch (error) {
+            if (error instanceof CrtRenderingUnavailable) throw error;
             throw new CrtRenderingUnavailable({ cause: error });
         }
+    }
+}
+
+/**
+ * Reads only the stable error code from the failure body. Any other content is
+ * discarded so vendor detail cannot escape through this Adapter, and an
+ * unreadable body degrades to the cheaper "not committed" reading rather than
+ * claiming a charge we cannot prove.
+ */
+async function isCommittedFailure(response: Response): Promise<boolean> {
+    try {
+        const body: unknown = await response.json();
+        return (
+            typeof body === "object" &&
+            body !== null &&
+            "error" in body &&
+            typeof body.error === "object" &&
+            body.error !== null &&
+            "code" in body.error &&
+            body.error.code === crtRenderingIncompleteCode
+        );
+    } catch {
+        return false;
     }
 }

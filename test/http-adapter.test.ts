@@ -374,6 +374,123 @@ describe("controlled MVP HTTP boundary", () => {
         );
     });
 
+    it("records the caller's request id without echoing it back", async () => {
+        const records: unknown[] = [];
+        let monotonicCalls = 0;
+        const service = await startProcessingService({
+            contentProcessing: {
+                process: async () => ({ content: "output" }),
+            },
+            http: {
+                logSink: (record) => records.push(record),
+                clock: {
+                    timestamp: () => "2026-08-08T00:00:00.000Z",
+                    monotonicMilliseconds: () =>
+                        monotonicCalls++ === 0 ? 100 : 142,
+                },
+            },
+        });
+
+        const response = await executeContent(service.url, "input", {
+            "x-request-id": "caller-trace-01",
+        });
+        const body = await response.json();
+
+        expect(response.status).toBe(200);
+        expect(response.headers.get("x-request-id")).toBeNull();
+        expect(body).not.toHaveProperty("requestId");
+        expect(records).toEqual([
+            {
+                event: "process_run_completed",
+                timestamp: "2026-08-08T00:00:00.000Z",
+                runId: body.runId,
+                process: "content-processing",
+                version: "v1",
+                status: "succeeded",
+                durationMs: 42,
+                requestId: "caller-trace-01",
+            },
+        ]);
+    });
+
+    it("records the caller's request id on rejections that carry no runId", async () => {
+        const records: unknown[] = [];
+        let monotonicValue = 0;
+        const service = await startProcessingService({
+            contentProcessing: {
+                process: async () => ({ content: "unexpected" }),
+            },
+            http: {
+                logSink: (record) => records.push(record),
+                clock: {
+                    timestamp: () => "2026-08-08T00:00:00.000Z",
+                    monotonicMilliseconds: () => {
+                        const value = monotonicValue;
+                        monotonicValue += 10;
+                        return value;
+                    },
+                },
+            },
+        });
+
+        const response = await fetch(`${service.url}/execute`, {
+            method: "POST",
+            headers: {
+                "content-type": "text/plain",
+                "x-request-id": "caller-trace-02",
+            },
+            body: "rejected before execution",
+        });
+
+        expect(response.status).toBe(415);
+        expect(records).toEqual([
+            {
+                event: "http_request_rejected",
+                timestamp: "2026-08-08T00:00:00.000Z",
+                httpStatus: 415,
+                errorCode: "UNSUPPORTED_MEDIA_TYPE",
+                durationMs: 10,
+                requestId: "caller-trace-02",
+            },
+        ]);
+    });
+
+    it("drops an unusable request id without changing the result", async () => {
+        const unusableRequestIds = [
+            "",
+            " ",
+            "trace with spaces",
+            'trace"quoted',
+            "duplicate-a, duplicate-b",
+            "x".repeat(201),
+        ];
+        const records: Array<Record<string, unknown>> = [];
+        const service = await startProcessingService({
+            contentProcessing: {
+                process: async () => ({ content: "output" }),
+            },
+            http: {
+                logSink: (record) =>
+                    records.push(record as Record<string, unknown>),
+            },
+        });
+
+        for (const requestId of unusableRequestIds) {
+            const response = await executeContent(service.url, "input", {
+                "x-request-id": requestId,
+            });
+
+            expect(response.status).toBe(200);
+        }
+
+        expect(records).toHaveLength(unusableRequestIds.length);
+        for (const record of records) {
+            expect(record.status).toBe("succeeded");
+            expect(record).not.toHaveProperty("requestId");
+        }
+        expect(JSON.stringify(records)).not.toContain("duplicate-a");
+    });
+
     it("emits minimal records for media, body, and capacity rejections", async () => {
         const records: unknown[] = [];
         const executionGate = createDeferred<{ content: string }>();
@@ -755,10 +872,11 @@ async function postChunkedJson(
 function executeContent(
     serviceUrl: string,
     content: string,
+    headers: Record<string, string> = {},
 ): Promise<Response> {
     return fetch(`${serviceUrl}/execute`, {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", ...headers },
         body: JSON.stringify({
             process: "content-processing",
             version: "v1",

@@ -32,12 +32,25 @@ export type CrtRenderingCapability = Readonly<{
     ) => Promise<CrtImage>;
 }>;
 
+/**
+ * `committed` records whether the image edit had already returned when the
+ * failure happened. Everything before that point is free to retry; everything
+ * after it has already been paid for. The Registration turns this one bit into
+ * the public error code, so callers never have to read logs to decide whether a
+ * retry spends money again.
+ */
 export class CrtRenderingUnavailable extends Error {
-    constructor(options?: ErrorOptions) {
+    readonly committed: boolean;
+
+    constructor(options: ErrorOptions & { committed?: boolean } = {}) {
         super("CRT rendering is unavailable", options);
         this.name = "CrtRenderingUnavailable";
+        this.committed = options.committed ?? false;
     }
 }
+
+/** Error code returned by `POST /crt-images` after the edit has been charged. */
+export const crtRenderingIncompleteCode = "CRT_RENDERING_INCOMPLETE";
 
 export function isPublicSourceImageUrl(value: string): boolean {
     try {
