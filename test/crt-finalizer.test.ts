@@ -93,7 +93,11 @@ describe("CRT finalizer grains", () => {
                 .raw()
                 .toBuffer({ resolveWithObject: true });
             const used = new Set<string>();
-            for (let offset = 0; offset < data.length; offset += info.channels) {
+            for (
+                let offset = 0;
+                offset < data.length;
+                offset += info.channels
+            ) {
                 used.add(
                     `${data[offset]},${data[offset + 1]},${data[offset + 2]}`,
                 );
