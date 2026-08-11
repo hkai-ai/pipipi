@@ -62,6 +62,26 @@ export type ConsoleHttpOptions = Readonly<{
     activities?: Readonly<{
         findByRun: (runId: string) => Promise<readonly ProcessRunLogRecord[]>;
     }>;
+    /** The fixed production catalog. Absent when catalog exposure is off. */
+    processes?: readonly ConsoleProcessDescription[];
+}>;
+
+/**
+ * How one registered Process version is described to operators. The Schemas are
+ * derived from the Registration's own validation, so this cannot drift from
+ * what the service actually accepts and returns. A Schema is omitted when it
+ * has no JSON Schema representation.
+ */
+export type ConsoleProcessDescription = Readonly<{
+    process: string;
+    version: string;
+    activities: readonly string[];
+    retry: Readonly<{
+        maximumAttempts: number;
+        retryableErrorCodes: readonly string[];
+    }>;
+    input?: unknown;
+    output?: unknown;
 }>;
 
 export type AsyncProcessRunsHttpOptions = Readonly<{
@@ -353,6 +373,12 @@ async function handleConsole(
             "x-robots-tag": "noindex, nofollow",
         });
         response.end(renderConsolePage(base));
+        return true;
+    }
+
+    if (options.processes && path === `${base}/processes`) {
+        response.setHeader("cache-control", "no-store");
+        writeJson(response, 200, { processes: options.processes });
         return true;
     }
 

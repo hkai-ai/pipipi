@@ -9,8 +9,18 @@ export const processRegistryBrand: unique symbol = Symbol("ProcessRegistry");
 
 export type ProcessRegistry = Readonly<{
     find: (identity: ProcessIdentity) => ProcessRegistration | undefined;
+    /**
+     * Every registered Process version, ordered by id then version. The
+     * production catalog is fixed at construction, so this is a stable
+     * description of what this release can execute.
+     */
+    list: () => readonly ProcessRegistration[];
     [processRegistryBrand]: true;
 }>;
+
+function compare(left: string, right: string): number {
+    return left < right ? -1 : left > right ? 1 : 0;
+}
 
 export function createProcessRegistry(
     registrations: readonly ProcessRegistration[],
@@ -44,9 +54,18 @@ export function createProcessRegistry(
         versions.set(registration.identity.version, registration);
     }
 
+    const ordered = Object.freeze(
+        [...registrations].sort(
+            (left, right) =>
+                compare(left.identity.id, right.identity.id) ||
+                compare(left.identity.version, right.identity.version),
+        ),
+    );
+
     return Object.freeze({
         find: (identity: ProcessIdentity) =>
             registrationsById.get(identity.id)?.get(identity.version),
+        list: () => ordered,
         [processRegistryBrand]: true as const,
     });
 }

@@ -292,6 +292,11 @@ Run Record 是给运维看的观测记录，不是异步 Run Store：它只保�
 | `GET {base}/runs?limit=&before=` | 按记录时间倒序读取 Run Record |
 | `GET {base}/runs/{runId}` | 读取单条 Run Record |
 | `GET {base}/runs/{runId}/activities` | 读取该 Run 的 Attempt 与活动时间线，按 Attempt 序号和 sequence 排序 |
+| `GET {base}/processes` | 读取生产 catalog：精确版本、固定活动名、Registration 级重试策略，以及输入输出字段表 |
+
+`{base}/processes` 的字段表由每个 Process Registration 自己的 Zod Schema 推导，因此不会与 `accept` 实际执行的校验漂移。它**不取代** [`docs/api.md`](api.md)：错误语义、计费边界、提交后依赖失败不可自动重试这类约束无法从 Schema 推导，仍以那份文档为准。某个 Schema 无法表示为 JSON Schema 时，该字段被省略而不是让整个目录视图失败。
+
+注意 `retry` 报告的是 Registration 级策略。`crt-interface-image` 在图片调用前对无副作用 Agent 编译的重试发生在 Registration 内部，不计为 Attempt，因此不出现在这里。
 
 启用前必须理解的三件事：
 

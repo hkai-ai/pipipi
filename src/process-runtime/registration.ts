@@ -117,6 +117,16 @@ export const processRegistrationBrand: unique symbol = Symbol(
 export type ProcessRegistration = Readonly<{
     identity: ProcessIdentity;
     retryPolicy: ProcessRetryPolicy;
+    /**
+     * The Schemas this Registration actually validates against, kept so an
+     * operations view can describe the contract without a second, hand-written
+     * copy that could drift from what `accept` enforces. They are exposed for
+     * description only; nothing in the request path reads them.
+     */
+    inputSchema: z.ZodType;
+    outputSchema: z.ZodType;
+    /** The fixed activity names this Registration may report. */
+    activities: readonly string[];
     accept: (input: unknown) => ProcessRegistrationAcceptance;
     run: (
         acceptedInput: AcceptedProcessInput,
@@ -259,6 +269,9 @@ export function defineProcessRegistration<
     return Object.freeze({
         identity,
         retryPolicy,
+        inputSchema,
+        outputSchema,
+        activities: Object.freeze([...activities]),
         accept,
         run,
         [processRegistrationBrand]: true as const,

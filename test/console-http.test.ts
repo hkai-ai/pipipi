@@ -165,6 +165,46 @@ describe("operator console HTTP boundary", () => {
         expect(response.status).toBe(404);
     });
 
+    it("serves the production catalog", async () => {
+        const service = await startConsole({
+            processes: [
+                {
+                    process: "news-image-pale-watercolor",
+                    version: "v1",
+                    activities: ["news_image_rendering"],
+                    retry: { maximumAttempts: 1, retryableErrorCodes: [] },
+                    input: { type: "object" },
+                    output: { type: "object" },
+                },
+            ],
+        });
+
+        const response = await fetch(`${service.url}/console/processes`);
+
+        expect(response.status).toBe(200);
+        expect(
+            ((await response.json()) as { processes: unknown[] }).processes,
+        ).toHaveLength(1);
+    });
+
+    it("omits the catalog route when the catalog is not configured", async () => {
+        const service = await startRequestListener(
+            createProcessingRequestListener(rejectingExecutor(), {
+                console: {
+                    basePath: "/console",
+                    records: {
+                        list: async () => ({ records: [storedRecord] }),
+                        find: async () => storedRecord,
+                    },
+                },
+            }),
+        );
+
+        expect((await fetch(`${service.url}/console/processes`)).status).toBe(
+            404,
+        );
+    });
+
     it("never executes a Business Process from a console route", async () => {
         let executions = 0;
         const service = await startConsole({
@@ -205,6 +245,7 @@ async function startConsole(
         findActivities?: NonNullable<
             ConsoleHttpOptions["activities"]
         >["findByRun"];
+        processes?: ConsoleHttpOptions["processes"];
         executor?: ProcessExecutor;
     } = {},
 ): Promise<RunningService> {
@@ -225,6 +266,9 @@ async function startConsole(
                             options.findActivities ??
                             (async () => [storedActivity]),
                     },
+                    ...(options.processes
+                        ? { processes: options.processes }
+                        : {}),
                 },
             },
         ),

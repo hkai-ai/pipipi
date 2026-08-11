@@ -36,6 +36,12 @@ ${consoleStyles}
 </section>
 
 <section class="panel">
+    <h2>Process 目录 <button type="button" id="toggle-catalog">展开</button></h2>
+    <p class="hint">字段约束由服务端执行校验的 Schema 推导，不是手写。错误语义与计费边界见业务接口文档。</p>
+    <div id="catalog" hidden></div>
+</section>
+
+<section class="panel">
     <h2>任务记录 <button type="button" id="refresh">刷新</button></h2>
     <p class="hint" id="records-hint">按记录时间倒序，跨发版保留。</p>
     <div id="records"></div>
@@ -117,6 +123,9 @@ td.run-id { font-family: ui-monospace, monospace; font-size: 11px; color: var(--
     color: var(--muted); background: none; border: 1px dashed var(--line);
 }
 .trace-toggle:hover { color: var(--ink); border-style: solid; }
+details { border-top: 1px solid var(--line); padding: 10px 0; }
+details summary { cursor: pointer; font-weight: 500; }
+details table { margin-bottom: 8px; }
 .timeline {
     margin: 4px 0; padding-left: 20px;
     font-family: ui-monospace, monospace; font-size: 12px; line-height: 1.8;
@@ -386,6 +395,88 @@ async function loadRecords({ reset }) {
         recordsHint.textContent = "读取记录失败：" + String(error);
     }
 }
+
+const catalogContainer = document.getElementById("catalog");
+const catalogToggle = document.getElementById("toggle-catalog");
+let catalogLoaded = false;
+
+function describeConstraint(property) {
+    const parts = [property.type ?? "any"];
+    if (property.enum) parts.push(property.enum.join(" | "));
+    if (property.minLength !== undefined || property.maxLength !== undefined) {
+        parts.push((property.minLength ?? 0) + "–" + (property.maxLength ?? "∞") + " 字符");
+    }
+    if (property.default !== undefined) parts.push("缺省 " + JSON.stringify(property.default));
+    return parts.join("，");
+}
+
+function renderSchemaTable(schema) {
+    const table = document.createElement("table");
+    table.innerHTML = "<thead><tr><th>字段</th><th>必填</th><th>约束</th></tr></thead><tbody></tbody>";
+    const body = table.querySelector("tbody");
+    const required = new Set(schema?.required ?? []);
+    for (const [name, property] of Object.entries(schema?.properties ?? {})) {
+        const row = document.createElement("tr");
+        for (const text of [name, required.has(name) ? "是" : "否", describeConstraint(property)]) {
+            const cell = document.createElement("td");
+            cell.textContent = text;
+            row.append(cell);
+        }
+        body.append(row);
+    }
+    return table;
+}
+
+async function loadCatalog() {
+    if (catalogLoaded) return;
+    catalogContainer.textContent = "读取 Process 目录…";
+    try {
+        const response = await fetch(basePath + "/processes", {
+            headers: { accept: "application/json" },
+        });
+        if (!response.ok) throw new Error("HTTP " + response.status);
+        const { processes } = await response.json();
+        catalogContainer.replaceChildren();
+        for (const entry of processes) {
+            const block = document.createElement("details");
+            const summary = document.createElement("summary");
+            summary.textContent = entry.process + " / " + entry.version;
+            block.append(summary);
+
+            const meta = document.createElement("p");
+            meta.className = "hint";
+            meta.textContent =
+                "活动：" + entry.activities.join(" → ") +
+                "　最大 Attempt：" + entry.retry.maximumAttempts;
+            block.append(meta);
+
+            for (const [label, schema] of [["输入", entry.input], ["输出", entry.output]]) {
+                const heading = document.createElement("p");
+                heading.className = "hint";
+                heading.textContent = label;
+                block.append(heading);
+                block.append(
+                    schema
+                        ? renderSchemaTable(schema)
+                        : Object.assign(document.createElement("p"), {
+                              className: "hint",
+                              textContent: "该 Schema 无法自动生成，请查阅业务接口文档。",
+                          }),
+                );
+            }
+            catalogContainer.append(block);
+        }
+        catalogLoaded = true;
+    } catch (error) {
+        catalogContainer.textContent = "读取 Process 目录失败：" + String(error);
+    }
+}
+
+catalogToggle.addEventListener("click", async () => {
+    catalogContainer.hidden = !catalogContainer.hidden;
+    catalogToggle.textContent = catalogContainer.hidden ? "展开" : "收起";
+    if (!catalogContainer.hidden) await loadCatalog();
+});
 
 document.getElementById("refresh").addEventListener("click", () => loadRecords({ reset: true }));
 loadMoreButton.addEventListener("click", () => loadRecords({ reset: false }));

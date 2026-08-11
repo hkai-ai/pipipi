@@ -23,6 +23,7 @@ import {
 import { createProductionRuntime } from "./business-processes.js";
 import type { StartupEnvironment } from "./config.js";
 import { assertDeploymentEnvironment } from "./deployment-environment.js";
+import { describeProcessCatalog } from "./process-catalog.js";
 import {
     createJsonlProcessRunActivityArchive,
     type ProcessRunActivityArchive,
@@ -64,7 +65,11 @@ export function constructProcessingService(
         environment,
         runtime.registry,
     );
-    const consoleOptions = constructConsole(environment, archive);
+    const consoleOptions = constructConsole(
+        environment,
+        archive,
+        runtime.registry,
+    );
 
     return {
         application: createProcessingApplication({
@@ -138,6 +143,7 @@ function constructConsole(
               activities: ProcessRunActivityArchive;
           }>
         | undefined,
+    registry: ProcessRegistry,
 ): NonNullable<ProcessingHttpOptions["console"]> | undefined {
     if (!parseFeatureFlag(environment.CONSOLE_ENABLED, "CONSOLE_ENABLED")) {
         return undefined;
@@ -156,6 +162,7 @@ function constructConsole(
         activities: Object.freeze({
             findByRun: archive.activities.findByRun,
         }),
+        processes: describeProcessCatalog(registry),
     });
 }
 
