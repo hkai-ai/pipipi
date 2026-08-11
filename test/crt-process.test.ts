@@ -137,6 +137,7 @@ describe("crt-interface-image/v1", () => {
                 prompt: compiledCrt.prompt,
                 palette: "经典",
                 aspectRatio: "4:3",
+                grain: "normal",
                 idempotencyKey: result.runId,
             },
         ]);
@@ -405,6 +406,92 @@ describe("crt-interface-image/v1", () => {
         });
     });
 
+    it("defaults the grain, forwards it to the Capability, and hides it from the Agent", async () => {
+        const agentRequests: unknown[] = [];
+        const transformCalls: Array<Record<string, unknown>> = [];
+        const executor = createCrtExecutor(
+            {
+                compile: async (request) => {
+                    agentRequests.push(request);
+                    return compiledCrt;
+                },
+            },
+            {
+                transform: async (input) => {
+                    transformCalls.push({ ...input });
+                    return crtImage;
+                },
+            },
+        );
+
+        const omitted = await executor.execute({
+            process: "crt-interface-image",
+            version: "v1",
+            input: {
+                sourceImageUrl: "https://images.example.com/portrait-01.png",
+                palette: "经典",
+                aspectRatio: "4:3",
+            },
+        });
+        const explicit = await executor.execute({
+            process: "crt-interface-image",
+            version: "v1",
+            input: {
+                sourceImageUrl: "https://images.example.com/portrait-01.png",
+                palette: "经典",
+                aspectRatio: "4:3",
+                grain: "coarse",
+            },
+        });
+
+        expect(omitted).toMatchObject({ status: "succeeded" });
+        expect(explicit).toMatchObject({ status: "succeeded" });
+        expect(transformCalls.map((call) => call.grain)).toEqual([
+            "normal",
+            "coarse",
+        ]);
+        for (const request of agentRequests) {
+            expect(request).not.toHaveProperty("grain");
+        }
+    });
+
+    it("rejects an unknown grain before calling the Agent or the Capability", async () => {
+        let agentCalls = 0;
+        let transformCalls = 0;
+        const executor = createCrtExecutor(
+            {
+                compile: async () => {
+                    agentCalls += 1;
+                    return compiledCrt;
+                },
+            },
+            {
+                transform: async () => {
+                    transformCalls += 1;
+                    return crtImage;
+                },
+            },
+        );
+
+        const result = await executor.execute({
+            process: "crt-interface-image",
+            version: "v1",
+            input: {
+                sourceImageUrl: "https://images.example.com/portrait-01.png",
+                palette: "经典",
+                aspectRatio: "4:3",
+                grain: "extra-coarse",
+            },
+        });
+
+        expect(result).toMatchObject({
+            status: "failed",
+            error: { code: "INVALID_INPUT" },
+        });
+        expect(agentCalls).toBe(0);
+        expect(transformCalls).toBe(0);
+    });
+
     it("maps a controlled rendering failure to a stable dependency error", async () => {
         const executor = createCrtExecutor(
             { compile: async () => compiledCrt },
@@ -464,7 +551,8 @@ describe("crt-interface-image/v1", () => {
             status: "failed",
             error: {
                 code: "DEPENDENCY_FAILURE_AFTER_COMMIT",
-                message: "The CRT image was rendered but could not be delivered",
+                message:
+                    "The CRT image was rendered but could not be delivered",
             },
         });
         expect(JSON.stringify(result)).not.toContain("private storage detail");

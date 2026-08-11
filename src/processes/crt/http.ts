@@ -5,7 +5,7 @@ import {
     crtRenderingIncompleteCode,
     parseCrtImage,
 } from "./capability.js";
-import type { CrtAspectRatio, CrtPalette } from "./style.js";
+import type { CrtAspectRatio, CrtGrain, CrtPalette } from "./style.js";
 
 export class HttpCrtRenderingCapability implements CrtRenderingCapability {
     readonly #endpoint: URL;
@@ -31,6 +31,7 @@ export class HttpCrtRenderingCapability implements CrtRenderingCapability {
             prompt: string;
             palette: CrtPalette;
             aspectRatio: CrtAspectRatio;
+            grain: CrtGrain;
         },
         options: { signal: AbortSignal; idempotencyKey: string },
     ): Promise<CrtImage> {

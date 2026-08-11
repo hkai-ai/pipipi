@@ -171,6 +171,7 @@ function createEvidenceInput(runId: string) {
         quality: "low" as const,
         palette: "经典" as const,
         aspectRatio: "4:3" as const,
+        grain: "normal" as const,
         prompt: "private prompt",
         source: {
             bytes: Buffer.from("source-bytes"),

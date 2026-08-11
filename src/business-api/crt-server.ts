@@ -15,8 +15,10 @@ import {
 } from "../processes/crt/capability.js";
 import {
     type CrtAspectRatio,
+    type CrtGrain,
     type CrtPalette,
     crtAspectRatios,
+    crtGrains,
     crtPaletteNames,
 } from "../processes/crt/style.js";
 import {
@@ -54,6 +56,7 @@ type CrtRequest = Readonly<{
     prompt: string;
     palette: CrtPalette;
     aspectRatio: CrtAspectRatio;
+    grain: CrtGrain;
 }>;
 
 type NewsImageRequest = Readonly<{
@@ -545,6 +548,7 @@ export async function startCrtBusinessApi(
             generated: raw,
             palette: input.palette,
             aspectRatio: input.aspectRatio,
+            grain: input.grain,
         });
         artifacts = await saveCrtEvidence(evidencePolicy, {
             runId: requestKey,
@@ -554,6 +558,7 @@ export async function startCrtBusinessApi(
             quality,
             palette: input.palette,
             aspectRatio: input.aspectRatio,
+            grain: input.grain,
             sourceUrlSha256: sha256(input.sourceImageUrl),
             raw: {
                 bytes: raw,
@@ -781,8 +786,8 @@ function summarizeRenderingFailure(
 }
 
 function parseCrtRequest(value: unknown): CrtRequest {
-    if (!isRecord(value) || Object.keys(value).length !== 4) {
-        throw new Error("CRT request must be an object with four fields");
+    if (!isRecord(value) || Object.keys(value).length !== 5) {
+        throw new Error("CRT request must be an object with five fields");
     }
     if (
         typeof value.sourceImageUrl !== "string" ||
@@ -793,7 +798,9 @@ function parseCrtRequest(value: unknown): CrtRequest {
         typeof value.palette !== "string" ||
         !crtPaletteNames.includes(value.palette as CrtPalette) ||
         typeof value.aspectRatio !== "string" ||
-        !crtAspectRatios.includes(value.aspectRatio as CrtAspectRatio)
+        !crtAspectRatios.includes(value.aspectRatio as CrtAspectRatio) ||
+        typeof value.grain !== "string" ||
+        !crtGrains.includes(value.grain as CrtGrain)
     ) {
         throw new Error("CRT request is invalid");
     }
@@ -802,6 +809,7 @@ function parseCrtRequest(value: unknown): CrtRequest {
         prompt: value.prompt,
         palette: value.palette as CrtPalette,
         aspectRatio: value.aspectRatio as CrtAspectRatio,
+        grain: value.grain as CrtGrain,
     });
 }
 

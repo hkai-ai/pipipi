@@ -26,6 +26,7 @@ describe("CRT Rendering HTTP Adapter", () => {
                 prompt: "Transform the attached image",
                 palette: "经典",
                 aspectRatio: "4:3",
+                grain: "normal",
             },
             {
                 signal: new AbortController().signal,
@@ -47,6 +48,7 @@ describe("CRT Rendering HTTP Adapter", () => {
             prompt: "Transform the attached image",
             palette: "经典",
             aspectRatio: "4:3",
+            grain: "normal",
         });
     });
 
@@ -71,6 +73,7 @@ describe("CRT Rendering HTTP Adapter", () => {
                     prompt: "Transform the attached image",
                     palette: "经典",
                     aspectRatio: "4:3",
+                    grain: "normal",
                 },
                 {
                     signal: new AbortController().signal,
@@ -111,6 +114,7 @@ describe("CRT Rendering HTTP Adapter", () => {
                         prompt: "Transform the attached image",
                         palette: "经典",
                         aspectRatio: "4:3",
+                        grain: "normal",
                     },
                     {
                         signal: new AbortController().signal,
@@ -143,6 +147,7 @@ describe("CRT Rendering HTTP Adapter", () => {
                     prompt: "Transform the attached image",
                     palette: "经典",
                     aspectRatio: "4:3",
+                    grain: "normal",
                 },
                 {
                     signal: new AbortController().signal,

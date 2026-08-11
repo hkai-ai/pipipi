@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { CrtAspectRatio, CrtPalette } from "./style.js";
+import type { CrtAspectRatio, CrtGrain, CrtPalette } from "./style.js";
 
 export const crtImageSchema = z
     .strictObject({
@@ -27,6 +27,7 @@ export type CrtRenderingCapability = Readonly<{
             prompt: string;
             palette: CrtPalette;
             aspectRatio: CrtAspectRatio;
+            grain: CrtGrain;
         },
         options: { signal: AbortSignal; idempotencyKey: string },
     ) => Promise<CrtImage>;

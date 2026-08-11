@@ -15,7 +15,9 @@ import {
     type CrtAspectRatio,
     type CrtPalette,
     crtAspectRatios,
+    crtGrains,
     crtPaletteNames,
+    defaultCrtGrain,
     paletteColors,
     ratioValue,
 } from "./style.js";
@@ -32,6 +34,7 @@ const inputSchema = z.strictObject({
         ),
     palette: z.enum(crtPaletteNames),
     aspectRatio: z.enum(crtAspectRatios),
+    grain: z.enum(crtGrains).default(defaultCrtGrain),
 });
 
 const recipeSchema = z
@@ -210,6 +213,7 @@ export function createCrtRegistration(
                                 prompt: compiled.prompt,
                                 palette: input.palette,
                                 aspectRatio: input.aspectRatio,
+                                grain: input.grain,
                             },
                             {
                                 signal: context.signal,

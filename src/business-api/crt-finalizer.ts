@@ -1,7 +1,10 @@
 import sharp from "sharp";
 import {
     type CrtAspectRatio,
+    type CrtGrain,
     type CrtPalette,
+    defaultCrtGrain,
+    grainProfile,
     paletteColors,
 } from "../processes/crt/style.js";
 
@@ -38,6 +41,7 @@ export async function finalizeCrtImage(input: {
     source?: Uint8Array;
     palette: CrtPalette;
     aspectRatio: CrtAspectRatio;
+    grain?: CrtGrain;
 }): Promise<FinalizedCrtImage> {
     const { width, height } = crtImageDimensions(input.aspectRatio);
     const colors = await resolveColors(
@@ -45,7 +49,9 @@ export async function finalizeCrtImage(input: {
         input.source ?? input.generated,
     );
     const rgb = colors.map(parseHexColor).sort(compareLuminance);
-    const blockSize = 4;
+    const { blockSize, scanlinePeriod } = grainProfile(
+        input.grain ?? defaultCrtGrain,
+    );
     const lowWidth = Math.ceil(width / blockSize);
     const lowHeight = Math.ceil(height / blockSize);
     const { data: low, info } = await sharp(input.generated)
@@ -83,6 +89,7 @@ export async function finalizeCrtImage(input: {
                 width,
                 height,
                 blockSize,
+                scanlinePeriod,
             });
             setPixel(output, width, x, y, rgb[colorIndex]);
         }
@@ -186,10 +193,17 @@ function applyCrtSignals(options: {
     width: number;
     height: number;
     blockSize: number;
+    scanlinePeriod: number;
 }): number {
     let index = options.colorIndex;
-    const scanline = options.y % 6;
-    if (scanline >= 4 && index > 0) index -= 1;
+    // The darkened band keeps its one-third share of every period, so the
+    // scanline reads the same at each grain instead of thinning as the period
+    // grows. At the default period of 6 this is the original `y % 6 >= 4`.
+    const scanlineBand = Math.max(1, Math.round(options.scanlinePeriod / 3));
+    const scanline = options.y % options.scanlinePeriod;
+    if (scanline >= options.scanlinePeriod - scanlineBand && index > 0) {
+        index -= 1;
+    }
 
     const checker =
         (Math.floor(options.x / (options.blockSize * 2)) +

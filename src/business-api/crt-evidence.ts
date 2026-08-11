@@ -1,7 +1,11 @@
 import { createHash } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
-import type { CrtAspectRatio, CrtPalette } from "../processes/crt/style.js";
+import type {
+    CrtAspectRatio,
+    CrtGrain,
+    CrtPalette,
+} from "../processes/crt/style.js";
 import type {
     GptImageQuality,
     GptImageUsage,
@@ -39,6 +43,7 @@ export type CrtEvidenceInput = Readonly<{
     quality: GptImageQuality;
     palette: CrtPalette;
     aspectRatio: CrtAspectRatio;
+    grain: CrtGrain;
     source?: Raster;
     sourceUrlSha256?: string;
     raw: Raster &
@@ -135,6 +140,7 @@ export async function saveCrtEvidence(
         request: {
             palette: input.palette,
             aspectRatio: input.aspectRatio,
+            grain: input.grain,
         },
         source: input.source
             ? {

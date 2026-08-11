@@ -16,6 +16,33 @@ export const crtAspectRatios = ["3:4", "4:3", "9:16", "16:9"] as const;
 
 export type CrtAspectRatio = (typeof crtAspectRatios)[number];
 
+export const crtGrains = ["fine", "normal", "coarse"] as const;
+
+export type CrtGrain = (typeof crtGrains)[number];
+
+export const defaultCrtGrain: CrtGrain = "normal";
+
+export type CrtGrainProfile = Readonly<{
+    blockSize: number;
+    scanlinePeriod: number;
+}>;
+
+/**
+ * Block size and scanline period ship as one named preset because they are
+ * independent knobs whose ratio is what the eye reads. Exposing `blockSize`
+ * alone would let callers drift that ratio into combinations no one has
+ * reviewed. `normal` reproduces the treatment that existed before grains.
+ */
+const grainProfiles = Object.freeze({
+    fine: Object.freeze({ blockSize: 2, scanlinePeriod: 4 }),
+    normal: Object.freeze({ blockSize: 4, scanlinePeriod: 6 }),
+    coarse: Object.freeze({ blockSize: 8, scanlinePeriod: 12 }),
+} satisfies Record<CrtGrain, CrtGrainProfile>);
+
+export function grainProfile(grain: CrtGrain): CrtGrainProfile {
+    return grainProfiles[grain];
+}
+
 const namedPaletteColors = Object.freeze({
     经典: Object.freeze(["#dee4e0", "#2e382d"]),
     粉黛: Object.freeze(["#f2d1d7", "#7a3f43"]),

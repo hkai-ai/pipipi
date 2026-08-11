@@ -87,6 +87,7 @@ describe("local CRT Business API", () => {
                 prompt: "Transform the attached source image into a CRT interface.",
                 palette: "经典",
                 aspectRatio: "4:3",
+                grain: "normal",
             };
             const firstResponse = await fetch(`${api.url}/crt-images`, {
                 method: "POST",
@@ -213,6 +214,7 @@ describe("local CRT Business API", () => {
             prompt: "Transform the attached source image.",
             palette: "经典",
             aspectRatio: "4:3",
+            grain: "normal",
         };
         const api = await startLocalCrtBusinessApi({
             directory,
@@ -274,6 +276,57 @@ describe("local CRT Business API", () => {
             } finally {
                 await restarted.close();
             }
+        } finally {
+            await api.close();
+            await rm(directory, { recursive: true, force: true });
+        }
+    });
+
+    it("treats a grain change under one idempotency key as a conflict", async () => {
+        const directory = await mkdtemp(join(tmpdir(), "pipipi-crt-api-"));
+        const generated = await sharp({
+            create: {
+                width: 320,
+                height: 240,
+                channels: 3,
+                background: { r: 20, g: 40, b: 30 },
+            },
+        })
+            .png()
+            .toBuffer();
+        const edit = vi.fn(async () => ({
+            bytes: generated,
+            mimeType: "image/png",
+            outputFormat: "png" as const,
+            width: 320,
+            height: 240,
+        }));
+        const api = await startLocalCrtBusinessApi({
+            directory,
+            imageClient: { edit },
+        });
+
+        try {
+            const first = await requestCrtImage(api.url, "run-grain", "normal");
+            const changed = await requestCrtImage(
+                api.url,
+                "run-grain",
+                "coarse",
+            );
+            const repeated = await requestCrtImage(
+                api.url,
+                "run-grain",
+                "normal",
+            );
+
+            expect(first.status).toBe(200);
+            expect(changed.status).toBe(409);
+            expect(await changed.json()).toMatchObject({
+                error: { code: "IDEMPOTENCY_CONFLICT" },
+            });
+            expect(repeated.status).toBe(200);
+            expect(await repeated.json()).toEqual(await first.json());
+            expect(edit).toHaveBeenCalledOnce();
         } finally {
             await api.close();
             await rm(directory, { recursive: true, force: true });
@@ -391,6 +444,7 @@ describe("local CRT Business API", () => {
                     prompt: "Transform the attached source image.",
                     palette: "经典",
                     aspectRatio: "4:3",
+                    grain: "normal",
                 }),
             });
 
@@ -406,6 +460,7 @@ describe("local CRT Business API", () => {
                     prompt: "Transform the attached source image.",
                     palette: "经典",
                     aspectRatio: "4:3",
+                    grain: "normal",
                 }),
             });
             expect(repeated.status).toBe(503);
@@ -430,6 +485,7 @@ describe("local CRT Business API", () => {
 function requestCrtImage(
     serviceUrl: string,
     idempotencyKey: string,
+    grain: "fine" | "normal" | "coarse" = "normal",
 ): Promise<Response> {
     return fetch(`${serviceUrl}/crt-images`, {
         method: "POST",
@@ -442,6 +498,7 @@ function requestCrtImage(
             prompt: "Transform the attached source image.",
             palette: "经典",
             aspectRatio: "4:3",
+            grain,
         }),
     });
 }
