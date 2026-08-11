@@ -29,6 +29,7 @@ const application = await startCrtBusinessApi(
             process.env.CRT_IMAGE_WORK_DIRECTORY?.trim() ||
             "/tmp/pipipi-crt-business",
         imageClient: imageGeneration.client,
+        generationClient: imageGeneration.client,
         provider: imageGeneration.provider,
         model: process.env.CRT_IMAGE_MODEL?.trim() || "gpt-image-2",
         quality: quality(process.env.CRT_IMAGE_QUALITY),

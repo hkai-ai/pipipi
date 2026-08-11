@@ -15,6 +15,13 @@ import { createContentSkillRefs } from "../processes/content/skills.js";
 import { HttpCrtRenderingCapability } from "../processes/crt/http.js";
 import { PiCrtAgent } from "../processes/crt/pi.js";
 import { createCrtSkillRefs } from "../processes/crt/skills.js";
+import { HttpNewsImageRenderingCapability } from "../processes/news-image/http.js";
+import { PiNewsImageAgent } from "../processes/news-image/pi.js";
+import {
+    createNarrativeMonumentSkillRefs,
+    createPaleWatercolorSkillRefs,
+    createRawHumanismSkillRefs,
+} from "../processes/news-image/skills.js";
 import { HttpPosterRenderingCapability } from "../processes/poster/http.js";
 import { PiPosterAgent } from "../processes/poster/pi.js";
 import { createPosterSkillRefs } from "../processes/poster/skills.js";
@@ -98,6 +105,69 @@ export function createProductionRuntime(
                     environment.CRT_API_TIMEOUT_MS,
                     180_000,
                     "CRT_API_TIMEOUT_MS",
+                ),
+            }),
+        },
+        paleWatercolor: {
+            agent: new PiNewsImageAgent({
+                style: "pale-watercolor",
+                skills: createPaleWatercolorSkillRefs({
+                    path: environment.PI_PALE_WATERCOLOR_SKILL_DIRECTORY,
+                }),
+                provider: environment.PI_PROVIDER,
+                model: environment.PI_MODEL,
+                openAIBaseUrl: environment.OPENAI_BASE_URL,
+                openAIApiMode,
+                agentDir: environment.PI_AGENT_DIR,
+            }),
+            capability: new HttpNewsImageRenderingCapability({
+                baseUrl: crtBaseUrl,
+                timeoutMs: parsePositiveInteger(
+                    environment.NEWS_IMAGE_API_TIMEOUT_MS,
+                    180_000,
+                    "NEWS_IMAGE_API_TIMEOUT_MS",
+                ),
+            }),
+        },
+        rawHumanism: {
+            agent: new PiNewsImageAgent({
+                style: "raw-humanism",
+                skills: createRawHumanismSkillRefs({
+                    path: environment.PI_RAW_HUMANISM_SKILL_DIRECTORY,
+                }),
+                provider: environment.PI_PROVIDER,
+                model: environment.PI_MODEL,
+                openAIBaseUrl: environment.OPENAI_BASE_URL,
+                openAIApiMode,
+                agentDir: environment.PI_AGENT_DIR,
+            }),
+            capability: new HttpNewsImageRenderingCapability({
+                baseUrl: crtBaseUrl,
+                timeoutMs: parsePositiveInteger(
+                    environment.NEWS_IMAGE_API_TIMEOUT_MS,
+                    180_000,
+                    "NEWS_IMAGE_API_TIMEOUT_MS",
+                ),
+            }),
+        },
+        narrativeMonument: {
+            agent: new PiNewsImageAgent({
+                style: "narrative-monument",
+                skills: createNarrativeMonumentSkillRefs({
+                    path: environment.PI_NARRATIVE_MONUMENT_SKILL_DIRECTORY,
+                }),
+                provider: environment.PI_PROVIDER,
+                model: environment.PI_MODEL,
+                openAIBaseUrl: environment.OPENAI_BASE_URL,
+                openAIApiMode,
+                agentDir: environment.PI_AGENT_DIR,
+            }),
+            capability: new HttpNewsImageRenderingCapability({
+                baseUrl: crtBaseUrl,
+                timeoutMs: parsePositiveInteger(
+                    environment.NEWS_IMAGE_API_TIMEOUT_MS,
+                    180_000,
+                    "NEWS_IMAGE_API_TIMEOUT_MS",
                 ),
             }),
         },

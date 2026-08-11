@@ -16,6 +16,11 @@ import {
 import type { CrtAgent } from "./crt/agent.js";
 import type { CrtRenderingCapability } from "./crt/capability.js";
 import { createCrtRegistration } from "./crt/registration.js";
+import type { NewsImageAgent } from "./news-image/agent.js";
+import type { NewsImageRenderingCapability } from "./news-image/capability.js";
+import { createPaleWatercolorRegistration } from "./news-image/registration.js";
+import { createNarrativeMonumentRegistration } from "./news-image/registration-narrative-monument.js";
+import { createRawHumanismRegistration } from "./news-image/registration-raw-humanism.js";
 import type { PosterAgent } from "./poster/agent.js";
 import type { PosterRenderingCapability } from "./poster/capability.js";
 import { createPosterRegistration } from "./poster/registration.js";
@@ -42,6 +47,18 @@ export type ProcessRuntimeOptions = {
     crt?: {
         agent: CrtAgent;
         capability: CrtRenderingCapability;
+    };
+    paleWatercolor?: {
+        agent: NewsImageAgent;
+        capability: NewsImageRenderingCapability;
+    };
+    rawHumanism?: {
+        agent: NewsImageAgent;
+        capability: NewsImageRenderingCapability;
+    };
+    narrativeMonument?: {
+        agent: NewsImageAgent;
+        capability: NewsImageRenderingCapability;
     };
 };
 
@@ -77,6 +94,19 @@ export function createProcessRuntime(
     }
     if (options.crt) {
         registrations.push(createCrtRegistration(options.crt));
+    }
+    if (options.paleWatercolor) {
+        registrations.push(
+            createPaleWatercolorRegistration(options.paleWatercolor),
+        );
+    }
+    if (options.rawHumanism) {
+        registrations.push(createRawHumanismRegistration(options.rawHumanism));
+    }
+    if (options.narrativeMonument) {
+        registrations.push(
+            createNarrativeMonumentRegistration(options.narrativeMonument),
+        );
     }
     const registry = createProcessRegistry(registrations);
 

@@ -20,6 +20,10 @@ import {
     crtPaletteNames,
 } from "../processes/crt/style.js";
 import {
+    type NewsImage,
+    parseNewsImage,
+} from "../processes/news-image/capability.js";
+import {
     type CrtEvidencePolicy,
     type CrtEvidenceResult,
     saveCrtEvidence,
@@ -30,12 +34,17 @@ import type { ObjectStorageCapability } from "./object-storage.js";
 import {
     type EditImageRequest,
     type GeneratedImage,
+    type GenerateImageRequest,
     type GptImageQuality,
     OpenAIImageGenerationError,
 } from "./openai-image-generation.js";
 
 type ImageEditClient = Readonly<{
     edit: (request: EditImageRequest) => Promise<GeneratedImage>;
+}>;
+
+type ImageGenerationClient = Readonly<{
+    generate: (request: GenerateImageRequest) => Promise<GeneratedImage>;
 }>;
 
 type RasterContentType = "image/png" | "image/jpeg" | "image/webp";
@@ -45,6 +54,12 @@ type CrtRequest = Readonly<{
     prompt: string;
     palette: CrtPalette;
     aspectRatio: CrtAspectRatio;
+}>;
+
+type NewsImageRequest = Readonly<{
+    prompt: string;
+    aspectRatio: "4:3";
+    style: "narrative-monument" | "pale-watercolor" | "raw-humanism";
 }>;
 
 export type LocalCrtBusinessApiEvidence = Readonly<{
@@ -76,15 +91,16 @@ export type CrtBusinessApi = Readonly<{
 
 export type LocalCrtBusinessApi = CrtBusinessApi;
 
-type PendingTransform = Readonly<{
+type PendingTransform<Result> = Readonly<{
     digest: string;
-    result: Promise<CrtImage>;
+    result: Promise<Result>;
 }>;
 
 export async function startCrtBusinessApi(
     options: {
         directory: string;
         imageClient: ImageEditClient;
+        generationClient?: ImageGenerationClient;
         provider?: string;
         model?: string;
         quality?: GptImageQuality;
@@ -97,9 +113,13 @@ export async function startCrtBusinessApi(
     const directory = options.directory;
     const outputDirectory = join(directory, "images");
     const resultDirectory = join(directory, "results");
+    const newsOutputDirectory = join(directory, "news-images");
+    const newsResultDirectory = join(directory, "news-results");
     await Promise.all([
         mkdir(outputDirectory, { recursive: true }),
         mkdir(resultDirectory, { recursive: true }),
+        mkdir(newsOutputDirectory, { recursive: true }),
+        mkdir(newsResultDirectory, { recursive: true }),
     ]);
 
     const provider = options.provider?.trim() || "openai";
@@ -108,7 +128,9 @@ export async function startCrtBusinessApi(
     const evidencePolicy = options.evidencePolicy ?? { mode: "off" };
     const objectPrefix = normalizeObjectPrefix(options.objectPrefix);
     const outputs = new Map<string, string>();
-    const transforms = new Map<string, PendingTransform>();
+    const newsOutputs = new Map<string, string>();
+    const transforms = new Map<string, PendingTransform<CrtImage>>();
+    const newsTransforms = new Map<string, PendingTransform<NewsImage>>();
     let serviceUrl = "";
     let requests = 0;
     let editAttempts = 0;
@@ -155,12 +177,26 @@ export async function startCrtBusinessApi(
             await transformAsset(request, response);
             return;
         }
+        if (request.method === "POST" && request.url === "/news-images") {
+            await generateNewsAsset(request, response);
+            return;
+        }
         const imageMatch =
             request.method === "GET"
                 ? /^\/images\/([A-Za-z0-9_-]+)\.png$/u.exec(request.url ?? "")
                 : null;
         if (imageMatch) {
             await serveImage(imageMatch[1], response);
+            return;
+        }
+        const newsImageMatch =
+            request.method === "GET"
+                ? /^\/news-images\/([A-Za-z0-9_-]+)\.png$/u.exec(
+                      request.url ?? "",
+                  )
+                : null;
+        if (newsImageMatch) {
+            await serveStoredImage(newsOutputs, newsImageMatch[1], response);
             return;
         }
         response.writeHead(404).end();
@@ -212,6 +248,8 @@ export async function startCrtBusinessApi(
                 resultDirectory,
                 requestKey,
                 digest,
+                parseCrtImage,
+                "CRT",
             );
             if (claim.kind === "conflict") {
                 writeJson(response, 409, {
@@ -274,6 +312,170 @@ export async function startCrtBusinessApi(
         } finally {
             request.off("aborted", abort);
         }
+    }
+
+    async function generateNewsAsset(
+        request: IncomingMessage,
+        response: ServerResponse,
+    ): Promise<void> {
+        if (!options.generationClient) {
+            writeJson(response, 503, {
+                error: {
+                    code: "NEWS_IMAGE_RENDERING_UNAVAILABLE",
+                    message: "News image rendering is unavailable",
+                },
+            });
+            return;
+        }
+        let input: NewsImageRequest;
+        let requestKey: string;
+        try {
+            input = parseNewsImageRequest(
+                JSON.parse((await readBody(request, 65_536)).toString("utf8")),
+            );
+            requestKey = parseIdempotencyKey(
+                singleHeader(request.headers["idempotency-key"]),
+            );
+        } catch {
+            writeJson(response, 400, {
+                error: {
+                    code: "INVALID_INPUT",
+                    message: "News image request is invalid",
+                },
+            });
+            return;
+        }
+        const digest = sha256(JSON.stringify(input));
+        const existing = newsTransforms.get(requestKey);
+        if (existing && existing.digest !== digest) {
+            writeJson(response, 409, {
+                error: {
+                    code: "IDEMPOTENCY_CONFLICT",
+                    message:
+                        "Idempotency key was already used for another request",
+                },
+            });
+            return;
+        }
+        const controller = new AbortController();
+        const abort = () => controller.abort();
+        request.once("aborted", abort);
+        let pending = existing?.result;
+        if (!pending) {
+            const claim = await claimTransform(
+                newsResultDirectory,
+                requestKey,
+                digest,
+                parseNewsImage,
+                "news image",
+            );
+            if (claim.kind === "conflict") {
+                writeJson(response, 409, {
+                    error: {
+                        code: "IDEMPOTENCY_CONFLICT",
+                        message:
+                            "Idempotency key was already used for another request",
+                    },
+                });
+                request.off("aborted", abort);
+                return;
+            }
+            if (claim.kind === "pending") {
+                writeJson(response, 503, {
+                    error: {
+                        code: "NEWS_IMAGE_RENDERING_UNAVAILABLE",
+                        message:
+                            "News image rendering status requires reconciliation",
+                    },
+                });
+                request.off("aborted", abort);
+                return;
+            }
+            if (claim.kind === "complete") {
+                writeJson(response, 200, claim.result);
+                request.off("aborted", abort);
+                return;
+            }
+            pending = performNewsGeneration(
+                input,
+                requestKey,
+                controller.signal,
+            ).then(async (result) => {
+                await completeTransform(
+                    newsResultDirectory,
+                    requestKey,
+                    digest,
+                    result,
+                );
+                return result;
+            });
+            newsTransforms.set(
+                requestKey,
+                Object.freeze({ digest, result: pending }),
+            );
+        }
+        try {
+            writeJson(response, 200, await pending);
+        } catch {
+            writeJson(response, 503, {
+                error: {
+                    code: "NEWS_IMAGE_RENDERING_UNAVAILABLE",
+                    message: "News image rendering is unavailable",
+                },
+            });
+        } finally {
+            request.off("aborted", abort);
+        }
+    }
+
+    async function performNewsGeneration(
+        input: NewsImageRequest,
+        requestKey: string,
+        signal: AbortSignal,
+    ): Promise<NewsImage> {
+        if (!options.generationClient) {
+            throw new Error("News image generation client is unavailable");
+        }
+        const generated = await options.generationClient.generate({
+            prompt: input.prompt,
+            model,
+            size: "1600x1200",
+            quality,
+            outputFormat: "png",
+            signal,
+        });
+        const raw = Buffer.from(generated.bytes);
+        if (
+            generated.mimeType !== "image/png" ||
+            detectImageContentType(raw) !== "image/png"
+        ) {
+            throw new Error("GPT Image returned an unsupported news raster");
+        }
+        const finalized = await sharp(raw)
+            .resize(1600, 1200, { fit: "cover", position: "centre" })
+            .png()
+            .toBuffer();
+        const path = join(newsOutputDirectory, `${requestKey}.png`);
+        await writeFile(path, finalized, { mode: 0o600 });
+        newsOutputs.set(requestKey, path);
+        const stored = options.storage
+            ? await options.storage.upload(
+                  {
+                      objectKey: `news-image/${input.style}/${requestKey}.png`,
+                      bytes: finalized,
+                      contentType: "image/png",
+                      cacheControl: "private, max-age=31536000, immutable",
+                  },
+                  { signal },
+              )
+            : undefined;
+        return Object.freeze({
+            url: stored?.url ?? `${serviceUrl}/news-images/${requestKey}.png`,
+            contentType: "image/png",
+            width: 1600,
+            height: 1200,
+            ...(stored?.urlExpiresAt ? { expiresAt: stored.urlExpiresAt } : {}),
+        });
     }
 
     async function performTransform(
@@ -368,7 +570,15 @@ export async function startCrtBusinessApi(
         key: string,
         response: ServerResponse,
     ): Promise<void> {
-        const path = outputs.get(key);
+        await serveStoredImage(outputs, key, response);
+    }
+
+    async function serveStoredImage(
+        files: ReadonlyMap<string, string>,
+        key: string,
+        response: ServerResponse,
+    ): Promise<void> {
+        const path = files.get(key);
         if (!path) {
             response.writeHead(404).end();
             return;
@@ -405,17 +615,19 @@ export async function startCrtBusinessApi(
     });
 }
 
-type TransformClaim =
+type TransformClaim<Result> =
     | Readonly<{ kind: "claimed" }>
     | Readonly<{ kind: "pending" }>
     | Readonly<{ kind: "conflict" }>
-    | Readonly<{ kind: "complete"; result: CrtImage }>;
+    | Readonly<{ kind: "complete"; result: Result }>;
 
-async function claimTransform(
+async function claimTransform<Result>(
     directory: string,
     key: string,
     digest: string,
-): Promise<TransformClaim> {
+    parseResult: (value: unknown) => Result,
+    label: string,
+): Promise<TransformClaim<Result>> {
     const path = join(directory, `${key}.json`);
     try {
         await writeFile(path, JSON.stringify({ digest, state: "pending" }), {
@@ -430,17 +642,19 @@ async function claimTransform(
 
     const record = parseTransformRecord(
         JSON.parse(await readFile(path, "utf8")),
+        parseResult,
+        label,
     );
     if (record.digest !== digest) return Object.freeze({ kind: "conflict" });
     if (record.state === "pending") return Object.freeze({ kind: "pending" });
     return Object.freeze({ kind: "complete", result: record.result });
 }
 
-async function completeTransform(
+async function completeTransform<Result>(
     directory: string,
     key: string,
     digest: string,
-    result: CrtImage,
+    result: Result,
 ): Promise<void> {
     const path = join(directory, `${key}.json`);
     const temporaryPath = join(
@@ -455,13 +669,15 @@ async function completeTransform(
     await rename(temporaryPath, path);
 }
 
-function parseTransformRecord(
+function parseTransformRecord<Result>(
     value: unknown,
+    parseResult: (value: unknown) => Result,
+    label: string,
 ):
     | Readonly<{ digest: string; state: "pending" }>
-    | Readonly<{ digest: string; state: "complete"; result: CrtImage }> {
+    | Readonly<{ digest: string; state: "complete"; result: Result }> {
     if (!isRecord(value) || !/^[a-f0-9]{64}$/u.test(String(value.digest))) {
-        throw new Error("Stored CRT idempotency record is invalid");
+        throw new Error(`Stored ${label} idempotency record is invalid`);
     }
     const digest = String(value.digest);
     if (value.state === "pending")
@@ -470,10 +686,10 @@ function parseTransformRecord(
         return Object.freeze({
             digest,
             state: "complete",
-            result: parseCrtImage(value.result),
+            result: parseResult(value.result),
         });
     }
-    throw new Error("Stored CRT idempotency state is invalid");
+    throw new Error(`Stored ${label} idempotency state is invalid`);
 }
 
 function isFileExistsError(error: unknown): boolean {
@@ -534,6 +750,36 @@ function parseCrtRequest(value: unknown): CrtRequest {
         prompt: value.prompt,
         palette: value.palette as CrtPalette,
         aspectRatio: value.aspectRatio as CrtAspectRatio,
+    });
+}
+
+function parseNewsImageRequest(value: unknown): NewsImageRequest {
+    if (!isRecord(value)) throw new Error("News image body must be an object");
+    const keys = Object.keys(value).sort();
+    if (
+        keys.length !== 3 ||
+        keys[0] !== "aspectRatio" ||
+        keys[1] !== "prompt" ||
+        keys[2] !== "style"
+    ) {
+        throw new Error("News image body has unsupported fields");
+    }
+    if (
+        typeof value.prompt !== "string" ||
+        value.prompt !== value.prompt.trim() ||
+        value.prompt.length < 300 ||
+        value.prompt.length > 8_000 ||
+        value.aspectRatio !== "4:3" ||
+        (value.style !== "narrative-monument" &&
+            value.style !== "pale-watercolor" &&
+            value.style !== "raw-humanism")
+    ) {
+        throw new Error("News image body is invalid");
+    }
+    return Object.freeze({
+        prompt: value.prompt,
+        aspectRatio: "4:3",
+        style: value.style,
     });
 }
 
