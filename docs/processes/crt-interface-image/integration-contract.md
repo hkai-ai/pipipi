@@ -80,9 +80,27 @@
 
 - 并发闸门 `MAX_CONCURRENT_EXECUTIONS` 默认 4，作用域是**单个 Node 进程**，不排队，超出立即返回 `503 SERVICE_BUSY`。
 - 没有 QPS 或日配额。
-- `PROCESS_TIMEOUT_MS` 默认 30000，`CRT_API_TIMEOUT_MS` 默认 180000。调用方断开连接会取消下游渲染，但供应商侧可能已经产生费用。
+- 调用方断开连接会取消下游渲染，但供应商侧可能已经产生费用。
 
-> 已知配置问题：[`README.md`](README.md) 的发布门禁要求 `PROCESS_TIMEOUT_MS` 长于 `CRT_API_TIMEOUT_MS`，而代码默认值相反。生产实际取值以部署 Secret 为准，不以代码默认值为准。
+超时以 [`mvp-release-runbook.md`](../../mvp-release-runbook.md#初始容量与超时) 的发布配置为准：
+
+| 层级 | 发布值 |
+| --- | ---: |
+| CRT Rendering Capability 超时 | 180 秒 |
+| Process 总超时 | 240 秒（发布显式设置 `PROCESS_TIMEOUT_MS=240000`） |
+| 平台/网关请求超时 | 270–300 秒 |
+
+调用方可依赖的上界是 240 秒后返回 `504 PROCESS_TIMEOUT`，客户端超时设到 300 秒是合适的余量。
+
+> 代码默认值 `PROCESS_TIMEOUT_MS=30000` 短于 `CRT_API_TIMEOUT_MS=180000`，与发布门禁要求的顺序相反。发布配置已显式覆盖该值，因此不是生产风险；但未设置覆盖的环境会得到反直觉的行为，默认值本身仍应修正。
+
+### 调用方 trace id
+
+`/execute` 读取 `X-Request-Id`，并把它写入本次请求的每一条运行日志，**包括未进入执行器、因而没有 `runId` 的传输层拒绝**。
+
+- 只接受 1–200 个字符，字符集限定为 `A-Z a-z 0-9 _ . : -`。超长、含空白或其他字符的取值被丢弃，不写入日志。
+- 该头永不影响执行结果，也不回显到响应头或响应体。
+- 重复的同名头会被 Node 合并成逗号分隔的单值，因含空白而被丢弃。
 
 ### 鉴权
 
@@ -116,7 +134,6 @@
 | 按原图再出档 | 新增纯后处理 Process：接收调用方回传的原图 URL 与档位，不调用模型、不需要 Agent | **首次需要服务端下载调用方 URL**，须过出站控制评审 |
 | 档位打包 | `fine` / `normal` / `coarse` 三档，每档绑定 `blockSize` 与扫描线周期；缺省等于当前行为 | 每档一轮视觉验收 |
 | `DEPENDENCY_FAILURE` 拆码 | 按模型调用前 / 后拆分，并为内容安全拒绝单列错误码 | 内部 API 发码、Adapter 保留错误码、Registration 分流 |
-| `X-Request-Id` 透传 | 读取调用方的 trace id 并写入运行日志 | 小改 |
 | `/execute` 鉴权 | 挂上与异步入口相同的网关身份头 | 小改；异步入口按期开放则可跳过 |
 | `metadata` 证据模式 | 生产启用 `metadata` 档，并补充失败时写 manifest、Skill 版本、状态与耗时 | 数据授权评审；manifest 需要落库与清理 |
 
@@ -150,7 +167,7 @@
 接入方已确认按以下口径实现：
 
 1. 除 `503 SERVICE_BUSY` 外不自动重投，只允许人工重试。异步入口启用后，`429`、`503 ASYNC_SERVICE_CAPACITY_REACHED` 与 `503 ASYNC_SERVICE_UNAVAILABLE` 加入同一档，并使用同一个幂等键。
-2. 每次调用携带 `X-Request-Id`。服务端读取该头之前，它不产生任何可追溯效果。
+2. 每次调用携带 `X-Request-Id`。服务端已读取并落日志，取值须满足上述长度与字符集限制。
 3. 调用方自行限制并发与提交速率，不依赖服务端闸门做流控。
 4. `INVALID_INPUT` 永不重试；`DEPENDENCY_FAILURE` 按拆分后的子码分流；`PROCESS_TIMEOUT` 按费用未知处理。
 5. 按响应中的 `expiresAt` 处理链接，不硬编码有效期。

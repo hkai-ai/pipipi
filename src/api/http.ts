@@ -18,6 +18,17 @@ import type { CallerIdentityResolver } from "./identity.js";
 export const defaultHttpMaxRequestBodyBytes = 262_144;
 export const defaultMaxConcurrentExecutions = 4;
 
+/**
+ * Header carrying the caller's own trace identifier. It is recorded on every
+ * log record for this request, including transport rejections that never reach
+ * the executor and therefore have no `runId`. It never changes execution and is
+ * never echoed back to the caller.
+ */
+export const callerRequestIdHeader = "x-request-id";
+
+const maxCallerRequestIdLength = 200;
+const safeCallerRequestId = /^[A-Za-z0-9_.:-]+$/;
+
 export type ProcessingHttpOptions = {
     maxRequestBodyBytes?: number;
     maxConcurrentExecutions?: number;
@@ -47,6 +58,7 @@ export type ProcessRunCompletedLogRecord = {
     status: "succeeded" | "failed";
     durationMs: number;
     errorCode?: ProcessErrorCode;
+    requestId?: string;
 };
 
 export type HttpTransportErrorCode =
@@ -61,6 +73,7 @@ export type HttpRequestRejectedLogRecord = {
     httpStatus: number;
     errorCode: HttpTransportErrorCode;
     durationMs: number;
+    requestId?: string;
 };
 
 export type AsyncProcessRunLogRecord =
@@ -71,6 +84,7 @@ export type AsyncProcessRunLogRecord =
           process: string;
           version: string;
           durationMs: number;
+          requestId?: string;
       }>
     | Readonly<{
           event: "process_run_observed";
@@ -78,6 +92,7 @@ export type AsyncProcessRunLogRecord =
           runId: string;
           status: "queued" | "running" | "succeeded" | "failed";
           durationMs: number;
+          requestId?: string;
       }>
     | Readonly<{
           event: "process_run_admission_rejected";
@@ -86,6 +101,7 @@ export type AsyncProcessRunLogRecord =
           httpStatus: 429 | 503;
           retryAfterSeconds: number;
           durationMs: number;
+          requestId?: string;
       }>;
 
 export type ProcessingLogRecord =
@@ -99,6 +115,7 @@ type RequestLoggingContext = {
     logSink: ProcessingLogSink;
     clock: ProcessingClock;
     startedAt: number;
+    requestId?: string;
 };
 
 type RequestHandlingContext = {
@@ -147,6 +164,9 @@ export function createProcessingRequestListener(
         maxConcurrentExecutions,
     );
     return (request, response) => {
+        const requestId = parseCallerRequestId(
+            request.headers[callerRequestIdHeader],
+        );
         const context: RequestHandlingContext = {
             executor,
             maxRequestBodyBytes,
@@ -155,11 +175,12 @@ export function createProcessingRequestListener(
                 logSink,
                 clock,
                 startedAt: clock.monotonicMilliseconds(),
+                ...(requestId === undefined ? {} : { requestId }),
             },
             asyncProcessRuns: options.asyncProcessRuns,
         };
         void handleRequest(request, response, context).catch(() => {
-            emitLog(context.logging.logSink, {
+            emitLog(context.logging, {
                 event: "http_request_failed",
                 timestamp: context.logging.clock.timestamp(),
                 httpStatus: 500,
@@ -255,7 +276,7 @@ async function handleRequest(
 
     try {
         const result = await context.executor.execute(requestBody.value);
-        emitLog(context.logging.logSink, {
+        emitLog(context.logging, {
             event: "process_run_completed",
             timestamp: context.logging.clock.timestamp(),
             runId: result.runId,
@@ -375,7 +396,7 @@ async function submitProcessRun(
     }
 
     const retryAfter = retryAfterSeconds(asyncOptions);
-    emitLog(context.logging.logSink, {
+    emitLog(context.logging, {
         event: "process_run_submission_accepted",
         timestamp: context.logging.clock.timestamp(),
         runId: submission.runId,
@@ -432,7 +453,7 @@ async function findProcessRun(
             String(retryAfterSeconds(asyncOptions)),
         );
     }
-    emitLog(logging.logSink, {
+    emitLog(logging, {
         event: "process_run_observed",
         timestamp: logging.clock.timestamp(),
         runId: run.runId,
@@ -459,7 +480,7 @@ function writeBacklogLimit(
     const httpStatus = scope === "caller" ? 429 : 503;
     response.setHeader("retry-after", String(error.retryAfterSeconds));
     response.setHeader("cache-control", "no-store");
-    emitLog(logging.logSink, {
+    emitLog(logging, {
         event: "process_run_admission_rejected",
         timestamp: logging.clock.timestamp(),
         scope,
@@ -527,7 +548,7 @@ function rejectRequest(
     failure: TransportFailure,
     logging: RequestLoggingContext,
 ): void {
-    emitLog(logging.logSink, {
+    emitLog(logging, {
         event: "http_request_rejected",
         timestamp: logging.clock.timestamp(),
         httpStatus: failure.status,
@@ -551,15 +572,44 @@ function writeStdoutLog(record: ProcessingLogRecord): void {
     console.log(JSON.stringify(record));
 }
 
+/**
+ * Emits one record for the request being handled. Taking the logging context
+ * rather than the sink keeps the caller's request id on every record without
+ * each call site having to remember it.
+ */
 function emitLog(
-    logSink: ProcessingLogSink,
+    logging: RequestLoggingContext,
     record: ProcessingLogRecord,
 ): void {
     try {
-        logSink(record);
+        logging.logSink(
+            logging.requestId === undefined
+                ? record
+                : { ...record, requestId: logging.requestId },
+        );
     } catch {
         // Logging is best-effort and must not change the execution result.
     }
+}
+
+/**
+ * Accepts only short, printable identifiers so a caller cannot inject
+ * whitespace or control characters into single-line JSON logs. An unusable
+ * value is dropped rather than rejected: the header never affects execution.
+ */
+function parseCallerRequestId(
+    value: string | string[] | undefined,
+): string | undefined {
+    if (typeof value !== "string") return undefined;
+    const candidate = value.trim();
+    if (
+        candidate.length === 0 ||
+        candidate.length > maxCallerRequestIdLength ||
+        !safeCallerRequestId.test(candidate)
+    ) {
+        return undefined;
+    }
+    return candidate;
 }
 
 function elapsedMilliseconds(

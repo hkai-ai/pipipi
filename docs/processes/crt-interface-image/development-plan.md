@@ -1,6 +1,6 @@
 # CRT 接入对齐开发计划
 
-状态：计划。全部里程碑尚未开始。
+状态：进行中。M1 已交付调用方 trace id 透传，其余里程碑未开始。
 
 本文把 [`integration-contract.md`](integration-contract.md) 中标为「计划」的内容拆成可独立合并、验证和发布的开发批次。接入契约定义调用方可依赖的行为；本文维护实施顺序、依赖、测试门槛和发布依赖。Process 的实现说明与后处理算法见 [`README.md`](README.md)。
 
@@ -39,7 +39,7 @@ flowchart LR
 | 里程碑 | 状态 | 可交付结果 | 前置依赖 |
 | --- | --- | --- | --- |
 | M0 决策与前置门禁 | 未开始 | 三项评审结论、接入方凭证、生产配置实测值 | 无（含外部输入） |
-| M1 错误归属与追溯 | 未开始 | 失败可归因、可按调用方 trace id 串联 | 无 |
+| M1 错误归属与追溯 | 进行中 | 失败可归因、可按调用方 trace id 串联 | 无 |
 | M2 存储归属切换 | 未开始 | 最终产物落在调用方 bucket | M0 凭证 |
 | M3 档位预设 | 未开始 | `fine` / `normal` / `coarse` 三档 | 无 |
 | M4 原图交付 | 未开始 | 响应携带模型原图引用 | M0 产品决定、M2 |
@@ -59,7 +59,7 @@ flowchart LR
 - **安全评审**：再出档需要服务端下载调用方回传的 URL，这是本服务首次产生此类出站请求。评审范围是出站主机白名单、重定向处理、响应大小与超时上限，以及 URL 归属校验的实现位置。
 - **数据评审**：生产启用 `metadata` 证据模式的授权、隔离、期限与删除责任。范围不含图片字节与 Prompt。
 - **接入方交付**：对象存储的 bucket、region、prefix、访问方式（公开读或签名）与写入凭证。最小权限是指定 prefix 下的 `PutObject` 与 `GetObject`。
-- **核实生产配置**：`PROCESS_TIMEOUT_MS`、`CRT_API_TIMEOUT_MS`、`OSS_URL_ACCESS` 与签名有效期的部署实际值，并修正代码默认值与发布门禁要求相反的问题。
+- **核实生产配置**：确认部署的 `PROCESS_TIMEOUT_MS`、`CRT_API_TIMEOUT_MS`、`OSS_URL_ACCESS` 与签名有效期与 [`mvp-release-runbook.md`](../../mvp-release-runbook.md#初始容量与超时) 的发布值一致。发布值已要求 `PROCESS_TIMEOUT_MS=240000`，顺序正确；待修正的是代码默认值 30000 短于 `CRT_API_TIMEOUT_MS` 默认 180000 这一防呆问题，不是生产风险。
 
 ### 完成门槛
 
@@ -76,7 +76,7 @@ flowchart LR
 - 在 CRT Business API 中按失败位置发出稳定错误码：模型调用返回之前、模型调用返回之后、以及供应商的内容安全拒绝。切分点是图片编辑调用的返回处。
 - 让 CRT Rendering Capability 的 HTTP Adapter 保留下游错误码，不再把所有非 2xx 折叠成同一个异常。
 - 在 Registration 中把子码映射为公开错误码，并保持错误净化：不泄露供应商正文、Prompt、凭证或对象键。
-- `/execute` 读取调用方的 `X-Request-Id`，写入运行日志，长度与字符集受限；不回显、不进入产物或证据。
+- ~~`/execute` 读取调用方的 `X-Request-Id`，写入运行日志，长度与字符集受限；不回显、不进入产物或证据。~~ 已交付：记录在本次请求的每一条日志上，包括没有 `runId` 的传输层拒绝。
 
 ### 测试
 
