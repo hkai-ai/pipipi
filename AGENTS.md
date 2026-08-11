@@ -23,9 +23,9 @@
 
 ## Git 远端与同步
 
-- `git@github.com:techidsk/pipipi.git` 是主仓库。保留其 `origin` 名称，并从该仓库获取和跟踪分支。
-- `git@github.com:hkai-ai/pipipi.git` 是同步副本。用户授权推送分支或 tag 时，把同一 ref 推送到两个仓库，并确认两端指向同一 commit。
-- 本地可以为 `origin` 配置两个 push URL；若缺少该配置，则分别推送。不要从同步副本拉取、合并或设置分支上游。
+- `git@github.com:hkai-ai/pipipi.git` 是协作主仓库。保留其 `origin` 名称，并从该仓库获取和跟踪分支。
+- `git@github.com:techidsk/pipipi.git` 是个人副本。保留其 `personal` 名称；不从该仓库拉取、合并或设置分支上游。
+- 用户授权推送分支或 tag 时，把同一 ref 分别推送到 `origin` 和 `personal`，并确认两端指向同一 commit。
 
 ## 完成与验证
 
