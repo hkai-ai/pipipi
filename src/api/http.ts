@@ -677,6 +677,7 @@ function statusFor(result: ProcessRunResult): number {
     const statuses: Record<ProcessErrorCode, number> = {
         AGENT_FAILURE: 502,
         DEPENDENCY_FAILURE: 502,
+        DEPENDENCY_FAILURE_AFTER_COMMIT: 502,
         INTERNAL_ERROR: 500,
         INVALID_INPUT: 400,
         INVALID_OUTPUT: 500,

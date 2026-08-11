@@ -83,6 +83,78 @@ describe("CRT Rendering HTTP Adapter", () => {
         expect(String(error)).not.toContain("image/jpeg");
     });
 
+    it("preserves whether the downstream failure happened after the edit was charged", async () => {
+        const cases = [
+            { code: "CRT_RENDERING_INCOMPLETE", committed: true },
+            { code: "CRT_RENDERING_UNAVAILABLE", committed: false },
+            { code: "SOMETHING_ELSE", committed: false },
+        ];
+
+        for (const { code, committed } of cases) {
+            const capability = new HttpCrtRenderingCapability({
+                baseUrl: "https://business.example",
+                fetch: vi.fn<typeof fetch>().mockResolvedValue(
+                    new Response(
+                        JSON.stringify({
+                            error: { code, message: "private vendor detail" },
+                        }),
+                        { status: 503 },
+                    ),
+                ),
+            });
+
+            const error = await capability
+                .transform(
+                    {
+                        sourceImageUrl:
+                            "https://images.example.com/portrait-01.png",
+                        prompt: "Transform the attached image",
+                        palette: "经典",
+                        aspectRatio: "4:3",
+                    },
+                    {
+                        signal: new AbortController().signal,
+                        idempotencyKey: "run-1",
+                    },
+                )
+                .catch((caught: unknown) => caught);
+
+            expect(error).toBeInstanceOf(CrtRenderingUnavailable);
+            expect((error as CrtRenderingUnavailable).committed).toBe(
+                committed,
+            );
+            expect(String(error)).not.toContain("private vendor detail");
+        }
+    });
+
+    it("treats an unreadable failure body as not charged", async () => {
+        const capability = new HttpCrtRenderingCapability({
+            baseUrl: "https://business.example",
+            fetch: vi
+                .fn<typeof fetch>()
+                .mockResolvedValue(new Response("not json", { status: 503 })),
+        });
+
+        const error = await capability
+            .transform(
+                {
+                    sourceImageUrl:
+                        "https://images.example.com/portrait-01.png",
+                    prompt: "Transform the attached image",
+                    palette: "经典",
+                    aspectRatio: "4:3",
+                },
+                {
+                    signal: new AbortController().signal,
+                    idempotencyKey: "run-1",
+                },
+            )
+            .catch((caught: unknown) => caught);
+
+        expect(error).toBeInstanceOf(CrtRenderingUnavailable);
+        expect((error as CrtRenderingUnavailable).committed).toBe(false);
+    });
+
     it("validates its timeout at construction", () => {
         expect(
             () =>

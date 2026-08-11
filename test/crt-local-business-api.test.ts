@@ -280,6 +280,92 @@ describe("local CRT Business API", () => {
         }
     });
 
+    it("separates failures before and after the edit is charged", async () => {
+        const directory = await mkdtemp(join(tmpdir(), "pipipi-crt-api-"));
+        const generated = await sharp({
+            create: {
+                width: 320,
+                height: 240,
+                channels: 3,
+                background: { r: 20, g: 40, b: 30 },
+            },
+        })
+            .png()
+            .toBuffer();
+        const beforeEdit = vi.fn(async () => {
+            throw new OpenAIImageGenerationError("source image unreachable", {
+                status: 502,
+            });
+        });
+        const afterEdit = vi.fn(async () => ({
+            bytes: generated,
+            mimeType: "image/png",
+            outputFormat: "png" as const,
+            width: 320,
+            height: 240,
+        }));
+        const failingStorage = {
+            provider: "test-storage",
+            upload: async () => {
+                throw new Error("private bucket detail");
+            },
+        };
+
+        const unavailable = await startLocalCrtBusinessApi({
+            directory: join(directory, "before"),
+            imageClient: { edit: beforeEdit },
+        });
+        const incomplete = await startLocalCrtBusinessApi({
+            directory: join(directory, "after"),
+            imageClient: { edit: afterEdit },
+            storage: failingStorage,
+        });
+
+        try {
+            const beforeResponse = await requestCrtImage(
+                unavailable.url,
+                "run-before",
+            );
+            const afterResponse = await requestCrtImage(
+                incomplete.url,
+                "run-after",
+            );
+
+            expect(beforeResponse.status).toBe(503);
+            expect(await beforeResponse.json()).toEqual({
+                error: {
+                    code: "CRT_RENDERING_UNAVAILABLE",
+                    message: "CRT rendering is unavailable",
+                },
+            });
+            expect(unavailable.evidence()).toMatchObject({
+                editAttempts: 1,
+                edits: 0,
+            });
+
+            expect(afterResponse.status).toBe(503);
+            expect(await afterResponse.json()).toEqual({
+                error: {
+                    code: "CRT_RENDERING_INCOMPLETE",
+                    message:
+                        "CRT rendering completed but the result could not be delivered",
+                },
+            });
+            expect(incomplete.evidence()).toMatchObject({
+                editAttempts: 1,
+                edits: 1,
+            });
+            expect(incomplete.evidence().renderingFailure).toMatchObject({
+                name: "Error",
+                message: "private bucket detail",
+            });
+        } finally {
+            await unavailable.close();
+            await incomplete.close();
+            await rm(directory, { recursive: true, force: true });
+        }
+    });
+
     it("records a safe rendering failure for local acceptance diagnostics", async () => {
         const directory = await mkdtemp(join(tmpdir(), "pipipi-crt-api-"));
         const edit = vi.fn(async () => {
@@ -340,6 +426,25 @@ describe("local CRT Business API", () => {
         }
     });
 });
+
+function requestCrtImage(
+    serviceUrl: string,
+    idempotencyKey: string,
+): Promise<Response> {
+    return fetch(`${serviceUrl}/crt-images`, {
+        method: "POST",
+        headers: {
+            "content-type": "application/json",
+            "idempotency-key": idempotencyKey,
+        },
+        body: JSON.stringify({
+            sourceImageUrl: "https://images.example.com/source.png",
+            prompt: "Transform the attached source image.",
+            palette: "经典",
+            aspectRatio: "4:3",
+        }),
+    });
+}
 
 function readRecord(value: unknown): Record<string, unknown> {
     if (typeof value !== "object" || value === null || Array.isArray(value)) {

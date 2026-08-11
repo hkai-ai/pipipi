@@ -1,6 +1,6 @@
 # CRT 接入对齐开发计划
 
-状态：进行中。M1 已交付调用方 trace id 透传，其余里程碑未开始。
+状态：进行中。M1 已交付调用方 trace id 透传与依赖失败前后拆码，仅剩内容安全拒绝的独立错误码待真实样本验证；其余里程碑未开始。
 
 本文把 [`integration-contract.md`](integration-contract.md) 中标为「计划」的内容拆成可独立合并、验证和发布的开发批次。接入契约定义调用方可依赖的行为；本文维护实施顺序、依赖、测试门槛和发布依赖。Process 的实现说明与后处理算法见 [`README.md`](README.md)。
 
@@ -73,9 +73,10 @@ flowchart LR
 
 ### 任务
 
-- 在 CRT Business API 中按失败位置发出稳定错误码：模型调用返回之前、模型调用返回之后、以及供应商的内容安全拒绝。切分点是图片编辑调用的返回处。
-- 让 CRT Rendering Capability 的 HTTP Adapter 保留下游错误码，不再把所有非 2xx 折叠成同一个异常。
-- 在 Registration 中把子码映射为公开错误码，并保持错误净化：不泄露供应商正文、Prompt、凭证或对象键。
+- ~~在 CRT Business API 中按失败位置发出稳定错误码：模型调用返回之前、模型调用返回之后。切分点是图片编辑调用的返回处。~~ 已交付。
+- ~~让 CRT Rendering Capability 的 HTTP Adapter 保留下游错误码，不再把所有非 2xx 折叠成同一个异常。~~ 已交付：只读取稳定错误码，其余响应内容丢弃。
+- ~~在 Registration 中把子码映射为公开错误码，并保持错误净化。~~ 已交付：`DEPENDENCY_FAILURE` 与 `DEPENDENCY_FAILURE_AFTER_COMMIT`，后者在类型层面不可配置为自动重试。
+- **待办**：供应商内容安全拒绝的独立终态码。须先用真实拒绝样本验证可识别性；验不通不发。
 - ~~`/execute` 读取调用方的 `X-Request-Id`，写入运行日志，长度与字符集受限；不回显、不进入产物或证据。~~ 已交付：记录在本次请求的每一条日志上，包括没有 `runId` 的传输层拒绝。
 
 ### 测试

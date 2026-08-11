@@ -220,10 +220,15 @@ export function createCrtRegistration(
                 return { aspectRatio: input.aspectRatio, image };
             } catch (error) {
                 if (error instanceof CrtRenderingUnavailable) {
-                    return failProcess(
-                        "DEPENDENCY_FAILURE",
-                        "The CRT rendering service is unavailable",
-                    );
+                    return error.committed
+                        ? failProcess(
+                              "DEPENDENCY_FAILURE_AFTER_COMMIT",
+                              "The CRT image was rendered but could not be delivered",
+                          )
+                        : failProcess(
+                              "DEPENDENCY_FAILURE",
+                              "The CRT rendering service is unavailable",
+                          );
                 }
                 throw error;
             }

@@ -302,13 +302,28 @@ export async function startCrtBusinessApi(
         try {
             writeJson(response, 200, await pending);
         } catch (error) {
-            renderingFailure = summarizeRenderingFailure(error);
-            writeJson(response, 503, {
-                error: {
-                    code: "CRT_RENDERING_UNAVAILABLE",
-                    message: "CRT rendering is unavailable",
-                },
-            });
+            const committed = error instanceof CrtEditCommitted;
+            renderingFailure = summarizeRenderingFailure(
+                committed ? error.cause : error,
+            );
+            writeJson(
+                response,
+                503,
+                committed
+                    ? {
+                          error: {
+                              code: "CRT_RENDERING_INCOMPLETE",
+                              message:
+                                  "CRT rendering completed but the result could not be delivered",
+                          },
+                      }
+                    : {
+                          error: {
+                              code: "CRT_RENDERING_UNAVAILABLE",
+                              message: "CRT rendering is unavailable",
+                          },
+                      },
+            );
         } finally {
             request.off("aborted", abort);
         }
@@ -495,7 +510,28 @@ export async function startCrtBusinessApi(
             outputFormat: "png",
             signal,
         });
+        // The edit has returned, so the vendor has charged for it. Every
+        // failure past this line is reported as committed even though the
+        // caller never receives an image.
         edits += 1;
+        try {
+            return await deliverEditedImage(
+                input,
+                requestKey,
+                signal,
+                generated,
+            );
+        } catch (error) {
+            throw new CrtEditCommitted(error);
+        }
+    }
+
+    async function deliverEditedImage(
+        input: CrtRequest,
+        requestKey: string,
+        signal: AbortSignal,
+        generated: GeneratedImage,
+    ): Promise<CrtImage> {
         const raw = Buffer.from(generated.bytes);
         const rawContentType = parseImageContentType(generated.mimeType);
         if (!rawContentType || detectImageContentType(raw) !== rawContentType) {
@@ -701,6 +737,22 @@ function isFileExistsError(error: unknown): boolean {
 }
 
 export const startLocalCrtBusinessApi = startCrtBusinessApi;
+
+/**
+ * Marks a failure that happened after the image edit returned, meaning the
+ * vendor has already charged for a render the caller will never receive. It
+ * only carries the original failure so the existing summariser keeps producing
+ * the same sanitised evidence.
+ */
+class CrtEditCommitted extends Error {
+    override readonly cause: unknown;
+
+    constructor(cause: unknown) {
+        super("CRT rendering completed but delivery failed");
+        this.name = "CrtEditCommitted";
+        this.cause = cause;
+    }
+}
 
 function summarizeRenderingFailure(
     error: unknown,

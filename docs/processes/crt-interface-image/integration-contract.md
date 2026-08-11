@@ -51,7 +51,8 @@
 | `INVALID_INPUT` | 400 | 否，校验早于 Agent 与图片服务 |
 | `PROCESS_NOT_FOUND` | 404 | 否 |
 | `AGENT_FAILURE` | 502 | 仅 Agent 费用；Prompt 最多编译 2 次 |
-| `DEPENDENCY_FAILURE` | 502 | 取决于失败点，当前无法从错误码区分 |
+| `DEPENDENCY_FAILURE` | 502 | 否，失败发生在图片编辑返回之前 |
+| `DEPENDENCY_FAILURE_AFTER_COMMIT` | 502 | 是，图片已渲染并计费，但未能交付 |
 | `INVALID_OUTPUT` | 500 | 是 |
 | `PROCESS_TIMEOUT` | 504 | **未知**，取消不保证供应商未计费 |
 | `INTERNAL_ERROR` | 500 | 取决于失败点 |
@@ -69,6 +70,15 @@
 `runId` 在请求校验之前生成，因此所有进入执行器的失败都带 `runId`；只有上表的传输层拒绝没有。
 
 参考图读取失败归入 `DEPENDENCY_FAILURE`，不归入 `INVALID_INPUT`。`INVALID_INPUT` 只来自字段与 URL 形状校验。
+
+两个依赖失败码的切分点是**图片编辑调用返回的那一刻**：
+
+- 之前失败（参考图不可读、供应商不可用、请求构造失败）→ `DEPENDENCY_FAILURE`，**未产生模型费用**，重试不额外花钱。
+- 之后失败（栅格校验、后处理、证据写入、存储上传、图片引用解析）→ `DEPENDENCY_FAILURE_AFTER_COMMIT`，**模型费用已经产生**但调用方拿不到图，重试会再花一次钱，必须让人知情。
+
+`DEPENDENCY_FAILURE_AFTER_COMMIT` 在类型层面被排除在可重试错误码之外，任何 Process 都无法把它配置为自动重试。
+
+内容安全拒绝当前仍落在 `DEPENDENCY_FAILURE` 中，尚未单列错误码；见「计划」。
 
 ### 重试语义
 
@@ -133,7 +143,7 @@
 | 提交时多档产出 | 一次调用返回多个档位的产物，只重复执行 finalizer，不重复调用模型 | 产品输出契约、内部 API 响应、对象键、证据 manifest |
 | 按原图再出档 | 新增纯后处理 Process：接收调用方回传的原图 URL 与档位，不调用模型、不需要 Agent | **首次需要服务端下载调用方 URL**，须过出站控制评审 |
 | 档位打包 | `fine` / `normal` / `coarse` 三档，每档绑定 `blockSize` 与扫描线周期；缺省等于当前行为 | 每档一轮视觉验收 |
-| `DEPENDENCY_FAILURE` 拆码 | 按模型调用前 / 后拆分，并为内容安全拒绝单列错误码 | 内部 API 发码、Adapter 保留错误码、Registration 分流 |
+| 内容安全拒绝独立错误码 | 供应商的内容拒绝与依赖故障分开，作为不可重试的终态码 | 须先用真实拒绝样本验证可识别性 |
 | `/execute` 鉴权 | 挂上与异步入口相同的网关身份头 | 小改；异步入口按期开放则可跳过 |
 | `metadata` 证据模式 | 生产启用 `metadata` 档，并补充失败时写 manifest、Skill 版本、状态与耗时 | 数据授权评审；manifest 需要落库与清理 |
 
@@ -169,7 +179,7 @@
 1. 除 `503 SERVICE_BUSY` 外不自动重投，只允许人工重试。异步入口启用后，`429`、`503 ASYNC_SERVICE_CAPACITY_REACHED` 与 `503 ASYNC_SERVICE_UNAVAILABLE` 加入同一档，并使用同一个幂等键。
 2. 每次调用携带 `X-Request-Id`。服务端已读取并落日志，取值须满足上述长度与字符集限制。
 3. 调用方自行限制并发与提交速率，不依赖服务端闸门做流控。
-4. `INVALID_INPUT` 永不重试；`DEPENDENCY_FAILURE` 按拆分后的子码分流；`PROCESS_TIMEOUT` 按费用未知处理。
+4. `INVALID_INPUT` 永不重试；`DEPENDENCY_FAILURE` 与 `DEPENDENCY_FAILURE_AFTER_COMMIT` 分流，后者重试前须人工确认；`PROCESS_TIMEOUT` 按费用未知处理。
 5. 按响应中的 `expiresAt` 处理链接，不硬编码有效期。
 6. 产物只做整数倍最近邻放大，不经过任何服务端重采样或 ML 超分管线。
 7. 用 `normal` 档重跑原图应字节级复现首次产物，接入方将其作为自动检查，用于验证原图未被自身管线改动。
