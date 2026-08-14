@@ -160,6 +160,8 @@ Pull Request 和 `main` 的 `Production CI/CD` 另设稳定检查名 `Async dura
 
 可信网关必须先验证 service principal，删除外部请求中的 `x-pipipi-caller-id` 和 `x-pipipi-gateway-token`，再分别注入稳定 subject 与共享凭证。应用不接受请求 body 中的 owner，也不把身份头、共享凭证或数据库错误写入响应。`GET /healthz` 始终只做 liveness；`GET /readyz` 在异步功能启用时检查包括 backlog admission 索引在内的数据库 migration，`canary` 与 `production` 还检查 backlog、stuck Run、已到期 Outbox lag 和最近一次从空 cursor 到最终空 `nextCursor` 的完整成功人工全量恢复链。
 
+`ASYNC_PROCESS_RUN_INTAKE_DISABLED_FILE` 是服务端运维 Seam：marker 不存在时接受新 Run，存在时只有 `POST /process-runs` 返回 `503 ASYNC_INTAKE_CLOSED`；owner GET 和同步 `/execute` 继续工作。生产 Compose 把它固定到只读挂载的 `/var/lib/pipipi-async-control/intake-disabled`，调用方不能通过请求改变。`npm run smoke:async-internal` 由受保护 workflow 分 baseline/rollback 两阶段调用，外部请求正文和操作者凭证只从 Environment Secret 读取，不进入日志或证据。
+
 本地浏览器只能通过 Vite 的开发 Gateway 调用异步路由。显式设置 `CONSOLE_DEVELOPMENT_GATEWAY_ENABLED=true`、本机 HTTP `CONSOLE_DEVELOPMENT_GATEWAY_TARGET` 和与 API 相同的 `ASYNC_GATEWAY_SHARED_SECRET` 后，`npm run dev:console` 才挂载 `/process-runs` 代理。Adapter 删除浏览器提供的两个身份头，再注入固定的 `console:development` 和共享凭证；凭证不使用 `VITE_` 前缀，不进入 bundle、storage、响应或日志。该入口拒绝 build、非 `development` mode、`NODE_ENV=production` 和非 loopback target，不能替代生产认证网关。
 
 当前已验证提交、查询、Outbox 调度、BullMQ Worker、故障恢复、容量门禁、独立角色、结构化关联日志和运维快照。配置齐全不等于可以直接开放；外部生产流量必须按 [`async-process-runs-runbook.md`](async-process-runs-runbook.md) 完成安全审查、故障演练和 staged rollout。

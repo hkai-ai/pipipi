@@ -1,9 +1,11 @@
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import {
     createServer as createHttpServer,
     type IncomingMessage,
     type Server,
 } from "node:http";
 import { createServer as createTcpServer } from "node:net";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { Queue } from "bullmq";
 import { Redis } from "ioredis";
@@ -1078,6 +1080,13 @@ integrationDescribe("BullMQ Process Runtime", () => {
         const closeResources: (() => Promise<void>)[] = [];
 
         try {
+            const intakeDirectory = await mkdtemp(
+                path.join(tmpdir(), "pipipi-async-intake-integration-"),
+            );
+            closeResources.push(() =>
+                rm(intakeDirectory, { recursive: true, force: true }),
+            );
+            const intakeMarker = path.join(intakeDirectory, "intake-disabled");
             const businessApi = await startBusinessApi();
             closeResources.push(businessApi.close);
             const sharedEnvironment = {
@@ -1103,6 +1112,7 @@ integrationDescribe("BullMQ Process Runtime", () => {
                 ASYNC_CALLER_BACKLOG_LIMIT: "100",
                 ASYNC_BACKLOG_RETRY_AFTER_SECONDS: "5",
                 ASYNC_RETRY_AFTER_SECONDS: "1",
+                ASYNC_PROCESS_RUN_INTAKE_DISABLED_FILE: intakeMarker,
             });
             closeResources.push(api.application.close);
             const dispatcher = constructProcessDispatcherService({
@@ -1370,6 +1380,32 @@ integrationDescribe("BullMQ Process Runtime", () => {
                 unknown.headers.get("content-type"),
             );
             expect(await isolated.json()).toEqual(await unknown.json());
+
+            await writeFile(intakeMarker, "");
+            const closedIntake = await fetch(`${gatewayUrl}/process-runs`, {
+                method: "POST",
+                headers: {
+                    "content-type": "application/json",
+                    "idempotency-key": "must-not-be-accepted-during-rollback",
+                },
+                body: JSON.stringify({
+                    process: "content-processing",
+                    version: "v1",
+                    input: { content: "must not run" },
+                }),
+            });
+            expect(closedIntake.status).toBe(503);
+            expect(await closedIntake.json()).toMatchObject({
+                error: { code: "ASYNC_INTAKE_CLOSED" },
+            });
+            const acceptedDuringRollback = await fetch(
+                `${gatewayUrl}/process-runs/${success.runId}`,
+            );
+            expect(acceptedDuringRollback.status).toBe(200);
+            expect(await acceptedDuringRollback.json()).toMatchObject({
+                runId: success.runId,
+                status: "succeeded",
+            });
 
             const synchronous = await fetch(`${apiListening.url}/execute`, {
                 method: "POST",

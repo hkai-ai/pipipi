@@ -128,6 +128,7 @@ export type AsyncProcessRunsHttpOptions = Readonly<{
     runs: AsyncProcessRuns;
     callerIdentity: CallerIdentityResolver;
     readiness: () => Promise<void>;
+    intakeOpen?: () => boolean;
     retryAfterSeconds?: number;
 }>;
 
@@ -186,6 +187,14 @@ export type AsyncProcessRunLogRecord =
           timestamp: string;
           scope: "caller" | "global";
           httpStatus: 429 | 503;
+          retryAfterSeconds: number;
+          durationMs: number;
+          requestId?: string;
+      }>
+    | Readonly<{
+          event: "process_run_intake_rejected";
+          timestamp: string;
+          httpStatus: 503;
           retryAfterSeconds: number;
           durationMs: number;
           requestId?: string;
@@ -606,6 +615,28 @@ async function submitProcessRun(
     if (!asyncOptions) throw new Error("Async Process Runs are not configured");
     const caller = await resolveCaller(request, response, asyncOptions);
     if (!caller) return;
+    if (!intakeIsOpen(asyncOptions)) {
+        const retryAfter = retryAfterSeconds(asyncOptions);
+        response.setHeader("retry-after", String(retryAfter));
+        response.setHeader("cache-control", "no-store");
+        emitLog(context.logging, {
+            event: "process_run_intake_rejected",
+            timestamp: context.logging.clock.timestamp(),
+            httpStatus: 503,
+            retryAfterSeconds: retryAfter,
+            durationMs: elapsedMilliseconds(
+                context.logging.clock,
+                context.logging.startedAt,
+            ),
+        });
+        writeFailureJson(
+            response,
+            503,
+            "ASYNC_INTAKE_CLOSED",
+            "New async submissions are temporarily unavailable",
+        );
+        return;
+    }
 
     const idempotencyKeyHeader = request.headers["idempotency-key"];
     if (
@@ -700,6 +731,14 @@ async function submitProcessRun(
         status: submission.status,
         createdAt: submission.createdAt,
     });
+}
+
+function intakeIsOpen(options: AsyncProcessRunsHttpOptions): boolean {
+    try {
+        return options.intakeOpen?.() ?? true;
+    } catch {
+        return false;
+    }
 }
 
 async function findProcessRun(

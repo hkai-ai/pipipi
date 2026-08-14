@@ -1,0 +1,266 @@
+name: Async internal smoke and rollback
+run-name: Async internal smoke ${{ inputs.candidate_sha }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      candidate_sha:
+        description: Active internal candidate full commit SHA
+        required: true
+        type: string
+      release_run_id:
+        description: Async internal release workflow run ID
+        required: true
+        type: string
+      release_run_attempt:
+        description: Async internal release workflow attempt
+        required: true
+        default: "1"
+        type: string
+      expected_failure_code:
+        description: Stable public error expected from the controlled failure request
+        required: true
+        default: DEPENDENCY_FAILURE
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    name: Verify gateway and safe rollback
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment:
+      name: async-internal
+    concurrency:
+      group: pipipi-production-release
+      cancel-in-progress: false
+
+    steps:
+      - name: Validate request
+        env:
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+          EXPECTED_FAILURE_CODE: ${{ inputs.expected_failure_code }}
+          RELEASE_RUN_ATTEMPT: ${{ inputs.release_run_attempt }}
+          RELEASE_RUN_ID: ${{ inputs.release_run_id }}
+        run: |
+          set -Eeuo pipefail
+          [[ "$CANDIDATE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$RELEASE_RUN_ID" =~ ^[1-9][0-9]*$ ]]
+          [[ "$RELEASE_RUN_ATTEMPT" =~ ^[1-9][0-9]*$ ]]
+          [[ "$EXPECTED_FAILURE_CODE" =~ ^[A-Z][A-Z0-9_]{0,127}$ ]]
+
+      - name: Checkout candidate
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.candidate_sha }}
+
+      - name: Install smoke runtime
+        run: npm ci
+
+      - name: Configure SSH
+        env:
+          SSH_KNOWN_HOSTS: ${{ secrets.SSH_KNOWN_HOSTS }}
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+        run: |
+          set -Eeuo pipefail
+          install -d -m 700 ~/.ssh
+          test -n "$SSH_KNOWN_HOSTS"
+          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/id_ed25519 ~/.ssh/known_hosts
+
+      - name: Verify successful internal release evidence
+        env:
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+          RELEASE_RUN_ATTEMPT: ${{ inputs.release_run_attempt }}
+          RELEASE_RUN_ID: ${{ inputs.release_run_id }}
+          REMOTE_HOST: ${{ vars.REMOTE_HOST }}
+          REMOTE_PATH: ${{ vars.REMOTE_PATH }}
+          REMOTE_USER: ${{ vars.REMOTE_USER }}
+        run: |
+          set -Eeuo pipefail
+          ssh -o BatchMode=yes -o StrictHostKeyChecking=yes \
+              "$REMOTE_USER@$REMOTE_HOST" bash -s -- \
+              "$REMOTE_PATH" "$CANDIDATE_SHA" \
+              "$RELEASE_RUN_ID" "$RELEASE_RUN_ATTEMPT" \
+              < ops/verify-async-internal-release-evidence.sh \
+              >/dev/null
+
+      - name: Acquire server smoke lease
+        id: acquire_lease
+        env:
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+          CONTROL_ID: ${{ github.run_id }}-${{ github.run_attempt }}
+          REMOTE_HOST: ${{ vars.REMOTE_HOST }}
+          REMOTE_PATH: ${{ vars.REMOTE_PATH }}
+          REMOTE_USER: ${{ vars.REMOTE_USER }}
+        run: |
+          set -Eeuo pipefail
+          mkdir -p evidence
+          ssh -o BatchMode=yes -o StrictHostKeyChecking=yes \
+              "$REMOTE_USER@$REMOTE_HOST" bash -s -- \
+              "$REMOTE_PATH" "$CANDIDATE_SHA" acquired 1500 "$CONTROL_ID" \
+              < ops/set-async-internal-smoke-lease.sh \
+              > evidence/smoke-lease-acquired.json
+
+      - name: Run trusted gateway baseline smoke
+        env:
+          ASYNC_INTERNAL_CALLER_A_AUTHORIZATION: ${{ secrets.ASYNC_INTERNAL_CALLER_A_AUTHORIZATION }}
+          ASYNC_INTERNAL_CALLER_B_AUTHORIZATION: ${{ secrets.ASYNC_INTERNAL_CALLER_B_AUTHORIZATION }}
+          ASYNC_INTERNAL_CANDIDATE_REVISION: ${{ inputs.candidate_sha }}
+          ASYNC_INTERNAL_FAILURE_CODE: ${{ inputs.expected_failure_code }}
+          ASYNC_INTERNAL_FAILURE_REQUEST: ${{ secrets.ASYNC_INTERNAL_FAILURE_REQUEST }}
+          ASYNC_INTERNAL_GATEWAY_BASE_URL: ${{ vars.ASYNC_INTERNAL_GATEWAY_BASE_URL }}
+          ASYNC_INTERNAL_SMOKE_EVIDENCE_DIRECTORY: evidence
+          ASYNC_INTERNAL_SMOKE_PHASE: baseline
+          ASYNC_INTERNAL_SUCCESS_REQUEST: ${{ secrets.ASYNC_INTERNAL_SUCCESS_REQUEST }}
+        run: npm run smoke:async-internal
+
+      - name: Collect baseline operational evidence
+        env:
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+          REMOTE_HOST: ${{ vars.REMOTE_HOST }}
+          REMOTE_PATH: ${{ vars.REMOTE_PATH }}
+          REMOTE_USER: ${{ vars.REMOTE_USER }}
+        run: |
+          set -Eeuo pipefail
+          success_run="$(jq -r '.success.runId' evidence/baseline.json)"
+          failure_run="$(jq -r '.failure.runId' evidence/baseline.json)"
+          success_submit="$(jq -r '.requestIds.successSubmit' evidence/baseline.json)"
+          failure_submit="$(jq -r '.requestIds.failureSubmit' evidence/baseline.json)"
+          success_observe="$(jq -r '.requestIds.successObserve' evidence/baseline.json)"
+          failure_observe="$(jq -r '.requestIds.failureObserve' evidence/baseline.json)"
+          ssh -o BatchMode=yes -o StrictHostKeyChecking=yes \
+              "$REMOTE_USER@$REMOTE_HOST" bash -s -- \
+              "$REMOTE_PATH" "$CANDIDATE_SHA" baseline \
+              "$success_run" "$failure_run" \
+              "$success_submit" "$failure_submit" \
+              "$success_observe" "$failure_observe" \
+              < ops/collect-async-internal-smoke-evidence.sh \
+              > evidence/operational-baseline.json
+
+      - name: Close async intake with automatic restoration
+        id: close_intake
+        env:
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+          CONTROL_ID: ${{ github.run_id }}-${{ github.run_attempt }}
+          REMOTE_HOST: ${{ vars.REMOTE_HOST }}
+          REMOTE_PATH: ${{ vars.REMOTE_PATH }}
+          REMOTE_USER: ${{ vars.REMOTE_USER }}
+        run: |
+          set -Eeuo pipefail
+          ssh -o BatchMode=yes -o StrictHostKeyChecking=yes \
+              "$REMOTE_USER@$REMOTE_HOST" bash -s -- \
+              "$REMOTE_PATH" "$CANDIDATE_SHA" closed 600 "$CONTROL_ID" \
+              < ops/set-async-internal-intake.sh \
+              > evidence/intake-closed.json
+
+      - name: Verify rollback through trusted gateway
+        env:
+          ASYNC_INTERNAL_CALLER_A_AUTHORIZATION: ${{ secrets.ASYNC_INTERNAL_CALLER_A_AUTHORIZATION }}
+          ASYNC_INTERNAL_CALLER_B_AUTHORIZATION: ${{ secrets.ASYNC_INTERNAL_CALLER_B_AUTHORIZATION }}
+          ASYNC_INTERNAL_CANDIDATE_REVISION: ${{ inputs.candidate_sha }}
+          ASYNC_INTERNAL_FAILURE_CODE: ${{ inputs.expected_failure_code }}
+          ASYNC_INTERNAL_FAILURE_REQUEST: ${{ secrets.ASYNC_INTERNAL_FAILURE_REQUEST }}
+          ASYNC_INTERNAL_GATEWAY_BASE_URL: ${{ vars.ASYNC_INTERNAL_GATEWAY_BASE_URL }}
+          ASYNC_INTERNAL_SMOKE_EVIDENCE_DIRECTORY: evidence
+          ASYNC_INTERNAL_SMOKE_PHASE: rollback
+          ASYNC_INTERNAL_SUCCESS_REQUEST: ${{ secrets.ASYNC_INTERNAL_SUCCESS_REQUEST }}
+        run: npm run smoke:async-internal
+
+      - name: Collect rollback operational evidence
+        env:
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+          REMOTE_HOST: ${{ vars.REMOTE_HOST }}
+          REMOTE_PATH: ${{ vars.REMOTE_PATH }}
+          REMOTE_USER: ${{ vars.REMOTE_USER }}
+        run: |
+          set -Eeuo pipefail
+          success_run="$(jq -r '.success.runId' evidence/baseline.json)"
+          failure_run="$(jq -r '.failure.runId' evidence/baseline.json)"
+          success_submit="$(jq -r '.requestIds.successSubmit' evidence/baseline.json)"
+          failure_submit="$(jq -r '.requestIds.failureSubmit' evidence/baseline.json)"
+          success_observe="$(jq -r '.requestIds.successObserve' evidence/baseline.json)"
+          failure_observe="$(jq -r '.requestIds.failureObserve' evidence/baseline.json)"
+          ssh -o BatchMode=yes -o StrictHostKeyChecking=yes \
+              "$REMOTE_USER@$REMOTE_HOST" bash -s -- \
+              "$REMOTE_PATH" "$CANDIDATE_SHA" rollback \
+              "$success_run" "$failure_run" \
+              "$success_submit" "$failure_submit" \
+              "$success_observe" "$failure_observe" \
+              < ops/collect-async-internal-smoke-evidence.sh \
+              > evidence/operational-rollback.json
+
+      - name: Restore async intake
+        if: ${{ always() && steps.close_intake.outcome == 'success' }}
+        env:
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+          CONTROL_ID: ${{ github.run_id }}-${{ github.run_attempt }}
+          REMOTE_HOST: ${{ vars.REMOTE_HOST }}
+          REMOTE_PATH: ${{ vars.REMOTE_PATH }}
+          REMOTE_USER: ${{ vars.REMOTE_USER }}
+        run: |
+          set -Eeuo pipefail
+          mkdir -p evidence
+          ssh -o BatchMode=yes -o StrictHostKeyChecking=yes \
+              "$REMOTE_USER@$REMOTE_HOST" bash -s -- \
+              "$REMOTE_PATH" "$CANDIDATE_SHA" open 600 "$CONTROL_ID" \
+              < ops/set-async-internal-intake.sh \
+              > evidence/intake-open.json
+
+      - name: Verify preservation and evidence boundary
+        if: ${{ always() }}
+        run: |
+          set -Eeuo pipefail
+          test -f evidence/operational-baseline.json
+          test -f evidence/operational-rollback.json
+          jq --exit-status -s '
+            .[0].revision == .[1].revision and
+            .[0].state.runIds == .[1].state.runIds and
+            .[0].state.runs == .[1].state.runs and
+            .[0].state.processEventCount == .[1].state.processEventCount and
+            .[0].state.outboxMessageCount == .[1].state.outboxMessageCount and
+            .[0].state.deliveryCount == .[1].state.deliveryCount and
+            .[0].state.deliveryRunCount == .[1].state.deliveryRunCount and
+            .[0].state.deliveryCount > 0 and
+            .[0].state.deliveryRunCount == 2 and
+            .[1].state.runs.count == 2 and
+            .[1].state.runs.terminalCount == 2 and
+            .[1].state.runs.ownersPresent == true and
+            .[1].state.runs.idempotencyPresent == true and
+            .[1].state.runs.deliveriesPresent == true and
+            .[1].state.additiveSchemaPresent == true
+          ' evidence/operational-baseline.json evidence/operational-rollback.json >/dev/null
+          if jq -e '.. | objects | keys[]' evidence/*.json | \
+              grep -Eiq 'idempotency.?key|accepted.?input|(^|_)output$|prompt|secret|authorization|database.?url|redis.?url|endpoint.?url'; then
+              echo "Forbidden evidence field detected" >&2
+              exit 1
+          fi
+
+      - name: Release server smoke lease
+        if: ${{ always() && steps.acquire_lease.outcome == 'success' }}
+        env:
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+          CONTROL_ID: ${{ github.run_id }}-${{ github.run_attempt }}
+          REMOTE_HOST: ${{ vars.REMOTE_HOST }}
+          REMOTE_PATH: ${{ vars.REMOTE_PATH }}
+          REMOTE_USER: ${{ vars.REMOTE_USER }}
+        run: |
+          set -Eeuo pipefail
+          mkdir -p evidence
+          ssh -o BatchMode=yes -o StrictHostKeyChecking=yes \
+              "$REMOTE_USER@$REMOTE_HOST" bash -s -- \
+              "$REMOTE_PATH" "$CANDIDATE_SHA" released 1500 "$CONTROL_ID" \
+              < ops/set-async-internal-smoke-lease.sh \
+              > evidence/smoke-lease-released.json
+
+      - name: Upload smoke and rollback evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: pipipi-async-internal-smoke-${{ inputs.candidate_sha }}-${{ github.run_attempt }}
+          path: evidence/
+          if-no-files-found: error
+          retention-days: 30

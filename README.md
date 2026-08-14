@@ -80,6 +80,8 @@ cp .env.example .env
 
 `.github/workflows/async-internal-release.yml` 是唯一自动化异步启用入口，只能手动触发并绑定受保护的 `async-internal` Environment。它只接受精确 commit 与对应 CI run，复用 CI 构建的 release artifact，固定发布为 `internal`；逐角色预检、migration 双跑、全量 Queue Recovery dry-run、后台 readiness 和 revision/Queue 核验全部通过后才启动 API。同步与异步发布共享 Actions 并发组、服务器锁和固定 SSH host key；失败或信号中断会恢复上一形状。只回传声明过的非秘密证据文件，流程不会自动提升到 canary 或 production。
 
+internal 发布后可手动运行受保护的 `.github/workflows/async-internal-smoke.yml`。它通过真实 HTTPS 网关验证成功、稳定业务失败和双 caller owner 隔离，收集角色状态、Async Operations、数据库保留信号与按 Run 关联的脱敏日志；随后用服务端 marker 只关闭新异步 intake，证明既有 owner GET 和同步 `/execute` 仍可用，再自动恢复 intake。请求正文、操作者凭证和幂等键不进入证据；该 workflow 同样不会自动提升流量。
+
 在第一个终端启动演示 Business Capability：
 
 ```bash
@@ -131,6 +133,8 @@ curl http://127.0.0.1:3000/healthz
 ## 异步开发 Interface
 
 仓库已提供资源式的 `POST /process-runs` 和 `GET /process-runs/{runId}`。它要求网关验证身份、注入固定 caller 头与共享凭证，并要求每次提交携带 `Idempotency-Key`。成功提交返回 `202`、`Location`、`Retry-After` 和 queued Run；查询只向 owner 返回 queued、running、succeeded 或 failed。结果内容到期后，终态和完成时间仍在 metadata 保留期内可查，并返回 `resultAvailability: "expired"` 与 `resultExpiredAt`，不会把内容缺失伪装成空结果。
+
+运维可通过服务端只读 marker 暂停新异步提交；此时 POST 返回 `503 ASYNC_INTAKE_CLOSED`，但既有 owner 查询和同步 `/execute` 保持可用。完整产品契约见 [`docs/api.md`](docs/api.md#异步执行)，操作步骤见[异步发布手册](docs/async-process-runs-runbook.md#真实网关-smoke-与安全回滚)。
 
 本地开发可显式启用 Vite-only Gateway：它只代理到 loopback API，删除浏览器伪造的身份头，再注入固定 `console:development` 身份和服务端持有的共享凭证。build 与生产 mode 无法启用该 Adapter。`npm run test:integration:async:local` 会启动隔离 PostgreSQL/Redis，运行 Console Client → Gateway → API → Dispatcher → Worker 的真实成功链；`npm run test:acceptance:console:local` 进一步从 `dist/console` 启动 headless Chrome，覆盖提交防重、accepted 进度、刷新恢复和结构化终态。两者都在成功或失败后删除容器和临时数据，且不调用付费 Capability；配置与判据见[开发指南](docs/development.md#postgresql-与-redis-异步集成测试)。
 

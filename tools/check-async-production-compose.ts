@@ -47,6 +47,7 @@ const validationEnvironment = Object.freeze({
     PIPIPI_ENV_FILE: "/dev/null",
     PIPIPI_ASYNC_RELEASE_STAGE: "internal",
     PIPIPI_ASYNC_API_ENV_FILE: "/dev/null",
+    PIPIPI_ASYNC_CONTROL_DIRECTORY: "/tmp/pipipi-async-control",
     PIPIPI_PROCESS_DISPATCHER_ENV_FILE: "/dev/null",
     PIPIPI_PROCESS_WORKER_ENV_FILE: "/dev/null",
     PIPIPI_WEBHOOK_WORKER_ENV_FILE: "/dev/null",
@@ -131,6 +132,12 @@ export function checkAsyncProductionCompose(): void {
     assert(
         asyncServices.api?.environment?.ASYNC_PROCESS_RUNS_ENABLED === "true",
         "The explicit async production API must enable Async Process Runs",
+    );
+    assert(
+        asyncServices.api?.environment
+            ?.ASYNC_PROCESS_RUN_INTAKE_DISABLED_FILE ===
+            "/var/lib/pipipi-async-control/intake-disabled",
+        "The explicit async production API must expose the intake control marker",
     );
     assert(
         asyncServices.api?.environment?.ASYNC_RELEASE_STAGE === "internal",

@@ -60,6 +60,7 @@ retention_env="$shared/retention-cleaner.env"
 database_ca="$shared/pg-server.crt"
 business_data="$shared/crt-business-api"
 run_records="$shared/run-records"
+async_control="$shared/async-control"
 evidence_key="$revision-$release_run_id-$release_run_attempt"
 evidence_directory="$shared/async-release-evidence/$evidence_key"
 evidence_file="$evidence_directory/evidence.json"
@@ -156,6 +157,7 @@ compose_environment() {
     export PIPIPI_RETENTION_CLEANER_ENV_FILE="$retention_env"
     export PIPIPI_BUSINESS_DATA_DIRECTORY="$business_data"
     export PIPIPI_RUN_RECORD_DIRECTORY="$run_records"
+    export PIPIPI_ASYNC_CONTROL_DIRECTORY="$async_control"
     export PIPIPI_DATABASE_CA_FILE="$database_ca"
     export PIPIPI_PROCESS_QUEUE_NAME="$process_queue_name"
     export PIPIPI_PROCESS_QUEUE_PREFIX="$process_queue_prefix"
@@ -267,14 +269,19 @@ for required_file in \
         false
     fi
 done
-mkdir -p "$business_data" "$run_records"
+mkdir -p "$business_data" "$run_records" "$async_control"
 chmod 700 "$business_data" "$run_records"
+chmod 755 "$async_control"
 compose_environment
 
 lock_file="$shared/deployment.lock"
 exec 9>"$lock_file"
 if ! flock -n 9; then
     echo "Another production deployment is active" >&2
+    false
+fi
+if [ -f "$async_control/smoke-lease" ]; then
+    echo "An async internal smoke is active" >&2
     false
 fi
 

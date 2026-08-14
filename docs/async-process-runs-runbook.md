@@ -67,7 +67,10 @@ Environment 只保存部署连接和非秘密 Queue identity，不保存应用�
 | --- | --- | --- |
 | Secret | `SSH_PRIVATE_KEY` | 连接单服务器部署账户的私钥 |
 | Secret | `SSH_KNOWN_HOSTS` | 通过独立可信渠道核对并固定的目标服务器 host key；不得在发布时用 `ssh-keyscan` 临时信任 |
+| Secret | `ASYNC_INTERNAL_CALLER_A_AUTHORIZATION`、`ASYNC_INTERNAL_CALLER_B_AUTHORIZATION` | 两个不同、已认证 internal 操作者的网关凭证 |
+| Secret | `ASYNC_INTERNAL_SUCCESS_REQUEST`、`ASYNC_INTERNAL_FAILURE_REQUEST` | 受控成功请求与会稳定到达公开业务失败终态的请求 JSON；workflow 不输出或保存正文 |
 | Variable | `REMOTE_HOST`、`REMOTE_USER`、`REMOTE_PATH` | 与同步发布相同的服务器地址、账户和绝对应用目录 |
+| Variable | `ASYNC_INTERNAL_GATEWAY_BASE_URL` | 真实可信网关的 HTTPS Base URL |
 | Variable | `PROCESS_QUEUE_NAME`、`PROCESS_QUEUE_PREFIX` | internal Process Queue identity；已有异步形状不允许发布时改变 |
 | Variable | `WEBHOOK_QUEUE_NAME`、`WEBHOOK_QUEUE_PREFIX` | internal Webhook Queue identity；已有异步形状不允许发布时改变 |
 
@@ -101,6 +104,20 @@ Environment 只保存部署连接和非秘密 Queue identity，不保存应用�
 
 每次尝试都在服务器 `shared/async-release-evidence/<commit>-<run>-<attempt>/` 写入且只回收 `evidence.json`、逐角色预检、migration 摘要、完整 Recovery batch JSONL 和 readiness 响应，并由 Actions 以 `pipipi-async-internal-evidence-*` artifact 保存 30 天。回滚 Compose 快照位于证据目录之外，结束后连同远端候选归档和 Compose 文件按精确路径删除。证据包含 commit、两个 Actions run ID、backup ID、镜像 ID/archive 摘要、前一形状、非秘密 Queue identity、migration/Recovery/角色门禁与回滚结果；不包含 Secret、连接 URL、服务器 Compose 快照或业务输入输出。该入口把 stage 固定为 `internal`，不包含 canary/production 提升动作。
 
+### 真实网关 smoke 与安全回滚
+
+候选 internal 发布成功后，手动运行 `.github/workflows/async-internal-smoke.yml`，填写同一 `candidate_sha`、对应 release run/attempt 和受控失败请求的公开 error code。Job 同样绑定 `async-internal` Environment，并与发布共享 `pipipi-production-release` 并发组；它不会提升 canary 或 production。
+
+baseline smoke 只向真实 HTTPS 网关发送两个操作者的外部 Authorization。每个请求还故意携带伪造的两个内部身份头；只有网关删除它们并为 caller A 注入稳定 subject 与正确共享凭证，成功与稳定业务失败 Run 才能被接受并查询到终态。caller B 对 caller A Run 与未知 Run 必须得到完全相同的 404 响应。smoke 同时验证网关 health/readiness 和同步 `/execute`。
+
+运行前必须为 caller A 预注册至少一个受控、启用中的 Webhook Endpoint；它的目标与 Secret 仍由服务端管理，不进入 smoke 请求或证据。baseline 证据收集器会在有界窗口内等待成功与失败两个终态各自产生至少一条 Delivery，前后审计再证明 Delivery 总数和覆盖的 Run 数量不变；单个 Run 有 Delivery 或 `0 → 0` 都不算通过。
+
+远端证据收集器核对六个角色的 health/readiness 与同一 revision，保存一次不含业务内容的 Async Operations snapshot，并要求两个 Run 都产生 submission accepted、terminal observed、Process Outbox published 和 Worker finished 关联日志。数据库审计只输出 owner/idempotency 是否存在、Run/Event/Outbox/Delivery 数量及 additive schema 是否存在，不输出 owner、幂等键或连接地址。
+
+回滚演练前，workflow 在服务器创建绑定 candidate revision 和本次 Actions run 的有限期 smoke lease；同步与异步部署入口都在发布锁内拒绝该 lease，避免 smoke 对错误 revision 产生真实副作用。回滚演练随后在宿主机 `shared/async-control/intake-disabled` 建立服务端 marker。API 每次只在 `POST /process-runs` 边界读取该 marker：关闭时返回 `503 ASYNC_INTAKE_CLOSED`，`GET /process-runs/{runId}`、`POST /execute`、health 和 readiness 不受影响。控制脚本只接受当前 internal revision，持有发布锁，并把 marker 绑定到本次 Actions run；它拒绝覆盖或移除其他操作拥有的 marker。最长 10 分钟的令牌化自动恢复只移除本次 marker；本次关闭成功后，workflow 的 `always()` 收尾还会立即恢复。回滚 smoke 通过真实网关证明新提交被拒绝、两个已接受终态仍可查询、同步执行继续工作，再比较前后数据库审计，确认 Run、owner、idempotency、Event/Outbox、Delivery 和 schema 均未删除。smoke lease 也有自动到期，并由 workflow 的 `always()` 收尾按 owner token 释放。
+
+artifact 只保存 baseline/rollback 时间线、revision、Run ID、request ID、公开状态/错误码、角色状态、运维快照、关联日志与布尔审计。禁止字段检查会拒绝幂等键、业务 input/output、Prompt、Authorization、Secret、Endpoint URL 和数据库/Redis URL。真实 Environment 凭证、网关配置和受控请求尚未配置时，不得声称此 smoke 已在 internal 运行；本地确定性与真实依赖验收只证明工具和应用边界。
+
 ## Migration 与部署顺序
 
 所有 migration 必须由一次性 Job 在新代码接流量前执行：
@@ -112,7 +129,7 @@ DATABASE_URL='postgres://service-user:replace-me@database.internal/business_proc
 npm run db:migrate
 ```
 
-当前 migration `001` 至 `007` 采用向前兼容的表、列和索引变化。`007_process_run_admission` 只增加 caller backlog 部分索引，旧进程可以继续读写。按照以下顺序部署：
+当前 migration `001` 至 `008` 采用向前兼容的表、列和索引变化。`007_process_run_admission` 只增加 caller backlog 部分索引，`008_process_run_observation` 只增加派生观测表；旧进程可以继续读写。按照以下顺序部署：
 
 | 步骤 | 动作 | 成功信号 | 失败后的安全动作 |
 | --- | --- | --- | --- |
@@ -244,6 +261,7 @@ API 在 PostgreSQL 接收事务内先处理幂等重放，再串行检查 queued
 | caller 达到上限 | `429` | `CALLER_BACKLOG_LIMIT_REACHED` | 等待 `Retry-After`，继续查询既有 Run |
 | 全局达到上限 | `503` | `ASYNC_SERVICE_CAPACITY_REACHED` | 等待 `Retry-After`，继续查询既有 Run |
 | PostgreSQL 或身份依赖不可用 | `503` | `ASYNC_SERVICE_UNAVAILABLE` | 等待 `Retry-After`；不要创建新 idempotency key |
+| 运维关闭新提交 | `503` | `ASYNC_INTAKE_CLOSED` | 不提交新操作；既有 owner GET 与同步 `/execute` 保持可用 |
 
 admission 只拒绝新 durable Run，`GET /process-runs/{runId}` 不经过 backlog 门禁。收到容量告警后先确认 Process Worker、下游配额、Outbox 和 Queue age，再扩容 Worker 或修复下游。只有数据库、下游费用和恢复窗口都能承受时才提高上限。
 
@@ -347,7 +365,7 @@ Redis 数据丢失的标准动作：
 
 ### 回滚
 
-1. 把新提交流量降到零；必要时设置 `ASYNC_PROCESS_RUNS_ENABLED=false`，同步 `/execute` 继续服务。
+1. 把新提交流量降到零；internal 单服务器形状优先使用受控 intake marker，不要把 `ASYNC_PROCESS_RUNS_ENABLED=false` 当作保留 GET 的开关。同步 `/execute` 继续服务。
 2. 让已接受 Run 由兼容 Worker 排空；若必须停 Worker，保留 PostgreSQL 并在恢复后重建 Queue。
 3. 回滚应用镜像，不自动执行 migration down。验证 health/readiness、既有 GET 和同步回归。
 4. 修复后用同一 PostgreSQL 数据与 Queue prefix 恢复，先 dry-run Queue Recovery，再 internal/canary。

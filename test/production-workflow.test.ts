@@ -32,6 +32,7 @@ describe("Production CI/CD workflow", () => {
         expect(deploy).toContain("group: pipipi-production-release");
         expect(deploy).toContain("SSH_KNOWN_HOSTS");
         expect(deploy).toContain("flock -n 9");
+        expect(deploy).toContain("async-control/smoke-lease");
         expect(deploy).not.toContain("StrictHostKeyChecking=no");
         expect(manifest.scripts["test:acceptance:async"]).toBe(
             "npm run test:integration:postgres && npm run test:integration:async && npm run test:acceptance:console",

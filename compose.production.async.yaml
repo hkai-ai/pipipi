@@ -23,6 +23,9 @@ services:
     environment:
       ASYNC_PROCESS_RUNS_ENABLED: "true"
       ASYNC_RELEASE_STAGE: ${PIPIPI_ASYNC_RELEASE_STAGE:?PIPIPI_ASYNC_RELEASE_STAGE is required}
+      ASYNC_PROCESS_RUN_INTAKE_DISABLED_FILE: /var/lib/pipipi-async-control/intake-disabled
+    volumes:
+      - ${PIPIPI_ASYNC_CONTROL_DIRECTORY:-/opt/pipipi/shared/async-control}:/var/lib/pipipi-async-control:ro
     healthcheck:
       <<: *runtime-healthcheck
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4300/readyz').then((response) => { if (!response.ok) process.exit(1); }).catch(() => process.exit(1))"]

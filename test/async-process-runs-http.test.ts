@@ -109,6 +109,67 @@ describe("Async Process Runs HTTP Interface", () => {
         expect(await unauthorized.json()).toEqual(await unknown.json());
     });
 
+    it("closes only new async intake while owner GET and synchronous execution remain available", async () => {
+        let intakeOpen = true;
+        const logs: unknown[] = [];
+        const fixture = await startFixture({
+            intakeOpen: () => intakeOpen,
+            logSink: (record) => logs.push(record),
+        });
+        await submit(fixture.url, {
+            callerId: "caller-a",
+            idempotencyKey: "accepted-before-rollback",
+        });
+
+        intakeOpen = false;
+        const unauthenticated = await fetch(`${fixture.url}/process-runs`, {
+            method: "POST",
+            headers: {
+                "content-type": "application/json",
+                "idempotency-key": "must-authenticate",
+            },
+            body: JSON.stringify(validRequest()),
+        });
+        const rejected = await submit(fixture.url, {
+            callerId: "caller-a",
+            idempotencyKey: "must-not-be-accepted",
+        });
+        const existing = await find(fixture.url, RUN_ID, "caller-a");
+        const synchronous = await fetch(`${fixture.url}/execute`, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: "{}",
+        });
+
+        expect(unauthenticated.status).toBe(401);
+        expect(await unauthenticated.json()).toMatchObject({
+            error: { code: "CALLER_UNAUTHORIZED" },
+        });
+        expect(rejected.status).toBe(503);
+        expect(rejected.headers.get("retry-after")).toBe("2");
+        expect(await rejected.json()).toEqual({
+            status: "failed",
+            error: {
+                code: "ASYNC_INTAKE_CLOSED",
+                message: "New async submissions are temporarily unavailable",
+            },
+        });
+        expect(existing.status).toBe(200);
+        expect(synchronous.status).toBe(200);
+        expect(logs).toContainEqual(
+            expect.objectContaining({
+                event: "process_run_intake_rejected",
+                httpStatus: 503,
+                retryAfterSeconds: 2,
+            }),
+        );
+        await expect(fixture.queue.take()).resolves.toEqual({
+            schemaVersion: 1,
+            runId: RUN_ID,
+        });
+        await expect(fixture.queue.take()).resolves.toBeUndefined();
+    });
+
     it("requires both trusted identity and a bounded Idempotency-Key", async () => {
         const fixture = await startFixture();
 
@@ -481,6 +542,7 @@ describe("Async Process Runs HTTP Interface", () => {
 async function startFixture(
     options: {
         readiness?: () => Promise<void>;
+        intakeOpen?: () => boolean;
         logSink?: NonNullable<
             Parameters<typeof createProcessingApplication>[0]["http"]
         >["logSink"];
@@ -532,6 +594,7 @@ async function startFixture(
                 runs,
                 callerIdentity: fakeCallerIdentity,
                 readiness: options.readiness ?? (async () => {}),
+                intakeOpen: options.intakeOpen,
             },
         },
     });

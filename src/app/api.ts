@@ -21,6 +21,7 @@ import {
     createProcessRunRecords,
     type ProcessRunRecords,
 } from "../process-runtime/records.js";
+import { createFileControlledAsyncIntake } from "./async-intake.js";
 import { createProductionRuntime } from "./business-processes.js";
 import type { StartupEnvironment } from "./config.js";
 import { assertDeploymentEnvironment } from "./deployment-environment.js";
@@ -439,6 +440,12 @@ function constructAsyncProcessRuns(
         globalBacklogLimit,
         ...releaseReadiness,
     });
+    const intake = environment.ASYNC_PROCESS_RUN_INTAKE_DISABLED_FILE
+        ? createFileControlledAsyncIntake({
+              disabledMarkerFile:
+                  environment.ASYNC_PROCESS_RUN_INTAKE_DISABLED_FILE,
+          })
+        : undefined;
 
     return Object.freeze({
         http: Object.freeze({
@@ -448,6 +455,7 @@ function constructAsyncProcessRuns(
                 await store.ready();
                 await releaseReady();
             },
+            ...(intake ? { intakeOpen: intake.isOpen } : {}),
             retryAfterSeconds,
         }),
         close: () => pool.end(),

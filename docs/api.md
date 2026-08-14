@@ -56,6 +56,51 @@ Content-Type: application/json
 
 调用方不能提交 Skill、Prompt、模型、Tool、图片供应商或存储配置。新闻图片风格由 `process` 固定，接口不接收 `style` 字段。
 
+## 异步执行
+
+异步入口只在部署方完成发布门禁并通过可信网关开放后可用。调用方仍提交上节定义的同一个业务请求；不能提交 Queue、Worker、Skill、模型或运行配置。
+
+```http
+POST /process-runs HTTP/1.1
+Authorization: Bearer <gateway credential>
+Idempotency-Key: <caller-scoped key>
+Content-Type: application/json
+```
+
+可信网关先认证调用方，删除请求中的 `x-pipipi-caller-id` 与 `x-pipipi-gateway-token`，再注入稳定 caller subject 和服务端共享凭证。调用方不得直接构造这两个内部头。`Idempotency-Key` 必填、最长 512 bytes，并按已认证 caller 隔离；网络中断或响应丢失时，重试同一业务操作必须复用原 key。
+
+durable acceptance 成功返回 HTTP `202`、`Location: /process-runs/{runId}`、`Retry-After` 与不含业务结果的 Run：
+
+```json
+{
+  "runId": "c48dfd91-973f-4ee1-9d04-dd2b46ba8c9c",
+  "process": "content-processing",
+  "version": "v1",
+  "status": "queued",
+  "createdAt": "2026-08-14T10:00:00.000Z"
+}
+```
+
+调用方随后使用同一网关身份查询：
+
+```http
+GET /process-runs/c48dfd91-973f-4ee1-9d04-dd2b46ba8c9c HTTP/1.1
+Authorization: Bearer <same caller credential>
+```
+
+查询返回 `queued`、`running`、`succeeded` 或 `failed`。终态沿用同步接口的公开 `output` 或 `error` 结构；结果到期后返回 `resultAvailability: "expired"` 与 `resultExpiredAt`。非 owner 与未知 `runId` 都返回相同的 `404 PROCESS_RUN_NOT_FOUND`，不能据此枚举资源。
+
+| HTTP 状态 | error.code | 说明 |
+| ---: | --- | --- |
+| 400 | `IDEMPOTENCY_KEY_REQUIRED`、`INVALID_IDEMPOTENCY_KEY` | 幂等键缺失或无效 |
+| 401 | `CALLER_UNAUTHORIZED` | 可信网关身份缺失或无效 |
+| 404 | `PROCESS_RUN_NOT_FOUND` | 未知或不属于当前 caller 的 Run |
+| 409 | `IDEMPOTENCY_CONFLICT` | 同一 caller/key 已绑定不同请求 |
+| 429 | `CALLER_BACKLOG_LIMIT_REACHED` | caller backlog 已满；等待 `Retry-After`，继续查询已接受 Run |
+| 503 | `ASYNC_SERVICE_CAPACITY_REACHED` | 全局 backlog 已满 |
+| 503 | `ASYNC_SERVICE_UNAVAILABLE` | 异步依赖暂时不可用 |
+| 503 | `ASYNC_INTAKE_CLOSED` | 运维已关闭新异步提交；同步 `/execute` 与既有 owner GET 仍可用 |
+
 ## Process 契约
 
 ### Process：`content-processing`（`v1`）

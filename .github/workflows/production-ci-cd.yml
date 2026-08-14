@@ -184,6 +184,10 @@ jobs:
               echo "Another production deployment is active" >&2
               exit 1
           fi
+          if [ -f "$app_root/shared/async-control/smoke-lease" ]; then
+              echo "An async internal smoke is active" >&2
+              exit 1
+          fi
 
           if [ ! -f "$shared_env" ]; then
               echo "Missing production environment file: $shared_env" >&2

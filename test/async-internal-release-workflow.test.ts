@@ -68,6 +68,7 @@ describe("Async internal release workflow", () => {
         expect(script).toContain("trap 'on_signal INT 130' INT");
         expect(script).toContain("trap 'on_signal TERM 143' TERM");
         expect(script).toContain("flock -n 9");
+        expect(script).toContain("async_control/smoke-lease");
         expect(script).toContain("rollback_deployment");
         expect(script).toContain('work_root="$shared/.async-release-work"');
         expect(script).toContain("rm -f --");
