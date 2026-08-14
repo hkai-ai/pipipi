@@ -54,7 +54,9 @@ Business Processing Service 让产品调用方通过一个稳定的 HTTP Interfa
 
 ## 运行与信任模型
 
-当前默认发布形状是受控、同步的 Node.js HTTP 服务。执行本身不依赖实例状态；唯一的持久化是可选的 Run 观测归档，它把每次终态执行与其 Attempt 活动时间线写入 PostgreSQL（生产）或宿主机卷上的按日 JSONL 文件（本地开发与测试），供运维控制台回看。两个实现通过同一套契约测试，由 `PROCESS_RUN_RECORD_STORE` 选择。Run Record 是观测记录，不是异步 Run Store：没有代码读它来决定业务状态、重试或投递，写入失败被吞掉，关闭它不改变任何执行行为。它与 `ASYNC_PROCESS_RUNS_ENABLED` 独立，只共用 `DATABASE_URL`。控制台的提交表单只通过 Console Process Run Client Interface 创建和查询 durable Process Run；该 Module 隐藏 HTTP、轮询和响应解析，只把结构化进度、终态、公开错误、结果过期、查询超时与协议错误交给页面。默认查询结果 300 秒；停止查询不取消 Run。实例之间不共享 Agent 会话；每个 Agent 请求创建独立的内存会话。异步入口以 PostgreSQL 共享 Process Run，并要求可信网关删除客户端伪造的身份头、注入稳定 caller subject 和网关共享凭证。部署平台负责 TLS、私有入口、调用方认证、实例上限和 Secret 注入。
+当前默认发布形状是受控、同步的 Node.js HTTP 服务。执行本身不依赖实例状态；唯一的持久化是可选的 Run 观测归档，它把每次终态执行与其 Attempt 活动时间线写入 PostgreSQL（生产）或宿主机卷上的按日 JSONL 文件（本地开发与测试），供运维控制台回看。两个实现通过同一套契约测试，由 `PROCESS_RUN_RECORD_STORE` 选择。Run Record 是观测记录，不是异步 Run Store：没有代码读它来决定业务状态、重试或投递，写入失败被吞掉，关闭它不改变任何执行行为。它与 `ASYNC_PROCESS_RUNS_ENABLED` 独立，只共用 `DATABASE_URL`。控制台的提交表单只通过 Console Process Run Client Interface 创建和查询 durable Process Run；该 Module 隐藏 HTTP、轮询、响应解析和浏览器恢复状态，只把结构化进度、终态、公开错误、结果过期、查询超时、未确定接受、可重试 admission、恢复冲突、恢复存储不可用与协议错误交给页面。每次明确操作在首次 POST 前持久化请求摘要、幂等键和恢复分类；响应丢失或刷新后复用同一 key，未确定或可重试操作只有在明确新提交时才会被替换。浏览器状态不保存业务输入或输出。默认查询结果 300 秒；停止查询不取消 Run。实例之间不共享 Agent 会话；每个 Agent 请求创建独立的内存会话。异步入口以 PostgreSQL 共享 Process Run，并要求可信网关删除客户端伪造的身份头、注入稳定 caller subject 和网关共享凭证。部署平台负责 TLS、私有入口、调用方认证、实例上限和 Secret 注入。
+
+恢复记录使用 tab-scoped `sessionStorage`，防止多个标签页覆盖同一个恢复槽。accepted 映射不能由新提交直接替换；必须先查询到终态或明确移除。Storage 不可用时禁止发出无法恢复的 POST。可信网关还必须保持单个控制台标签页内 caller session 稳定；身份切换前先处理或移除恢复记录。
 
 Agent 只获得 Process Registration 明确绑定的 Runtime Skill 集合与窄 Tool。生产内容处理 Agent 同时加载 `content-optimization` 和 `content-integrity`，只能调用 `process_business_content`。海报 Agent 只加载 `minimal-zine-poster-prompt`，没有 Tool；CRT Agent 只加载 `tait-crt-interface-prompt`，没有 Tool，也看不到参考图或资产标识。新闻图片 Agent 分别加载人物叙事碑式、淡彩绘本和原质人文主义固定 Runtime Skill，同样没有 Tool。各图片 Agent 只返回待校验的 Prompt 计划；Registration 校验后自行调用一次对应 Rendering Capability。所有 Agent 都不能使用 Shell、文件读写、代码编辑或任意远程工具。Skill 集合随应用发布；调用方不能选择、增加或排序 Skill。
 
@@ -87,7 +89,7 @@ Agent 只获得 Process Registration 明确绑定的 Runtime Skill 集合与窄 
 | Process Attempt Runner | `run({ runId, registration, acceptedInput, attemptNumber? })` | 预分配 runId、超时、取消、公开错误净化和活动时间线 |
 | Process Run Activity Logging | `runActivity(name, operation)`、`ProcessRunLogSink` | 声明检查、Attempt 关联、顺序、耗时、结果净化，以及 Pino 与内存 Adapter |
 | Async Process Runs | `submit(request, context)`、`find(runId, context)` | 输入接受、owner、幂等摘要和公共状态投影 |
-| Console Process Run Client | `execute(request, options)` | 浏览器 transport、幂等键、轮询、运行时响应校验、同源结果地址与结构化页面结果 |
+| Console Process Run Client | `execute(request, options)`、`pending()`、`dismiss()` | 浏览器 transport、稳定幂等操作、请求摘要、本地恢复状态、轮询、运行时响应校验、同源结果地址与结构化页面结果 |
 | Async Operations | `snapshot()`、staged release readiness | PostgreSQL 与 BullMQ 指标、容量/恢复发布门禁和无内容结构化日志 |
 | Process Run Store | 接受 Run、owner 查询、claim、终态转换 | accepted input、attempt、revision 和 fencing；提供内存与 PostgreSQL Adapter |
 | Process Work Queue | `enqueue({ schemaVersion, runId })`、`close()` | 去重、容量和调度；提供确定性内存与 BullMQ Adapter |

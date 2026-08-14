@@ -31,6 +31,7 @@
 | API、Dispatcher、Process Worker、Webhook Worker 与 Retention Cleaner 独立启动和关闭 | 每个角色可以单独扩容、停机和验证 readiness |
 | PostgreSQL migration、Redis 与 BullMQ Adapter 已接入 | 真实依赖行为由 PostgreSQL 和 BullMQ 集成测试覆盖，发布仍默认关闭 |
 | Console Process Run Client 返回结构化进度和终态 | 浏览器先校验 JSON、公共状态、Run identity 与同源 `Location`，结果过期、查询超时与协议错误不进入页面未知异常分支 |
+| 一次控制台提交操作拥有可恢复幂等身份 | 首次 POST 前在 tab-scoped session storage 持久化请求摘要、幂等键和恢复分类；响应丢失、可重试 admission 与刷新恢复复用同一 key；accepted 映射必须先明确移除，才能开始新提交 |
 
 `ProcessRunRecords` 不应直接改成权威存储。它的 best-effort invariant 与异步执行要求冲突：异步提交只有在 durable transaction 成功后才能返回 `202`，终态写入失败也不能被静默忽略。
 

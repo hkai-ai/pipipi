@@ -55,6 +55,21 @@ export type ProcessRunProtocolErrorCode =
     | "INVALID_RUN"
     | "RUN_MISMATCH";
 
+export type ProcessRunRecoveryClassification =
+    | "acceptance-unknown"
+    | "retryable"
+    | "accepted";
+
+export type PendingProcessRun =
+    | Readonly<{
+          classification: ProcessRunRecoveryClassification;
+          createdAt: string;
+          runId?: string;
+      }>
+    | Readonly<{
+          classification: "unavailable";
+      }>;
+
 export type ProcessRunOutcome =
     | (RunIdentity &
           (
@@ -92,6 +107,25 @@ export type ProcessRunOutcome =
     | Readonly<{
           status: "protocol-error";
           code: ProcessRunProtocolErrorCode;
+      }>
+    | Readonly<{
+          status: "submission-pending";
+          classification: "acceptance-unknown";
+      }>
+    | Readonly<{
+          status: "submission-pending";
+          classification: "retryable";
+          httpStatus: 429 | 503;
+          retryAfterMs: number;
+          error: ProcessRunError;
+      }>
+    | Readonly<{
+          status: "recovery-error";
+          code:
+              | "ACCEPTED_OPERATION_ACTIVE"
+              | "ACTIVE_OPERATION"
+              | "REQUEST_MISMATCH"
+              | "STORAGE_UNAVAILABLE";
       }>;
 
 export type ProcessRunClient = Readonly<{
@@ -104,14 +138,23 @@ export type ProcessRunClient = Readonly<{
         options?: Readonly<{
             timeoutMs?: number;
             onProgress?: (progress: ProcessRunProgress) => void;
+            intent?: "continue" | "new";
         }>,
     ) => Promise<ProcessRunOutcome>;
+    pending: () => PendingProcessRun | undefined;
+    dismiss: () => boolean;
 }>;
 
 type Adapters = Readonly<{
     baseUrl: () => string;
     createIdempotencyKey: () => string;
+    fingerprint: (value: string) => Promise<string>;
     now: () => number;
+    pendingOperations: Readonly<{
+        read: () => string | null;
+        write: (value: string) => void;
+        clear: () => void;
+    }>;
     request: (url: URL, init: RequestInit) => Promise<Response>;
     wait: (milliseconds: number) => Promise<void>;
 }>;
@@ -119,135 +162,261 @@ type Adapters = Readonly<{
 export const defaultProcessRunTimeoutMs = 300_000;
 
 export function createProcessRunClient(adapters: Adapters): ProcessRunClient {
-    return Object.freeze({
-        execute: async (request, options = {}) => {
-            try {
-                const timeoutMs =
-                    options.timeoutMs ?? defaultProcessRunTimeoutMs;
-                if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1) {
-                    throw new Error(
-                        "Process Run timeout must be a positive integer",
-                    );
-                }
+    let active: Promise<ProcessRunOutcome> | undefined;
 
-                const baseUrl = new URL(adapters.baseUrl());
-                const response = await adapters.request(
+    const execute: ProcessRunClient["execute"] = (request, options = {}) => {
+        const requestBody = serializeRequest(request);
+        if (active) {
+            return Promise.resolve(
+                Object.freeze({
+                    status: "recovery-error",
+                    code: "ACTIVE_OPERATION",
+                }),
+            );
+        }
+        const operation = executeOperation(request, requestBody, options);
+        const tracked = operation.finally(() => {
+            if (active === tracked) active = undefined;
+        });
+        active = tracked;
+        return tracked;
+    };
+
+    async function executeOperation(
+        request: Parameters<ProcessRunClient["execute"]>[0],
+        requestBody: string,
+        options: NonNullable<Parameters<ProcessRunClient["execute"]>[1]>,
+    ): Promise<ProcessRunOutcome> {
+        try {
+            const timeoutMs = options.timeoutMs ?? defaultProcessRunTimeoutMs;
+            if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1) {
+                throw new Error(
+                    "Process Run timeout must be a positive integer",
+                );
+            }
+
+            const baseUrl = new URL(adapters.baseUrl());
+            const requestFingerprint = await adapters.fingerprint(requestBody);
+            let pending = readPendingOperation(adapters);
+            if (
+                options.intent === "new" &&
+                pending?.classification === "accepted"
+            ) {
+                return Object.freeze({
+                    status: "recovery-error",
+                    code: "ACCEPTED_OPERATION_ACTIVE",
+                });
+            }
+            if (options.intent === "new" || !pending) {
+                pending = {
+                    schemaVersion: 1,
+                    requestFingerprint,
+                    idempotencyKey: adapters.createIdempotencyKey(),
+                    createdAt: new Date(adapters.now()).toISOString(),
+                    classification: "acceptance-unknown",
+                };
+                writePendingOperation(adapters, pending);
+            } else if (
+                pending.classification !== "accepted" &&
+                pending.requestFingerprint !== requestFingerprint
+            ) {
+                return Object.freeze({
+                    status: "recovery-error",
+                    code: "REQUEST_MISMATCH",
+                });
+            }
+
+            if (pending.classification === "accepted") {
+                return await poll(
+                    {
+                        runId: pending.runId,
+                        process: pending.process,
+                        version: pending.version,
+                        status: "queued",
+                    },
+                    new URL(
+                        `/process-runs/${encodeURIComponent(pending.runId)}`,
+                        baseUrl,
+                    ),
+                    timeoutMs,
+                    options,
+                    0,
+                );
+            }
+
+            let response: Response;
+            try {
+                response = await adapters.request(
                     new URL("/process-runs", baseUrl),
                     {
                         method: "POST",
                         headers: {
                             accept: "application/json",
                             "content-type": "application/json",
-                            "idempotency-key": adapters.createIdempotencyKey(),
+                            "idempotency-key": pending.idempotencyKey,
                         },
-                        body: JSON.stringify(request),
+                        body: requestBody,
                     },
                 );
-                const body = await readJson(response);
-                if (response.status !== 202) {
+            } catch {
+                writePendingOperation(adapters, {
+                    ...pending,
+                    classification: "acceptance-unknown",
+                });
+                return Object.freeze({
+                    status: "submission-pending",
+                    classification: "acceptance-unknown",
+                });
+            }
+
+            const body = await readJson(response);
+            if (response.status !== 202) {
+                const error = readRejection(
+                    body,
+                    response.status,
+                    submissionErrorStatuses,
+                    "INVALID_SUBMISSION",
+                );
+                if (isRetryableSubmission(response.status, error.code)) {
+                    writePendingOperation(adapters, {
+                        ...pending,
+                        classification: "retryable",
+                    });
                     return Object.freeze({
-                        status: "rejected",
-                        phase: "submission",
+                        status: "submission-pending",
+                        classification: "retryable",
                         httpStatus: response.status,
-                        error: readRejection(
-                            body,
-                            response.status,
-                            submissionErrorStatuses,
-                            "INVALID_SUBMISSION",
-                        ),
+                        retryAfterMs: readRetryAfterMs(response),
+                        error,
                     });
                 }
-                const accepted = readAccepted(body, request);
-                const location = readLocation(
-                    response,
-                    baseUrl,
-                    accepted.runId,
-                );
-                options.onProgress?.({
-                    phase: "accepted",
+                clearPendingOperation(adapters);
+                return Object.freeze({
+                    status: "rejected",
+                    phase: "submission",
+                    httpStatus: response.status,
+                    error,
+                });
+            }
+
+            const accepted = readAccepted(body, request);
+            writePendingOperation(adapters, {
+                ...pending,
+                classification: "accepted",
+                runId: accepted.runId,
+                process: accepted.process,
+                version: accepted.version,
+            });
+            const location = readLocation(response, baseUrl, accepted.runId);
+            options.onProgress?.({
+                phase: "accepted",
+                runId: accepted.runId,
+                process: accepted.process,
+                version: accepted.version,
+                status: accepted.status,
+            });
+            return await poll(
+                accepted,
+                location,
+                timeoutMs,
+                options,
+                readRetryAfterMs(response),
+            );
+        } catch (error) {
+            if (error instanceof ProtocolError) {
+                return Object.freeze({
+                    status: "protocol-error",
+                    code: error.code,
+                });
+            }
+            if (error instanceof RecoveryStorageError) {
+                return Object.freeze({
+                    status: "recovery-error",
+                    code: "STORAGE_UNAVAILABLE",
+                });
+            }
+            throw error;
+        }
+    }
+
+    async function poll(
+        accepted: Accepted,
+        location: URL,
+        timeoutMs: number,
+        options: NonNullable<Parameters<ProcessRunClient["execute"]>[1]>,
+        initialDelayMs: number,
+    ): Promise<ProcessRunOutcome> {
+        const deadline = adapters.now() + timeoutMs;
+        let retryAfterMs = initialDelayMs;
+        for (;;) {
+            const remainingMs = deadline - adapters.now();
+            if (remainingMs <= 0) return timedOut(accepted, timeoutMs);
+            if (retryAfterMs > 0) {
+                await adapters.wait(Math.min(retryAfterMs, remainingMs));
+                if (adapters.now() >= deadline) {
+                    return timedOut(accepted, timeoutMs);
+                }
+            }
+
+            const observedResponse = await adapters.request(location, {
+                headers: { accept: "application/json" },
+            });
+            const observedBody = await readJson(observedResponse);
+            if (observedResponse.status !== 200) {
+                return Object.freeze({
+                    status: "rejected",
+                    phase: "query",
+                    httpStatus: observedResponse.status,
                     runId: accepted.runId,
                     process: accepted.process,
                     version: accepted.version,
-                    status: accepted.status,
+                    error: readRejection(
+                        observedBody,
+                        observedResponse.status,
+                        queryErrorStatuses,
+                        "INVALID_RUN",
+                    ),
                 });
+            }
+            const observed = readObserved(observedBody, accepted);
+            const terminal = terminalOutcome(observed);
+            if (terminal) {
+                clearPendingOperation(adapters);
+                return terminal;
+            }
+            if (observed.status !== "queued" && observed.status !== "running") {
+                throw new ProtocolError("INVALID_RUN");
+            }
+            options.onProgress?.({
+                phase: "observed",
+                runId: observed.runId,
+                process: observed.process,
+                version: observed.version,
+                status: observed.status,
+            });
+            retryAfterMs = readRetryAfterMs(observedResponse);
+        }
+    }
 
-                const deadline = adapters.now() + timeoutMs;
-                let retryAfterMs = readRetryAfterMs(response);
-                for (;;) {
-                    const remainingMs = deadline - adapters.now();
-                    if (remainingMs <= 0) {
-                        return timedOut(accepted, timeoutMs);
-                    }
-                    await adapters.wait(Math.min(retryAfterMs, remainingMs));
-                    if (adapters.now() >= deadline) {
-                        return timedOut(accepted, timeoutMs);
-                    }
-
-                    const observedResponse = await adapters.request(location, {
-                        headers: { accept: "application/json" },
-                    });
-                    const observedBody = await readJson(observedResponse);
-                    if (observedResponse.status !== 200) {
-                        return Object.freeze({
-                            status: "rejected",
-                            phase: "query",
-                            httpStatus: observedResponse.status,
-                            runId: accepted.runId,
-                            process: accepted.process,
-                            version: accepted.version,
-                            error: readRejection(
-                                observedBody,
-                                observedResponse.status,
-                                queryErrorStatuses,
-                                "INVALID_RUN",
-                            ),
-                        });
-                    }
-                    const observed = readObserved(observedBody, accepted);
-                    if (observed.status === "succeeded") {
-                        return Object.freeze({
-                            status: "succeeded",
-                            runId: observed.runId,
-                            process: observed.process,
-                            version: observed.version,
-                            output: observed.output,
-                        });
-                    }
-                    if (observed.status === "failed") {
-                        return Object.freeze({
-                            status: "failed",
-                            runId: observed.runId,
-                            process: observed.process,
-                            version: observed.version,
-                            error: observed.error,
-                        });
-                    }
-                    if (observed.status === "result-expired") {
-                        return Object.freeze({
-                            status: "result-expired",
-                            resultStatus: observed.resultStatus,
-                            runId: observed.runId,
-                            process: observed.process,
-                            version: observed.version,
-                            resultExpiredAt: observed.resultExpiredAt,
-                        });
-                    }
-                    options.onProgress?.({
-                        phase: "observed",
-                        runId: observed.runId,
-                        process: observed.process,
-                        version: observed.version,
-                        status: observed.status,
-                    });
-                    retryAfterMs = readRetryAfterMs(observedResponse);
-                }
+    return Object.freeze({
+        execute,
+        pending: () => {
+            try {
+                return toPendingProcessRun(readPendingOperation(adapters));
             } catch (error) {
-                if (error instanceof ProtocolError) {
-                    return Object.freeze({
-                        status: "protocol-error",
-                        code: error.code,
-                    });
+                if (error instanceof RecoveryStorageError) {
+                    return Object.freeze({ classification: "unavailable" });
                 }
+                throw error;
+            }
+        },
+        dismiss: () => {
+            if (active) return false;
+            try {
+                clearPendingOperation(adapters);
+                return true;
+            } catch (error) {
+                if (error instanceof RecoveryStorageError) return false;
                 throw error;
             }
         },
@@ -267,11 +436,208 @@ function timedOut(accepted: Accepted, timeoutMs: number): ProcessRunOutcome {
 export const processRuns = createProcessRunClient({
     baseUrl: () => document.baseURI,
     createIdempotencyKey: () => crypto.randomUUID(),
+    fingerprint: fingerprintWithWebCrypto,
     now: () => Date.now(),
+    pendingOperations: {
+        read: () => sessionStorage.getItem(pendingOperationStorageKey),
+        write: (value) =>
+            sessionStorage.setItem(pendingOperationStorageKey, value),
+        clear: () => sessionStorage.removeItem(pendingOperationStorageKey),
+    },
     request: (url, init) => fetch(url, init),
     wait: (milliseconds) =>
         new Promise((resolve) => setTimeout(resolve, milliseconds)),
 });
+
+const pendingOperationStorageKey = "pipipi.console.process-run.pending.v1";
+
+type PendingOperation =
+    | Readonly<{
+          schemaVersion: 1;
+          requestFingerprint: string;
+          idempotencyKey: string;
+          createdAt: string;
+          classification: "acceptance-unknown" | "retryable";
+      }>
+    | Readonly<{
+          schemaVersion: 1;
+          requestFingerprint: string;
+          idempotencyKey: string;
+          createdAt: string;
+          classification: "accepted";
+          runId: string;
+          process: string;
+          version: string;
+      }>;
+
+function readPendingOperation(
+    adapters: Adapters,
+): PendingOperation | undefined {
+    let serialized: string | null;
+    try {
+        serialized = adapters.pendingOperations.read();
+    } catch {
+        throw new RecoveryStorageError();
+    }
+    if (serialized === null) return undefined;
+    let value: unknown;
+    try {
+        value = JSON.parse(serialized);
+    } catch {
+        clearPendingOperation(adapters);
+        return undefined;
+    }
+    if (
+        !isRecord(value) ||
+        value.schemaVersion !== 1 ||
+        !isNonEmptyString(value.requestFingerprint) ||
+        !isNonEmptyString(value.idempotencyKey) ||
+        !isNonEmptyString(value.createdAt)
+    ) {
+        clearPendingOperation(adapters);
+        return undefined;
+    }
+    if (
+        value.classification === "acceptance-unknown" ||
+        value.classification === "retryable"
+    ) {
+        return {
+            schemaVersion: 1,
+            requestFingerprint: value.requestFingerprint,
+            idempotencyKey: value.idempotencyKey,
+            createdAt: value.createdAt,
+            classification: value.classification,
+        };
+    }
+    if (
+        value.classification === "accepted" &&
+        isNonEmptyString(value.runId) &&
+        isNonEmptyString(value.process) &&
+        isNonEmptyString(value.version)
+    ) {
+        return {
+            schemaVersion: 1,
+            requestFingerprint: value.requestFingerprint,
+            idempotencyKey: value.idempotencyKey,
+            createdAt: value.createdAt,
+            classification: "accepted",
+            runId: value.runId,
+            process: value.process,
+            version: value.version,
+        };
+    }
+    clearPendingOperation(adapters);
+    return undefined;
+}
+
+function writePendingOperation(
+    adapters: Adapters,
+    operation: PendingOperation,
+): void {
+    try {
+        adapters.pendingOperations.write(JSON.stringify(operation));
+    } catch {
+        throw new RecoveryStorageError();
+    }
+}
+
+function clearPendingOperation(adapters: Adapters): void {
+    try {
+        adapters.pendingOperations.clear();
+    } catch {
+        throw new RecoveryStorageError();
+    }
+}
+
+function toPendingProcessRun(
+    operation: PendingOperation | undefined,
+): PendingProcessRun | undefined {
+    if (!operation) return undefined;
+    return Object.freeze({
+        classification: operation.classification,
+        createdAt: operation.createdAt,
+        ...(operation.classification === "accepted"
+            ? { runId: operation.runId }
+            : {}),
+    });
+}
+
+function isRetryableSubmission(
+    httpStatus: number,
+    code: ProcessRunError["code"],
+): httpStatus is 429 | 503 {
+    return (
+        (httpStatus === 429 && code === "CALLER_BACKLOG_LIMIT_REACHED") ||
+        (httpStatus === 503 &&
+            (code === "ASYNC_SERVICE_CAPACITY_REACHED" ||
+                code === "ASYNC_SERVICE_UNAVAILABLE" ||
+                code === "SERVICE_BUSY"))
+    );
+}
+
+function terminalOutcome(observed: Observed): ProcessRunOutcome | undefined {
+    if (observed.status === "succeeded") {
+        return Object.freeze({
+            status: "succeeded",
+            runId: observed.runId,
+            process: observed.process,
+            version: observed.version,
+            output: observed.output,
+        });
+    }
+    if (observed.status === "failed") {
+        return Object.freeze({
+            status: "failed",
+            runId: observed.runId,
+            process: observed.process,
+            version: observed.version,
+            error: observed.error,
+        });
+    }
+    if (observed.status === "result-expired") {
+        return Object.freeze({
+            status: "result-expired",
+            resultStatus: observed.resultStatus,
+            runId: observed.runId,
+            process: observed.process,
+            version: observed.version,
+            resultExpiredAt: observed.resultExpiredAt,
+        });
+    }
+    return undefined;
+}
+
+function serializeRequest(request: unknown): string {
+    return JSON.stringify(canonicalJson(request));
+}
+
+function canonicalJson(value: unknown): unknown {
+    if (Array.isArray(value)) return value.map(canonicalJson);
+    if (!isRecord(value)) return value;
+    return Object.fromEntries(
+        Object.entries(value)
+            .filter(([, item]) => item !== undefined)
+            .sort(([left], [right]) => left.localeCompare(right))
+            .map(([key, item]) => [key, canonicalJson(item)]),
+    );
+}
+
+async function fingerprintWithWebCrypto(value: string): Promise<string> {
+    const digest = await crypto.subtle.digest(
+        "SHA-256",
+        new TextEncoder().encode(value),
+    );
+    return Array.from(new Uint8Array(digest), (byte) =>
+        byte.toString(16).padStart(2, "0"),
+    ).join("");
+}
+
+class RecoveryStorageError extends Error {
+    constructor() {
+        super("Process Run recovery storage is unavailable");
+        this.name = "RecoveryStorageError";
+    }
+}
 
 class ProtocolError extends Error {
     constructor(readonly code: ProcessRunProtocolErrorCode) {

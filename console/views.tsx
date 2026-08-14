@@ -20,6 +20,7 @@ import {
     Thumbnail,
 } from "./formatting.jsx";
 import {
+    type PendingProcessRun,
     type ProcessRunOutcome,
     type ProcessRunProgress,
     processRuns,
@@ -641,6 +642,9 @@ export function SubmitView({
     const [outcome, setOutcome] = useState<ProcessRunOutcome | undefined>(
         undefined,
     );
+    const [pending, setPending] = useState<PendingProcessRun | undefined>(() =>
+        processRuns.pending(),
+    );
     const [hasUnexpectedError, setHasUnexpectedError] = useState(false);
 
     const entry =
@@ -650,42 +654,64 @@ export function SubmitView({
 
     if (!entry) return <Panel title="提交任务">读取 Process 目录中…</Panel>;
 
+    const execute = async (intent: "continue" | "new") => {
+        setRunning(true);
+        setProgress(undefined);
+        setOutcome(undefined);
+        setHasUnexpectedError(false);
+        const input = Object.fromEntries(
+            fields
+                .map((field) => [field.name, (values[field.name] ?? "").trim()])
+                .filter(([, value]) => value !== ""),
+        );
+        try {
+            const result = await processRuns.execute(
+                {
+                    process: entry.process,
+                    version: entry.version,
+                    input,
+                },
+                { intent, onProgress: setProgress },
+            );
+            setOutcome(result);
+        } catch {
+            setHasUnexpectedError(true);
+        } finally {
+            setPending(processRuns.pending());
+            setRunning(false);
+        }
+    };
+
     return (
         <Panel title="提交任务">
             <p class="cost-warning">
                 提交会真实执行生产流程并产生图片费用。控制台异步提交并查询结果，
                 默认等待 300 秒；关闭页面或等待超时不会取消服务端 Run。
             </p>
+            {pending ? (
+                <PendingOperation
+                    operation={pending}
+                    running={running}
+                    onContinue={() => execute("continue")}
+                    onDismiss={() => {
+                        if (!processRuns.dismiss()) return;
+                        setPending(undefined);
+                        setProgress(undefined);
+                        setOutcome(undefined);
+                        setHasUnexpectedError(false);
+                    }}
+                />
+            ) : null}
             <form
                 onSubmit={async (event) => {
                     event.preventDefault();
-                    setRunning(true);
-                    setProgress(undefined);
-                    setOutcome(undefined);
-                    setHasUnexpectedError(false);
-                    const input = Object.fromEntries(
-                        fields
-                            .map((field) => [
-                                field.name,
-                                (values[field.name] ?? "").trim(),
-                            ])
-                            .filter(([, value]) => value !== ""),
-                    );
-                    try {
-                        const result = await processRuns.execute(
-                            {
-                                process: entry.process,
-                                version: entry.version,
-                                input,
-                            },
-                            { onProgress: setProgress },
-                        );
-                        setOutcome(result);
-                    } catch {
-                        setHasUnexpectedError(true);
-                    } finally {
-                        setRunning(false);
+                    if (
+                        pending?.classification === "accepted" ||
+                        pending?.classification === "unavailable"
+                    ) {
+                        return;
                     }
+                    await execute(pending ? "new" : "continue");
                 }}
             >
                 <label>
@@ -758,8 +784,24 @@ export function SubmitView({
                     );
                 })}
 
-                <button type="submit" class="primary" disabled={running}>
-                    {running ? "等待结果…" : "提交"}
+                <button
+                    type="submit"
+                    class="primary"
+                    disabled={
+                        running ||
+                        pending?.classification === "accepted" ||
+                        pending?.classification === "unavailable"
+                    }
+                >
+                    {running
+                        ? "等待结果…"
+                        : pending?.classification === "accepted"
+                          ? "先继续查询或移除已接受 Run"
+                          : pending?.classification === "unavailable"
+                            ? "浏览器恢复存储不可用"
+                            : pending
+                              ? "明确开始新提交（生成新幂等键）"
+                              : "提交"}
                 </button>
             </form>
             <SubmissionResult
@@ -768,6 +810,54 @@ export function SubmitView({
                 hasUnexpectedError={hasUnexpectedError}
             />
         </Panel>
+    );
+}
+
+function PendingOperation({
+    operation,
+    running,
+    onContinue,
+    onDismiss,
+}: {
+    operation: PendingProcessRun;
+    running: boolean;
+    onContinue: () => Promise<void>;
+    onDismiss: () => void;
+}) {
+    if (operation.classification === "unavailable") {
+        return (
+            <p class="error" style="margin-bottom:14px">
+                浏览器恢复存储不可用。为避免响应丢失后重复创建付费
+                Run，当前禁止提交。
+            </p>
+        );
+    }
+    const action =
+        operation.classification === "accepted"
+            ? "继续查询"
+            : "重试同一操作（复用幂等键）";
+    return (
+        <div class="hint" style="margin-bottom:14px">
+            <p>
+                检测到可恢复操作 · {operation.classification} · 创建于
+                {formatTime(operation.createdAt)}
+                {operation.runId ? (
+                    <>
+                        {" "}
+                        · Run <code>{operation.runId}</code>
+                    </>
+                ) : null}
+            </p>
+            {operation.classification !== "accepted" ? (
+                <p>重试前请填写与原操作相同的 Process 和输入。</p>
+            ) : null}
+            <button type="button" disabled={running} onClick={onContinue}>
+                {action}
+            </button>{" "}
+            <button type="button" disabled={running} onClick={onDismiss}>
+                移除恢复记录
+            </button>
+        </div>
     );
 }
 
@@ -840,6 +930,30 @@ function Outcome({ result }: { result: ProcessRunOutcome }) {
             return (
                 <p class="error" style="margin-top:14px">
                     服务响应不符合 Process Run Interface：{result.code}
+                </p>
+            );
+        case "submission-pending":
+            return result.classification === "acceptance-unknown" ? (
+                <p class="error" style="margin-top:14px">
+                    提交响应丢失，服务端是否接受尚不确定。请重试同一操作，客户端会复用原幂等键。
+                </p>
+            ) : (
+                <p class="error" style="margin-top:14px">
+                    HTTP {result.httpStatus} · {result.error.code}
+                    ：服务暂不可接受新 Run；建议 {result.retryAfterMs / 1_000}{" "}
+                    秒后重试同一操作。
+                </p>
+            );
+        case "recovery-error":
+            return (
+                <p class="error" style="margin-top:14px">
+                    {result.code === "REQUEST_MISMATCH"
+                        ? "当前输入与待恢复操作不一致；请恢复原输入，或明确开始新提交。"
+                        : result.code === "ACCEPTED_OPERATION_ACTIVE"
+                          ? "已有已接受的 Run；请先继续查询，或明确移除恢复记录。"
+                          : result.code === "ACTIVE_OPERATION"
+                            ? "另一个提交操作正在进行；本次操作未开始。"
+                            : "浏览器恢复存储不可用；为避免重复创建付费 Run，本次操作未发送。"}
                 </p>
             );
     }

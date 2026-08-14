@@ -334,9 +334,11 @@ Schema 由部署脚本在激活新容器前执行 `npm run db:migrate` 应用，
 
 资源路由只提供构建输出 `assets` 目录下的单个文件，文件名按严格模式校验而不是解析为路径，因此请求无法走出构建目录。页面本身按部署的 `CONSOLE_BASE_PATH` 注入 `<base>`，所以改路径不需要重新构建。
 
-提交表单由 `{base}/processes` 返回的 Schema 生成：新增 Process 或改字段不需要改控制台。提交时，页面为每次操作生成新的 `Idempotency-Key`，调用 `POST /process-runs`，再按响应的 `Location` 与 `Retry-After` 查询 owner-scoped 结果。
+提交表单由 `{base}/processes` 返回的 Schema 生成：新增 Process 或改字段不需要改控制台。Console Process Run Client 在首次 POST 前把请求 SHA-256 摘要、幂等键、创建时间和恢复分类写入 tab-scoped `sessionStorage`；收到 `202` 后再保存 `runId` 与公开 Process identity。它不保存业务输入、输出、凭证或隐藏运行配置。响应丢失、可重试 admission 和刷新后的恢复都复用同一 key；未确定或可重试操作只有在操作者点击“明确开始新提交”时才会被替换。accepted 映射不能被新提交覆盖，必须等终态完成或由操作者点击“移除恢复记录”。Storage 读取、写入或清理失败时，Client 返回结构化不可用结果，且在无法完成首次持久化时禁止发送 POST。
 
-页面只调用 Console Process Run Client Interface。该 Module 在运行时校验提交、拒绝和查询响应，向页面公开 accepted/observed 进度，以及 succeeded、failed、结果过期、查询超时、明确拒绝和协议错误；非 JSON、缺字段、未知状态、不一致的 `runId`，以及跨源或错误资源形状的 `Location` 都不会被页面当成有效 Process Run。
+页面只调用 Console Process Run Client Interface。该 Module 在运行时校验提交、拒绝和查询响应，向页面公开 accepted/observed 进度，以及 succeeded、failed、结果过期、查询超时、acceptance unknown、可重试 admission、明确拒绝、恢复冲突、恢复存储不可用和协议错误；非 JSON、缺字段、未知状态、不一致的 `runId`，以及跨源或错误资源形状的 `Location` 都不会被页面当成有效 Process Run。刷新后，页面可继续查询已接受的 Run；未确定提交要求操作者重新填写相同输入，Client 以摘要匹配后才允许同 key 重放。
+
+恢复记录按浏览器标签页隔离，只解决同一标签页刷新与单一活动操作，不跨标签共享。可信网关必须保证一个控制台标签页内的 caller session 稳定；切换 caller 前必须先处理或明确移除该标签页的恢复记录，不能把旧 caller 的 uncertain 操作带入新身份。
 
 `{base}/processes` 的字段表由每个 Process Registration 自己的 Zod Schema 推导，因此不会与 `accept` 实际执行的校验漂移。它**不取代** [`docs/api.md`](api.md)：错误语义、计费边界、提交后依赖失败不可自动重试这类约束无法从 Schema 推导，仍以那份文档为准。某个 Schema 无法表示为 JSON Schema 时，该字段被省略而不是让整个目录视图失败。
 

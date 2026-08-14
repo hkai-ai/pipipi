@@ -696,6 +696,423 @@ describe("Console Process Run Client", () => {
             expect(request).toHaveBeenCalledTimes(2);
         },
     );
+
+    it("replays a response-lost submission with the same idempotency key", async () => {
+        const pendingOperations = memoryPendingOperations();
+        const request = vi
+            .fn()
+            .mockRejectedValueOnce(new TypeError("response lost"))
+            .mockResolvedValueOnce(
+                jsonResponse(
+                    202,
+                    {
+                        runId: "run-replayed",
+                        process: "content-processing",
+                        version: "v1",
+                        status: "queued",
+                        createdAt: "2026-08-14T00:00:00.000Z",
+                    },
+                    { location: "/process-runs/run-replayed" },
+                ),
+            )
+            .mockResolvedValueOnce(
+                jsonResponse(200, {
+                    runId: "run-replayed",
+                    process: "content-processing",
+                    version: "v1",
+                    status: "succeeded",
+                    createdAt: "2026-08-14T00:00:00.000Z",
+                    startedAt: "2026-08-14T00:00:01.000Z",
+                    finishedAt: "2026-08-14T00:00:02.000Z",
+                    output: { content: "once" },
+                }),
+            );
+        const client = testClient(request, { pendingOperations });
+        const processRequest = contentRequest();
+
+        await expect(client.execute(processRequest)).resolves.toEqual({
+            status: "submission-pending",
+            classification: "acceptance-unknown",
+        });
+        await expect(client.execute(processRequest)).resolves.toMatchObject({
+            status: "succeeded",
+            runId: "run-replayed",
+        });
+
+        expect(idempotencyKeys(request).slice(0, 2)).toEqual([
+            "idempotency-test",
+            "idempotency-test",
+        ]);
+        expect(pendingOperations.read()).toBeNull();
+    });
+
+    it("recovers an accepted Run after a browser refresh", async () => {
+        const pendingOperations = memoryPendingOperations();
+        let now = 0;
+        const firstRequest = vi.fn().mockResolvedValueOnce(
+            jsonResponse(
+                202,
+                {
+                    runId: "run-refresh",
+                    process: "content-processing",
+                    version: "v1",
+                    status: "queued",
+                    createdAt: "2026-08-14T00:00:00.000Z",
+                },
+                {
+                    location: "/process-runs/run-refresh",
+                    "retry-after": "10",
+                },
+            ),
+        );
+        const firstClient = testClient(firstRequest, {
+            now: () => now,
+            pendingOperations,
+            wait: async (milliseconds) => {
+                now += milliseconds;
+            },
+        });
+
+        await expect(
+            firstClient.execute(contentRequest(), { timeoutMs: 1 }),
+        ).resolves.toMatchObject({
+            status: "timed-out",
+            runId: "run-refresh",
+        });
+
+        const refreshedRequest = vi.fn().mockResolvedValueOnce(
+            jsonResponse(200, {
+                runId: "run-refresh",
+                process: "content-processing",
+                version: "v1",
+                status: "succeeded",
+                createdAt: "2026-08-14T00:00:00.000Z",
+                startedAt: "2026-08-14T00:00:01.000Z",
+                finishedAt: "2026-08-14T00:00:02.000Z",
+                output: { content: "recovered" },
+            }),
+        );
+        const refreshedClient = testClient(refreshedRequest, {
+            pendingOperations,
+        });
+
+        expect(refreshedClient.pending()).toEqual({
+            classification: "accepted",
+            createdAt: "1970-01-01T00:00:00.000Z",
+            runId: "run-refresh",
+        });
+        await expect(
+            refreshedClient.execute(contentRequest()),
+        ).resolves.toMatchObject({
+            status: "succeeded",
+            runId: "run-refresh",
+        });
+        expect(refreshedRequest).toHaveBeenCalledWith(
+            new URL("https://pi.example/process-runs/run-refresh"),
+            { headers: { accept: "application/json" } },
+        );
+        expect(pendingOperations.read()).toBeNull();
+    });
+
+    it.each([
+        {
+            status: 429,
+            code: "CALLER_BACKLOG_LIMIT_REACHED",
+        },
+        {
+            status: 503,
+            code: "ASYNC_SERVICE_CAPACITY_REACHED",
+        },
+        {
+            status: 503,
+            code: "ASYNC_SERVICE_UNAVAILABLE",
+        },
+        {
+            status: 503,
+            code: "SERVICE_BUSY",
+        },
+    ])(
+        "keeps the key for retryable $status $code admission",
+        async ({ status, code }) => {
+            const pendingOperations = memoryPendingOperations();
+            const request = vi.fn().mockResolvedValueOnce(
+                jsonResponse(
+                    status,
+                    {
+                        status: "failed",
+                        error: { code, message: "Retry later" },
+                    },
+                    { "retry-after": "3" },
+                ),
+            );
+            const client = testClient(request, { pendingOperations });
+
+            await expect(client.execute(contentRequest())).resolves.toEqual({
+                status: "submission-pending",
+                classification: "retryable",
+                httpStatus: status,
+                retryAfterMs: 3_000,
+                error: { code, message: "Retry later" },
+            });
+            expect(client.pending()).toEqual({
+                classification: "retryable",
+                createdAt: "1970-01-01T00:00:00.000Z",
+            });
+            expect(idempotencyKeys(request)).toEqual(["idempotency-test"]);
+        },
+    );
+
+    it.each([
+        { status: 400, code: "INVALID_INPUT" },
+        { status: 404, code: "PROCESS_NOT_FOUND" },
+        { status: 409, code: "IDEMPOTENCY_CONFLICT" },
+    ])(
+        "clears a definitive $status $code rejection",
+        async ({ status, code }) => {
+            const pendingOperations = memoryPendingOperations();
+            const request = vi.fn().mockResolvedValueOnce(
+                jsonResponse(status, {
+                    status: "failed",
+                    error: { code, message: "Definitive rejection" },
+                }),
+            );
+            const client = testClient(request, { pendingOperations });
+
+            await expect(
+                client.execute(contentRequest()),
+            ).resolves.toMatchObject({
+                status: "rejected",
+                phase: "submission",
+                error: { code },
+            });
+            expect(client.pending()).toBeUndefined();
+            expect(pendingOperations.read()).toBeNull();
+        },
+    );
+
+    it("rotates the idempotency key only for an explicit new operation", async () => {
+        const pendingOperations = memoryPendingOperations();
+        const keys = ["idempotency-original", "idempotency-new"];
+        const request = vi
+            .fn()
+            .mockRejectedValueOnce(new TypeError("response lost"))
+            .mockRejectedValueOnce(new TypeError("response lost again"));
+        const client = testClient(request, {
+            createIdempotencyKey: () => keys.shift() ?? "unexpected-key",
+            pendingOperations,
+        });
+
+        await client.execute(contentRequest());
+        await client.execute(contentRequest(), { intent: "new" });
+
+        expect(idempotencyKeys(request)).toEqual([
+            "idempotency-original",
+            "idempotency-new",
+        ]);
+    });
+
+    it("does not create a concurrent submission intent for repeated execution", async () => {
+        let resolveResponse: ((response: Response) => void) | undefined;
+        const request = vi.fn(
+            () =>
+                new Promise<Response>((resolve) => {
+                    resolveResponse = resolve;
+                }),
+        );
+        const createIdempotencyKey = vi.fn(() => "idempotency-active");
+        const client = testClient(request, { createIdempotencyKey });
+
+        const first = client.execute(contentRequest());
+        const repeated = client.execute(contentRequest());
+        await expect(repeated).resolves.toEqual({
+            status: "recovery-error",
+            code: "ACTIVE_OPERATION",
+        });
+        await vi.waitFor(() => expect(request).toHaveBeenCalledTimes(1));
+        resolveResponse?.(
+            jsonResponse(400, {
+                status: "failed",
+                error: { code: "INVALID_INPUT", message: "Invalid input" },
+            }),
+        );
+        await first;
+
+        expect(createIdempotencyKey).toHaveBeenCalledTimes(1);
+        expect(request).toHaveBeenCalledTimes(1);
+    });
+
+    it("rejects a different request while an operation is active", async () => {
+        let resolveResponse: ((response: Response) => void) | undefined;
+        const request = vi.fn(
+            () =>
+                new Promise<Response>((resolve) => {
+                    resolveResponse = resolve;
+                }),
+        );
+        const client = testClient(request);
+
+        const active = client.execute(contentRequest());
+        const different = client.execute(
+            { ...contentRequest(), input: { content: "different" } },
+            { intent: "new" },
+        );
+        await expect(different).resolves.toEqual({
+            status: "recovery-error",
+            code: "ACTIVE_OPERATION",
+        });
+        await vi.waitFor(() => expect(request).toHaveBeenCalledTimes(1));
+        resolveResponse?.(
+            jsonResponse(400, {
+                status: "failed",
+                error: { code: "INVALID_INPUT", message: "Invalid input" },
+            }),
+        );
+        await active;
+        expect(request).toHaveBeenCalledTimes(1);
+    });
+
+    it("does not overwrite an accepted mapping with an explicit new operation", async () => {
+        const pendingOperations = memoryPendingOperations();
+        let now = 0;
+        const request = vi.fn().mockResolvedValueOnce(
+            jsonResponse(
+                202,
+                {
+                    runId: "run-preserved",
+                    process: "content-processing",
+                    version: "v1",
+                    status: "queued",
+                    createdAt: "2026-08-14T00:00:00.000Z",
+                },
+                {
+                    location: "/process-runs/run-preserved",
+                    "retry-after": "10",
+                },
+            ),
+        );
+        const createIdempotencyKey = vi.fn(() => "idempotency-preserved");
+        const client = testClient(request, {
+            createIdempotencyKey,
+            now: () => now,
+            pendingOperations,
+            wait: async (milliseconds) => {
+                now += milliseconds;
+            },
+        });
+        await client.execute(contentRequest(), { timeoutMs: 1 });
+
+        await expect(
+            client.execute(contentRequest(), { intent: "new" }),
+        ).resolves.toEqual({
+            status: "recovery-error",
+            code: "ACCEPTED_OPERATION_ACTIVE",
+        });
+        expect(client.pending()).toMatchObject({
+            classification: "accepted",
+            runId: "run-preserved",
+        });
+        expect(createIdempotencyKey).toHaveBeenCalledTimes(1);
+        expect(request).toHaveBeenCalledTimes(1);
+    });
+
+    it("normalizes unavailable recovery storage without issuing a POST", async () => {
+        const request = vi.fn();
+        const client = testClient(request, {
+            pendingOperations: {
+                read: () => {
+                    throw new DOMException("denied", "SecurityError");
+                },
+                write: () => undefined,
+                clear: () => undefined,
+            },
+        });
+
+        expect(client.pending()).toEqual({ classification: "unavailable" });
+        await expect(client.execute(contentRequest())).resolves.toEqual({
+            status: "recovery-error",
+            code: "STORAGE_UNAVAILABLE",
+        });
+        expect(request).not.toHaveBeenCalled();
+    });
+
+    it("does not issue a POST when recovery metadata cannot be persisted", async () => {
+        const request = vi.fn();
+        const client = testClient(request, {
+            pendingOperations: {
+                read: () => null,
+                write: () => {
+                    throw new DOMException("quota", "QuotaExceededError");
+                },
+                clear: () => undefined,
+            },
+        });
+
+        await expect(client.execute(contentRequest())).resolves.toEqual({
+            status: "recovery-error",
+            code: "STORAGE_UNAVAILABLE",
+        });
+        expect(request).not.toHaveBeenCalled();
+    });
+
+    it("reports that a recovery mapping could not be dismissed", () => {
+        const client = testClient(vi.fn(), {
+            pendingOperations: {
+                read: () => null,
+                write: () => undefined,
+                clear: () => {
+                    throw new DOMException("denied", "SecurityError");
+                },
+            },
+        });
+
+        expect(client.dismiss()).toBe(false);
+    });
+
+    it("persists recovery metadata before POST without persisting business input", async () => {
+        const pendingOperations = memoryPendingOperations();
+        let stateAtPost: string | null = null;
+        const request = vi.fn(async () => {
+            stateAtPost = pendingOperations.read();
+            throw new TypeError("response lost");
+        });
+        const client = testClient(request, { pendingOperations });
+
+        await client.execute(contentRequest());
+
+        expect(stateAtPost).not.toBeNull();
+        expect(Object.keys(JSON.parse(stateAtPost ?? "{}")).sort()).toEqual([
+            "classification",
+            "createdAt",
+            "idempotencyKey",
+            "requestFingerprint",
+            "schemaVersion",
+        ]);
+        expect(stateAtPost).not.toContain('"content":"input"');
+    });
+
+    it("does not replay an uncertain operation with different input", async () => {
+        const pendingOperations = memoryPendingOperations();
+        const firstClient = testClient(
+            vi.fn().mockRejectedValueOnce(new TypeError("response lost")),
+            { pendingOperations },
+        );
+        await firstClient.execute(contentRequest());
+
+        const refreshedRequest = vi.fn();
+        const refreshedClient = testClient(refreshedRequest, {
+            pendingOperations,
+        });
+        await expect(
+            refreshedClient.execute({
+                ...contentRequest(),
+                input: { content: "different" },
+            }),
+        ).resolves.toEqual({
+            status: "recovery-error",
+            code: "REQUEST_MISMATCH",
+        });
+        expect(refreshedRequest).not.toHaveBeenCalled();
+    });
 });
 
 type ClientAdapters = Parameters<typeof createProcessRunClient>[0];
@@ -707,11 +1124,48 @@ function testClient(
     return createProcessRunClient({
         baseUrl: () => "https://pi.example/console/",
         createIdempotencyKey: () => "idempotency-test",
+        fingerprint: async (value) => testFingerprint(value),
         now: () => 0,
+        pendingOperations: memoryPendingOperations(),
         wait: async () => undefined,
         ...overrides,
         request,
     });
+}
+
+function testFingerprint(value: string): string {
+    let hash = 0;
+    for (const character of value) {
+        hash = (hash * 31 + character.charCodeAt(0)) >>> 0;
+    }
+    return hash.toString(16).padStart(8, "0");
+}
+
+function contentRequest() {
+    return {
+        process: "content-processing",
+        version: "v1",
+        input: { content: "input" },
+    };
+}
+
+function memoryPendingOperations() {
+    let value: string | null = null;
+    return {
+        read: () => value,
+        write: (next: string) => {
+            value = next;
+        },
+        clear: () => {
+            value = null;
+        },
+    };
+}
+
+function idempotencyKeys(request: ReturnType<typeof vi.fn>): unknown[] {
+    return request.mock.calls
+        .filter(([, init]) => init?.method === "POST")
+        .map(([, init]) => new Headers(init.headers).get("idempotency-key"));
 }
 
 function jsonResponse(
