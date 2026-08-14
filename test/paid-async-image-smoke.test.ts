@@ -571,18 +571,49 @@ describe("Paid async image smoke", () => {
         expect(JSON.stringify(evidence)).not.toContain("sensitive endpoint");
     });
 
-    it("replays the same operation after the first acceptance transport is lost", async () => {
+    it("completes the same operation after the first acceptance response is lost", async () => {
+        const png = await sharp({
+            create: {
+                width: 4,
+                height: 3,
+                channels: 3,
+                background: { r: 222, g: 228, b: 224 },
+            },
+        })
+            .png()
+            .toBuffer();
         const idempotencyKeys: Array<string | null> = [];
+        const acceptedOperations = new Set<string>();
         let calls = 0;
-        const request: typeof fetch = async (_input, init) => {
+        const request: typeof fetch = async (input, init) => {
+            if (String(input) === OBJECT_URL) {
+                return new Response(png, {
+                    status: 200,
+                    headers: { "content-type": "image/png" },
+                });
+            }
             calls += 1;
-            idempotencyKeys.push(
-                new Headers(init?.headers).get("idempotency-key"),
-            );
+            const key = new Headers(init?.headers).get("idempotency-key");
             if (calls === 1) {
+                idempotencyKeys.push(key);
+                if (key !== null) acceptedOperations.add(key);
                 throw new Error("first response exposed a sensitive endpoint");
             }
-            return accepted("queued");
+            if (calls === 2) {
+                idempotencyKeys.push(key);
+                if (key !== null) acceptedOperations.add(key);
+                return accepted("queued");
+            }
+            if (calls === 3) return run("running");
+            return run("succeeded", {
+                aspectRatio: "4:3",
+                image: {
+                    url: OBJECT_URL,
+                    contentType: "image/png",
+                    width: 4,
+                    height: 3,
+                },
+            });
         };
 
         const evidence = await createPaidAsyncImageSmoke({
@@ -602,22 +633,21 @@ describe("Paid async image smoke", () => {
         }).run();
 
         expect(evidence).toMatchObject({
-            status: "failed",
-            failedGate: "acceptance_recovery",
+            status: "succeeded",
             runId: RUN_ID,
-            processRunStatus: "unknown",
-            publicErrorCode: "PAID_SMOKE_ACCEPTANCE_RECOVERY_FAILED",
+            processRunStatus: "succeeded",
             recovery: {
                 submissionAttempts: 2,
                 uniqueRuns: 1,
-                initialAcceptanceInterrupted: false,
-                acceptanceResponseRecoveryVerified: false,
+                initialAcceptanceInterrupted: true,
+                acceptanceResponseRecoveryVerified: true,
             },
         });
         expect(idempotencyKeys).toEqual([
             "paid-operation-key",
             "paid-operation-key",
         ]);
+        expect(acceptedOperations).toEqual(new Set(["paid-operation-key"]));
         expect(JSON.stringify(evidence)).not.toContain("sensitive endpoint");
     });
 

@@ -297,11 +297,11 @@ npm run check:deployment-env -- api
 - Secret `PAID_ASYNC_SOURCE_IMAGE_URL`：FAL 可匿名读取且有效期覆盖 Queue/FAL 窗口的非敏感公网 HTTPS 图片；
 - Variable `PAID_ASYNC_GATEWAY_URL`：目标真实 HTTPS 网关；
 - Variable `PAID_ASYNC_EXPECTED_OSS_HOST` 与 `PAID_ASYNC_EXPECTED_OSS_PATH_PREFIX`：最终产品 PNG 获准落入的位置。
-- 生产发布共用的 `SSH_PRIVATE_KEY`、`SSH_KNOWN_HOSTS`、`REMOTE_HOST`、`REMOTE_USER` 与 `REMOTE_PATH`：只用于在提交前核对五个容器 revision、API stage 和网关实际比例。
+- 生产发布共用的 `SSH_PRIVATE_KEY`、`SSH_KNOWN_HOSTS`、`REMOTE_HOST`、`REMOTE_USER` 与 `REMOTE_PATH`：只用于在提交前核对六个容器 revision、CRT Business API health/Provider、API stage 和网关实际比例。
 
 目标 CRT Business API 还必须由部署 Secret 固定 `IMAGE_PROVIDER=fal`、`FAL_KEY` 和正式 OSS 配置；workflow 不读取这些供应商凭证。操作者填写同 revision promotion run/attempt、`APPROVE_ONE_PAID_CRT_OPERATION`、两位小数的 USD 费用上限、非秘密批准编号和 60–900 秒查询期限。付费 smoke 与发布/提升共用 `pipipi-production-release` 并发组；付费请求前再次核对六个活跃容器（含 CRT Business API）的 revision、Business API health、固定 FAL/阿里云 OSS Provider、stage 和 traffic，拒绝拿旧 artifact 或错误 Provider 测试新部署。没有逐次费用授权不得运行，也不得用普通 CI 或定时任务调用。
 
-每个 workflow run 固定唯一 Registration `crt-interface-image/v1`，固定 `经典`、`4:3`、`normal`，产品 body 中没有 Skill、Prompt、模型、供应商、OSS、Queue 或运行配置。smoke 为一个逻辑操作生成一个 caller-scoped idempotency key；首次 POST 收到 durable acceptance 的 `202` 与 `Location` 后主动丢弃响应 body，再以同一 body/key replay，要求恢复到同一个 `runId`。两次提交各有独立的 30 秒传输期限，owner-query 的 60–900 秒期限只从 replay 恢复 durable acceptance 后开始。之后结束首次查询会话，再用同一 owner 的 GET 恢复，绝不生成新 key 或第三次提交。证据单列 Process Run 的 `unknown`、`failed` 或 `succeeded` 终态；终态失败还保存稳定公开 error code。成功后只允许不跟随重定向地从获准 OSS host/prefix 下载最终对象，并验证 PNG 内容、声明尺寸、不透明和 `经典` 调色板，由此覆盖真实网关、异步 API、Dispatcher、Worker、FAL URL edit、finalizer 和 OSS。
+每个 workflow run 固定唯一 Registration `crt-interface-image/v1`，固定 `经典`、`4:3`、`normal`，产品 body 中没有 Skill、Prompt、模型、供应商、OSS、Queue 或运行配置。smoke 为一个逻辑操作生成一个 caller-scoped idempotency key；受控标准路径在首次 POST 收到 durable acceptance 的 `202` 与 `Location` 后主动丢弃响应 body，再以同一 body/key replay，并要求恢复到同一个 `runId`。若首次响应连 header 都因真实 transport 故障丢失，smoke 仍以同一 key replay，并从恢复出的 `runId` 继续；同 key 的服务端唯一 Run invariant 已由前置确定性和 staging 门禁验证。两次提交各有独立的 30 秒传输期限，owner-query 的 60–900 秒期限只从 replay 恢复 durable acceptance 后开始。之后结束首次查询会话，再用同一 owner 的 GET 恢复，绝不生成新 key 或第三次提交。证据单列 Process Run 的 `unknown`、`failed` 或 `succeeded` 终态；终态失败还保存稳定公开 error code。成功后只允许不跟随重定向地从获准 OSS host/prefix 下载最终对象，并验证 PNG 内容、声明尺寸、不透明和 `经典` 调色板，由此覆盖真实网关、异步 API、Dispatcher、Worker、FAL URL edit、finalizer 和 OSS。
 
 90 天 artifact 只含候选 revision、固定 Process identity/version、Run ID、终态、恢复判据、对象 identity/content SHA-256、字节/尺寸和获批 USD 上限/批准编号。source URL、最终/原始对象 URL、Authorization、idempotency key、Prompt、业务 input/output、FAL/OSS Secret 和内部异常正文都禁止进入日志或证据。workflow 不自动重试、不改变 release stage/流量，也不触发 production promotion。未获得明确费用批准或未实际运行该受保护 workflow 时，不得声称真实 FAL/OSS 付费异步闭环通过。
 

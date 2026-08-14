@@ -51,22 +51,24 @@ type PaidSmokeCommon = Readonly<{
     costApproval: PaidSmokeCostApproval;
 }>;
 
+type PaidSmokeFailure = PaidSmokeCommon &
+    Readonly<{
+        status: "failed";
+        failedGate:
+            | "acceptance_recovery"
+            | "terminal"
+            | "query_recovery"
+            | "object_verification";
+        publicErrorCode: string;
+    }>;
+
 export type PaidAsyncImageSmokeEvidence =
     | (PaidSmokeCommon &
           Readonly<{
               status: "succeeded";
               object: PaidSmokeObject;
           }>)
-    | (PaidSmokeCommon &
-          Readonly<{
-              status: "failed";
-              failedGate:
-                  | "acceptance_recovery"
-                  | "terminal"
-                  | "query_recovery"
-                  | "object_verification";
-              publicErrorCode: string;
-          }>);
+    | PaidSmokeFailure;
 
 export type PaidAsyncImageSmokeOptions = Readonly<{
     baseUrl: string;
@@ -111,6 +113,26 @@ export function createPaidAsyncImageSmoke(options: PaidAsyncImageSmokeOptions) {
     return Object.freeze({
         run: async (): Promise<PaidAsyncImageSmokeEvidence> => {
             const startedAt = clock();
+            const failure = (
+                value: Readonly<{
+                    failedGate: PaidSmokeFailure["failedGate"];
+                    publicErrorCode: string;
+                    runId: string;
+                    processRunStatus: PaidSmokeCommon["processRunStatus"];
+                    recovery: PaidSmokeRecovery;
+                }>,
+            ): PaidSmokeFailure =>
+                Object.freeze({
+                    schemaVersion: 1,
+                    event: "paid_async_image_smoke_completed",
+                    revision,
+                    status: "failed",
+                    startedAt,
+                    completedAt: clock(),
+                    process,
+                    costApproval,
+                    ...value,
+                });
             const idempotencyKey = requiredIdempotencyKey(createId());
             const body = Object.freeze({
                 process: process.id,
@@ -150,15 +172,8 @@ export function createPaidAsyncImageSmoke(options: PaidAsyncImageSmokeOptions) {
                 });
             } catch {
                 if (interruptedRunId === null) throw new Error("unrecoverable");
-                return Object.freeze({
-                    schemaVersion: 1,
-                    event: "paid_async_image_smoke_completed",
-                    revision,
-                    status: "failed",
+                return failure({
                     failedGate: "acceptance_recovery",
-                    startedAt,
-                    completedAt: clock(),
-                    process,
                     runId: interruptedRunId,
                     processRunStatus: "unknown",
                     publicErrorCode: "PAID_SMOKE_ACCEPTANCE_RECOVERY_FAILED",
@@ -171,44 +186,14 @@ export function createPaidAsyncImageSmoke(options: PaidAsyncImageSmokeOptions) {
                         queryRecoveryVerified: false,
                         initialQueryInterrupted: false,
                     }),
-                    costApproval,
                 });
             }
-            if (interruptedRunId === null) {
-                return Object.freeze({
-                    schemaVersion: 1,
-                    event: "paid_async_image_smoke_completed",
-                    revision,
-                    status: "failed",
+            if (
+                interruptedRunId !== null &&
+                interruptedRunId !== replay.runId
+            ) {
+                return failure({
                     failedGate: "acceptance_recovery",
-                    startedAt,
-                    completedAt: clock(),
-                    process,
-                    runId: replay.runId,
-                    processRunStatus: "unknown",
-                    publicErrorCode: "PAID_SMOKE_ACCEPTANCE_RECOVERY_FAILED",
-                    recovery: Object.freeze({
-                        submissionAttempts: 2,
-                        uniqueRuns: 1,
-                        initialAcceptanceInterrupted: false,
-                        acceptanceResponseRecoveryVerified: false,
-                        querySessions: 0,
-                        queryRecoveryVerified: false,
-                        initialQueryInterrupted: false,
-                    }),
-                    costApproval,
-                });
-            }
-            if (interruptedRunId !== replay.runId) {
-                return Object.freeze({
-                    schemaVersion: 1,
-                    event: "paid_async_image_smoke_completed",
-                    revision,
-                    status: "failed",
-                    failedGate: "acceptance_recovery",
-                    startedAt,
-                    completedAt: clock(),
-                    process,
                     runId: interruptedRunId,
                     processRunStatus: "unknown",
                     publicErrorCode: "PAID_SMOKE_IDEMPOTENCY_FAILURE",
@@ -221,7 +206,6 @@ export function createPaidAsyncImageSmoke(options: PaidAsyncImageSmokeOptions) {
                         queryRecoveryVerified: false,
                         initialQueryInterrupted: false,
                     }),
-                    costApproval,
                 });
             }
 
@@ -252,15 +236,8 @@ export function createPaidAsyncImageSmoke(options: PaidAsyncImageSmokeOptions) {
                     wait,
                 });
             } catch {
-                return Object.freeze({
-                    schemaVersion: 1,
-                    event: "paid_async_image_smoke_completed",
-                    revision,
-                    status: "failed",
+                return failure({
                     failedGate: "query_recovery",
-                    startedAt,
-                    completedAt: clock(),
-                    process,
                     runId: replay.runId,
                     processRunStatus: "unknown",
                     publicErrorCode: "PAID_SMOKE_QUERY_RECOVERY_FAILED",
@@ -268,24 +245,15 @@ export function createPaidAsyncImageSmoke(options: PaidAsyncImageSmokeOptions) {
                         ...recoveryEvidence(initialQueryInterrupted),
                         queryRecoveryVerified: false,
                     }),
-                    costApproval,
                 });
             }
             if (terminal.status !== "succeeded") {
-                return Object.freeze({
-                    schemaVersion: 1,
-                    event: "paid_async_image_smoke_completed",
-                    revision,
-                    status: "failed",
+                return failure({
                     failedGate: "terminal",
-                    startedAt,
-                    completedAt: clock(),
-                    process,
                     runId: replay.runId,
                     processRunStatus: "failed",
                     publicErrorCode: terminalErrorCode(terminal),
                     recovery: recoveryEvidence(initialQueryInterrupted),
-                    costApproval,
                 });
             }
             let object: PaidSmokeObject;
@@ -300,20 +268,12 @@ export function createPaidAsyncImageSmoke(options: PaidAsyncImageSmokeOptions) {
                     now,
                 });
             } catch {
-                return Object.freeze({
-                    schemaVersion: 1,
-                    event: "paid_async_image_smoke_completed",
-                    revision,
-                    status: "failed",
+                return failure({
                     failedGate: "object_verification",
-                    startedAt,
-                    completedAt: clock(),
-                    process,
                     runId: replay.runId,
                     processRunStatus: "succeeded",
                     publicErrorCode: "PAID_SMOKE_OBJECT_VERIFICATION_FAILED",
                     recovery: recoveryEvidence(initialQueryInterrupted),
-                    costApproval,
                 });
             }
             return Object.freeze({
