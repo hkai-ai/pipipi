@@ -44,6 +44,7 @@ describe("Async integration runner", () => {
             "--project-name pipipi-async-test-isolated",
         );
         expect(testEnvironment).toMatchObject({
+            ASYNC_INTEGRATION_PROJECT_NAME: "pipipi-async-test-isolated",
             POSTGRES_TEST_DATABASE_URL:
                 "postgres://pipipi:pipipi-test-only@127.0.0.1:61001/pipipi_test",
             REDIS_TEST_URL: "redis://127.0.0.1:61002/15",
@@ -75,6 +76,37 @@ describe("Async integration runner", () => {
 
         expect(commands).toContain("npm run test:acceptance:console");
         expect(commands.at(-1)).toContain("down --volumes --remove-orphans");
+    });
+
+    it("retries transient empty Compose port discovery", async () => {
+        let redisDiscoveries = 0;
+        let testEnvironment: NodeJS.ProcessEnv | undefined;
+        const runner = commandRunner((command, args, environment) => {
+            const invocation = [command, ...args].join(" ");
+            if (invocation.endsWith("port postgres 5432")) {
+                return completed("0.0.0.0:61001\n");
+            }
+            if (invocation.endsWith("port redis 6379")) {
+                redisDiscoveries += 1;
+                return completed(
+                    redisDiscoveries === 1 ? "" : "0.0.0.0:61002\n",
+                );
+            }
+            if (command === "npm") testEnvironment = environment;
+            return completed();
+        });
+
+        await runAsyncIntegration({
+            projectName: "pipipi-async-port-retry",
+            runner,
+            signals: inertSignals(),
+            environment: {},
+        });
+
+        expect(redisDiscoveries).toBe(2);
+        expect(testEnvironment?.REDIS_TEST_URL).toBe(
+            "redis://127.0.0.1:61002/15",
+        );
     });
 
     it("runs cleanup after a failed test command", async () => {

@@ -60,6 +60,8 @@ Business Processing Service 让产品调用方通过一个稳定的 HTTP Interfa
 
 Agent 只获得 Process Registration 明确绑定的 Runtime Skill 集合与窄 Tool。生产内容处理 Agent 同时加载 `content-optimization` 和 `content-integrity`，只能调用 `process_business_content`。海报 Agent 只加载 `minimal-zine-poster-prompt`，没有 Tool；CRT Agent 只加载 `tait-crt-interface-prompt`，没有 Tool，也看不到参考图或资产标识。新闻图片 Agent 分别加载人物叙事碑式、淡彩绘本和原质人文主义固定 Runtime Skill，同样没有 Tool。各图片 Agent 只返回待校验的 Prompt 计划；Registration 校验后自行调用一次对应 Rendering Capability。所有 Agent 都不能使用 Shell、文件读写、代码编辑或任意远程工具。Skill 集合随应用发布；调用方不能选择、增加或排序 Skill。
 
+独立 Redis 重建演练证明 Queue 不可用不影响 PostgreSQL durable acceptance 与 owner GET；Queue 全丢后，只有通过完整 dry-run 链门禁的受审计 apply 才重建非终态工作，active lease 延后而终态 Run 永不重建。
+
 ## 当前不做
 
 项目当前不提供：

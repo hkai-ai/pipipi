@@ -80,6 +80,7 @@ curl --fail -X POST http://127.0.0.1:3000/execute \
 | `npm run test:integration:async` | 运行真实 PostgreSQL、Redis、Outbox Dispatcher 与 BullMQ Worker 测试 | 是，会重建 `_test` schema 并清空指定 Redis 测试 DB |
 | `npm run test:integration:async:local` | 启动隔离 Compose、运行完整异步集成测试并在成功或失败后清理 | 是，会启动并删除本地测试容器与临时数据 |
 | `npm run test:drill:dispatcher-worker:local` | 启动隔离 Compose，注入 Dispatcher 重启、Worker claim 失效、重复 Job 和滚动停机故障并输出可选证据 | 是，会重建 `_test` schema、清空测试 Redis，并删除本地测试容器与临时数据 |
+| `npm run test:drill:redis-rebuild:local` | 启动隔离 Compose，验证 Redis 不可用 durable acceptance、普通 relay、Queue 全丢与受审计全量重建 | 是，会重建 `_test` schema、多次清空测试 Redis，并删除本地测试容器与临时数据 |
 | `npm run test:acceptance:console:local` | 构建控制台并用 headless Chrome 验收浏览器异步提交、刷新恢复和终态投影 | 是，会启动并删除本地测试容器与临时数据；需要 Chrome 或 `CHROME_PATH` |
 | `npm run test:acceptance:async:local` | 按 CI 顺序运行 PostgreSQL、BullMQ/跨 Seam 和浏览器三层异步验收 | 是，会启动一组隔离依赖并在结尾删除容器、网络和临时数据 |
 | `npm run check:deployment:async-shape` | 用安全占位值渲染默认 Compose 与显式异步叠加层，验证角色、镜像、revision、命令、readiness、Queue 配置及缺参失败 | 否；需要 Docker Compose，不读取生产 Secret，也不启动容器 |
@@ -157,6 +158,16 @@ npm run test:drill:dispatcher-worker:local
 ```
 
 证据文件只含 revision、Run ID、Attempt 结果、时间线和非秘密布尔/计数观测，不含 claim token、幂等键、业务输入输出或连接地址。`.github/workflows/async-dispatcher-worker-drill.yml` 提供受保护的手动 `async-staging` 入口，固定候选 commit，在一次性 Compose project 中运行并保留证据 30 天；它不读取生产 Secret、不接生产流量，也不能提升 release stage。
+
+Redis/Queue 重建专项演练以 PostgreSQL 为唯一事实来源：先让不可用 Queue 的普通 Dispatcher 失败，证明 Run 仍 durable queued、owner 可读且 Outbox pending；恢复普通 relay 后到达终态；再清空 Redis，制造 missing、terminal、invalid、active lease 和 pending Outbox 候选，从空 cursor 分批完成 dry-run。只有最终 cursor 为空且累计 `failed=0` 才执行 apply，最后一次 dry-run 必须得到 missing/invalid/failed 全零：
+
+```bash
+ASYNC_REDIS_REBUILD_DRILL_REVISION="$(git rev-parse HEAD)" \
+ASYNC_REDIS_REBUILD_DRILL_EVIDENCE_FILE=artifacts/redis-rebuild-drill.json \
+npm run test:drill:redis-rebuild:local
+```
+
+受保护入口为 `.github/workflows/async-redis-rebuild-drill.yml`，与 Dispatcher/Worker 演练共享 `async-staging` Environment 和串行并发组。
 
 ### 异步 HTTP 开发入口
 

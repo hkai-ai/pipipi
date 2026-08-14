@@ -1,0 +1,135 @@
+name: Async Redis loss and Queue rebuild drill
+run-name: Async Redis rebuild drill ${{ inputs.candidate_sha }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      candidate_sha:
+        description: Isolated staging candidate full commit SHA
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  drill:
+    name: Exercise Redis loss and audited Queue rebuild
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment:
+      name: async-staging
+    concurrency:
+      group: pipipi-async-staging-fault-drill
+      cancel-in-progress: false
+    env:
+      ASYNC_INTEGRATION_PROJECT_NAME: pipipi-redis-drill-${{ github.run_id }}-${{ github.run_attempt }}
+
+    steps:
+      - name: Validate candidate
+        env:
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+        run: |
+          set -Eeuo pipefail
+          [[ "$CANDIDATE_SHA" =~ ^[0-9a-f]{40}$ ]]
+
+      - name: Checkout candidate
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.candidate_sha }}
+
+      - name: Verify checkout
+        env:
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+        run: test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run isolated Redis rebuild drill
+        env:
+          ASYNC_REDIS_REBUILD_DRILL_EVIDENCE_FILE: evidence/redis-rebuild.json
+          ASYNC_REDIS_REBUILD_DRILL_REVISION: ${{ inputs.candidate_sha }}
+        run: |
+          set -Eeuo pipefail
+          mkdir -p evidence
+          npm run test:drill:redis-rebuild:local
+
+      - name: Verify complete recovery chain and safe evidence
+        env:
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+        run: |
+          set -Eeuo pipefail
+          evidence=evidence/redis-rebuild.json
+          test -f "$evidence"
+          jq --exit-status --arg revision "$CANDIDATE_SHA" '
+            .schemaVersion == 1 and
+            .event == "async_redis_queue_rebuild_drill_completed" and
+            .environment == "isolated-staging" and
+            .revision == $revision and
+            .actor == "operator:redis-rebuild-drill" and
+            .productionTrafficAffected == false and
+            .intakeClosedDuringRecovery == true and
+            .ownerReadsPreserved == true and
+            .intakeClosure.rejectedStatus == 503 and
+            .intakeClosure.errorCode == "ASYNC_INTAKE_CLOSED" and
+            .intakeClosure.runCountUnchanged == true and
+            .intakeClosure.outboxCountUnchanged == true and
+            .redisUnavailableAcceptance.acceptedStatus == "queued" and
+            .redisUnavailableAcceptance.pendingOutboxObserved == true and
+            .redisUnavailableAcceptance.relayedToTerminal == true and
+            (.dryRun | length) > 1 and
+            .dryRun[-1].nextCursor == null and
+            .totals.dryRun.found == 5 and
+            .totals.dryRun.missingJobs == 3 and
+            .totals.dryRun.terminalJobs == 1 and
+            .totals.dryRun.invalidJobs == 1 and
+            .totals.dryRun.activeLeases == 1 and
+            .totals.dryRun.pendingOutbox == 1 and
+            .totals.dryRun.failed == 0 and
+            (.apply | length) > 1 and
+            .apply[-1].nextCursor == null and
+            .totals.apply.enqueued == 4 and
+            .totals.apply.outboxAcknowledged == 1 and
+            .totals.apply.failed == 0 and
+            (.activeLeaseDryRun | length) > 0 and
+            .activeLeaseDryRun[-1].nextCursor == null and
+            .totals.activeLeaseDryRun.found == 1 and
+            .totals.activeLeaseDryRun.missingJobs == 1 and
+            .totals.activeLeaseDryRun.activeLeases == 0 and
+            .totals.activeLeaseDryRun.failed == 0 and
+            .activeLeaseApply[-1].nextCursor == null and
+            .totals.activeLeaseApply.enqueued == 1 and
+            .totals.activeLeaseApply.failed == 0 and
+            .totals.verification.missingJobs == 0 and
+            .totals.verification.invalidJobs == 0 and
+            .totals.verification.failed == 0 and
+            .terminalRunExcludedFromRecovery == true and
+            .orphanQueueJobIgnored == true and
+            .queueDidNotCreateAuthoritativeRun == true and
+            .authoritativeRunCount == 6 and
+            ([.dryRun[], .apply[], .activeLeaseDryRun[], .activeLeaseApply[], .verification[]] |
+              all(.actor == "operator:redis-rebuild-drill"))
+          ' "$evidence" >/dev/null
+          if jq -r '.. | objects | keys[]' "$evidence" | \
+              grep -Eiq 'claim.?token|idempotency.?key|accepted.?input|(^|_)output$|prompt|secret|authorization|database.?url|redis.?url|endpoint.?url'; then
+            echo "Forbidden evidence field detected" >&2
+            exit 1
+          fi
+
+      - name: Clean isolated dependencies
+        if: ${{ always() }}
+        run: |
+          docker compose \
+            --project-name "$ASYNC_INTEGRATION_PROJECT_NAME" \
+            --file compose.integration.yaml \
+            down --volumes --remove-orphans
+
+      - name: Upload rebuild evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v6
+        with:
+          name: pipipi-redis-rebuild-${{ inputs.candidate_sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: evidence/redis-rebuild.json
+          if-no-files-found: warn
+          retention-days: 30

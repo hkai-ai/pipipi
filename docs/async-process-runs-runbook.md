@@ -351,6 +351,12 @@ Redis 数据丢失的标准动作：
 
 不要把 Queue count 当作产品 backlog，也不要删除 PostgreSQL Run 来“清空队列”。
 
+### 可复核的隔离演练入口
+
+`.github/workflows/async-redis-rebuild-drill.yml` 把上述步骤固化为受保护的 `async-staging` 手动演练。它固定完整候选 SHA 并使用一次性 PostgreSQL/Redis：先在 Redis 不可达时 durable accept 并保留 owner GET/pending Outbox，再恢复普通 Dispatcher relay；随后清空 Queue，构造 missing、terminal、invalid、active lease 与 pending Outbox 候选。演练从空 cursor 保存完整 dry-run 批次链，代码只有在最终 cursor 为空且累计 `failed=0` 后才执行带 actor 的 apply。活跃 lease 首轮只记录 `deferred`；到期后的独立受审计 apply 才重建。全部 Run 收敛后，重复 dry-run 必须得到 missing、invalid、failed 全零。
+
+证据保存 revision、actor、Run ID、每批 recovery ID/cutoff/cursor、candidate/missing/terminal/invalid/deferred/pending Outbox/failed 统计和逐项非秘密动作；不保存业务 input/output、claim token、幂等键或连接地址。它与其他 staging fault drill 共用串行并发组，不读取生产 Secret、不连接生产依赖，也不从 Queue 反向创建或删除 PostgreSQL Run。
+
 ## 故障演练
 
 每个候选版本至少在 staging 完成以下演练，并保存时间、镜像、配置、Run ID、恢复报告和结果。

@@ -70,6 +70,25 @@ export async function runAsyncIntegration(options: Readonly<{
             if (active === started) active = undefined;
         }
     };
+    const discoverPort = async (service: string, containerPort: string) => {
+        let failure: unknown;
+        for (let attempt = 0; attempt < 10; attempt += 1) {
+            try {
+                return readPort(
+                    await execute(
+                        "docker",
+                        [...compose, "port", service, containerPort],
+                        composeEnvironment,
+                        true,
+                    ),
+                );
+            } catch (error) {
+                failure = error;
+                if (attempt < 9) await delay(100);
+            }
+        }
+        throw failure;
+    };
 
     let failure: unknown;
     let hasFailed = false;
@@ -81,27 +100,14 @@ export async function runAsyncIntegration(options: Readonly<{
             [...compose, "up", "--detach", "--wait"],
             composeEnvironment,
         );
-        const postgresPort = readPort(
-            await execute(
-                "docker",
-                [...compose, "port", "postgres", "5432"],
-                composeEnvironment,
-                true,
-            ),
-        );
-        const redisPort = readPort(
-            await execute(
-                "docker",
-                [...compose, "port", "redis", "6379"],
-                composeEnvironment,
-                true,
-            ),
-        );
+        const postgresPort = await discoverPort("postgres", "5432");
+        const redisPort = await discoverPort("redis", "6379");
         await execute(
             "npm",
             ["run", options.testScript ?? "test:integration:async"],
             {
                 ...options.environment,
+                ASYNC_INTEGRATION_PROJECT_NAME: options.projectName,
                 POSTGRES_TEST_DATABASE_URL: `postgres://pipipi:pipipi-test-only@127.0.0.1:${postgresPort}/pipipi_test`,
                 REDIS_TEST_URL: `redis://127.0.0.1:${redisPort}/15`,
             },
@@ -156,6 +162,10 @@ function readPort(output: string): number {
         throw new Error("Docker Compose did not return a published test port");
     }
     return port;
+}
+
+function delay(milliseconds: number) {
+    return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
 
 function createCommandRunner(): AsyncIntegrationCommandRunner {

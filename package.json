@@ -48,6 +48,8 @@
         "test:integration:async:local": "node --import tsx tools/run-async-integration.ts",
         "test:drill:dispatcher-worker": "RUN_ASYNC_INTEGRATION=1 vitest run test/dispatcher-worker-fault-drill.integration.test.ts",
         "test:drill:dispatcher-worker:local": "ASYNC_INTEGRATION_TEST_SCRIPT=test:drill:dispatcher-worker node --import tsx tools/run-async-integration.ts",
+        "test:drill:redis-rebuild": "RUN_ASYNC_INTEGRATION=1 vitest run test/redis-queue-rebuild-drill.integration.test.ts",
+        "test:drill:redis-rebuild:local": "ASYNC_INTEGRATION_TEST_SCRIPT=test:drill:redis-rebuild node --import tsx tools/run-async-integration.ts",
         "test:acceptance:console": "RUN_CONSOLE_BROWSER_ACCEPTANCE=1 vitest run test/console-async.browser.acceptance.test.ts",
         "test:acceptance:console:local": "npm run build && ASYNC_INTEGRATION_TEST_SCRIPT=test:acceptance:console node --import tsx tools/run-async-integration.ts",
         "test:acceptance:async": "npm run test:integration:postgres && npm run test:integration:async && npm run test:acceptance:console",
