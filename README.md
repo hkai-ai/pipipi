@@ -82,6 +82,8 @@ cp .env.example .env
 
 internal 发布后可手动运行受保护的 `.github/workflows/async-internal-smoke.yml`。它通过真实 HTTPS 网关验证成功、稳定业务失败和双 caller owner 隔离，收集角色状态、Async Operations、数据库保留信号与按 Run 关联的脱敏日志；随后用服务端 marker 只关闭新异步 intake，证明既有 owner GET 和同步 `/execute` 仍可用，再自动恢复 intake。请求正文、操作者凭证和幂等键不进入证据；该 workflow 同样不会自动提升流量。
 
+同一候选的 internal release/smoke、Dispatcher/Worker、Redis 重建和 Webhook/观测证据全部成功后，受保护的 `.github/workflows/async-promote-release.yml` 才允许逐次执行 `internal/0% → canary/0% → 1% → 5% → 25% → production/25% → 50% → 100%`。每次人工批准只改变 stage 或可信网关流量中的一个变量；五个角色 readiness、容量/费用和 critical alert 在变更前后任一失败都会恢复原值。应用不拥有网关路由，服务器上的固定 Adapter 只向该 workflow 提供当前比例、设定比例和无内容 critical snapshot。
+
 在第一个终端启动演示 Business Capability：
 
 ```bash
@@ -151,7 +153,7 @@ curl http://127.0.0.1:3000/healthz
 
 ## 当前边界
 
-默认发布仍是受控、同步、无状态的 MVP。部署平台必须提供 TLS、私有入口、调用方认证、Secret 注入和实例上限。异步实现已具备受控 `internal` 发布入口，但不会由普通主分支发布自动启用，也不会自动提升到 canary 或 production；发布人员必须按异步 Runbook 完成 migration、身份、容量、恢复、安全、观测和 staged rollout。当前发布不提供应用用户系统、RBAC、多租户、CORS、通用幂等或动态流程注册。
+默认发布仍是受控、同步、无状态的 MVP。部署平台必须提供 TLS、私有入口、调用方认证、Secret 注入和实例上限。异步实现具备独立的受控 `internal` 发布与 staged promotion 入口，但普通主分支发布不会启用或提升异步流量；发布人员必须按异步 Runbook 完成 migration、身份、容量、恢复、安全、观测和逐级人工授权。当前发布不提供应用用户系统、RBAC、多租户、CORS、通用幂等或动态流程注册。
 
 仓库内已有 Async Process Runs Module、事务化 PostgreSQL Store、Process/Webhook Outbox，以及相互隔离的 BullMQ Process Queue 和 Webhook Queue。`npm run start:api`、`npm run start:dispatcher`、`npm run start:worker`、`npm run start:webhook-worker` 和 `npm run start:retention-cleaner` 从同一构建产物启动独立角色；显式异步生产叠加层为每个角色执行环境预检并用独立 readiness 端口探测。Process 默认只执行一次，只有服务端 Registration 明确声明安全错误、次数和退避时才会重试；Webhook 已支持精简终态事件、Standard Webhooks 签名、PostgreSQL 权威的有界重试、Attempt 审计、受控人工重放、加密 Secret 和防 SSRF 的固定目标连接。Retention Cleaner 按固定 cutoff 分批删除到期内容，批次审计和返回游标允许安全续跑。Redis Queue 丢失时，`npm run recover:queue` 默认先做 PostgreSQL 权威的 dry-run，再由运维人员显式 `--apply` 重建所有仍需执行的 Job；终态 Run 永不进入恢复候选。`npm run observe:async` 从 PostgreSQL 和两个 Queue 读取不含业务内容的运维快照，Dashboard/alert 字段固定在 `ops/async-observability.json`。
 

@@ -272,7 +272,22 @@ npm run check:deployment-env -- api
 | canary | 1% → 5% → 25% 授权流量 | backlog 低于上限、stuck 不超阈值、Outbox 延迟达标、最近人工全量恢复成功、Dashboard 与告警工作 |
 | production | 逐步提升到批准比例 | canary 至少跨一个峰值窗口无 critical alert，容量与费用在预算内，回滚负责人在线 |
 
-每次提升只改变一个变量，并记录开始时间、流量比例、镜像摘要和观测快照。任何 readiness 或 critical alert 失败都停止提升；不要通过临时放大阈值绕过门禁。
+提升只使用受保护、手动触发的 `.github/workflows/async-promote-release.yml`。先为同一完整 commit 收集成功的 internal release、真实网关 smoke、Dispatcher/Worker 演练、Redis 重建演练和 Webhook/观测演练 artifact；其中任何 revision、migration、Recovery、readiness 或演练结论不一致都拒绝执行。批准顺序固定为：
+
+1. `internal/0% → canary/0%`，只改变 API 的 `ASYNC_RELEASE_STAGE`；
+2. `canary/0% → 1% → 5% → 25%`，每次只改变可信网关流量；
+3. 在 `canary/25%` 跨过输入的批准观测窗口（不得短于 3600 秒，峰值窗口更长时使用获批值），且容量、费用与 critical alert 继续通过；
+4. `canary/25% → production/25%`，只改变 API stage；
+5. `production/25% → 50% → 100%`，每次只改变可信网关流量。
+
+回退只能按相邻状态逆序执行，不能跨比例或跨阶段。每次调用记录开始/完成时间、前后 stage 与比例、镜像摘要、由 revision 和非秘密 Queue identity 计算的配置摘要、前后 critical snapshot、五角色 readiness、来源演练标识和回滚负责人。任何 readiness、容量、费用或 critical alert 失败都会恢复原变量与原 promotion state；API stage 变化使用 `--no-deps api`，后台兼容 Worker 容器 ID 必须保持不变，PostgreSQL 和已接受 Run 不被删除。既有 owner GET 是否可用还由同 revision internal smoke 的 intake-closed 证据前置证明。不要通过临时放大阈值绕过门禁。
+
+服务器必须预置两个由平台拥有、不可由产品请求选择的可执行 Adapter：
+
+- `shared/async-control/set-traffic get <revision>` 只输出当前批准比例；`set <revision> <percent>` 原子修改可信网关路由，并在失败时返回非零；
+- `shared/async-control/check-critical-alerts <revision>` 输出一份不含业务内容的 JSON，至少包含 `schemaVersion=1`、`revision`、五分钟内的 `measuredAt`、`criticalAlertsClear`、`capacityWithinBudget`、`costWithinBudget` 和 snapshot。
+
+`async-internal`、`async-canary`、`async-production` Environment 都必须配置 required reviewer；普通 CI、push 和默认 production workflow 不能调用这两个 Adapter。提升证据保留 90 天。未实际运行受保护 workflow、没有真实网关 Adapter 或没有批准观测窗口时，只能声称发布编排已验证，不能声称 production 流量闭环已完成。
 
 ## 容量拒绝与恢复
 
@@ -428,4 +443,4 @@ Redis 数据丢失的标准动作：
 - `004_webhook_endpoint_security` 在存在 Endpoint 时不允许降级。先停 Webhook Worker并保留加密数据，不能把信封当成明文 Secret。
 - Redis Queue 可重建，PostgreSQL 不可用 Queue 反向重建。任何回滚都不得删除已接受 Run、owner、幂等键或未完成 Delivery。
 
-发布证据至少保留：commit 与镜像摘要、migration 版本、配置非秘密摘要、备份 ID、五个角色 readiness、观测快照、人工全量 Recovery 报告、演练 Run/Event/Delivery ID、灰度时间线和回滚负责人。
+发布证据至少保留：commit 与镜像摘要、migration 版本、配置非秘密摘要、备份 ID、五个角色 readiness、观测快照、人工全量 Recovery 报告、演练 Run/Event/Delivery ID、灰度时间线和回滚负责人。`Async staged promotion` 为每次 attempt 保存 `evidence.json`、五角色变更前后 readiness 和 critical snapshot；即使自动回退，也要上传失败 gate 与回退结果。证据禁止包含 Secret、连接 URL、请求正文、幂等键、claim token、Prompt、Webhook payload 或业务输出。

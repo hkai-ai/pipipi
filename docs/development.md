@@ -148,6 +148,8 @@ Pull Request 和 `main` 的 `Production CI/CD` 另设稳定检查名 `Async dura
 
 `Async internal release` 与上述 CI 分开，只支持 `workflow_dispatch`，并绑定 `async-internal` Environment。它不重新构建候选，而是验证操作者给出的 Production CI/CD run 中 `Check and build` 与 `Async durable acceptance` 都成功，再下载该 run 的精确 commit artifact。它与默认发布共享 Actions 并发组和服务器发布锁，并使用 Environment 固定的 SSH host key。发布脚本是 [`../ops/deploy-async-internal.sh`](../ops/deploy-async-internal.sh)；workflow 只负责候选验证、受保护授权、传输和声明过的证据文件回收，远端脚本拥有门禁顺序、角色切换、信号中断恢复和候选文件清理。
 
+`Async staged promotion` 也是独立的 `workflow_dispatch`。它下载同一 revision 的 internal release/smoke 和三项故障演练 artifact，先在 runner 上校验并汇总，再把只含非秘密门禁的单个 JSON 交给 [`../ops/promote-async-release.sh`](../ops/promote-async-release.sh)。远端脚本锁定同一发布并发域，一次只接受 `stage` 或 `traffic`，校验相邻状态、五角色 readiness、最近 critical snapshot、预算和观测窗口。stage 变化只重建 API；traffic 变化只调用服务器固定的可信网关 Adapter，四个后台角色的容器 ID 必须保持不变。失败时恢复原变量与原 promotion state。该编排是发布 Adapter，不进入 Async Process Runs 产品 Module，也不增加产品 HTTP Interface。
+
 同一 suite 还证明 Outbox 在 PostgreSQL commit 后才进入统一 `process-runs` Queue，Job 只含 `schemaVersion` 和 `runId`，Worker 仍能从数据库选择准确 Registration。故障用例覆盖 Dispatcher claim 过期、Redis 断线、重复 completed Job、Worker claim 过期接管、旧 token fencing 和停机超时 release。Compose Redis 使用 `noeviction` 和临时数据目录；它只用于测试，不代表生产高可用配置。
 
 Dispatcher/Worker 专项演练使用同一套真实依赖，但把三个跨 Seam 竞态串成一次可复现运行：Queue Job 已发布而 Outbox 未确认后的 Dispatcher 重启、过期 claim 与晚到旧 token/终态重复 Job、以及新 Worker ready 后旧 Worker grace 超时、释放 claim、Queue Recovery 重投和新 Worker 接管。它要求每个 Run 只有一条权威记录和一个公开终态 Event；受控 Capability 可以被调用多次，但以 `runId` 计的副作用只能出现一次，因此结论是“Queue 至少一次 + 下游幂等”，不是 exactly-once：

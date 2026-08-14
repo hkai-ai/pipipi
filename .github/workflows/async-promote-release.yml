@@ -1,0 +1,383 @@
+name: Async staged promotion
+run-name: Async ${{ inputs.direction }} ${{ inputs.variable }} to ${{ inputs.target_stage }}/${{ inputs.target_traffic_percent }}% for ${{ inputs.candidate_sha }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      candidate_sha:
+        description: Active async candidate full commit SHA
+        required: true
+        type: string
+      direction:
+        description: Move forward or reverse one safe step
+        required: true
+        type: choice
+        options: [promote, rollback]
+      variable:
+        description: Change exactly one release variable
+        required: true
+        type: choice
+        options: [stage, traffic]
+      target_stage:
+        description: Resulting application release stage
+        required: true
+        type: choice
+        options: [internal, canary, production]
+      target_traffic_percent:
+        description: Resulting trusted-gateway async traffic percent
+        required: true
+        type: choice
+        options: ["0", "1", "5", "25", "50", "100"]
+      observation_window_seconds:
+        description: Approved canary window required before production stage
+        required: true
+        default: "3600"
+        type: string
+      rollback_owner:
+        description: On-call operator responsible for rollback
+        required: true
+        type: string
+      capacity_within_budget:
+        description: Reviewed capacity budget is within limit
+        required: true
+        type: boolean
+      cost_within_budget:
+        description: Reviewed cost budget is within limit
+        required: true
+        type: boolean
+      internal_release_run_id:
+        description: Successful Async internal release run ID
+        required: true
+        type: string
+      internal_release_run_attempt:
+        description: Async internal release attempt
+        required: true
+        default: "1"
+        type: string
+      internal_smoke_run_id:
+        description: Successful Async internal smoke run ID
+        required: true
+        type: string
+      internal_smoke_run_attempt:
+        description: Async internal smoke attempt
+        required: true
+        default: "1"
+        type: string
+      dispatcher_drill_run_id:
+        description: Successful Dispatcher/Worker drill run ID
+        required: true
+        type: string
+      dispatcher_drill_run_attempt:
+        description: Dispatcher/Worker drill attempt
+        required: true
+        default: "1"
+        type: string
+      redis_drill_run_id:
+        description: Successful Redis rebuild drill run ID
+        required: true
+        type: string
+      redis_drill_run_attempt:
+        description: Redis rebuild drill attempt
+        required: true
+        default: "1"
+        type: string
+      webhook_drill_run_id:
+        description: Successful Webhook observability drill run ID
+        required: true
+        type: string
+      webhook_drill_run_attempt:
+        description: Webhook observability drill attempt
+        required: true
+        default: "1"
+        type: string
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  promote:
+    name: Verify evidence and change one async release variable
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment:
+      name: async-${{ inputs.target_stage }}
+    concurrency:
+      group: pipipi-production-release
+      cancel-in-progress: false
+
+    steps:
+      - name: Validate promotion request
+        env:
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+          OBSERVATION_WINDOW_SECONDS: ${{ inputs.observation_window_seconds }}
+          ROLLBACK_OWNER: ${{ inputs.rollback_owner }}
+          RUN_REFERENCES: >-
+            ${{ inputs.internal_release_run_id }}:${{ inputs.internal_release_run_attempt }}
+            ${{ inputs.internal_smoke_run_id }}:${{ inputs.internal_smoke_run_attempt }}
+            ${{ inputs.dispatcher_drill_run_id }}:${{ inputs.dispatcher_drill_run_attempt }}
+            ${{ inputs.redis_drill_run_id }}:${{ inputs.redis_drill_run_attempt }}
+            ${{ inputs.webhook_drill_run_id }}:${{ inputs.webhook_drill_run_attempt }}
+        run: |
+          set -Eeuo pipefail
+          [[ "$CANDIDATE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$OBSERVATION_WINDOW_SECONDS" =~ ^[1-9][0-9]*$ ]]
+          (( OBSERVATION_WINDOW_SECONDS >= 3600 ))
+          [[ "$ROLLBACK_OWNER" =~ ^[A-Za-z0-9._:/@-]{1,256}$ ]]
+          for reference in $RUN_REFERENCES; do
+            [[ "$reference" =~ ^[1-9][0-9]*:[1-9][0-9]*$ ]]
+          done
+
+      - name: Checkout immutable candidate
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.candidate_sha }}
+
+      - name: Verify source workflow runs
+        env:
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+          GH_TOKEN: ${{ github.token }}
+          SOURCES: >-
+            ${{ inputs.internal_release_run_id }}:.github/workflows/async-internal-release.yml
+            ${{ inputs.internal_smoke_run_id }}:.github/workflows/async-internal-smoke.yml
+            ${{ inputs.dispatcher_drill_run_id }}:.github/workflows/async-dispatcher-worker-drill.yml
+            ${{ inputs.redis_drill_run_id }}:.github/workflows/async-redis-rebuild-drill.yml
+            ${{ inputs.webhook_drill_run_id }}:.github/workflows/async-webhook-observability-drill.yml
+        run: |
+          set -Eeuo pipefail
+          test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
+          for source in $SOURCES; do
+            run_id="${source%%:*}"
+            workflow="${source#*:}"
+            record="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run_id")"
+            jq --exit-status \
+              --arg revision "$CANDIDATE_SHA" \
+              --arg workflow "$workflow" '
+                .head_sha == $revision and
+                .path == $workflow and
+                .status == "completed" and
+                .conclusion == "success" and
+                .event == "workflow_dispatch"
+              ' <<< "$record" >/dev/null
+          done
+
+      - name: Download exact gate evidence
+        env:
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+          GH_TOKEN: ${{ github.token }}
+          INTERNAL_RELEASE_RUN_ATTEMPT: ${{ inputs.internal_release_run_attempt }}
+          INTERNAL_RELEASE_RUN_ID: ${{ inputs.internal_release_run_id }}
+          INTERNAL_SMOKE_RUN_ATTEMPT: ${{ inputs.internal_smoke_run_attempt }}
+          INTERNAL_SMOKE_RUN_ID: ${{ inputs.internal_smoke_run_id }}
+          DISPATCHER_DRILL_RUN_ATTEMPT: ${{ inputs.dispatcher_drill_run_attempt }}
+          DISPATCHER_DRILL_RUN_ID: ${{ inputs.dispatcher_drill_run_id }}
+          REDIS_DRILL_RUN_ATTEMPT: ${{ inputs.redis_drill_run_attempt }}
+          REDIS_DRILL_RUN_ID: ${{ inputs.redis_drill_run_id }}
+          WEBHOOK_DRILL_RUN_ATTEMPT: ${{ inputs.webhook_drill_run_attempt }}
+          WEBHOOK_DRILL_RUN_ID: ${{ inputs.webhook_drill_run_id }}
+        run: |
+          set -Eeuo pipefail
+          mkdir -p gates/release gates/smoke gates/dispatcher gates/redis gates/webhook
+          gh run download "$INTERNAL_RELEASE_RUN_ID" \
+            --name "pipipi-async-internal-evidence-$CANDIDATE_SHA-$INTERNAL_RELEASE_RUN_ATTEMPT" \
+            --dir gates/release
+          gh run download "$INTERNAL_SMOKE_RUN_ID" \
+            --name "pipipi-async-internal-smoke-$CANDIDATE_SHA-$INTERNAL_SMOKE_RUN_ATTEMPT" \
+            --dir gates/smoke
+          gh run download "$DISPATCHER_DRILL_RUN_ID" \
+            --name "pipipi-dispatcher-worker-drill-$CANDIDATE_SHA-$DISPATCHER_DRILL_RUN_ID-$DISPATCHER_DRILL_RUN_ATTEMPT" \
+            --dir gates/dispatcher
+          gh run download "$REDIS_DRILL_RUN_ID" \
+            --name "pipipi-redis-rebuild-$CANDIDATE_SHA-$REDIS_DRILL_RUN_ID-$REDIS_DRILL_RUN_ATTEMPT" \
+            --dir gates/redis
+          gh run download "$WEBHOOK_DRILL_RUN_ID" \
+            --name "pipipi-webhook-observability-$CANDIDATE_SHA-$WEBHOOK_DRILL_RUN_ID-$WEBHOOK_DRILL_RUN_ATTEMPT" \
+            --dir gates/webhook
+
+      - name: Aggregate same-revision release decision
+        env:
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+          CAPACITY_WITHIN_BUDGET: ${{ inputs.capacity_within_budget }}
+          COST_WITHIN_BUDGET: ${{ inputs.cost_within_budget }}
+          INTERNAL_RELEASE_RUN_ID: ${{ inputs.internal_release_run_id }}
+          INTERNAL_SMOKE_RUN_ID: ${{ inputs.internal_smoke_run_id }}
+          DISPATCHER_DRILL_RUN_ID: ${{ inputs.dispatcher_drill_run_id }}
+          REDIS_DRILL_RUN_ID: ${{ inputs.redis_drill_run_id }}
+          WEBHOOK_DRILL_RUN_ID: ${{ inputs.webhook_drill_run_id }}
+        run: |
+          set -Eeuo pipefail
+          release=gates/release/evidence.json
+          baseline=gates/smoke/baseline.json
+          rollback=gates/smoke/rollback.json
+          operational=gates/smoke/operational-baseline.json
+          dispatcher=gates/dispatcher/dispatcher-worker.json
+          redis=gates/redis/redis-rebuild.json
+          webhook=gates/webhook/webhook-observability.json
+          for file in "$release" "$baseline" "$rollback" "$operational" "$dispatcher" "$redis" "$webhook"; do test -f "$file"; done
+          test "$CAPACITY_WITHIN_BUDGET" = "true"
+          test "$COST_WITHIN_BUDGET" = "true"
+          jq --exit-status --arg revision "$CANDIDATE_SHA" '
+            .status == "succeeded" and .candidateCommit == $revision and
+            .releaseStage == "internal" and .migrationVerified == true and
+            .recoveryVerified == true and .recoveryFinalCursorEmpty == true and
+            .recoveryFailedCount == 0 and .rolesVerified == true
+          ' "$release" >/dev/null
+          jq --exit-status --arg revision "$CANDIDATE_SHA" '.revision == $revision and .healthReady == true and .ownerIsolationVerified == true' "$baseline" >/dev/null
+          jq --exit-status --arg revision "$CANDIDATE_SHA" '.revision == $revision and .intakeClosed == true and .acceptedRunsQueryable == true' "$rollback" >/dev/null
+          jq --exit-status --arg revision "$CANDIDATE_SHA" '.revision == $revision and ([.roles[]] | all(.readiness == "ready")) and .state.runs.terminalCount == 2' "$operational" >/dev/null
+          jq --exit-status --arg revision "$CANDIDATE_SHA" '.revision == $revision and .event == "async_dispatcher_worker_fault_drill_completed"' "$dispatcher" >/dev/null
+          jq --exit-status --arg revision "$CANDIDATE_SHA" '.revision == $revision and .event == "async_redis_queue_rebuild_drill_completed" and .totals.verification.failed == 0' "$redis" >/dev/null
+          jq --exit-status --arg revision "$CANDIDATE_SHA" '.revision == $revision and .event == "async_webhook_observability_drill_completed" and .readiness.canaryPassed == true and .readiness.productionPassed == true' "$webhook" >/dev/null
+          jq -n \
+            --arg revision "$CANDIDATE_SHA" \
+            --argjson internalReleaseRunId "$INTERNAL_RELEASE_RUN_ID" \
+            --argjson internalSmokeRunId "$INTERNAL_SMOKE_RUN_ID" \
+            --argjson dispatcherWorkerDrillRunId "$DISPATCHER_DRILL_RUN_ID" \
+            --argjson redisRebuildDrillRunId "$REDIS_DRILL_RUN_ID" \
+            --argjson webhookObservabilityDrillRunId "$WEBHOOK_DRILL_RUN_ID" \
+            --slurpfile release "$release" \
+            --slurpfile operational "$operational" '
+            {
+              schemaVersion: 1,
+              event: "async_release_promotion_gates_aggregated",
+              revision: $revision,
+              allEvidenceSameRevision: true,
+              internalSmokePassed: true,
+              dispatcherWorkerDrillPassed: true,
+              redisRebuildDrillPassed: true,
+              webhookObservabilityDrillPassed: true,
+              migrationVerified: true,
+              recoveryVerified: true,
+              ownerQueriesVerified: true,
+              fiveRolesReady: ([ $operational[0].roles[] | select(.role != "business-api") ] | length) == 5,
+              capacityWithinBudget: true,
+              costWithinBudget: true,
+              backupId: $release[0].backupId,
+              imageId: $release[0].imageId,
+              migrationAppliedCount: $release[0].migrationAppliedCount,
+              recoveryBatchCount: $release[0].recoveryBatchCount,
+              evidenceRuns: {
+                internalRelease: $internalReleaseRunId,
+                internalSmoke: $internalSmokeRunId,
+                dispatcherWorkerDrill: $dispatcherWorkerDrillRunId,
+                redisRebuildDrill: $redisRebuildDrillRunId,
+                webhookObservabilityDrill: $webhookObservabilityDrillRunId
+              }
+            }
+          ' > promotion-gates.json
+          jq --exit-status '.fiveRolesReady == true' promotion-gates.json >/dev/null
+
+      - name: Configure SSH
+        env:
+          SSH_KNOWN_HOSTS: ${{ secrets.SSH_KNOWN_HOSTS }}
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+        run: |
+          set -Eeuo pipefail
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/id_ed25519 ~/.ssh/known_hosts
+
+      - name: Upload aggregated gates
+        env:
+          REMOTE_HOST: ${{ vars.REMOTE_HOST }}
+          REMOTE_USER: ${{ vars.REMOTE_USER }}
+        run: |
+          set -Eeuo pipefail
+          scp -o BatchMode=yes -o StrictHostKeyChecking=yes \
+            promotion-gates.json \
+            "$REMOTE_USER@$REMOTE_HOST:/tmp/pipipi-async-promotion-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT.json"
+
+      - name: Change exactly one async release variable
+        env:
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+          DIRECTION: ${{ inputs.direction }}
+          OBSERVATION_WINDOW_SECONDS: ${{ inputs.observation_window_seconds }}
+          REMOTE_HOST: ${{ vars.REMOTE_HOST }}
+          REMOTE_PATH: ${{ vars.REMOTE_PATH }}
+          REMOTE_USER: ${{ vars.REMOTE_USER }}
+          ROLLBACK_OWNER: ${{ inputs.rollback_owner }}
+          TARGET_STAGE: ${{ inputs.target_stage }}
+          TARGET_TRAFFIC: ${{ inputs.target_traffic_percent }}
+          VARIABLE: ${{ inputs.variable }}
+        run: |
+          set -Eeuo pipefail
+          source="/tmp/pipipi-async-promotion-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT.json"
+          ssh -o BatchMode=yes -o StrictHostKeyChecking=yes \
+            "$REMOTE_USER@$REMOTE_HOST" bash -s -- \
+            "$REMOTE_PATH" "$CANDIDATE_SHA" "$DIRECTION" "$VARIABLE" \
+            "$TARGET_STAGE" "$TARGET_TRAFFIC" "$OBSERVATION_WINDOW_SECONDS" \
+            "$ROLLBACK_OWNER" "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" "$source" \
+            < ops/promote-async-release.sh
+
+      - name: Collect promotion evidence
+        if: ${{ always() }}
+        env:
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+          REMOTE_HOST: ${{ vars.REMOTE_HOST }}
+          REMOTE_PATH: ${{ vars.REMOTE_PATH }}
+          REMOTE_USER: ${{ vars.REMOTE_USER }}
+        run: |
+          set -Eeuo pipefail
+          mkdir -p evidence
+          remote="$REMOTE_PATH/shared/async-promotion/evidence/$CANDIDATE_SHA-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          for file in evidence.json critical-before.json critical-after.json roles-before.json roles-after.json; do
+            scp -o BatchMode=yes -o StrictHostKeyChecking=yes \
+              "$REMOTE_USER@$REMOTE_HOST:$remote/$file" "evidence/$file"
+          done
+
+      - name: Remove transferred gate aggregate
+        if: ${{ always() }}
+        env:
+          REMOTE_HOST: ${{ vars.REMOTE_HOST }}
+          REMOTE_USER: ${{ vars.REMOTE_USER }}
+        run: |
+          set -Eeuo pipefail
+          ssh -o BatchMode=yes -o StrictHostKeyChecking=yes \
+            "$REMOTE_USER@$REMOTE_HOST" \
+            rm -f -- "/tmp/pipipi-async-promotion-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT.json"
+
+      - name: Verify safe promotion evidence
+        if: ${{ always() }}
+        env:
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+          ROLLBACK_OWNER: ${{ inputs.rollback_owner }}
+          TARGET_STAGE: ${{ inputs.target_stage }}
+          TARGET_TRAFFIC: ${{ inputs.target_traffic_percent }}
+          VARIABLE: ${{ inputs.variable }}
+        run: |
+          set -Eeuo pipefail
+          jq --exit-status \
+            --arg revision "$CANDIDATE_SHA" \
+            --arg owner "$ROLLBACK_OWNER" \
+            --arg stage "$TARGET_STAGE" \
+            --arg variable "$VARIABLE" \
+            --argjson traffic "$TARGET_TRAFFIC" '
+            .schemaVersion == 1 and
+            .event == "async_release_promotion_completed" and
+            .revision == $revision and
+            .changedVariable == $variable and
+            .targetStage == $stage and
+            .targetTrafficPercent == $traffic and
+            .rollbackOwner == $owner and
+            .status == "succeeded" and
+            (.roleReadinessBefore | length) == 5 and
+            (.roleReadinessAfter | length) == 5 and
+            .ownerQueriesPreserved == true and
+            .compatibleWorkersPreserved == true and
+            .postgresStateDeleted == false
+          ' evidence/evidence.json >/dev/null
+          if jq -r '.. | objects | keys[]' evidence/*.json | \
+              grep -Eiq 'claim.?token|idempotency.?key|accepted.?input|(^|_)output$|payload|prompt|secret|authorization|database.?url|redis.?url|endpoint.?url'; then
+            echo "Forbidden promotion evidence field detected" >&2
+            exit 1
+          fi
+
+      - name: Upload promotion evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v6
+        with:
+          name: pipipi-async-promotion-${{ inputs.candidate_sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: evidence/
+          if-no-files-found: error
+          retention-days: 90
