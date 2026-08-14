@@ -319,6 +319,8 @@ Dashboard 与告警的 vendor-neutral 规范位于 [`ops/async-observability.jso
 | Storage | `persistence.storage.asyncTablesBytes` | 当前体积；监控系统计算日增长率 |
 | Cleanup/Recovery | `lastDeferredRuns`、`lastFailedItems`、完成时间 | 内容清理受引用阻塞或 Queue 恢复失败 |
 
+`ops/async-observability.json` 把 `runId`、`eventId`、`deliveryId` 固定为调查关联键，并把 Webhook failure/Queue age、Recovery 超期或 failed item 标为 critical。staged release 除检查告警外，仍必须调用 API readiness；Dashboard 正常不能替代 PostgreSQL 容量、Outbox 和完整 Recovery 门禁。
+
 结构化日志的关联链为：API/Worker 使用 `runId`，Outbox 同时使用 `messageId + eventId + runId|deliveryId`，Webhook Attempt 使用 `deliveryId + eventId`。Process Attempt 与 activity 由 Pino 输出；`level=30|40|50` 分别表示 `info|warn|error`。排查单个 Process Run 时，先按 `runId` 过滤，再按 `attemptNumber + sequence` 排序；`process_run_activity_started` 表示当前阶段，配对的 `process_run_activity_finished` 给出 outcome 与耗时，`process_run_attempt_finished` 给出 Attempt 结果和稳定错误码。API 与 Worker 必须使用相同的 `PROCESS_RUN_LOG_LEVEL`，生产保留完整时间线时设为 `info`。
 
 日志不得包含 caller 原始凭证、idempotency key、accepted input、output、Prompt、Tool 参数、模型消息、隐藏推理、Webhook payload、Endpoint URL、签名 Secret、数据库/Redis URL、远端响应正文或内部异常消息。需要查看业务结果时，使用 owner-authenticated GET；不要从日志还原内容。Activity Log 是 best-effort 观测；缺失事件不能用来推断权威状态，状态与恢复仍以 PostgreSQL 为准。
@@ -390,6 +392,8 @@ Redis 数据丢失的标准动作：
 2. 确认 Delivery 按 PostgreSQL 策略重试，Process Queue latency 不受 Webhook backlog 影响。
 3. 恢复 Endpoint 或执行受审计 replay；相同 Event 使用稳定 `eventId`，接收方去重。
 4. 验证日志没有 URL、payload、Secret 或响应正文。
+
+受保护的 `.github/workflows/async-webhook-observability-drill.yml` 固定候选 SHA，在一次性 PostgreSQL/Redis 和本地测试 Endpoint 上自动执行这条链。它保存两个 Process Run、Delivery/Event ID、失败到恢复的 Attempt、完整无内容运维快照与关联日志；同时证明缺少新鲜完整 Recovery 时 canary readiness 拒绝，补齐后 canary/production readiness 通过。该 workflow 与其他故障演练共用 `async-staging` 串行组，不接生产流量，也不改变发布阶段。
 
 ### 回滚
 

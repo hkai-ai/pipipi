@@ -8,7 +8,12 @@ describe("Async observability specification", () => {
         ) as {
             schemaVersion: number;
             dashboards: Array<{ panels: Array<{ metric: string }> }>;
-            alerts: Array<{ metric: string; runbook: string }>;
+            alerts: Array<{
+                metric: string;
+                runbook: string;
+                severity: string;
+            }>;
+            correlationKeys: string[];
         };
         const metrics = new Set([
             ...specification.dashboards.flatMap((dashboard) =>
@@ -47,9 +52,28 @@ describe("Async observability specification", () => {
             "persistence.outbox.oldestWebhookLagMs",
             "logs.retention_cleanup_sweep_failed.count",
             "persistence.cleanup.lastCompletedAt",
+            "persistence.recovery.lastCompletedAt",
+            "persistence.recovery.lastFailedItems",
         ]) {
             expect(alertMetrics.has(requiredAlert), requiredAlert).toBe(true);
         }
+        expect(specification.correlationKeys).toEqual([
+            "runId",
+            "eventId",
+            "deliveryId",
+        ]);
+        expect(
+            specification.alerts
+                .filter((alert) =>
+                    [
+                        "persistence.webhooks.failureRateRecent",
+                        "queues.webhook.oldestRunnableAgeMs",
+                        "persistence.recovery.lastCompletedAt",
+                        "persistence.recovery.lastFailedItems",
+                    ].includes(alert.metric),
+                )
+                .every((alert) => alert.severity === "critical"),
+        ).toBe(true);
         expect(
             specification.alerts.every((alert) =>
                 alert.runbook.startsWith("docs/async-process-runs-runbook.md#"),

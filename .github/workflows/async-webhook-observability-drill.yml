@@ -1,0 +1,135 @@
+name: Async Webhook isolation and observability drill
+run-name: Async Webhook observability drill ${{ inputs.candidate_sha }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      candidate_sha:
+        description: Isolated staging candidate full commit SHA
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  drill:
+    name: Exercise Webhook failure isolation and release gates
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment:
+      name: async-staging
+    concurrency:
+      group: pipipi-async-staging-fault-drill
+      cancel-in-progress: false
+    env:
+      ASYNC_INTEGRATION_PROJECT_NAME: pipipi-webhook-drill-${{ github.run_id }}-${{ github.run_attempt }}
+
+    steps:
+      - name: Validate candidate
+        env:
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+        run: |
+          set -Eeuo pipefail
+          [[ "$CANDIDATE_SHA" =~ ^[0-9a-f]{40}$ ]]
+
+      - name: Checkout candidate
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.candidate_sha }}
+
+      - name: Verify checkout
+        env:
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+        run: test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run isolated Webhook observability drill
+        env:
+          ASYNC_WEBHOOK_DRILL_EVIDENCE_FILE: evidence/webhook-observability.json
+          ASYNC_WEBHOOK_DRILL_REVISION: ${{ inputs.candidate_sha }}
+        run: |
+          set -Eeuo pipefail
+          mkdir -p evidence
+          npm run test:drill:webhook-observability:local
+
+      - name: Verify isolation, readiness, and safe evidence
+        env:
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+        run: |
+          set -Eeuo pipefail
+          evidence=evidence/webhook-observability.json
+          test -f "$evidence"
+          jq --exit-status --arg revision "$CANDIDATE_SHA" '
+            .schemaVersion == 1 and
+            .event == "async_webhook_observability_drill_completed" and
+            .environment == "isolated-staging" and
+            .revision == $revision and
+            .actor == "operator:webhook-observability-drill" and
+            .productionTrafficAffected == false and
+            (.runs | length) == 2 and
+            ([.runs[]] | all(
+              .status == "succeeded" and
+              .terminalBeforeWebhookSuccess == true and
+              .terminalElapsedMs < 3000
+            )) and
+            (.deliveries | length) == 2 and
+            ([.deliveries[]] | all(
+              .stableEventId == true and
+              (.attempts | length) == 2 and
+              .attempts[0].attemptNumber == 1 and
+              .attempts[0].outcome == "failed" and
+              .attempts[0].httpStatus == 503 and
+              .attempts[1].attemptNumber == 2 and
+              .attempts[1].outcome == "succeeded" and
+              .attempts[1].httpStatus == 204
+            )) and
+            .isolation.webhookFailuresObserved == 2 and
+            .isolation.processQueueLatencyWithinRetryWindow == true and
+            .isolation.processQueueWaitingDuringWebhookBacklog == 0 and
+            .isolation.webhookPendingDuringSnapshot == 2 and
+            .isolation.futureRetryExcludedFromCurrentOutboxLag == true and
+            .readiness.rejectedWithoutRecovery == true and
+            .readiness.canaryPassed == true and
+            .readiness.productionPassed == true and
+            .snapshot.persistence.runs.queued == 0 and
+            .snapshot.persistence.runs.running == 0 and
+            .snapshot.persistence.runs.stuck == 0 and
+            .snapshot.persistence.outbox.processPending == 0 and
+            .snapshot.persistence.outbox.webhookPending == 0 and
+            .snapshot.persistence.outbox.oldestWebhookLagMs == 0 and
+            .snapshot.persistence.webhooks.pending == 2 and
+            .snapshot.persistence.cleanup.lastCompletedAt != null and
+            .snapshot.persistence.recovery.lastStatus == "completed" and
+            .snapshot.persistence.recovery.lastFailedItems == 0 and
+            .snapshot.persistence.storage.asyncTablesBytes > 0 and
+            .snapshot.queues.process.waiting == 0 and
+            .correlationKeys == ["runId", "eventId", "deliveryId"] and
+            ([.timeline[].event] | index("process_run_work_finished") != null) and
+            ([.timeline[].event] | index("webhook_delivery_attempt_finished") != null) and
+            .evidenceContainsOnlySafeFields == true
+          ' "$evidence" >/dev/null
+          if jq -r '.. | objects | keys[]' "$evidence" | \
+              grep -Eiq 'claim.?token|idempotency.?key|accepted.?input|(^|_)output$|payload|prompt|tool.?arg|secret|authorization|endpoint.?url|database.?url|redis.?url|response.?body|internal.?error'; then
+            echo "Forbidden evidence field detected" >&2
+            exit 1
+          fi
+
+      - name: Clean isolated dependencies
+        if: ${{ always() }}
+        run: |
+          docker compose \
+            --project-name "$ASYNC_INTEGRATION_PROJECT_NAME" \
+            --file compose.integration.yaml \
+            down --volumes --remove-orphans
+
+      - name: Upload Webhook observability evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v6
+        with:
+          name: pipipi-webhook-observability-${{ inputs.candidate_sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: evidence/webhook-observability.json
+          if-no-files-found: warn
+          retention-days: 30

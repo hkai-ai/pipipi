@@ -81,6 +81,7 @@ curl --fail -X POST http://127.0.0.1:3000/execute \
 | `npm run test:integration:async:local` | 启动隔离 Compose、运行完整异步集成测试并在成功或失败后清理 | 是，会启动并删除本地测试容器与临时数据 |
 | `npm run test:drill:dispatcher-worker:local` | 启动隔离 Compose，注入 Dispatcher 重启、Worker claim 失效、重复 Job 和滚动停机故障并输出可选证据 | 是，会重建 `_test` schema、清空测试 Redis，并删除本地测试容器与临时数据 |
 | `npm run test:drill:redis-rebuild:local` | 启动隔离 Compose，验证 Redis 不可用 durable acceptance、普通 relay、Queue 全丢与受审计全量重建 | 是，会重建 `_test` schema、多次清空测试 Redis，并删除本地测试容器与临时数据 |
+| `npm run test:drill:webhook-observability:local` | 启动隔离 Compose，让测试 Endpoint 返回 503，验证 Process/Webhook 隔离、稳定 Event、运维快照与 staged readiness | 是，会启动本地 HTTP Endpoint、重建 `_test` schema、清空测试 Redis，并删除本地测试容器与临时数据 |
 | `npm run test:acceptance:console:local` | 构建控制台并用 headless Chrome 验收浏览器异步提交、刷新恢复和终态投影 | 是，会启动并删除本地测试容器与临时数据；需要 Chrome 或 `CHROME_PATH` |
 | `npm run test:acceptance:async:local` | 按 CI 顺序运行 PostgreSQL、BullMQ/跨 Seam 和浏览器三层异步验收 | 是，会启动一组隔离依赖并在结尾删除容器、网络和临时数据 |
 | `npm run check:deployment:async-shape` | 用安全占位值渲染默认 Compose 与显式异步叠加层，验证角色、镜像、revision、命令、readiness、Queue 配置及缺参失败 | 否；需要 Docker Compose，不读取生产 Secret，也不启动容器 |
@@ -168,6 +169,16 @@ npm run test:drill:redis-rebuild:local
 ```
 
 受保护入口为 `.github/workflows/async-redis-rebuild-drill.yml`，与 Dispatcher/Worker 演练共享 `async-staging` Environment 和串行并发组。
+
+Webhook/观测专项演练在 Webhook Endpoint 持续返回 `503` 时执行两个 Process Run，要求它们在 Webhook retry window 前到达业务终态且 Process Queue 无等待；随后保存包含 Run、Outbox、两个 Queue、Delivery、storage、cleanup 和 recovery 的无内容快照。未来才到 `availableAt` 的重试必须显示为 Delivery pending，但当前 Webhook Outbox pending/lag 仍为零。Endpoint 恢复后，每条 Delivery 以同一 `eventId` 从失败 Attempt 收敛到成功 Attempt：
+
+```bash
+ASYNC_WEBHOOK_DRILL_REVISION="$(git rev-parse HEAD)" \
+ASYNC_WEBHOOK_DRILL_EVIDENCE_FILE=artifacts/webhook-observability-drill.json \
+npm run test:drill:webhook-observability:local
+```
+
+`.github/workflows/async-webhook-observability-drill.yml` 是受保护的手动 `async-staging` 入口；证据只保存 revision、Run/Delivery/Event ID、非秘密快照和脱敏时间线。
 
 ### 异步 HTTP 开发入口
 

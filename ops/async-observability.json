@@ -6,6 +6,7 @@
         "recommendedIntervalSeconds": 60,
         "recentWindowEnvironment": "ASYNC_OPERATIONS_RECENT_WINDOW_MS"
     },
+    "correlationKeys": ["runId", "eventId", "deliveryId"],
     "dashboards": [
         {
             "id": "async-api-admission",
@@ -125,6 +126,11 @@
                     "title": "Last Queue Recovery failures"
                 },
                 {
+                    "metric": "persistence.recovery.lastCompletedAt",
+                    "statistic": "latest_age",
+                    "title": "Last complete Queue Recovery age"
+                },
+                {
                     "metric": "persistence.cleanup.lastDeferredRuns",
                     "statistic": "latest",
                     "title": "Last cleanup deferred Runs"
@@ -210,15 +216,29 @@
             "id": "async-webhook-failure-rate",
             "metric": "persistence.webhooks.failureRateRecent",
             "condition": "greater than 0.10 with at least 20 terminal Deliveries",
-            "severity": "warning",
+            "severity": "critical",
             "runbook": "docs/async-process-runs-runbook.md#webhook-失败或积压"
         },
         {
             "id": "async-webhook-queue-age",
             "metric": "queues.webhook.oldestRunnableAgeMs",
             "condition": "greater than delivery SLO for 10m",
-            "severity": "warning",
+            "severity": "critical",
             "runbook": "docs/async-process-runs-runbook.md#webhook-失败或积压"
+        },
+        {
+            "id": "async-recovery-overdue",
+            "metric": "persistence.recovery.lastCompletedAt",
+            "condition": "missing or older than ASYNC_RECOVERY_MAX_AGE_MS",
+            "severity": "critical",
+            "runbook": "docs/async-process-runs-runbook.md#queue-恢复"
+        },
+        {
+            "id": "async-recovery-failed-items",
+            "metric": "persistence.recovery.lastFailedItems",
+            "condition": "greater than 0",
+            "severity": "critical",
+            "runbook": "docs/async-process-runs-runbook.md#queue-恢复"
         },
         {
             "id": "async-storage-growth",

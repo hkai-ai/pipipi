@@ -62,6 +62,8 @@ Agent 只获得 Process Registration 明确绑定的 Runtime Skill 集合与窄 
 
 独立 Redis 重建演练证明 Queue 不可用不影响 PostgreSQL durable acceptance 与 owner GET；Queue 全丢后，只有通过完整 dry-run 链门禁的受审计 apply 才重建非终态工作，active lease 延后而终态 Run 永不重建。
 
+独立 Webhook 隔离演练证明 Endpoint 故障和 Delivery backlog 不支配 Process Queue latency 或业务终态；稳定 `eventId` 贯穿 PostgreSQL retry。无内容运维快照、critical alerts 与 canary/production readiness 共同检查 backlog、stuck、已到期 Outbox lag、Delivery、storage、cleanup 和完整人工 Recovery 新鲜度。
+
 ## 当前不做
 
 项目当前不提供：
