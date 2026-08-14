@@ -1,0 +1,254 @@
+name: Async paid image smoke
+run-name: Paid CRT smoke for ${{ inputs.candidate_sha }} under ${{ inputs.cost_approval_reference }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      candidate_sha:
+        description: Active async candidate full commit SHA
+        required: true
+        type: string
+      promotion_run_id:
+        description: Successful Async staged promotion run ID
+        required: true
+        type: string
+      promotion_run_attempt:
+        description: Async staged promotion attempt
+        required: true
+        default: "1"
+        type: string
+      cost_confirmation:
+        description: Confirm exactly one paid CRT operation is approved
+        required: true
+        type: choice
+        options: [APPROVE_ONE_PAID_CRT_OPERATION]
+      approved_cost_limit_usd:
+        description: Maximum approved cost in USD for this operation
+        required: true
+        type: string
+      cost_approval_reference:
+        description: Non-secret approval or budget reference
+        required: true
+        type: string
+      timeout_seconds:
+        description: Owner query deadline in seconds
+        required: true
+        default: "300"
+        type: string
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  smoke:
+    name: Run one approved FAL/OSS async journey
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment:
+      name: async-paid-smoke
+    concurrency:
+      group: pipipi-production-release
+      cancel-in-progress: false
+
+    steps:
+      - name: Validate explicit paid approval
+        env:
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+          COST_APPROVAL_REFERENCE: ${{ inputs.cost_approval_reference }}
+          COST_CONFIRMATION: ${{ inputs.cost_confirmation }}
+          COST_LIMIT_USD: ${{ inputs.approved_cost_limit_usd }}
+          PROMOTION_RUN_ATTEMPT: ${{ inputs.promotion_run_attempt }}
+          PROMOTION_RUN_ID: ${{ inputs.promotion_run_id }}
+          TIMEOUT_SECONDS: ${{ inputs.timeout_seconds }}
+        run: |
+          set -Eeuo pipefail
+          [[ "$CANDIDATE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$PROMOTION_RUN_ID" =~ ^[1-9][0-9]*$ ]]
+          [[ "$PROMOTION_RUN_ATTEMPT" =~ ^[1-9][0-9]*$ ]]
+          test "$COST_CONFIRMATION" = "APPROVE_ONE_PAID_CRT_OPERATION"
+          [[ "$COST_LIMIT_USD" =~ ^(0|[1-9][0-9]{0,3})\.[0-9]{2}$ ]]
+          test "$(awk -v limit="$COST_LIMIT_USD" 'BEGIN { print (limit > 0) ? "yes" : "no" }')" = yes
+          [[ "$COST_APPROVAL_REFERENCE" =~ ^[A-Za-z0-9._:/-]{1,128}$ ]]
+          [[ "$TIMEOUT_SECONDS" =~ ^[1-9][0-9]*$ ]]
+          (( TIMEOUT_SECONDS >= 60 && TIMEOUT_SECONDS <= 900 ))
+
+      - name: Checkout immutable candidate
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.candidate_sha }}
+
+      - name: Verify protected promotion source
+        env:
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+          GH_TOKEN: ${{ github.token }}
+          PROMOTION_RUN_ID: ${{ inputs.promotion_run_id }}
+        run: |
+          set -Eeuo pipefail
+          test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
+          record="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$PROMOTION_RUN_ID")"
+          jq --exit-status \
+            --arg revision "$CANDIDATE_SHA" \
+            '.head_sha == $revision and
+             .path == ".github/workflows/async-promote-release.yml" and
+             .status == "completed" and .conclusion == "success" and
+             .event == "workflow_dispatch"' <<< "$record" >/dev/null
+
+      - name: Download exact promotion evidence
+        env:
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+          GH_TOKEN: ${{ github.token }}
+          PROMOTION_RUN_ATTEMPT: ${{ inputs.promotion_run_attempt }}
+          PROMOTION_RUN_ID: ${{ inputs.promotion_run_id }}
+        run: |
+          set -Eeuo pipefail
+          gh run download "$PROMOTION_RUN_ID" \
+            --name "pipipi-async-promotion-$CANDIDATE_SHA-$PROMOTION_RUN_ID-$PROMOTION_RUN_ATTEMPT" \
+            --dir promotion
+
+      - name: Require same-revision live canary gates
+        env:
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+        run: |
+          set -Eeuo pipefail
+          evidence=promotion/evidence.json
+          test -f "$evidence"
+          jq --exit-status --arg revision "$CANDIDATE_SHA" '
+            .status == "succeeded" and .revision == $revision and
+            .direction == "promote" and
+            (.targetStage == "canary" or .targetStage == "production") and
+            .targetTrafficPercent >= 1 and
+            .gates.allEvidenceSameRevision == true and
+            .gates.internalSmokePassed == true and
+            .gates.dispatcherWorkerDrillPassed == true and
+            .gates.redisRebuildDrillPassed == true and
+            .gates.webhookObservabilityDrillPassed == true and
+            .gates.migrationVerified == true and
+            .gates.recoveryVerified == true and
+            .gates.capacityWithinBudget == true and
+            .gates.costWithinBudget == true and
+            .criticalBefore.criticalAlertsClear == true and
+            .criticalAfter.criticalAlertsClear == true and
+            (.roleReadinessAfter | length) == 5 and
+            ([.roleReadinessAfter[]] | all(.readiness == "ready"))
+          ' "$evidence" >/dev/null
+
+      - name: Configure SSH
+        env:
+          SSH_KNOWN_HOSTS: ${{ secrets.SSH_KNOWN_HOSTS }}
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+        run: |
+          set -Eeuo pipefail
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/id_ed25519 ~/.ssh/known_hosts
+
+      - name: Verify active revision stage and traffic
+        env:
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+          REMOTE_HOST: ${{ vars.REMOTE_HOST }}
+          REMOTE_PATH: ${{ vars.REMOTE_PATH }}
+          REMOTE_USER: ${{ vars.REMOTE_USER }}
+        run: |
+          set -Eeuo pipefail
+          expected_stage="$(jq -r '.targetStage' promotion/evidence.json)"
+          expected_traffic="$(jq -r '.targetTrafficPercent' promotion/evidence.json)"
+          ssh -o BatchMode=yes -o StrictHostKeyChecking=yes \
+            "$REMOTE_USER@$REMOTE_HOST" bash -s -- \
+            "$REMOTE_PATH" "$CANDIDATE_SHA" "$expected_stage" "$expected_traffic" <<'REMOTE'
+          set -Eeuo pipefail
+          app_root="$1"
+          revision="$2"
+          expected_stage="$3"
+          expected_traffic="$4"
+          [[ "$app_root" =~ ^/[A-Za-z0-9._/-]+$ ]]
+          [[ "$revision" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$expected_stage" =~ ^(canary|production)$ ]]
+          [[ "$expected_traffic" =~ ^(1|5|25|50|100)$ ]]
+          for container in pipipi pipipi-process-dispatcher pipipi-process-worker pipipi-webhook-worker pipipi-retention-cleaner; do
+            test "$(docker inspect "$container" --format '{{index .Config.Labels "com.pipipi.revision"}}')" = "$revision"
+          done
+          stage="$(docker inspect pipipi --format '{{range .Config.Env}}{{println .}}{{end}}' | awk -F= '$1 == "ASYNC_RELEASE_STAGE" { sub(/^[^=]*=/, ""); print }')"
+          test "$stage" = "$expected_stage"
+          traffic="$($app_root/shared/async-control/set-traffic get "$revision")"
+          test "$traffic" = "$expected_traffic"
+          REMOTE
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install candidate dependencies
+        run: npm ci
+
+      - name: Run exactly one paid async image operation
+        env:
+          PAID_ASYNC_CALLER_AUTHORIZATION: ${{ secrets.PAID_ASYNC_CALLER_AUTHORIZATION }}
+          PAID_ASYNC_COST_APPROVAL_REFERENCE: ${{ inputs.cost_approval_reference }}
+          PAID_ASYNC_COST_LIMIT_USD: ${{ inputs.approved_cost_limit_usd }}
+          PAID_ASYNC_EVIDENCE_FILE: artifacts/paid-async-image-smoke/evidence.json
+          PAID_ASYNC_EXPECTED_OSS_HOST: ${{ vars.PAID_ASYNC_EXPECTED_OSS_HOST }}
+          PAID_ASYNC_EXPECTED_OSS_PATH_PREFIX: ${{ vars.PAID_ASYNC_EXPECTED_OSS_PATH_PREFIX }}
+          PAID_ASYNC_GATEWAY_URL: ${{ vars.PAID_ASYNC_GATEWAY_URL }}
+          PAID_ASYNC_REVISION: ${{ inputs.candidate_sha }}
+          PAID_ASYNC_SOURCE_IMAGE_URL: ${{ secrets.PAID_ASYNC_SOURCE_IMAGE_URL }}
+          PAID_ASYNC_TIMEOUT_SECONDS: ${{ inputs.timeout_seconds }}
+        run: npm run smoke:async-paid-image
+
+      - name: Verify safe paid smoke evidence
+        if: ${{ always() }}
+        env:
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+          COST_APPROVAL_REFERENCE: ${{ inputs.cost_approval_reference }}
+          COST_LIMIT_USD: ${{ inputs.approved_cost_limit_usd }}
+          PAID_ASYNC_CALLER_AUTHORIZATION: ${{ secrets.PAID_ASYNC_CALLER_AUTHORIZATION }}
+          PAID_ASYNC_SOURCE_IMAGE_URL: ${{ secrets.PAID_ASYNC_SOURCE_IMAGE_URL }}
+        run: |
+          set -Eeuo pipefail
+          evidence=artifacts/paid-async-image-smoke/evidence.json
+          test -f "$evidence"
+          jq --exit-status \
+            --arg revision "$CANDIDATE_SHA" \
+            --arg reference "$COST_APPROVAL_REFERENCE" \
+            --arg limit "$COST_LIMIT_USD" '
+            .schemaVersion == 1 and
+            .event == "paid_async_image_smoke_completed" and
+            .revision == $revision and .status == "succeeded" and
+            .process == {id:"crt-interface-image", version:"v1"} and
+            (.runId | type == "string" and length > 0) and
+            .recovery.submissionAttempts == 2 and
+            .recovery.uniqueRuns == 1 and
+            .recovery.acceptanceResponseRecoveryVerified == true and
+            .recovery.querySessions == 2 and
+            .recovery.queryRecoveryVerified == true and
+            .object.contentType == "image/png" and
+            .object.expectedOssLocationVerified == true and
+            .object.accessible == true and .object.opaque == true and
+            .object.paletteVerified == true and .object.bytes > 0 and
+            (.object.identitySha256 | test("^[0-9a-f]{64}$")) and
+            (.object.contentSha256 | test("^[0-9a-f]{64}$")) and
+            .costApproval == {currency:"USD", limit:$limit, reference:$reference}
+          ' "$evidence" >/dev/null
+          jq --exit-status \
+            --arg source "$PAID_ASYNC_SOURCE_IMAGE_URL" \
+            --arg authorization "$PAID_ASYNC_CALLER_AUTHORIZATION" '
+            (tostring | contains($source) | not) and
+            (tostring | contains($authorization) | not)
+          ' "$evidence" >/dev/null
+          if jq -r '.. | objects | keys[]' "$evidence" | \
+              grep -Eiq 'source.?url|object.?url|raw.?image|authorization|idempotency.?key|prompt|secret|credential|payload|accepted.?input|(^|_)output$|fal.?key|oss.?access'; then
+            echo "Forbidden paid smoke evidence field detected" >&2
+            exit 1
+          fi
+
+      - name: Upload paid smoke evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v6
+        with:
+          name: pipipi-async-paid-image-smoke-${{ inputs.candidate_sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/paid-async-image-smoke/evidence.json
+          if-no-files-found: error
+          retention-days: 90

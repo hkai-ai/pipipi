@@ -87,6 +87,7 @@ curl --fail -X POST http://127.0.0.1:3000/execute \
 | `npm run check:deployment:async-shape` | 用安全占位值渲染默认 Compose 与显式异步叠加层，验证角色、镜像、revision、命令、readiness、Queue 配置及缺参失败 | 否；需要 Docker Compose，不读取生产 Secret，也不启动容器 |
 | `npm run smoke:agent` | 验证真实 Agent 与 Business Capability | 是，可能产生模型费用 |
 | `npm run smoke:staging` | 验证已部署的受控环境 | 是 |
+| `npm run smoke:async-paid-image` | 经真实网关提交固定 `crt-interface-image/v1`，验证同 key 恢复、owner GET、FAL/finalizer 与 OSS PNG | 是，产生一次图片费用并读取对象；只能由受保护 workflow 注入配置 |
 | `npm run test:skill-ab` | 运行三组 Skill 对比 | 是，可能产生模型费用 |
 | `npm run accept:poster-business`（`smoke:poster-process`、`test:gpt-image-2` 别名） | 从产品 `POST /execute` 验收 `minimal-zine-poster/v1`、真实图片与可选上传 | 是，可能产生模型和存储费用 |
 | `npm run smoke:crt-gpt-image` | 验证一张本地参考图可通过 GPT Image 2 edit stage 生成 PNG；不运行 finalizer 或完整 Process | 是，读取本地图片、产生模型费用并写 `artifacts/` |
@@ -149,6 +150,10 @@ Pull Request 和 `main` 的 `Production CI/CD` 另设稳定检查名 `Async dura
 `Async internal release` 与上述 CI 分开，只支持 `workflow_dispatch`，并绑定 `async-internal` Environment。它不重新构建候选，而是验证操作者给出的 Production CI/CD run 中 `Check and build` 与 `Async durable acceptance` 都成功，再下载该 run 的精确 commit artifact。它与默认发布共享 Actions 并发组和服务器发布锁，并使用 Environment 固定的 SSH host key。发布脚本是 [`../ops/deploy-async-internal.sh`](../ops/deploy-async-internal.sh)；workflow 只负责候选验证、受保护授权、传输和声明过的证据文件回收，远端脚本拥有门禁顺序、角色切换、信号中断恢复和候选文件清理。
 
 `Async staged promotion` 也是独立的 `workflow_dispatch`。它下载同一 revision 的 internal release/smoke 和三项故障演练 artifact，先在 runner 上校验并汇总，再把只含非秘密门禁的单个 JSON 交给 [`../ops/promote-async-release.sh`](../ops/promote-async-release.sh)。远端脚本锁定同一发布并发域，一次只接受 `stage` 或 `traffic`，校验相邻状态、五角色 readiness、最近 critical snapshot、预算和观测窗口。stage 变化只重建 API；traffic 变化只调用服务器固定的可信网关 Adapter，四个后台角色的容器 ID 必须保持不变。失败时恢复原变量与原 promotion state。该编排是发布 Adapter，不进入 Async Process Runs 产品 Module，也不增加产品 HTTP Interface。
+
+`Async paid image smoke` 只支持 `workflow_dispatch` 并绑定 required-reviewer 管理的 `async-paid-smoke` Environment。它要求同 revision promotion 已在 canary/production 放入至少 1% 流量、所有聚合/critical/readiness 门禁仍通过，并要求操作者输入 `APPROVE_ONE_PAID_CRT_OPERATION`、两位小数的 USD 上限和非秘密批准编号。Environment Secret 提供 caller Authorization、公网 source URL 和生产 SSH 凭证；Environment Variable 提供真实网关、批准的 OSS host/path prefix 与远端位置。它和部署/提升共用并发组，并在付费请求前核对五角色 revision、API stage 与网关实际比例。FAL 与 OSS 凭证仍只在目标 CRT Business API 的 Secret 注入中，Actions 不读取它们。
+
+命令固定提交 `crt-interface-image/v1`、`经典`、`4:3` 和 `normal`。它以一个随机 caller-scoped idempotency key 连续发送两次完全相同的 acceptance 请求，模拟第一次响应丢失，要求两次都映射到同一 `runId`；随后结束一次查询会话，再只用相同 owner GET 恢复到终态。成功时下载最终对象并验证批准 OSS 位置、PNG、Process metadata、无 alpha 和固定调色板。artifact 只保存 revision、固定 Process identity、Run ID、终态、恢复布尔值、对象 identity/content SHA-256、尺寸/字节数和费用批准摘要，保留 90 天；不保存 source/object URL、Authorization、idempotency key、raw image、Prompt、业务 input/output、FAL/OSS Secret 或内部错误。该入口不属于 PR CI，不重试 workflow，也不提升 production 流量。
 
 同一 suite 还证明 Outbox 在 PostgreSQL commit 后才进入统一 `process-runs` Queue，Job 只含 `schemaVersion` 和 `runId`，Worker 仍能从数据库选择准确 Registration。故障用例覆盖 Dispatcher claim 过期、Redis 断线、重复 completed Job、Worker claim 过期接管、旧 token fencing 和停机超时 release。Compose Redis 使用 `noeviction` 和临时数据目录；它只用于测试，不代表生产高可用配置。
 

@@ -84,6 +84,8 @@ internal 发布后可手动运行受保护的 `.github/workflows/async-internal-
 
 同一候选的 internal release/smoke、Dispatcher/Worker、Redis 重建和 Webhook/观测证据全部成功后，受保护的 `.github/workflows/async-promote-release.yml` 才允许逐次执行 `internal/0% → canary/0% → 1% → 5% → 25% → production/25% → 50% → 100%`。每次人工批准只改变 stage 或可信网关流量中的一个变量；五个角色 readiness、容量/费用和 critical alert 在变更前后任一失败都会恢复原值。应用不拥有网关路由，服务器上的固定 Adapter 只向该 workflow 提供当前比例、设定比例和无内容 critical snapshot。
 
+至少进入 `canary/1%` 后，受保护的 `.github/workflows/async-paid-image-smoke.yml` 可在单独费用批准下执行一个固定的 `crt-interface-image/v1` 付费异步旅程。它通过真实网关使用同一 idempotency key 模拟 acceptance 响应丢失和查询恢复，只允许得到一个 Run，再验证 FAL URL edit、固定 CRT finalizer 和批准 OSS 路径中的最终 PNG。source URL、调用凭证、对象 URL、Prompt 和 FAL/OSS Secret 不进入 artifact；该入口默认不运行，也不改变流量。
+
 在第一个终端启动演示 Business Capability：
 
 ```bash
@@ -157,7 +159,7 @@ curl http://127.0.0.1:3000/healthz
 
 仓库内已有 Async Process Runs Module、事务化 PostgreSQL Store、Process/Webhook Outbox，以及相互隔离的 BullMQ Process Queue 和 Webhook Queue。`npm run start:api`、`npm run start:dispatcher`、`npm run start:worker`、`npm run start:webhook-worker` 和 `npm run start:retention-cleaner` 从同一构建产物启动独立角色；显式异步生产叠加层为每个角色执行环境预检并用独立 readiness 端口探测。Process 默认只执行一次，只有服务端 Registration 明确声明安全错误、次数和退避时才会重试；Webhook 已支持精简终态事件、Standard Webhooks 签名、PostgreSQL 权威的有界重试、Attempt 审计、受控人工重放、加密 Secret 和防 SSRF 的固定目标连接。Retention Cleaner 按固定 cutoff 分批删除到期内容，批次审计和返回游标允许安全续跑。Redis Queue 丢失时，`npm run recover:queue` 默认先做 PostgreSQL 权威的 dry-run，再由运维人员显式 `--apply` 重建所有仍需执行的 Job；终态 Run 永不进入恢复候选。`npm run observe:async` 从 PostgreSQL 和两个 Queue 读取不含业务内容的运维快照，Dashboard/alert 字段固定在 `ops/async-observability.json`。
 
-`minimal-zine-poster/v1` 和 `crt-interface-image/v1` 已进入 production catalog，但生产 Adapter 只依赖受控 Business API 的 `POST /posters` 与 `POST /crt-images`，不把 FAL、OSS 或模型参数暴露给产品调用方。生产 Compose 已包含内部 CRT Business API；海报 Business API 仍由部署方提供。付费图片与 OSS 验收必须显式运行，不进入默认测试。当前海报版本不接收参考图片；CRT 版本接收公网 HTTPS `sourceImageUrl`。两者都不执行自动看图质检或重绘。
+`minimal-zine-poster/v1` 和 `crt-interface-image/v1` 已进入 production catalog，但生产 Adapter 只依赖受控 Business API 的 `POST /posters` 与 `POST /crt-images`，不把 FAL、OSS 或模型参数暴露给产品调用方。生产 Compose 已包含内部 CRT Business API；海报 Business API 仍由部署方提供。付费图片与 OSS 验收必须通过显式本地命令或受保护的异步付费 smoke 运行，不进入默认测试。当前海报版本不接收参考图片；CRT 版本接收公网 HTTPS `sourceImageUrl`。两者都不执行自动看图质检或重绘。
 
 CRT 流程的 Registration、Runtime Skill、HTTP Adapter、内部 Business API、FAL URL 编辑、独立 finalizer 和 OSS 输出已经完成。正式发布仍需确认：内部 `POST /crt-images` 不向公网暴露，来源 URL 可由 FAL 读取，目标环境完成存储验收，生产证据保留关闭，并确认上游 Skill 的再分发和生产使用权。
 

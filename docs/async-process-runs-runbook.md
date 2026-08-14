@@ -289,6 +289,22 @@ npm run check:deployment-env -- api
 
 `async-internal`、`async-canary`、`async-production` Environment 都必须配置 required reviewer；普通 CI、push 和默认 production workflow 不能调用这两个 Adapter。提升证据保留 90 天。未实际运行受保护 workflow、没有真实网关 Adapter 或没有批准观测窗口时，只能声称发布编排已验证，不能声称 production 流量闭环已完成。
 
+### 受控 FAL/OSS 付费异步 smoke
+
+只有同 revision promotion 已进入 `canary` 或 `production` 且真实流量至少为 1% 后，才可人工运行 `.github/workflows/async-paid-image-smoke.yml`。`async-paid-smoke` Environment 必须配置 required reviewer，并提供：
+
+- Secret `PAID_ASYNC_CALLER_AUTHORIZATION`：获准执行一次付费图片操作的真实网关 caller 凭证；
+- Secret `PAID_ASYNC_SOURCE_IMAGE_URL`：FAL 可匿名读取且有效期覆盖 Queue/FAL 窗口的非敏感公网 HTTPS 图片；
+- Variable `PAID_ASYNC_GATEWAY_URL`：目标真实 HTTPS 网关；
+- Variable `PAID_ASYNC_EXPECTED_OSS_HOST` 与 `PAID_ASYNC_EXPECTED_OSS_PATH_PREFIX`：最终产品 PNG 获准落入的位置。
+- 生产发布共用的 `SSH_PRIVATE_KEY`、`SSH_KNOWN_HOSTS`、`REMOTE_HOST`、`REMOTE_USER` 与 `REMOTE_PATH`：只用于在提交前核对五个容器 revision、API stage 和网关实际比例。
+
+目标 CRT Business API 还必须由部署 Secret 固定 `IMAGE_PROVIDER=fal`、`FAL_KEY` 和正式 OSS 配置；workflow 不读取这些供应商凭证。操作者填写同 revision promotion run/attempt、`APPROVE_ONE_PAID_CRT_OPERATION`、两位小数的 USD 费用上限、非秘密批准编号和 60–900 秒查询期限。付费 smoke 与发布/提升共用 `pipipi-production-release` 并发组；付费请求前再次核对活跃 revision、stage 和 traffic，拒绝拿旧 artifact 测试新部署。没有逐次费用授权不得运行，也不得用普通 CI 或定时任务调用。
+
+每个 workflow run 固定唯一 Registration `crt-interface-image/v1`，固定 `经典`、`4:3`、`normal`，产品 body 中没有 Skill、Prompt、模型、供应商、OSS、Queue 或运行配置。smoke 为一个逻辑操作生成一个 caller-scoped idempotency key，以同一 body/key 执行两次 HTTP acceptance attempt 来模拟首个响应丢失，并要求两次只得到同一个 `runId`；之后结束首次查询会话，再用同一 owner 的 GET 恢复，绝不生成新 key 或第三次提交。终态失败保存 `runId` 和稳定公开 error code；成功则从输出 URL 下载最终对象，验证获准 OSS host/prefix、PNG 内容、声明尺寸、不透明和 `经典` 调色板，由此覆盖真实网关、异步 API、Dispatcher、Worker、FAL URL edit、finalizer 和 OSS。
+
+90 天 artifact 只含候选 revision、固定 Process identity/version、Run ID、终态、恢复判据、对象 identity/content SHA-256、字节/尺寸和获批 USD 上限/批准编号。source URL、最终/原始对象 URL、Authorization、idempotency key、Prompt、业务 input/output、FAL/OSS Secret 和内部异常正文都禁止进入日志或证据。workflow 不自动重试、不改变 release stage/流量，也不触发 production promotion。未获得明确费用批准或未实际运行该受保护 workflow 时，不得声称真实 FAL/OSS 付费异步闭环通过。
+
 ## 容量拒绝与恢复
 
 API 在 PostgreSQL 接收事务内先处理幂等重放，再串行检查 queued + running backlog。相同 caller/key/fingerprint 的重放不消耗新名额，也不会因 backlog 已满而失败。

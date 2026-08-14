@@ -28,6 +28,7 @@
         "smoke:agent": "node --env-file-if-exists=.env --import tsx examples/agent-smoke.ts",
         "smoke:staging": "node --env-file-if-exists=.env --import tsx examples/staging-smoke.ts",
         "smoke:async-internal": "node --import tsx examples/async-internal-smoke.ts",
+        "smoke:async-paid-image": "node --import tsx examples/paid-async-image-smoke.ts",
         "smoke:oss": "node --env-file-if-exists=.env --import tsx examples/aliyun-oss-smoke.ts",
         "test:skill-ab": "node --env-file-if-exists=.env --import tsx examples/skill-ab-experiment.ts",
         "accept:poster-business": "node --env-file-if-exists=.env --import tsx examples/poster-business-acceptance.ts",
