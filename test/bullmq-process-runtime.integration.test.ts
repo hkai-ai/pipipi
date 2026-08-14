@@ -9,8 +9,15 @@ import { Queue } from "bullmq";
 import { Redis } from "ioredis";
 import { runner } from "node-pg-migrate";
 import { Pool } from "pg";
+import { createServer as createViteServer } from "vite";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { z } from "zod";
+import { createAbortableWait } from "../console/abortable-wait.js";
+import { createDevelopmentGateway } from "../console/development-gateway.js";
+import {
+    createProcessRunClient,
+    type ProcessRunProgress,
+} from "../console/process-run-client.js";
 import {
     callerIdentityHeader,
     gatewayAuthenticationHeader,
@@ -1066,69 +1073,66 @@ integrationDescribe("BullMQ Process Runtime", () => {
         }
     }, 20_000);
 
-    it("runs the authenticated async HTTP path through independent API, Dispatcher, and Worker roles", async () => {
-        const businessApi = await startBusinessApi();
+    it("runs the Console Client through its development Gateway and independent async roles", async () => {
         const gatewaySecret = "integration-gateway-secret-at-least-32-bytes";
-        const sharedEnvironment = {
-            DATABASE_URL: databaseUrl,
-            REDIS_URL: redisUrl,
-            PROCESS_QUEUE_PREFIX: "pipipi-role-integration",
-            PROCESS_RUN_ACCEPTED_INPUT_RETENTION_MS: "86400000",
-            PROCESS_RUN_RESULT_RETENTION_MS: "604800000",
-            PROCESS_RUN_METADATA_RETENTION_MS: "2592000000",
-            PROCESS_TIMEOUT_MS: "2000",
-            PROCESS_RUN_CLAIM_LEASE_MS: "5000",
-            ASYNC_POSTGRES_CONNECTION_TIMEOUT_MS: "500",
-            ASYNC_REDIS_CONNECTION_TIMEOUT_MS: "500",
-            RUNTIME_ROLE_READINESS_TIMEOUT_MS: "1000",
-        } as const;
-        const api = constructProcessingService({
-            ...sharedEnvironment,
-            BUSINESS_API_BASE_URL: businessApi.url,
-            ASYNC_PROCESS_RUNS_ENABLED: "true",
-            ASYNC_GATEWAY_SHARED_SECRET: gatewaySecret,
-            ASYNC_RELEASE_STAGE: "internal",
-            ASYNC_GLOBAL_BACKLOG_LIMIT: "1000",
-            ASYNC_CALLER_BACKLOG_LIMIT: "100",
-            ASYNC_BACKLOG_RETRY_AFTER_SECONDS: "5",
-        });
-        const dispatcher = constructProcessDispatcherService({
-            DATABASE_URL: databaseUrl,
-            REDIS_URL: redisUrl,
-            PROCESS_QUEUE_PREFIX: sharedEnvironment.PROCESS_QUEUE_PREFIX,
-            ASYNC_POSTGRES_CONNECTION_TIMEOUT_MS: "500",
-            ASYNC_REDIS_CONNECTION_TIMEOUT_MS: "500",
-            RUNTIME_ROLE_READINESS_TIMEOUT_MS: "1000",
-            OUTBOX_DISPATCH_INTERVAL_MS: "10",
-            PROCESS_RUN_RECONCILE_INTERVAL_MS: "20",
-            PROCESS_RUN_RECONCILE_QUEUED_AGE_MS: "20",
-        });
-        const worker = constructProcessWorkerService({
-            ...sharedEnvironment,
-            BUSINESS_API_BASE_URL: businessApi.url,
-            BUSINESS_API_TIMEOUT_MS: "500",
-            PROCESS_WORKER_CONCURRENCY: "2",
-            PROCESS_WORKER_SHUTDOWN_GRACE_MS: "1000",
-        });
-        const applications = [
-            api.application,
-            dispatcher.application,
-            worker.application,
-        ];
+        const closeResources: (() => Promise<void>)[] = [];
 
         try {
-            const [apiListening, dispatcherListening, workerListening] =
-                await Promise.all(
-                    applications.map((application) => application.listen()),
-                );
-            if (!apiListening || !dispatcherListening || !workerListening) {
-                throw new Error("Expected all runtime roles to listen");
+            const businessApi = await startBusinessApi();
+            closeResources.push(businessApi.close);
+            const sharedEnvironment = {
+                DATABASE_URL: databaseUrl,
+                REDIS_URL: redisUrl,
+                PROCESS_QUEUE_PREFIX: "pipipi-role-integration",
+                PROCESS_RUN_ACCEPTED_INPUT_RETENTION_MS: "86400000",
+                PROCESS_RUN_RESULT_RETENTION_MS: "604800000",
+                PROCESS_RUN_METADATA_RETENTION_MS: "2592000000",
+                PROCESS_TIMEOUT_MS: "2000",
+                PROCESS_RUN_CLAIM_LEASE_MS: "5000",
+                ASYNC_POSTGRES_CONNECTION_TIMEOUT_MS: "500",
+                ASYNC_REDIS_CONNECTION_TIMEOUT_MS: "500",
+                RUNTIME_ROLE_READINESS_TIMEOUT_MS: "1000",
+            } as const;
+            const api = constructProcessingService({
+                ...sharedEnvironment,
+                BUSINESS_API_BASE_URL: businessApi.url,
+                ASYNC_PROCESS_RUNS_ENABLED: "true",
+                ASYNC_GATEWAY_SHARED_SECRET: gatewaySecret,
+                ASYNC_RELEASE_STAGE: "internal",
+                ASYNC_GLOBAL_BACKLOG_LIMIT: "1000",
+                ASYNC_CALLER_BACKLOG_LIMIT: "100",
+                ASYNC_BACKLOG_RETRY_AFTER_SECONDS: "5",
+            });
+            closeResources.push(api.application.close);
+            const dispatcher = constructProcessDispatcherService({
+                DATABASE_URL: databaseUrl,
+                REDIS_URL: redisUrl,
+                PROCESS_QUEUE_PREFIX: sharedEnvironment.PROCESS_QUEUE_PREFIX,
+                ASYNC_POSTGRES_CONNECTION_TIMEOUT_MS: "500",
+                ASYNC_REDIS_CONNECTION_TIMEOUT_MS: "500",
+                RUNTIME_ROLE_READINESS_TIMEOUT_MS: "1000",
+                OUTBOX_DISPATCH_INTERVAL_MS: "10",
+                PROCESS_RUN_RECONCILE_INTERVAL_MS: "20",
+                PROCESS_RUN_RECONCILE_QUEUED_AGE_MS: "20",
+            });
+            closeResources.push(dispatcher.application.close);
+            const worker = constructProcessWorkerService({
+                ...sharedEnvironment,
+                BUSINESS_API_BASE_URL: businessApi.url,
+                BUSINESS_API_TIMEOUT_MS: "500",
+                PROCESS_WORKER_CONCURRENCY: "2",
+                PROCESS_WORKER_SHUTDOWN_GRACE_MS: "1000",
+            });
+            closeResources.push(worker.application.close);
+
+            const [apiListening, dispatcherListening] = await Promise.all([
+                api.application.listen(),
+                dispatcher.application.listen(),
+            ]);
+            if (!apiListening || !dispatcherListening) {
+                throw new Error("Expected API and Dispatcher roles to listen");
             }
-            for (const url of [
-                apiListening.url,
-                dispatcherListening.url,
-                workerListening.url,
-            ]) {
+            for (const url of [apiListening.url, dispatcherListening.url]) {
                 await expect(
                     waitForHttpStatus(`${url}/healthz`, 200),
                 ).resolves.toBe(200);
@@ -1137,26 +1141,122 @@ integrationDescribe("BullMQ Process Runtime", () => {
                 ).resolves.toBe(200);
             }
 
+            const gatewayProxy = createDevelopmentGateway({
+                command: "serve",
+                mode: "development",
+                environment: {
+                    CONSOLE_DEVELOPMENT_GATEWAY_ENABLED: "true",
+                    CONSOLE_DEVELOPMENT_GATEWAY_TARGET: apiListening.url,
+                    ASYNC_GATEWAY_SHARED_SECRET: gatewaySecret,
+                },
+            });
+            if (!gatewayProxy) {
+                throw new Error("Expected the Console development Gateway");
+            }
+            const gateway = await createViteServer({
+                configFile: false,
+                logLevel: "silent",
+                server: {
+                    host: "127.0.0.1",
+                    port: 0,
+                    proxy: { "/process-runs": gatewayProxy },
+                },
+            });
+            closeResources.push(() => gateway.close());
+            await gateway.listen();
+            const gatewayUrl = httpServerUrl(gateway.httpServer);
+            let pendingOperation: string | null = null;
+            const schedule = (milliseconds: number, operation: () => void) => {
+                const timer = setTimeout(operation, milliseconds);
+                return () => clearTimeout(timer);
+            };
+            const client = createProcessRunClient({
+                baseUrl: () => gatewayUrl,
+                createIdempotencyKey: () => "role-console-success",
+                fingerprint: async () => "role-console-success-fingerprint",
+                now: () => Date.now(),
+                pendingOperations: {
+                    read: () => pendingOperation,
+                    write: (value) => {
+                        pendingOperation = value;
+                    },
+                    clear: () => {
+                        pendingOperation = null;
+                    },
+                },
+                request: (url, init) => fetch(url, init),
+                schedule,
+                wait: createAbortableWait(schedule),
+            });
+            const progress: ProcessRunProgress[] = [];
+            let observedQueued: () => void = () => undefined;
+            const queued = new Promise<void>((resolveQueued) => {
+                observedQueued = resolveQueued;
+            });
+            const execution = client.execute(
+                {
+                    process: "content-processing",
+                    version: "v1",
+                    input: { content: "role success" },
+                },
+                {
+                    timeoutMs: 10_000,
+                    onProgress: (state) => {
+                        progress.push(state);
+                        if (
+                            state.phase === "observed" &&
+                            (state.status === "queued" ||
+                                state.status === "running")
+                        ) {
+                            observedQueued();
+                        }
+                    },
+                },
+            );
+            await Promise.race([
+                queued,
+                execution.then(() => {
+                    throw new Error(
+                        "Console Client reached a terminal result before observing queued or running",
+                    );
+                }),
+            ]);
+
+            const workerListening = await worker.application.listen();
+            if (!workerListening) {
+                throw new Error("Expected the Worker role to listen");
+            }
+            await expect(
+                waitForHttpStatus(`${workerListening.url}/healthz`, 200),
+            ).resolves.toBe(200);
+            await expect(
+                waitForHttpStatus(`${workerListening.url}/readyz`, 200),
+            ).resolves.toBe(200);
+
+            const success = await execution;
+            expect(success).toMatchObject({
+                status: "succeeded",
+                process: "content-processing",
+                version: "v1",
+                output: { content: "Processed: role success" },
+            });
+            expect(progress).toEqual(
+                expect.arrayContaining([
+                    expect.objectContaining({
+                        phase: "observed",
+                        status: "queued",
+                    }),
+                ]),
+            );
+            if (success.status !== "succeeded") {
+                throw new Error("Expected the Console Process Run to succeed");
+            }
+
             const callerHeaders = {
                 "content-type": "application/json",
                 [callerIdentityHeader]: "service:role-integration",
                 [gatewayAuthenticationHeader]: gatewaySecret,
             };
-            const successResponse = await fetch(
-                `${apiListening.url}/process-runs`,
-                {
-                    method: "POST",
-                    headers: {
-                        ...callerHeaders,
-                        "idempotency-key": "role-success",
-                    },
-                    body: JSON.stringify({
-                        process: "content-processing",
-                        version: "v1",
-                        input: { content: "role success" },
-                    }),
-                },
-            );
             const failureResponse = await fetch(
                 `${apiListening.url}/process-runs`,
                 {
@@ -1172,20 +1272,9 @@ integrationDescribe("BullMQ Process Runtime", () => {
                     }),
                 },
             );
-            const success = (await successResponse.json()) as { runId: string };
             const failure = (await failureResponse.json()) as { runId: string };
-            expect(successResponse.status).toBe(202);
             expect(failureResponse.status).toBe(202);
 
-            await expect(
-                waitForHttpRun(apiListening.url, success.runId, {
-                    [callerIdentityHeader]: "service:role-integration",
-                    [gatewayAuthenticationHeader]: gatewaySecret,
-                }),
-            ).resolves.toMatchObject({
-                status: "succeeded",
-                output: { content: "Processed: role success" },
-            });
             await expect(
                 waitForHttpRun(apiListening.url, failure.runId, {
                     [callerIdentityHeader]: "service:role-integration",
@@ -1226,9 +1315,10 @@ integrationDescribe("BullMQ Process Runtime", () => {
             });
         } finally {
             await Promise.allSettled(
-                applications.map((application) => application.close()),
+                Array.from(closeResources)
+                    .reverse()
+                    .map((close) => close()),
             );
-            await businessApi.close();
         }
     }, 20_000);
 });
@@ -1464,6 +1554,16 @@ async function waitForHttpRun(
 
 function delay(milliseconds: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
+function httpServerUrl(
+    server: { address(): ReturnType<Server["address"]> } | null,
+): string {
+    const address = server?.address();
+    if (!address || typeof address === "string") {
+        throw new Error("Expected an HTTP server address");
+    }
+    return `http://127.0.0.1:${address.port}`;
 }
 
 async function migrate(url: string) {

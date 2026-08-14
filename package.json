@@ -44,6 +44,7 @@
         "test:integration:postgres": "RUN_POSTGRES_INTEGRATION=1 vitest run test/postgres-process-run-store.integration.test.ts",
         "test:integration:observation": "RUN_POSTGRES_INTEGRATION=1 vitest run test/postgres-run-observation.integration.test.ts",
         "test:integration:async": "RUN_ASYNC_INTEGRATION=1 vitest run test/bullmq-process-runtime.integration.test.ts",
+        "test:integration:async:local": "node --import tsx tools/run-async-integration.ts",
         "db:migrate": "node-pg-migrate up --migrations-dir migrations --advisory-lock-mode wait"
     },
     "dependencies": {

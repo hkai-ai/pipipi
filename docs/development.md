@@ -77,6 +77,7 @@ curl --fail -X POST http://127.0.0.1:3000/execute \
 | `npm run observe:async` | 读取 PostgreSQL 与两个 BullMQ Queue，输出一次无内容运维快照 | 是，只读访问 PostgreSQL 与 Redis |
 | `npm run test:integration:postgres` | 运行真实 PostgreSQL migration 与 Store contract tests | 是，会重建明确的 `_test` 数据库 schema |
 | `npm run test:integration:async` | 运行真实 PostgreSQL、Redis、Outbox Dispatcher 与 BullMQ Worker 测试 | 是，会重建 `_test` schema 并清空指定 Redis 测试 DB |
+| `npm run test:integration:async:local` | 启动隔离 Compose、运行完整异步集成测试并在成功或失败后清理 | 是，会启动并删除本地测试容器与临时数据 |
 | `npm run smoke:agent` | 验证真实 Agent 与 Business Capability | 是，可能产生模型费用 |
 | `npm run smoke:staging` | 验证已部署的受控环境 | 是 |
 | `npm run test:skill-ab` | 运行三组 Skill 对比 | 是，可能产生模型费用 |
@@ -110,7 +111,13 @@ DATABASE_URL="$POSTGRES_TEST_DATABASE_URL" npm run db:migrate
 
 ### PostgreSQL 与 Redis 异步集成测试
 
-异步集成测试复用同一 Compose 文件，并只允许清空本机 Redis 的非零 database：
+异步集成测试复用同一 Compose 文件，并只允许清空本机 Redis 的非零 database。首选入口为每次运行生成独立 Compose project，由 Docker 分配随机宿主端口，再把实际 PostgreSQL/Redis URL 注入 suite；它在 `finally` 中执行 `down --volumes --remove-orphans`，测试成功、失败或收到首次中断信号都会尝试清理容器与临时数据。若 Compose 清理本身失败，命令聚合主错误与清理错误，明确提示可能残留的 Docker 资源：
+
+```bash
+npm run test:integration:async:local
+```
+
+需要复用已启动的隔离依赖调试时，才分步执行：
 
 ```bash
 docker compose -f compose.integration.yaml up -d --wait
@@ -120,7 +127,7 @@ npm run test:integration:async
 docker compose -f compose.integration.yaml down
 ```
 
-测试证明 Outbox 在 PostgreSQL commit 后才进入统一 `process-runs` Queue，Job 只含 `schemaVersion` 和 `runId`，Worker 仍能从数据库选择准确 Registration。故障用例还覆盖 Dispatcher claim 过期、Redis 断线、重复 completed Job、Worker claim 过期接管、旧 token fencing 和停机超时 release。Compose Redis 使用 `noeviction` 和临时数据目录；它只用于测试，不代表生产高可用配置。
+测试证明真实 Console Process Run Client 可经可信开发 Gateway、HTTP API、PostgreSQL Outbox、Redis、独立 Dispatcher 和 Worker 到达 `succeeded`。它还证明 Outbox 在 PostgreSQL commit 后才进入统一 `process-runs` Queue，Job 只含 `schemaVersion` 和 `runId`，Worker 仍能从数据库选择准确 Registration。故障用例覆盖 Dispatcher claim 过期、Redis 断线、重复 completed Job、Worker claim 过期接管、旧 token fencing 和停机超时 release。Compose Redis 使用 `noeviction` 和临时数据目录；它只用于测试，不代表生产高可用配置。
 
 ### 异步 HTTP 开发入口
 
@@ -134,6 +141,8 @@ docker compose -f compose.integration.yaml down
 - 可选的 PostgreSQL Pool、连接超时、claim lease、轮询 `Retry-After` 与 staged readiness 阈值。
 
 可信网关必须先验证 service principal，删除外部请求中的 `x-pipipi-caller-id` 和 `x-pipipi-gateway-token`，再分别注入稳定 subject 与共享凭证。应用不接受请求 body 中的 owner，也不把身份头、共享凭证或数据库错误写入响应。`GET /healthz` 始终只做 liveness；`GET /readyz` 在异步功能启用时检查包括 backlog admission 索引在内的数据库 migration，`canary` 与 `production` 还检查 backlog、stuck Run、已到期 Outbox lag 和最近一次从空 cursor 到最终空 `nextCursor` 的完整成功人工全量恢复链。
+
+本地浏览器只能通过 Vite 的开发 Gateway 调用异步路由。显式设置 `CONSOLE_DEVELOPMENT_GATEWAY_ENABLED=true`、本机 HTTP `CONSOLE_DEVELOPMENT_GATEWAY_TARGET` 和与 API 相同的 `ASYNC_GATEWAY_SHARED_SECRET` 后，`npm run dev:console` 才挂载 `/process-runs` 代理。Adapter 删除浏览器提供的两个身份头，再注入固定的 `console:development` 和共享凭证；凭证不使用 `VITE_` 前缀，不进入 bundle、storage、响应或日志。该入口拒绝 build、非 `development` mode、`NODE_ENV=production` 和非 loopback target，不能替代生产认证网关。
 
 当前已验证提交、查询、Outbox 调度、BullMQ Worker、故障恢复、容量门禁、独立角色、结构化关联日志和运维快照。配置齐全不等于可以直接开放；外部生产流量必须按 [`async-process-runs-runbook.md`](async-process-runs-runbook.md) 完成安全审查、故障演练和 staged rollout。
 

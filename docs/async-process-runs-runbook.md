@@ -51,6 +51,7 @@ docker compose -f compose.integration.yaml down
 
 - PostgreSQL 已完成备份与恢复验证，Redis 使用内部网络、认证、`noeviction` 和批准的高可用形状；
 - 网关删除外部同名身份头，再注入 `x-pipipi-caller-id` 与 `x-pipipi-gateway-token`；容器端口不能绕过网关访问；
+- `CONSOLE_DEVELOPMENT_GATEWAY_ENABLED` 必须在生产保持未设置或 `false`；Vite 开发 Gateway 固定测试身份且只允许 loopback upstream，不能承担生产调用方认证；
 - `WEBHOOK_SECRET_ENCRYPTION_KEY`、网关 Secret 和数据库/Redis 凭证通过 Secret 管理器注入，彼此最小授权；
 - Business Capability 已按 `runId` 支持幂等后，才能把 Registration 的最大 Attempt 从 1 提高；
 - 观测系统已经导入 [`ops/async-observability.json`](../ops/async-observability.json)，并能按 `runId`、`eventId` 和 `deliveryId` 检索单行 JSON 日志；
