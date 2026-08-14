@@ -13,6 +13,7 @@
 - BullMQ 与 Redis 只调度内部 Queue Job。API 不返回 BullMQ Job ID，也不从 BullMQ 查询产品状态。
 - 提交事务同时写入 Process Run 和 outbox。Dispatcher 随后把 `runId` 放入 BullMQ，避免 PostgreSQL 与 Redis 双写造成已接受任务丢失。
 - Webhook 是有签名、可重试、至少一次的状态通知。调用方必须按 event ID 去重，并在需要权威结果时查询 Process Run。
+- 运维控制台通过独立的 Console Process Run Client Interface 调用 HTTP；页面不解析原始响应，也不拥有轮询或结果地址安全规则。
 - 现有 `POST /execute` 保持同步契约。两种入口复用同一个 Process Registration 和执行核心，但使用不同的生命周期治理。
 
 这套边界允许以后替换 Queue Adapter 或 Webhook Delivery Implementation，而不改变外部调用协议。
@@ -29,6 +30,7 @@
 | Run Record 仍是 best-effort 终态观测 | 它不替代异步 Process Run 的权威状态库 |
 | API、Dispatcher、Process Worker、Webhook Worker 与 Retention Cleaner 独立启动和关闭 | 每个角色可以单独扩容、停机和验证 readiness |
 | PostgreSQL migration、Redis 与 BullMQ Adapter 已接入 | 真实依赖行为由 PostgreSQL 和 BullMQ 集成测试覆盖，发布仍默认关闭 |
+| Console Process Run Client 返回结构化进度和终态 | 浏览器先校验 JSON、公共状态、Run identity 与同源 `Location`，结果过期、查询超时与协议错误不进入页面未知异常分支 |
 
 `ProcessRunRecords` 不应直接改成权威存储。它的 best-effort invariant 与异步执行要求冲突：异步提交只有在 durable transaction 成功后才能返回 `202`，终态写入失败也不能被静默忽略。
 

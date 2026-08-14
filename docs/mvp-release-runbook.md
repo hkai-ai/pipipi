@@ -336,6 +336,8 @@ Schema 由部署脚本在激活新容器前执行 `npm run db:migrate` 应用，
 
 提交表单由 `{base}/processes` 返回的 Schema 生成：新增 Process 或改字段不需要改控制台。提交时，页面为每次操作生成新的 `Idempotency-Key`，调用 `POST /process-runs`，再按响应的 `Location` 与 `Retry-After` 查询 owner-scoped 结果。
 
+页面只调用 Console Process Run Client Interface。该 Module 在运行时校验提交、拒绝和查询响应，向页面公开 accepted/observed 进度，以及 succeeded、failed、结果过期、查询超时、明确拒绝和协议错误；非 JSON、缺字段、未知状态、不一致的 `runId`，以及跨源或错误资源形状的 `Location` 都不会被页面当成有效 Process Run。
+
 `{base}/processes` 的字段表由每个 Process Registration 自己的 Zod Schema 推导，因此不会与 `accept` 实际执行的校验漂移。它**不取代** [`docs/api.md`](api.md)：错误语义、计费边界、提交后依赖失败不可自动重试这类约束无法从 Schema 推导，仍以那份文档为准。某个 Schema 无法表示为 JSON Schema 时，该字段被省略而不是让整个目录视图失败。
 
 注意 `retry` 报告的是 Registration 级策略。`crt-interface-image` 在图片调用前对无副作用 Agent 编译的重试发生在 Registration 内部，不计为 Attempt，因此不出现在这里。

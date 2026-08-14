@@ -2,7 +2,6 @@ import { useEffect, useState } from "preact/hooks";
 import {
     type ConsoleProcessDescription,
     type ConsoleStats,
-    executeAsync,
     findRun,
     findTimeline,
     listProcesses,
@@ -20,6 +19,11 @@ import {
     StatusLabel,
     Thumbnail,
 } from "./formatting.jsx";
+import {
+    type ProcessRunOutcome,
+    type ProcessRunProgress,
+    processRuns,
+} from "./process-run-client.js";
 import { hrefFor } from "./routing.js";
 
 /** Every view loads asynchronously and shows why it is empty when it is. */
@@ -631,7 +635,13 @@ export function SubmitView({
     const [selected, setSelected] = useState("");
     const [values, setValues] = useState<Record<string, string>>({});
     const [running, setRunning] = useState(false);
-    const [outcome, setOutcome] = useState<string | undefined>(undefined);
+    const [progress, setProgress] = useState<ProcessRunProgress | undefined>(
+        undefined,
+    );
+    const [outcome, setOutcome] = useState<ProcessRunOutcome | undefined>(
+        undefined,
+    );
+    const [hasUnexpectedError, setHasUnexpectedError] = useState(false);
 
     const entry =
         processes.find((candidate) => candidate.process === selected) ??
@@ -650,7 +660,9 @@ export function SubmitView({
                 onSubmit={async (event) => {
                     event.preventDefault();
                     setRunning(true);
-                    setOutcome("正在提交异步任务…");
+                    setProgress(undefined);
+                    setOutcome(undefined);
+                    setHasUnexpectedError(false);
                     const input = Object.fromEntries(
                         fields
                             .map((field) => [
@@ -660,22 +672,17 @@ export function SubmitView({
                             .filter(([, value]) => value !== ""),
                     );
                     try {
-                        const result = await executeAsync(
-                            entry.process,
-                            entry.version,
-                            input,
+                        const result = await processRuns.execute(
                             {
-                                onAccepted: (runId) =>
-                                    setOutcome(
-                                        `已提交 Run ${runId}，正在查询结果…`,
-                                    ),
+                                process: entry.process,
+                                version: entry.version,
+                                input,
                             },
+                            { onProgress: setProgress },
                         );
-                        setOutcome(
-                            `${result.httpStatus} ${JSON.stringify(result.body, null, 2)}`,
-                        );
-                    } catch (error) {
-                        setOutcome(`请求失败：${String(error)}`);
+                        setOutcome(result);
+                    } catch {
+                        setHasUnexpectedError(true);
                     } finally {
                         setRunning(false);
                     }
@@ -755,9 +762,87 @@ export function SubmitView({
                     {running ? "等待结果…" : "提交"}
                 </button>
             </form>
-            {outcome ? <pre style="margin-top:14px">{outcome}</pre> : null}
+            <SubmissionResult
+                progress={progress}
+                outcome={outcome}
+                hasUnexpectedError={hasUnexpectedError}
+            />
         </Panel>
     );
+}
+
+function SubmissionResult({
+    progress,
+    outcome,
+    hasUnexpectedError,
+}: {
+    progress?: ProcessRunProgress;
+    outcome?: ProcessRunOutcome;
+    hasUnexpectedError: boolean;
+}) {
+    if (hasUnexpectedError) {
+        return <p class="error">客户端发生未预期错误，请稍后重试。</p>;
+    }
+    if (outcome) return <Outcome result={outcome} />;
+    if (!progress) return null;
+    return (
+        <p class="hint" style="margin-top:14px">
+            Run <code>{progress.runId}</code> 已接受，当前状态：
+            <strong>{progress.status}</strong>
+        </p>
+    );
+}
+
+function Outcome({ result }: { result: ProcessRunOutcome }) {
+    switch (result.status) {
+        case "succeeded":
+            return (
+                <div style="margin-top:14px">
+                    <p class="status-succeeded">
+                        Run <code>{result.runId}</code> · succeeded
+                    </p>
+                    <pre>{JSON.stringify(result.output, null, 2)}</pre>
+                </div>
+            );
+        case "failed":
+            return (
+                <div style="margin-top:14px">
+                    <p class="status-failed">
+                        Run <code>{result.runId}</code> · failed
+                    </p>
+                    <p class="error">
+                        {result.error.code}：{result.error.message}
+                    </p>
+                </div>
+            );
+        case "result-expired":
+            return (
+                <p class="error" style="margin-top:14px">
+                    Run <code>{result.runId}</code> 已 {result.resultStatus}，
+                    结果于 {formatTime(result.resultExpiredAt)} 过期。
+                </p>
+            );
+        case "timed-out":
+            return (
+                <p class="error" style="margin-top:14px">
+                    Run <code>{result.runId}</code> 查询超过
+                    {result.timeoutMs / 1_000} 秒；服务端仍会继续执行。
+                </p>
+            );
+        case "rejected":
+            return (
+                <p class="error" style="margin-top:14px">
+                    HTTP {result.httpStatus} · {result.error.code}：
+                    {result.error.message}
+                </p>
+            );
+        case "protocol-error":
+            return (
+                <p class="error" style="margin-top:14px">
+                    服务响应不符合 Process Run Interface：{result.code}
+                </p>
+            );
+    }
 }
 
 /**
