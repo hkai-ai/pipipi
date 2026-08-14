@@ -128,7 +128,7 @@ curl http://127.0.0.1:3000/healthz
 
 仓库已提供资源式的 `POST /process-runs` 和 `GET /process-runs/{runId}`。它要求网关验证身份、注入固定 caller 头与共享凭证，并要求每次提交携带 `Idempotency-Key`。成功提交返回 `202`、`Location`、`Retry-After` 和 queued Run；查询只向 owner 返回 queued、running、succeeded 或 failed。结果内容到期后，终态和完成时间仍在 metadata 保留期内可查，并返回 `resultAvailability: "expired"` 与 `resultExpiredAt`，不会把内容缺失伪装成空结果。
 
-本地开发可显式启用 Vite-only Gateway：它只代理到 loopback API，删除浏览器伪造的身份头，再注入固定 `console:development` 身份和服务端持有的共享凭证。build 与生产 mode 无法启用该 Adapter。`npm run test:integration:async:local` 会启动隔离 PostgreSQL/Redis，运行 Console Client → Gateway → API → Dispatcher → Worker 的真实成功链，并在成功或失败后删除容器和临时数据；配置与手动调试步骤见[开发指南](docs/development.md#postgresql-与-redis-异步集成测试)。
+本地开发可显式启用 Vite-only Gateway：它只代理到 loopback API，删除浏览器伪造的身份头，再注入固定 `console:development` 身份和服务端持有的共享凭证。build 与生产 mode 无法启用该 Adapter。`npm run test:integration:async:local` 会启动隔离 PostgreSQL/Redis，运行 Console Client → Gateway → API → Dispatcher → Worker 的真实成功链；`npm run test:acceptance:console:local` 进一步从 `dist/console` 启动 headless Chrome，覆盖提交防重、accepted 进度、刷新恢复和结构化终态。两者都在成功或失败后删除容器和临时数据，且不调用付费 Capability；配置与判据见[开发指南](docs/development.md#postgresql-与-redis-异步集成测试)。
 
 该 Interface 由 `ASYNC_PROCESS_RUNS_ENABLED=true` 显式启用，默认关闭，并要求明确的 `internal`、`canary` 或 `production` 阶段。仓库已经实现 transactional Outbox、相互隔离的 Process/Webhook BullMQ Queue、租约恢复、Queue 重建、容量门禁、运维快照和有期限停机。新提交在 durable backlog 达到 caller 上限时返回 `429`，达到全局上限时返回 `503`，两者都带 `Retry-After`；既有 Run 查询不受 admission 影响。完整契约见 [`docs/async-process-runs-design.md`](docs/async-process-runs-design.md)，受控发布步骤见 [`docs/async-process-runs-runbook.md`](docs/async-process-runs-runbook.md)。
 

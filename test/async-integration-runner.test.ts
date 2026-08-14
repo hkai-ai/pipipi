@@ -41,6 +41,32 @@ describe("Async integration runner", () => {
         expect(commands.at(-1)).toContain("down --volumes --remove-orphans");
     });
 
+    it("can run a browser acceptance script in the same isolated infrastructure", async () => {
+        const commands: string[] = [];
+        const runner = commandRunner((command, args) => {
+            const invocation = [command, ...args].join(" ");
+            commands.push(invocation);
+            if (invocation.endsWith("port postgres 5432")) {
+                return completed("0.0.0.0:61001\n");
+            }
+            if (invocation.endsWith("port redis 6379")) {
+                return completed("0.0.0.0:61002\n");
+            }
+            return completed();
+        });
+
+        await runAsyncIntegration({
+            projectName: "pipipi-console-acceptance-isolated",
+            runner,
+            signals: inertSignals(),
+            environment: {},
+            testScript: "test:acceptance:console",
+        });
+
+        expect(commands).toContain("npm run test:acceptance:console");
+        expect(commands.at(-1)).toContain("down --volumes --remove-orphans");
+    });
+
     it("runs cleanup after a failed test command", async () => {
         const commands: string[] = [];
         const runner = commandRunner((command, args) => {

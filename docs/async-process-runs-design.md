@@ -336,7 +336,7 @@ BullMQ 和网络只能提供至少一次执行。流程若会扣费、发布、�
 
 - 入口继续由 TLS 网关认证。异步 API 还需要稳定的 caller identity；网关必须删除客户端伪造的身份头，或应用直接验证 token。Process Run、幂等键和 Webhook Endpoint 都按 caller 隔离。
 - 当前 Gateway Adapter 使用固定的内部头 `x-pipipi-caller-id` 与 `x-pipipi-gateway-token`。网关先验证外部凭证并删除客户端同名头，再注入稳定 subject 和至少 32 bytes 的共享凭证；外部调用方不应直接构造这两个头。功能默认关闭，缺少数据库、retention 或网关凭证时 Startup Construction 拒绝启用。
-- Vite 开发服务器提供唯一的非生产 Gateway Adapter。它只在显式启用的 `serve/development` mode 接受 loopback HTTP upstream，固定 caller 为 `console:development`，并从服务端环境闭包持有共享凭证。build、生产 mode 与非本机 upstream 均拒绝启用，因此凭证不进入浏览器构建、storage、响应或日志。确定性代理测试覆盖身份头替换；真实集成路径再穿过 Console Client、HTTP、PostgreSQL、Redis、Dispatcher 与 Worker。
+- Vite 开发服务器提供唯一的非生产 Gateway Adapter。它只在显式启用的 `serve/development` mode 接受 loopback HTTP upstream，固定 caller 为 `console:development`，并从服务端环境闭包持有共享凭证。build、生产 mode 与非本机 upstream 均拒绝启用，因此凭证不进入浏览器构建、storage、响应或日志。确定性代理测试覆盖身份头替换；真实集成路径再穿过 Console Client、HTTP、PostgreSQL、Redis、Dispatcher 与 Worker。独立的最小浏览器验收从 API 提供的 `dist/console` 进入，在真实 headless Chrome 中覆盖 accepted 进度、防重复点击、同标签刷新恢复和结构化终态；它只检查页面公共文本、表单状态与浏览器请求，不绑定组件结构。
 - `GET /healthz` 不访问外部依赖；`GET /readyz` 在异步功能启用时检查 PostgreSQL 与 migration。`canary` 和 `production` 阶段还检查 durable backlog、stuck Run、Outbox lag 与最近一次成功的人工全量恢复；readiness 失败不向调用方返回内部细节。
 - `runId` 使用不可预测标识，但它不是授权凭证。所有查询都检查 owner。
 - 数据库和 Redis 使用不同的最小权限凭证。Secret 只由部署平台注入，不能出现在 Queue Job、日志或错误响应中。

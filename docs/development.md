@@ -78,6 +78,7 @@ curl --fail -X POST http://127.0.0.1:3000/execute \
 | `npm run test:integration:postgres` | 运行真实 PostgreSQL migration 与 Store contract tests | 是，会重建明确的 `_test` 数据库 schema |
 | `npm run test:integration:async` | 运行真实 PostgreSQL、Redis、Outbox Dispatcher 与 BullMQ Worker 测试 | 是，会重建 `_test` schema 并清空指定 Redis 测试 DB |
 | `npm run test:integration:async:local` | 启动隔离 Compose、运行完整异步集成测试并在成功或失败后清理 | 是，会启动并删除本地测试容器与临时数据 |
+| `npm run test:acceptance:console:local` | 构建控制台并用 headless Chrome 验收浏览器异步提交、刷新恢复和终态投影 | 是，会启动并删除本地测试容器与临时数据；需要 Chrome 或 `CHROME_PATH` |
 | `npm run smoke:agent` | 验证真实 Agent 与 Business Capability | 是，可能产生模型费用 |
 | `npm run smoke:staging` | 验证已部署的受控环境 | 是 |
 | `npm run test:skill-ab` | 运行三组 Skill 对比 | 是，可能产生模型费用 |
@@ -128,6 +129,14 @@ docker compose -f compose.integration.yaml down
 ```
 
 测试证明真实 Console Process Run Client 可经可信开发 Gateway、HTTP API、PostgreSQL Outbox、Redis、独立 Dispatcher 和 Worker 到达 `succeeded`。跨 Seam 场景会在 durable acceptance 后丢弃首次 `202`，证明 Client 用同一个幂等键获得原 `runId`、权威 Run 与受控 Capability 副作用都只有一次；它还覆盖瞬时 GET 恢复、稳定业务失败、owner/未知 Run 不可区分的 `404`，以及客户端超时后服务端继续执行并由同一 owner 恢复结果。断言只使用 Client outcome、HTTP response 和公共 Process Run 状态，不读取 SQL 布局或 BullMQ 内部字段。
+
+最小浏览器验收从 `dist/console` 构建产物进入，使用本机 headless Chrome 和同一套隔离依赖。它延迟启动 Worker，检查页面显示 accepted `runId` 与 queued 进度、活动提交按钮被禁用、刷新后恢复同一 Run，再启动 Worker 并继续查询到结构化 `succeeded` 结果。验收记录浏览器发出的提交正文和 header，确认准确的 Process/版本/输入只提交一次，caller identity 与共享凭证只在可信测试 Gateway 内注入。受控 Content Business Capability 只返回本地确定性结果，不调用 FAL、OSS、模型或其他付费服务：
+
+```bash
+npm run test:acceptance:console:local
+```
+
+命令自动选择常见位置的 Chrome；其他 Chromium-compatible 安装通过 `CHROME_PATH=/absolute/path` 指定。该验收有意不进入默认 `npm test` 的外部依赖路径，也不对组件私有状态或大面积快照做断言。
 
 同一 suite 还证明 Outbox 在 PostgreSQL commit 后才进入统一 `process-runs` Queue，Job 只含 `schemaVersion` 和 `runId`，Worker 仍能从数据库选择准确 Registration。故障用例覆盖 Dispatcher claim 过期、Redis 断线、重复 completed Job、Worker claim 过期接管、旧 token fencing 和停机超时 release。Compose Redis 使用 `noeviction` 和临时数据目录；它只用于测试，不代表生产高可用配置。
 

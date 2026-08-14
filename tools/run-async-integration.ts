@@ -28,6 +28,7 @@ export async function runAsyncIntegration(options: Readonly<{
     runner: AsyncIntegrationCommandRunner;
     signals: AsyncIntegrationSignals;
     environment: NodeJS.ProcessEnv;
+    testScript?: string;
 }>): Promise<void> {
     const compose = [
         "compose",
@@ -98,7 +99,7 @@ export async function runAsyncIntegration(options: Readonly<{
         );
         await execute(
             "npm",
-            ["run", "test:integration:async"],
+            ["run", options.testScript ?? "test:integration:async"],
             {
                 ...options.environment,
                 POSTGRES_TEST_DATABASE_URL: `postgres://pipipi:pipipi-test-only@127.0.0.1:${postgresPort}/pipipi_test`,
@@ -216,6 +217,7 @@ async function main(): Promise<void> {
             runner: createCommandRunner(),
             signals: processSignals(),
             environment: process.env,
+            testScript: process.env.ASYNC_INTEGRATION_TEST_SCRIPT,
         });
     } catch (error) {
         console.error(error instanceof Error ? error.message : String(error));
