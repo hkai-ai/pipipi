@@ -213,7 +213,10 @@ function processSignals(): AsyncIntegrationSignals {
 async function main(): Promise<void> {
     try {
         await runAsyncIntegration({
-            projectName: `pipipi-async-${process.pid}-${randomUUID().slice(0, 8)}`,
+            projectName: parseProjectName(
+                process.env.ASYNC_INTEGRATION_PROJECT_NAME ??
+                    createProjectName(),
+            ),
             runner: createCommandRunner(),
             signals: processSignals(),
             environment: process.env,
@@ -224,6 +227,19 @@ async function main(): Promise<void> {
         process.exitCode =
             error instanceof AsyncIntegrationInterrupted ? 130 : 1;
     }
+}
+
+function createProjectName(): string {
+    return `pipipi-async-${process.pid}-${randomUUID().slice(0, 8)}`;
+}
+
+export function parseProjectName(value: string): string {
+    if (value.length > 63 || !/^[a-z0-9][a-z0-9_-]*$/.test(value)) {
+        throw new Error(
+            "ASYNC_INTEGRATION_PROJECT_NAME must be a lowercase Docker Compose project name of at most 63 characters",
+        );
+    }
+    return value;
 }
 
 if (

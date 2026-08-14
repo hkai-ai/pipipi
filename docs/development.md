@@ -79,6 +79,7 @@ curl --fail -X POST http://127.0.0.1:3000/execute \
 | `npm run test:integration:async` | 运行真实 PostgreSQL、Redis、Outbox Dispatcher 与 BullMQ Worker 测试 | 是，会重建 `_test` schema 并清空指定 Redis 测试 DB |
 | `npm run test:integration:async:local` | 启动隔离 Compose、运行完整异步集成测试并在成功或失败后清理 | 是，会启动并删除本地测试容器与临时数据 |
 | `npm run test:acceptance:console:local` | 构建控制台并用 headless Chrome 验收浏览器异步提交、刷新恢复和终态投影 | 是，会启动并删除本地测试容器与临时数据；需要 Chrome 或 `CHROME_PATH` |
+| `npm run test:acceptance:async:local` | 按 CI 顺序运行 PostgreSQL、BullMQ/跨 Seam 和浏览器三层异步验收 | 是，会启动一组隔离依赖并在结尾删除容器、网络和临时数据 |
 | `npm run smoke:agent` | 验证真实 Agent 与 Business Capability | 是，可能产生模型费用 |
 | `npm run smoke:staging` | 验证已部署的受控环境 | 是 |
 | `npm run test:skill-ab` | 运行三组 Skill 对比 | 是，可能产生模型费用 |
@@ -137,6 +138,8 @@ npm run test:acceptance:console:local
 ```
 
 命令自动选择常见位置的 Chrome；其他 Chromium-compatible 安装通过 `CHROME_PATH=/absolute/path` 指定。该验收有意不进入默认 `npm test` 的外部依赖路径，也不对组件私有状态或大面积快照做断言。
+
+Pull Request 和 `main` 的 `Production CI/CD` 另设稳定检查名 `Async durable acceptance`，与快速的 `Check and build` 分开运行。该 Job 在同一个隔离 Compose project 内依次执行 PostgreSQL Store contract、完整 BullMQ/跨 Seam suite 和浏览器验收；三层全部成功才允许生产 Job 继续。runner 在正常结束、失败和首次中断信号时清理，workflow 还用 `always()` 按本次 Actions run 的固定 project name 再执行幂等清理。Job 只使用仓库测试凭证和免费本地 Capability，不读取生产 Secret，也不上传失败产物。
 
 同一 suite 还证明 Outbox 在 PostgreSQL commit 后才进入统一 `process-runs` Queue，Job 只含 `schemaVersion` 和 `runId`，Worker 仍能从数据库选择准确 Registration。故障用例覆盖 Dispatcher claim 过期、Redis 断线、重复 completed Job、Worker claim 过期接管、旧 token fencing 和停机超时 release。Compose Redis 使用 `noeviction` 和临时数据目录；它只用于测试，不代表生产高可用配置。
 

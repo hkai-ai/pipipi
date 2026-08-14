@@ -3,10 +3,20 @@ import {
     type AsyncIntegrationCommand,
     type AsyncIntegrationCommandRunner,
     type AsyncIntegrationSignals,
+    parseProjectName,
     runAsyncIntegration,
 } from "../tools/run-async-integration.js";
 
 describe("Async integration runner", () => {
+    it("accepts a stable CI project name and rejects unsafe command input", () => {
+        expect(parseProjectName("pipipi-async-ci-123-2")).toBe(
+            "pipipi-async-ci-123-2",
+        );
+        expect(() => parseProjectName("pipipi async; docker ps")).toThrow(
+            /Docker Compose project name/,
+        );
+    });
+
     it("uses an isolated project and discovered host ports, then cleans up", async () => {
         const commands: string[] = [];
         let testEnvironment: NodeJS.ProcessEnv | undefined;
