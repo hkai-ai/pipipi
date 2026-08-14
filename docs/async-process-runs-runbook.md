@@ -81,6 +81,62 @@ npm run db:migrate
 
 同一 Queue 上滚动升级 Worker 时，先让新 Worker ready，再停止旧 Worker 领取新 Job，并给旧 Worker 至少 `PROCESS_WORKER_SHUTDOWN_GRACE_MS` 完成或释放 claim。Job envelope 始终只有 `{ schemaVersion: 1, runId }`；新旧 Worker 都从 PostgreSQL 选择准确 Registration。不要同时改变 schema、Process 语义和 Queue prefix。
 
+### 显式单服务器 Compose 形状
+
+默认 [`compose.production.yaml`](../compose.production.yaml) 只包含 API 与内部 CRT Business API，并固定 `ASYNC_PROCESS_RUNS_ENABLED=false`。异步发布使用 [`compose.production.async.yaml`](../compose.production.async.yaml) 作为叠加层；它不会单独工作，也不会被当前自动部署激活。检测到任一异步角色容器时，默认自动部署也会拒绝继续，避免未经停流和排空就隐式退回同步形状。release artifact 会携带同一 commit 的默认 Compose、异步叠加层和镜像归档，发布人员必须核对三者来自同一 revision。叠加层用 `!override` 替换 API 的 Secret 文件列表，因此部署机必须提供 Docker Compose 2.24.4 或更高版本；`npm run check:deployment:async-shape` 会先检查版本。
+
+以下变量是 Compose 形状本身的非秘密输入；`PIPIPI_IMAGE`、`PIPIPI_REVISION`、四个 Queue 配置和五个角色 env file 路径缺少任一项都会在渲染时失败。API、Dispatcher、Process Worker、Webhook Worker 与 Cleaner 分别读取自己的 Secret 文件，避免把网关、模型、Webhook 加密或 Redis 凭证注入无关角色；默认 Business API 继续读取 `PIPIPI_ENV_FILE`。叠加层不创建 PostgreSQL 或 Redis。
+
+```bash
+export PIPIPI_IMAGE='pipipi:<commit>'
+export PIPIPI_REVISION='<commit>'
+export PIPIPI_ENV_FILE='/opt/pipipi/shared/.env'
+export PIPIPI_ASYNC_API_ENV_FILE='/opt/pipipi/shared/async-api.env'
+export PIPIPI_PROCESS_DISPATCHER_ENV_FILE='/opt/pipipi/shared/process-dispatcher.env'
+export PIPIPI_PROCESS_WORKER_ENV_FILE='/opt/pipipi/shared/process-worker.env'
+export PIPIPI_WEBHOOK_WORKER_ENV_FILE='/opt/pipipi/shared/webhook-worker.env'
+export PIPIPI_RETENTION_CLEANER_ENV_FILE='/opt/pipipi/shared/retention-cleaner.env'
+export PIPIPI_PROCESS_QUEUE_NAME='process-runs'
+export PIPIPI_PROCESS_QUEUE_PREFIX='pipipi-production'
+export PIPIPI_WEBHOOK_QUEUE_NAME='webhook-deliveries'
+export PIPIPI_WEBHOOK_QUEUE_PREFIX='pipipi-production'
+
+docker compose \
+  --project-name pipipi \
+  --file compose.production.yaml \
+  --file compose.production.async.yaml \
+  config --quiet
+```
+
+CI 用 `npm run check:deployment:async-shape` 以安全占位值执行真实 Compose 渲染，并验证默认形状未启用异步、全部角色使用同一镜像与 revision、Process Queue 配置一致、各角色拥有预检/启动/readiness，以及缺参会明确失败。它不读取生产 Secret，也不启动服务。
+
+完成 migration 后，仍按上表顺序分两次显式启动。第一条命令只启动后台角色；Process Worker 会带起内部 Business API，但不会带起 API。确认四个角色都 ready、完成 Queue Recovery dry-run 后，第二条才启动 API：
+
+```bash
+docker compose \
+  --project-name pipipi \
+  --file compose.production.yaml \
+  --file compose.production.async.yaml \
+  up -d retention-cleaner process-dispatcher process-worker webhook-worker
+
+docker compose \
+  --project-name pipipi \
+  --file compose.production.yaml \
+  --file compose.production.async.yaml \
+  up -d api
+```
+
+API 使用 4300，内部 CRT Business API 使用 4400，Dispatcher、Process Worker、Webhook Worker 和 Retention Cleaner 的检查端口依次为 4310–4340。所有容器使用 host network；防火墙不得向公网开放这些应用端口，外部流量只能经过可信网关。
+
+从异步形状退回同步默认形状时，先关闭新异步提交并按回滚章节处理已经接受的 Run，再沿用同一个 `pipipi` project 只加载基础文件。`--remove-orphans` 会停止并删除四个异步角色容器；省略它会让旧 Worker 在默认 API 已关闭异步入口后继续运行：
+
+```bash
+docker compose \
+  --project-name pipipi \
+  --file compose.production.yaml \
+  up -d --force-recreate --no-build --remove-orphans
+```
+
 ## 配置与分阶段启用
 
 每个角色只注入自己拥有的配置。以下变量没有代码默认值，空字符串和纯空白都视为缺失：

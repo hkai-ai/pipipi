@@ -80,6 +80,7 @@ curl --fail -X POST http://127.0.0.1:3000/execute \
 | `npm run test:integration:async:local` | 启动隔离 Compose、运行完整异步集成测试并在成功或失败后清理 | 是，会启动并删除本地测试容器与临时数据 |
 | `npm run test:acceptance:console:local` | 构建控制台并用 headless Chrome 验收浏览器异步提交、刷新恢复和终态投影 | 是，会启动并删除本地测试容器与临时数据；需要 Chrome 或 `CHROME_PATH` |
 | `npm run test:acceptance:async:local` | 按 CI 顺序运行 PostgreSQL、BullMQ/跨 Seam 和浏览器三层异步验收 | 是，会启动一组隔离依赖并在结尾删除容器、网络和临时数据 |
+| `npm run check:deployment:async-shape` | 用安全占位值渲染默认 Compose 与显式异步叠加层，验证角色、镜像、revision、命令、readiness、Queue 配置及缺参失败 | 否；需要 Docker Compose，不读取生产 Secret，也不启动容器 |
 | `npm run smoke:agent` | 验证真实 Agent 与 Business Capability | 是，可能产生模型费用 |
 | `npm run smoke:staging` | 验证已部署的受控环境 | 是 |
 | `npm run test:skill-ab` | 运行三组 Skill 对比 | 是，可能产生模型费用 |
@@ -162,7 +163,7 @@ Pull Request 和 `main` 的 `Production CI/CD` 另设稳定检查名 `Async dura
 
 ### 异步运行角色
 
-同一构建产物还提供 `npm run start:business-api`，负责内部 `POST /crt-images`、FAL、finalizer 和 OSS。它与 API 作为独立进程或工作负载运行；单服务器 Compose 只把它绑定到宿主机回环地址。Dispatcher、Worker、Webhook Worker 和 Retention Cleaner 仍按异步 Runbook 独立部署。`npm run start:operations` 是一次性运维 Job；`ASYNC_PROCESS_RUNS_ENABLED` 只控制 API 是否公开异步路由。
+同一构建产物还提供 `npm run start:business-api`，负责内部 `POST /crt-images`、FAL、finalizer 和 OSS。它与 API 作为独立进程或工作负载运行；单服务器 Compose 只把它绑定到宿主机回环地址。`compose.production.async.yaml` 是必须与 `compose.production.yaml` 一起使用的显式叠加层：它启用 API，并以同一镜像分别启动 Dispatcher、Worker、Webhook Worker 和 Retention Cleaner。每个角色先运行自己的环境预检，再启动自己的入口，并用独立端口的 `/readyz` 作为容器健康检查。该文件不包含 PostgreSQL 或 Redis，也不改变默认同步形状。`npm run start:operations` 是一次性运维 Job；`ASYNC_PROCESS_RUNS_ENABLED` 只控制 API 是否公开异步路由。
 
 | 配置 | API | Dispatcher | Process Worker | Webhook Worker | Retention Cleaner |
 | --- | --- | --- | --- | --- | --- |

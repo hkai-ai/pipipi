@@ -88,7 +88,7 @@ Vercel Functions、Netlify Functions 和 Cloudflare Workers 不能直接运行�
 
 仓库通过 [production CI/CD](../.github/workflows/production-ci-cd.yml) 把同步 API 发布到一台 Linux Docker 服务器。Pull Request 并行执行确定性的 `Check and build` 与真实依赖的 `Async durable acceptance`；后者在隔离 PostgreSQL/Redis 中按固定顺序验证 Store、BullMQ/跨 Seam 和构建控制台的浏览器旅程，并始终执行 Compose 清理。`main` 推送和手动触发只有在两项检查都成功后，才把镜像归档与生产 Compose 上传服务器并激活。生产 Job 使用 GitHub `production` Environment 和 `pipipi-production` 并发组，同一时间只允许一次部署。
 
-生产镜像固定 Node.js 24、编译产物、生产依赖和七个 Runtime Skill，不包含源码、`.env` 或凭证。服务器加载 `pipipi:<commit>` 镜像，再通过 [`compose.production.yaml`](../compose.production.yaml) 以同一镜像重建 `pipipi` 和 `pipipi-business-api` 两个容器。部署脚本校验两个容器的 image tag、revision label、liveness 和 readiness；失败时恢复部署前的镜像与 Compose 形状。
+生产镜像固定 Node.js 24、编译产物、生产依赖和七个 Runtime Skill，不包含源码、`.env` 或凭证。服务器加载 `pipipi:<commit>` 镜像，再通过 [`compose.production.yaml`](../compose.production.yaml) 以同一镜像重建 `pipipi` 和 `pipipi-business-api` 两个容器。部署脚本校验两个容器的 image tag、revision label、liveness 和 readiness；失败时恢复部署前的镜像与 Compose 形状。release artifact 同时携带 `pipipi-<commit>.compose.async.yaml`，但自动部署不上传或激活它；该文件只供通过异步 Runbook 门禁后的显式叠加部署使用。若服务器存在任一异步角色容器，默认同步流水线会拒绝继续；发布人员必须先按异步手册停流、处理已接受 Run，并执行显式回退，不能借普通发布隐式删除 Worker。
 
 ### GitHub 配置
 

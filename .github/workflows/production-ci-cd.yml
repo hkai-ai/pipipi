@@ -43,6 +43,9 @@ jobs:
       - name: Build
         run: npm run build
 
+      - name: Validate async production shape
+        run: npm run check:deployment:async-shape
+
       - name: Build production image
         run: docker build --pull --tag "pipipi:${GITHUB_SHA}" .
 
@@ -51,6 +54,7 @@ jobs:
         run: |
           docker save "pipipi:${GITHUB_SHA}" | gzip > "pipipi-${GITHUB_SHA}.image.tar.gz"
           cp compose.production.yaml "pipipi-${GITHUB_SHA}.compose.yaml"
+          cp compose.production.async.yaml "pipipi-${GITHUB_SHA}.compose.async.yaml"
 
       - name: Upload release
         if: github.event_name != 'pull_request'
@@ -60,6 +64,7 @@ jobs:
           path: |
             pipipi-${{ github.sha }}.image.tar.gz
             pipipi-${{ github.sha }}.compose.yaml
+            pipipi-${{ github.sha }}.compose.async.yaml
           if-no-files-found: error
           retention-days: 7
 
@@ -186,6 +191,20 @@ jobs:
               echo "Missing database certificate: $app_root/shared/pg-server.crt" >&2
               exit 1
           fi
+
+          # The default release cannot safely infer that accepted async Runs
+          # have drained. An operator must first use the explicit async
+          # rollback procedure, which removes these roles only after drain.
+          for async_container in \
+              pipipi-process-dispatcher \
+              pipipi-process-worker \
+              pipipi-webhook-worker \
+              pipipi-retention-cleaner; do
+              if docker inspect "$async_container" >/dev/null 2>&1; then
+                  echo "Explicit async deployment is present; refusing an implicit synchronous rollback" >&2
+                  exit 1
+              fi
+          done
           gzip -dc "$image_archive" | docker load
 
           docker run --rm --env-file "$shared_env" \

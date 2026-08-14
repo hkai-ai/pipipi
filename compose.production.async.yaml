@@ -1,0 +1,113 @@
+x-async-runtime: &async-runtime
+  image: ${PIPIPI_IMAGE:?PIPIPI_IMAGE is required}
+  restart: unless-stopped
+  network_mode: host
+  volumes:
+    - ${PIPIPI_DATABASE_CA_FILE:-/opt/pipipi/shared/pg-server.crt}:/etc/pipipi/pg-server.crt:ro
+
+x-runtime-healthcheck: &runtime-healthcheck
+  interval: 5s
+  timeout: 3s
+  start_period: 5s
+  retries: 12
+
+services:
+  api:
+    image: ${PIPIPI_IMAGE:?PIPIPI_IMAGE is required}
+    env_file: !override
+      - ${PIPIPI_ASYNC_API_ENV_FILE:?PIPIPI_ASYNC_API_ENV_FILE is required}
+    command:
+      - sh
+      - -ec
+      - node dist/bin/check-deployment-environment.js api && exec node dist/bin/api.js
+    environment:
+      ASYNC_PROCESS_RUNS_ENABLED: "true"
+    healthcheck:
+      <<: *runtime-healthcheck
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4300/readyz').then((response) => { if (!response.ok) process.exit(1); }).catch(() => process.exit(1))"]
+
+  process-dispatcher:
+    <<: *async-runtime
+    container_name: pipipi-process-dispatcher
+    env_file:
+      - ${PIPIPI_PROCESS_DISPATCHER_ENV_FILE:?PIPIPI_PROCESS_DISPATCHER_ENV_FILE is required}
+    command:
+      - sh
+      - -ec
+      - node dist/bin/check-deployment-environment.js process-dispatcher && exec node dist/bin/dispatcher.js
+    environment:
+      NODE_ENV: production
+      PORT: "4310"
+      PROCESS_QUEUE_NAME: ${PIPIPI_PROCESS_QUEUE_NAME:?PIPIPI_PROCESS_QUEUE_NAME is required}
+      PROCESS_QUEUE_PREFIX: ${PIPIPI_PROCESS_QUEUE_PREFIX:?PIPIPI_PROCESS_QUEUE_PREFIX is required}
+    healthcheck:
+      <<: *runtime-healthcheck
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4310/readyz').then((response) => { if (!response.ok) process.exit(1); }).catch(() => process.exit(1))"]
+    labels:
+      com.pipipi.revision: ${PIPIPI_REVISION:?PIPIPI_REVISION is required}
+      com.pipipi.role: process-dispatcher
+
+  process-worker:
+    <<: *async-runtime
+    container_name: pipipi-process-worker
+    env_file:
+      - ${PIPIPI_PROCESS_WORKER_ENV_FILE:?PIPIPI_PROCESS_WORKER_ENV_FILE is required}
+    command:
+      - sh
+      - -ec
+      - node dist/bin/check-deployment-environment.js process-worker && exec node dist/bin/process-worker.js
+    depends_on:
+      business-api:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: "4320"
+      CRT_BUSINESS_API_BASE_URL: http://127.0.0.1:4400
+      PROCESS_QUEUE_NAME: ${PIPIPI_PROCESS_QUEUE_NAME:?PIPIPI_PROCESS_QUEUE_NAME is required}
+      PROCESS_QUEUE_PREFIX: ${PIPIPI_PROCESS_QUEUE_PREFIX:?PIPIPI_PROCESS_QUEUE_PREFIX is required}
+    healthcheck:
+      <<: *runtime-healthcheck
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4320/readyz').then((response) => { if (!response.ok) process.exit(1); }).catch(() => process.exit(1))"]
+    labels:
+      com.pipipi.revision: ${PIPIPI_REVISION:?PIPIPI_REVISION is required}
+      com.pipipi.role: process-worker
+
+  webhook-worker:
+    <<: *async-runtime
+    container_name: pipipi-webhook-worker
+    env_file:
+      - ${PIPIPI_WEBHOOK_WORKER_ENV_FILE:?PIPIPI_WEBHOOK_WORKER_ENV_FILE is required}
+    command:
+      - sh
+      - -ec
+      - node dist/bin/check-deployment-environment.js webhook-worker && exec node dist/bin/webhook-worker.js
+    environment:
+      NODE_ENV: production
+      PORT: "4330"
+      WEBHOOK_QUEUE_NAME: ${PIPIPI_WEBHOOK_QUEUE_NAME:?PIPIPI_WEBHOOK_QUEUE_NAME is required}
+      WEBHOOK_QUEUE_PREFIX: ${PIPIPI_WEBHOOK_QUEUE_PREFIX:?PIPIPI_WEBHOOK_QUEUE_PREFIX is required}
+    healthcheck:
+      <<: *runtime-healthcheck
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4330/readyz').then((response) => { if (!response.ok) process.exit(1); }).catch(() => process.exit(1))"]
+    labels:
+      com.pipipi.revision: ${PIPIPI_REVISION:?PIPIPI_REVISION is required}
+      com.pipipi.role: webhook-worker
+
+  retention-cleaner:
+    <<: *async-runtime
+    container_name: pipipi-retention-cleaner
+    env_file:
+      - ${PIPIPI_RETENTION_CLEANER_ENV_FILE:?PIPIPI_RETENTION_CLEANER_ENV_FILE is required}
+    command:
+      - sh
+      - -ec
+      - node dist/bin/check-deployment-environment.js retention-cleaner && exec node dist/bin/retention-cleaner.js
+    environment:
+      NODE_ENV: production
+      PORT: "4340"
+    healthcheck:
+      <<: *runtime-healthcheck
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4340/readyz').then((response) => { if (!response.ok) process.exit(1); }).catch(() => process.exit(1))"]
+    labels:
+      com.pipipi.revision: ${PIPIPI_REVISION:?PIPIPI_REVISION is required}
+      com.pipipi.role: retention-cleaner
