@@ -118,6 +118,28 @@ baseline smoke 只向真实 HTTPS 网关发送两个操作者的外部 Authoriza
 
 artifact 只保存 baseline/rollback 时间线、revision、Run ID、request ID、公开状态/错误码、角色状态、运维快照、关联日志与布尔审计。禁止字段检查会拒绝幂等键、业务 input/output、Prompt、Authorization、Secret、Endpoint URL 和数据库/Redis URL。真实 Environment 凭证、网关配置和受控请求尚未配置时，不得声称此 smoke 已在 internal 运行；本地确定性与真实依赖验收只证明工具和应用边界。
 
+## Dispatcher 与 Worker 隔离故障演练
+
+`.github/workflows/async-dispatcher-worker-drill.yml` 是 Dispatcher/Worker 故障演练的受保护手动入口。它绑定 required-reviewer 管理的 `async-staging` Environment，检出操作者给出的完整候选 SHA，只启动 Actions runner 内一次性的 PostgreSQL/Redis Compose project；不读取生产 Secret、不连接生产依赖、不接生产流量，也不包含 canary 或 production 提升。禁止在生产环境注入这些故障。
+
+一次运行必须连续通过三组真实竞态：
+
+1. Dispatcher 已把 Job 发布到 Queue、但尚未确认 PostgreSQL Outbox claim 时重启；claim 到期后的重发必须由 Queue 按 `runId` 去重，最终只有一个权威 Run 和 Attempt。
+2. Worker claim 到期后由兼容 Worker 建立新 Attempt；旧 token 的晚到完成必须被 fencing 拒绝，终态 Run 的重复 Job 必须被消费并忽略，不能增加 Attempt 或改写终态。
+3. 滚动升级时先让新 Worker ready，再停止旧 Worker 领取新 Job。旧 Worker 超过 `PROCESS_WORKER_SHUTDOWN_GRACE_MS` 后先释放 PostgreSQL claim，再取消执行并在有界窗口内把 BullMQ Job 收尾到可恢复状态；Reconciler 重投后由新 Worker 建立下一 Attempt。时间线必须证明 new-ready 在 old-stop 之前。
+
+每个场景都查询 PostgreSQL，要求一条 `process_runs` 权威记录、一条 succeeded/failed 公开终态 Event，以及按顺序保存的 Attempt 结果。受控 Business Capability 记录调用次数，并以 `runId` 去重副作用：执行可能发生多次，副作用只能一次。因此运行结论必须写成“BullMQ 唤醒至少一次，PostgreSQL 决定权威状态，下游按 `runId` 幂等”，不得声称 exactly-once。
+
+本地复现使用：
+
+```bash
+ASYNC_DISPATCHER_WORKER_DRILL_REVISION="$(git rev-parse HEAD)" \
+ASYNC_DISPATCHER_WORKER_DRILL_EVIDENCE_FILE=artifacts/dispatcher-worker-drill.json \
+npm run test:drill:dispatcher-worker:local
+```
+
+脚本只接受名称以 `_test` 结尾的 PostgreSQL database 和本机非零 Redis database，开始前重建 schema/清空测试 DB，结束或失败后删除 Compose 容器、volume 与网络。JSON 证据包含候选 revision、三个 Run ID、Attempt number/status/result code、服务端时间线、单一终态/权威记录/幂等副作用计数和非生产流量声明；禁止保存 claim token、幂等键、业务 input/output、Prompt、Authorization、Secret 或数据库/Redis/Endpoint URL。Actions artifact 保留 30 天，发布人员必须将通过的 workflow run 与候选 commit 一起写入发布记录。
+
 ## Migration 与部署顺序
 
 所有 migration 必须由一次性 Job 在新代码接流量前执行：
@@ -140,7 +162,7 @@ npm run db:migrate
 | 5 | 部署 API，保持 `ASYNC_RELEASE_STAGE=internal`，只允许内部合成调用方 | 提交、owner 查询和 Webhook smoke 到达预期终态 | 设置 `ASYNC_PROCESS_RUNS_ENABLED=false` 或回滚 API；保留 GET 所需数据库 |
 | 6 | 采集至少一个正常观测窗口并完成故障演练，再依次提升到 `canary` 和 `production` | readiness、Dashboard 和告警均通过，演练证据完整 | 停止提升并退回上一个阶段；按对应告警章节处置 |
 
-同一 Queue 上滚动升级 Worker 时，先让新 Worker ready，再停止旧 Worker 领取新 Job，并给旧 Worker 至少 `PROCESS_WORKER_SHUTDOWN_GRACE_MS` 完成或释放 claim。Job envelope 始终只有 `{ schemaVersion: 1, runId }`；新旧 Worker 都从 PostgreSQL 选择准确 Registration。不要同时改变 schema、Process 语义和 Queue prefix。
+同一 Queue 上滚动升级 Worker 时，先让新 Worker ready，再停止旧 Worker 领取新 Job，并给旧 Worker 至少 `PROCESS_WORKER_SHUTDOWN_GRACE_MS` 完成或释放 claim。该值默认 30 秒、上限 60 秒；生产 Compose 的 `stop_grace_period` 固定为 2 分钟，覆盖应用 grace 和取消后的最长 1 秒 Queue 收尾，避免容器先发出 `SIGKILL`。Job envelope 始终只有 `{ schemaVersion: 1, runId }`；新旧 Worker 都从 PostgreSQL 选择准确 Registration。不要同时改变 schema、Process 语义和 Queue prefix。
 
 ### 显式单服务器 Compose 形状
 

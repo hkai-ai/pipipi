@@ -79,6 +79,7 @@ curl --fail -X POST http://127.0.0.1:3000/execute \
 | `npm run test:integration:postgres` | 运行真实 PostgreSQL migration 与 Store contract tests | 是，会重建明确的 `_test` 数据库 schema |
 | `npm run test:integration:async` | 运行真实 PostgreSQL、Redis、Outbox Dispatcher 与 BullMQ Worker 测试 | 是，会重建 `_test` schema 并清空指定 Redis 测试 DB |
 | `npm run test:integration:async:local` | 启动隔离 Compose、运行完整异步集成测试并在成功或失败后清理 | 是，会启动并删除本地测试容器与临时数据 |
+| `npm run test:drill:dispatcher-worker:local` | 启动隔离 Compose，注入 Dispatcher 重启、Worker claim 失效、重复 Job 和滚动停机故障并输出可选证据 | 是，会重建 `_test` schema、清空测试 Redis，并删除本地测试容器与临时数据 |
 | `npm run test:acceptance:console:local` | 构建控制台并用 headless Chrome 验收浏览器异步提交、刷新恢复和终态投影 | 是，会启动并删除本地测试容器与临时数据；需要 Chrome 或 `CHROME_PATH` |
 | `npm run test:acceptance:async:local` | 按 CI 顺序运行 PostgreSQL、BullMQ/跨 Seam 和浏览器三层异步验收 | 是，会启动一组隔离依赖并在结尾删除容器、网络和临时数据 |
 | `npm run check:deployment:async-shape` | 用安全占位值渲染默认 Compose 与显式异步叠加层，验证角色、镜像、revision、命令、readiness、Queue 配置及缺参失败 | 否；需要 Docker Compose，不读取生产 Secret，也不启动容器 |
@@ -146,6 +147,16 @@ Pull Request 和 `main` 的 `Production CI/CD` 另设稳定检查名 `Async dura
 `Async internal release` 与上述 CI 分开，只支持 `workflow_dispatch`，并绑定 `async-internal` Environment。它不重新构建候选，而是验证操作者给出的 Production CI/CD run 中 `Check and build` 与 `Async durable acceptance` 都成功，再下载该 run 的精确 commit artifact。它与默认发布共享 Actions 并发组和服务器发布锁，并使用 Environment 固定的 SSH host key。发布脚本是 [`../ops/deploy-async-internal.sh`](../ops/deploy-async-internal.sh)；workflow 只负责候选验证、受保护授权、传输和声明过的证据文件回收，远端脚本拥有门禁顺序、角色切换、信号中断恢复和候选文件清理。
 
 同一 suite 还证明 Outbox 在 PostgreSQL commit 后才进入统一 `process-runs` Queue，Job 只含 `schemaVersion` 和 `runId`，Worker 仍能从数据库选择准确 Registration。故障用例覆盖 Dispatcher claim 过期、Redis 断线、重复 completed Job、Worker claim 过期接管、旧 token fencing 和停机超时 release。Compose Redis 使用 `noeviction` 和临时数据目录；它只用于测试，不代表生产高可用配置。
+
+Dispatcher/Worker 专项演练使用同一套真实依赖，但把三个跨 Seam 竞态串成一次可复现运行：Queue Job 已发布而 Outbox 未确认后的 Dispatcher 重启、过期 claim 与晚到旧 token/终态重复 Job、以及新 Worker ready 后旧 Worker grace 超时、释放 claim、Queue Recovery 重投和新 Worker 接管。它要求每个 Run 只有一条权威记录和一个公开终态 Event；受控 Capability 可以被调用多次，但以 `runId` 计的副作用只能出现一次，因此结论是“Queue 至少一次 + 下游幂等”，不是 exactly-once：
+
+```bash
+ASYNC_DISPATCHER_WORKER_DRILL_REVISION="$(git rev-parse HEAD)" \
+ASYNC_DISPATCHER_WORKER_DRILL_EVIDENCE_FILE=artifacts/dispatcher-worker-drill.json \
+npm run test:drill:dispatcher-worker:local
+```
+
+证据文件只含 revision、Run ID、Attempt 结果、时间线和非秘密布尔/计数观测，不含 claim token、幂等键、业务输入输出或连接地址。`.github/workflows/async-dispatcher-worker-drill.yml` 提供受保护的手动 `async-staging` 入口，固定候选 commit，在一次性 Compose project 中运行并保留证据 30 天；它不读取生产 Secret、不接生产流量，也不能提升 release stage。
 
 ### 异步 HTTP 开发入口
 

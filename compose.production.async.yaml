@@ -54,6 +54,7 @@ services:
   process-worker:
     <<: *async-runtime
     container_name: pipipi-process-worker
+    stop_grace_period: 2m
     env_file:
       - ${PIPIPI_PROCESS_WORKER_ENV_FILE:?PIPIPI_PROCESS_WORKER_ENV_FILE is required}
     command:

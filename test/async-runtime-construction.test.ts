@@ -73,6 +73,18 @@ describe("Async runtime role construction", () => {
         ).toThrow("PROCESS_RUN_CLAIM_LEASE_MS must exceed PROCESS_TIMEOUT_MS");
     });
 
+    it("bounds Worker shutdown below the container stop grace", () => {
+        expect(() =>
+            constructProcessWorkerService({
+                BUSINESS_API_BASE_URL: "https://business.example",
+                DATABASE_URL,
+                REDIS_URL,
+                ...WORKER_RETENTION,
+                PROCESS_WORKER_SHUTDOWN_GRACE_MS: "60001",
+            }),
+        ).toThrow("PROCESS_WORKER_SHUTDOWN_GRACE_MS must not exceed 60000");
+    });
+
     it("constructs the Retention Cleaner from role-owned PostgreSQL settings", async () => {
         expect(() => constructRetentionCleanerService({})).toThrow(
             "Deployment environment for retention-cleaner is missing required variables: DATABASE_URL",

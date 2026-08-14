@@ -258,6 +258,11 @@ export function createBullMqProcessWorker(options: {
                         worker.cancelAllJobs(
                             "Process Worker shutdown grace expired",
                         );
+                        forced = !(await waitForActiveToDrain(
+                            () => activeCount,
+                            activeDrainedWaiters,
+                            Math.min(shutdownGraceMs, 1_000),
+                        ));
                     }
                 }
             } catch (error) {

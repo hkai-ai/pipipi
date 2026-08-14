@@ -6,6 +6,7 @@ import { createProcessAttemptRunner } from "../process-runtime/index.js";
 import { createProductionRuntime } from "./business-processes.js";
 import {
     optionalNonEmpty,
+    parseBoundedPositiveInteger,
     parsePort,
     parsePositiveInteger,
     parseRequiredPositiveInteger,
@@ -43,10 +44,11 @@ export function constructProcessWorkerService(
         30_000,
         "PROCESS_TIMEOUT_MS",
     );
-    const shutdownGraceMs = parsePositiveInteger(
+    const shutdownGraceMs = parseBoundedPositiveInteger(
         environment.PROCESS_WORKER_SHUTDOWN_GRACE_MS,
         30_000,
         "PROCESS_WORKER_SHUTDOWN_GRACE_MS",
+        60_000,
     );
     const claimLeaseMs = parsePositiveInteger(
         environment.PROCESS_RUN_CLAIM_LEASE_MS,

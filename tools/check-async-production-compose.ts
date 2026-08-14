@@ -6,6 +6,7 @@ type ComposeService = Readonly<{
     environment?: Readonly<Record<string, string>>;
     healthcheck?: Readonly<{ test?: readonly string[] }>;
     labels?: Readonly<Record<string, string>>;
+    stop_grace_period?: string;
 }>;
 
 type ComposeModel = Readonly<{
@@ -127,6 +128,10 @@ export function checkAsyncProductionCompose(): void {
     assert(
         new Set(Object.values(portByService)).size === requiredAsyncServices.length,
         "Every async production role must use a unique readiness port",
+    );
+    assert(
+        asyncServices["process-worker"]?.stop_grace_period === "2m0s",
+        "The Process Worker container stop grace must exceed the bounded application shutdown",
     );
 
     assert(

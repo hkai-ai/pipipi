@@ -1,0 +1,124 @@
+name: Async Dispatcher and Worker fault drill
+run-name: Async Dispatcher and Worker drill ${{ inputs.candidate_sha }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      candidate_sha:
+        description: Isolated staging candidate full commit SHA
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  drill:
+    name: Exercise Dispatcher and Worker recovery
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment:
+      name: async-staging
+    concurrency:
+      group: pipipi-async-staging-fault-drill
+      cancel-in-progress: false
+    env:
+      ASYNC_INTEGRATION_PROJECT_NAME: pipipi-worker-drill-${{ github.run_id }}-${{ github.run_attempt }}
+
+    steps:
+      - name: Validate candidate
+        env:
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+        run: |
+          set -Eeuo pipefail
+          [[ "$CANDIDATE_SHA" =~ ^[0-9a-f]{40}$ ]]
+
+      - name: Checkout candidate
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.candidate_sha }}
+
+      - name: Verify checkout
+        env:
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+        run: test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run isolated fault drill
+        env:
+          ASYNC_DISPATCHER_WORKER_DRILL_EVIDENCE_FILE: evidence/dispatcher-worker.json
+          ASYNC_DISPATCHER_WORKER_DRILL_REVISION: ${{ inputs.candidate_sha }}
+        run: |
+          set -Eeuo pipefail
+          mkdir -p evidence
+          npm run test:drill:dispatcher-worker:local
+
+      - name: Verify non-secret drill evidence
+        env:
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+        run: |
+          set -Eeuo pipefail
+          evidence=evidence/dispatcher-worker.json
+          test -f "$evidence"
+          jq --exit-status --arg revision "$CANDIDATE_SHA" '
+            .schemaVersion == 1 and
+            .event == "async_dispatcher_worker_fault_drill_completed" and
+            .environment == "isolated-staging" and
+            .revision == $revision and
+            .productionTrafficAffected == false and
+            (.scenarios | length) == 3 and
+            ([.scenarios[].name] | sort) == ([
+              "dispatcher_publish_before_ack",
+              "ready_first_rolling_shutdown",
+              "stale_claim_and_duplicate_job"
+            ] | sort) and
+            ([.scenarios[] | select(
+              .terminalStatus == "succeeded" and
+              .authoritativeRunCount == 1 and
+              .terminalEventCount == 1 and
+              .idempotentEffectCount == 1 and
+              (.runId | test("^[0-9a-f-]{36}$"))
+            )] | length) == 3 and
+            (.scenarios[] | select(.name == "dispatcher_publish_before_ack") |
+              .attempts == [{number: 1, status: "succeeded", resultCode: "SUCCEEDED"}] and
+              .observations.firstDispatcherFaultObserved == true and
+              .observations.duplicatePublicationDeduplicated == true) and
+            (.scenarios[] | select(.name == "stale_claim_and_duplicate_job") |
+              [.attempts[].resultCode] == ["CLAIM_EXPIRED", "SUCCEEDED"] and
+              .observations.staleCompletionRejected == true and
+              .observations.terminalDuplicateIgnored == true) and
+            (.scenarios[] | select(.name == "ready_first_rolling_shutdown") |
+              [.attempts[].resultCode] == ["CLAIM_RELEASED", "SUCCEEDED"] and
+              .observations.newWorkerReadyBeforeOldStop == true and
+              .observations.capabilityInvocationCount == 2 and
+              .observations.capabilityEffectAttemptCount == 2 and
+              .observations.shutdownElapsedMs >= .observations.shutdownGraceMs and
+              .observations.shutdownElapsedMs < 1000 and
+              .timeline.newWorkerReadyAt <= .timeline.oldWorkerStopStartedAt and
+              .timeline.oldWorkerStoppedAt <= .timeline.recoveryEnqueuedAt and
+              .timeline.recoveryEnqueuedAt <= .timeline.terminalAt)
+          ' "$evidence" >/dev/null
+          if jq -r '.. | objects | keys[]' "$evidence" | \
+              grep -Eiq 'claim.?token|idempotency.?key|accepted.?input|(^|_)output$|prompt|secret|authorization|database.?url|redis.?url|endpoint.?url'; then
+            echo "Forbidden evidence field detected" >&2
+            exit 1
+          fi
+
+      - name: Clean isolated dependencies
+        if: ${{ always() }}
+        run: |
+          docker compose \
+            --project-name "$ASYNC_INTEGRATION_PROJECT_NAME" \
+            --file compose.integration.yaml \
+            down --volumes --remove-orphans
+
+      - name: Upload drill evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v6
+        with:
+          name: pipipi-dispatcher-worker-drill-${{ inputs.candidate_sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: evidence/dispatcher-worker.json
+          if-no-files-found: warn
+          retention-days: 30
