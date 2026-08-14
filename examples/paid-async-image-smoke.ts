@@ -53,6 +53,7 @@ try {
         completedAt: new Date().toISOString(),
         process: Object.freeze({ id: "crt-interface-image", version: "v1" }),
         runId: null,
+        processRunStatus: "unknown",
         publicErrorCode: "PAID_SMOKE_PREFLIGHT_OR_TRANSPORT_FAILURE",
         costApproval: Object.freeze({
             currency: "USD",
@@ -70,6 +71,7 @@ console.log(
         status: evidence.status,
         process: evidence.process,
         runId: evidence.runId,
+        processRunStatus: evidence.processRunStatus,
         ...(evidence.status === "failed"
             ? {
                   failedGate: evidence.failedGate,
@@ -119,6 +121,7 @@ type PreflightFailure = Readonly<{
     completedAt: string;
     process: Readonly<{ id: "crt-interface-image"; version: "v1" }>;
     runId: null;
+    processRunStatus: "unknown";
     publicErrorCode: "PAID_SMOKE_PREFLIGHT_OR_TRANSPORT_FAILURE";
     costApproval: Readonly<{
         currency: "USD";

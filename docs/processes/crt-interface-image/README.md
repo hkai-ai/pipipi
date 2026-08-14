@@ -225,7 +225,7 @@ npm run accept:crt-business
 
 这条命令证明 Process 组装、FAL URL 编辑、finalizer 和可选 OSS 可以协同运行，但不证明来源 URL 长期可用、生产身份隔离、容量或视觉质量。发布验收必须改用目标环境的生产 `POST /crt-images` 和正式 OSS 凭证，再复查同一组判据。
 
-异步发布进入至少 `canary/1%` 后，使用受保护的 `.github/workflows/async-paid-image-smoke.yml` 完成目标环境验收。它固定本 Registration 和服务端风格参数，通过真实网关证明 acceptance 响应丢失与 owner 查询恢复不会创建第二个 Run，再验证最终 OSS PNG 的尺寸、不透明度与固定调色板；运行前必须逐次批准费用。配置与证据边界见 [`../../async-process-runs-runbook.md`](../../async-process-runs-runbook.md#受控-faloss-付费异步-smoke)。
+异步发布进入至少 `canary/1%` 后，使用受保护的 `.github/workflows/async-paid-image-smoke.yml` 完成目标环境验收。它固定本 Registration 和服务端风格参数，通过真实网关丢弃首次 durable acceptance body，并证明同 key replay 与 owner 查询恢复不会创建第二个 Run；随后不跟随重定向地读取获准 OSS 位置，验证最终 PNG 的尺寸、不透明度与固定调色板。运行前必须逐次批准费用。配置与证据边界见 [`../../async-process-runs-runbook.md`](../../async-process-runs-runbook.md#受控-faloss-付费异步-smoke)。
 
 ## 发布与回滚
 

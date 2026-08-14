@@ -84,7 +84,7 @@ internal 发布后可手动运行受保护的 `.github/workflows/async-internal-
 
 同一候选的 internal release/smoke、Dispatcher/Worker、Redis 重建和 Webhook/观测证据全部成功后，受保护的 `.github/workflows/async-promote-release.yml` 才允许逐次执行 `internal/0% → canary/0% → 1% → 5% → 25% → production/25% → 50% → 100%`。每次人工批准只改变 stage 或可信网关流量中的一个变量；五个角色 readiness、容量/费用和 critical alert 在变更前后任一失败都会恢复原值。应用不拥有网关路由，服务器上的固定 Adapter 只向该 workflow 提供当前比例、设定比例和无内容 critical snapshot。
 
-至少进入 `canary/1%` 后，受保护的 `.github/workflows/async-paid-image-smoke.yml` 可在单独费用批准下执行一个固定的 `crt-interface-image/v1` 付费异步旅程。它通过真实网关使用同一 idempotency key 模拟 acceptance 响应丢失和查询恢复，只允许得到一个 Run，再验证 FAL URL edit、固定 CRT finalizer 和批准 OSS 路径中的最终 PNG。source URL、调用凭证、对象 URL、Prompt 和 FAL/OSS Secret 不进入 artifact；该入口默认不运行，也不改变流量。
+至少进入 `canary/1%` 后，受保护的 `.github/workflows/async-paid-image-smoke.yml` 可在单独费用批准下执行一个固定的 `crt-interface-image/v1` 付费异步旅程。它通过真实网关丢弃首次 acceptance body，再使用同一 idempotency key 恢复同一个 Run；owner-query 期限从恢复 durable acceptance 后开始。随后验证 FAL URL edit、固定 CRT finalizer 和批准 OSS 路径中的最终 PNG，且不跟随对象重定向。source URL、调用凭证、对象 URL、Prompt 和 FAL/OSS Secret 不进入 artifact；该入口默认不运行，也不改变流量。
 
 在第一个终端启动演示 Business Capability：
 

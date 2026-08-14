@@ -23,6 +23,9 @@ describe("Async paid image smoke workflow", () => {
         expect(workflow).toContain("PAID_ASYNC_CALLER_AUTHORIZATION");
         expect(workflow).toContain("Verify active revision stage and traffic");
         expect(workflow).toContain("com.pipipi.revision");
+        expect(workflow).toContain("pipipi-business-api");
+        expect(workflow).toContain('test "$image_provider" = "fal"');
+        expect(workflow).toContain('test "$storage_provider" = "aliyun-oss"');
         expect(workflow).toContain("set-traffic get");
         expect(workflow).toContain("retention-days: 90");
         expect(workflow).not.toMatch(/\n {2}push:/);
@@ -36,6 +39,7 @@ describe("Async paid image smoke workflow", () => {
         expect(module).toContain('const palette = "经典"');
         expect(module).toContain('const aspectRatio = "4:3"');
         expect(module).toContain("acceptanceResponseRecoveryVerified");
+        expect(module).toContain("initialAcceptanceInterrupted");
         expect(module).toContain("queryRecoveryVerified");
         expect(module).not.toContain("FAL_KEY");
         expect(module).not.toContain("OSS_ACCESS_KEY");

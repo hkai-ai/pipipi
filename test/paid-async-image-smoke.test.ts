@@ -29,8 +29,9 @@ describe("Paid async image smoke", () => {
             idempotencyKey: string | null;
             body: unknown;
         }> = [];
+        const interruptedAcceptance = accepted("queued");
         const gatewayResponses = [
-            accepted("queued"),
+            interruptedAcceptance,
             accepted("queued"),
             run("running"),
             run("succeeded", {
@@ -98,11 +99,13 @@ describe("Paid async image smoke", () => {
             event: "paid_async_image_smoke_completed",
             revision: REVISION,
             status: "succeeded",
+            processRunStatus: "succeeded",
             process: { id: "crt-interface-image", version: "v1" },
             runId: RUN_ID,
             recovery: {
                 submissionAttempts: 2,
                 uniqueRuns: 1,
+                initialAcceptanceInterrupted: true,
                 acceptanceResponseRecoveryVerified: true,
                 querySessions: 2,
                 queryRecoveryVerified: true,
@@ -126,6 +129,7 @@ describe("Paid async image smoke", () => {
         expect(requests.filter((item) => item.method === "POST")).toHaveLength(
             2,
         );
+        expect(interruptedAcceptance.bodyUsed).toBe(true);
         expect(
             new Set(
                 requests
@@ -199,6 +203,7 @@ describe("Paid async image smoke", () => {
         expect(evidence).toMatchObject({
             status: "failed",
             failedGate: "terminal",
+            processRunStatus: "failed",
             runId: RUN_ID,
             publicErrorCode: "DEPENDENCY_FAILURE",
             process: { id: "crt-interface-image", version: "v1" },
@@ -359,11 +364,140 @@ describe("Paid async image smoke", () => {
         expect(evidence).toMatchObject({
             status: "failed",
             failedGate: "object_verification",
+            processRunStatus: "succeeded",
             runId: RUN_ID,
             publicErrorCode: "PAID_SMOKE_OBJECT_VERIFICATION_FAILED",
         });
         expect(JSON.stringify(evidence)).not.toContain("wrong.example.com");
         expect(JSON.stringify(evidence)).not.toContain("credential");
+    });
+
+    it("refuses to follow an approved OSS URL to another origin", async () => {
+        const responses = [
+            accepted("queued"),
+            accepted("queued"),
+            run("running"),
+            run("succeeded", {
+                aspectRatio: "4:3",
+                image: {
+                    url: OBJECT_URL,
+                    contentType: "image/png",
+                    width: 4,
+                    height: 3,
+                },
+            }),
+        ];
+        let redirectMode: RequestRedirect | undefined;
+        const request: typeof fetch = async (input, init) => {
+            if (String(input) === OBJECT_URL) {
+                redirectMode = init?.redirect;
+                return new Response(null, {
+                    status: 302,
+                    headers: {
+                        location:
+                            "https://unapproved.example.com/result.png?secret=value",
+                    },
+                });
+            }
+            const response = responses.shift();
+            if (!response) throw new Error("Unexpected gateway request");
+            return response;
+        };
+
+        const evidence = await createPaidAsyncImageSmoke({
+            baseUrl: "https://gateway.example.com",
+            revision: REVISION,
+            authorization: AUTHORIZATION,
+            sourceImageUrl: SOURCE_URL,
+            expectedOssHost: "assets.example.com",
+            expectedOssPathPrefix: "/crt/result/",
+            costApproval: {
+                currency: "USD",
+                limit: "2.50",
+                reference: "FIN-2026-0814",
+            },
+            fetch: request,
+            createId: () => "paid-operation-key",
+            wait: async () => undefined,
+        }).run();
+
+        expect(evidence).toMatchObject({
+            status: "failed",
+            failedGate: "object_verification",
+            runId: RUN_ID,
+            publicErrorCode: "PAID_SMOKE_OBJECT_VERIFICATION_FAILED",
+        });
+        expect(redirectMode).toBe("manual");
+        expect(JSON.stringify(evidence)).not.toContain(
+            "unapproved.example.com",
+        );
+    });
+
+    it("starts the owner-query deadline only after durable acceptance recovery", async () => {
+        const png = await sharp({
+            create: {
+                width: 4,
+                height: 3,
+                channels: 3,
+                background: { r: 222, g: 228, b: 224 },
+            },
+        })
+            .png()
+            .toBuffer();
+        let time = 0;
+        let gatewayCall = 0;
+        const request: typeof fetch = async (input) => {
+            if (String(input) === OBJECT_URL) {
+                return new Response(png, {
+                    status: 200,
+                    headers: { "content-type": "image/png" },
+                });
+            }
+            gatewayCall += 1;
+            if (gatewayCall === 1) {
+                time = 70;
+                return accepted("queued");
+            }
+            if (gatewayCall === 2) {
+                time = 140;
+                return accepted("queued");
+            }
+            if (gatewayCall === 3) return run("running");
+            return run("succeeded", {
+                aspectRatio: "4:3",
+                image: {
+                    url: OBJECT_URL,
+                    contentType: "image/png",
+                    width: 4,
+                    height: 3,
+                },
+            });
+        };
+
+        const evidence = await createPaidAsyncImageSmoke({
+            baseUrl: "https://gateway.example.com",
+            revision: REVISION,
+            authorization: AUTHORIZATION,
+            sourceImageUrl: SOURCE_URL,
+            expectedOssHost: "assets.example.com",
+            expectedOssPathPrefix: "/crt/result/",
+            costApproval: {
+                currency: "USD",
+                limit: "2.50",
+                reference: "FIN-2026-0814",
+            },
+            timeoutMs: 100,
+            fetch: request,
+            createId: () => "paid-operation-key",
+            wait: async () => undefined,
+            now: () => time,
+        }).run();
+
+        expect(evidence).toMatchObject({
+            status: "succeeded",
+            processRunStatus: "succeeded",
+            runId: RUN_ID,
+        });
     });
 
     it("keeps the accepted Run ID when owner query recovery cannot continue", async () => {
@@ -434,6 +568,56 @@ describe("Paid async image smoke", () => {
                 acceptanceResponseRecoveryVerified: false,
             },
         });
+        expect(JSON.stringify(evidence)).not.toContain("sensitive endpoint");
+    });
+
+    it("replays the same operation after the first acceptance transport is lost", async () => {
+        const idempotencyKeys: Array<string | null> = [];
+        let calls = 0;
+        const request: typeof fetch = async (_input, init) => {
+            calls += 1;
+            idempotencyKeys.push(
+                new Headers(init?.headers).get("idempotency-key"),
+            );
+            if (calls === 1) {
+                throw new Error("first response exposed a sensitive endpoint");
+            }
+            return accepted("queued");
+        };
+
+        const evidence = await createPaidAsyncImageSmoke({
+            baseUrl: "https://gateway.example.com",
+            revision: REVISION,
+            authorization: AUTHORIZATION,
+            sourceImageUrl: SOURCE_URL,
+            expectedOssHost: "assets.example.com",
+            expectedOssPathPrefix: "/crt/result/",
+            costApproval: {
+                currency: "USD",
+                limit: "2.50",
+                reference: "FIN-2026-0814",
+            },
+            fetch: request,
+            createId: () => "paid-operation-key",
+        }).run();
+
+        expect(evidence).toMatchObject({
+            status: "failed",
+            failedGate: "acceptance_recovery",
+            runId: RUN_ID,
+            processRunStatus: "unknown",
+            publicErrorCode: "PAID_SMOKE_ACCEPTANCE_RECOVERY_FAILED",
+            recovery: {
+                submissionAttempts: 2,
+                uniqueRuns: 1,
+                initialAcceptanceInterrupted: false,
+                acceptanceResponseRecoveryVerified: false,
+            },
+        });
+        expect(idempotencyKeys).toEqual([
+            "paid-operation-key",
+            "paid-operation-key",
+        ]);
         expect(JSON.stringify(evidence)).not.toContain("sensitive endpoint");
     });
 
@@ -550,13 +734,17 @@ describe("Paid async image smoke", () => {
 });
 
 function accepted(status: "queued" | "running" | "succeeded" | "failed") {
-    return json(202, {
-        runId: RUN_ID,
-        process: "crt-interface-image",
-        version: "v1",
-        status,
-        createdAt: "2026-08-14T12:00:00.000Z",
-    });
+    return json(
+        202,
+        {
+            runId: RUN_ID,
+            process: "crt-interface-image",
+            version: "v1",
+            status,
+            createdAt: "2026-08-14T12:00:00.000Z",
+        },
+        { location: `/process-runs/${RUN_ID}` },
+    );
 }
 
 function run(status: "running" | "succeeded", output?: unknown) {
@@ -576,12 +764,17 @@ function run(status: "running" | "succeeded", output?: unknown) {
     });
 }
 
-function json(status: number, value: unknown) {
+function json(
+    status: number,
+    value: unknown,
+    extraHeaders: Record<string, string> = {},
+) {
     return new Response(JSON.stringify(value), {
         status,
         headers: {
             "content-type": "application/json",
             "retry-after": "1",
+            ...extraHeaders,
         },
     });
 }

@@ -12,6 +12,7 @@ const maxImageBytes = 50 * 1024 * 1024;
 type PaidSmokeRecovery = Readonly<{
     submissionAttempts: number;
     uniqueRuns: number;
+    initialAcceptanceInterrupted: boolean;
     acceptanceResponseRecoveryVerified: boolean;
     querySessions: number;
     queryRecoveryVerified: boolean;
@@ -45,6 +46,7 @@ type PaidSmokeCommon = Readonly<{
     completedAt: string;
     process: typeof process;
     runId: string;
+    processRunStatus: "unknown" | "succeeded" | "failed";
     recovery: PaidSmokeRecovery;
     costApproval: PaidSmokeCostApproval;
 }>;
@@ -109,7 +111,6 @@ export function createPaidAsyncImageSmoke(options: PaidAsyncImageSmokeOptions) {
     return Object.freeze({
         run: async (): Promise<PaidAsyncImageSmokeEvidence> => {
             const startedAt = clock();
-            const deadline = now() + timeoutMs;
             const idempotencyKey = requiredIdempotencyKey(createId());
             const body = Object.freeze({
                 process: process.id,
@@ -121,15 +122,21 @@ export function createPaidAsyncImageSmoke(options: PaidAsyncImageSmokeOptions) {
                     grain,
                 }),
             });
-            const first = await submit({
-                request,
-                baseUrl,
-                authorization,
-                idempotencyKey,
-                body,
-                deadline,
-                now,
-            });
+            let interruptedRunId: string | null = null;
+            try {
+                interruptedRunId = await interruptAcceptedResponse({
+                    request,
+                    baseUrl,
+                    authorization,
+                    idempotencyKey,
+                    body,
+                    deadline: submissionDeadline(now),
+                    now,
+                });
+            } catch {
+                // The replay below is the only safe recovery when the caller
+                // cannot tell whether the first acceptance reached the server.
+            }
             let replay: { runId: string };
             try {
                 replay = await submit({
@@ -138,10 +145,11 @@ export function createPaidAsyncImageSmoke(options: PaidAsyncImageSmokeOptions) {
                     authorization,
                     idempotencyKey,
                     body,
-                    deadline,
+                    deadline: submissionDeadline(now),
                     now,
                 });
             } catch {
+                if (interruptedRunId === null) throw new Error("unrecoverable");
                 return Object.freeze({
                     schemaVersion: 1,
                     event: "paid_async_image_smoke_completed",
@@ -151,11 +159,13 @@ export function createPaidAsyncImageSmoke(options: PaidAsyncImageSmokeOptions) {
                     startedAt,
                     completedAt: clock(),
                     process,
-                    runId: first.runId,
+                    runId: interruptedRunId,
+                    processRunStatus: "unknown",
                     publicErrorCode: "PAID_SMOKE_ACCEPTANCE_RECOVERY_FAILED",
                     recovery: Object.freeze({
                         submissionAttempts: 2,
                         uniqueRuns: 1,
+                        initialAcceptanceInterrupted: true,
                         acceptanceResponseRecoveryVerified: false,
                         querySessions: 0,
                         queryRecoveryVerified: false,
@@ -164,7 +174,7 @@ export function createPaidAsyncImageSmoke(options: PaidAsyncImageSmokeOptions) {
                     costApproval,
                 });
             }
-            if (first.runId !== replay.runId) {
+            if (interruptedRunId === null) {
                 return Object.freeze({
                     schemaVersion: 1,
                     event: "paid_async_image_smoke_completed",
@@ -174,11 +184,38 @@ export function createPaidAsyncImageSmoke(options: PaidAsyncImageSmokeOptions) {
                     startedAt,
                     completedAt: clock(),
                     process,
-                    runId: first.runId,
+                    runId: replay.runId,
+                    processRunStatus: "unknown",
+                    publicErrorCode: "PAID_SMOKE_ACCEPTANCE_RECOVERY_FAILED",
+                    recovery: Object.freeze({
+                        submissionAttempts: 2,
+                        uniqueRuns: 1,
+                        initialAcceptanceInterrupted: false,
+                        acceptanceResponseRecoveryVerified: false,
+                        querySessions: 0,
+                        queryRecoveryVerified: false,
+                        initialQueryInterrupted: false,
+                    }),
+                    costApproval,
+                });
+            }
+            if (interruptedRunId !== replay.runId) {
+                return Object.freeze({
+                    schemaVersion: 1,
+                    event: "paid_async_image_smoke_completed",
+                    revision,
+                    status: "failed",
+                    failedGate: "acceptance_recovery",
+                    startedAt,
+                    completedAt: clock(),
+                    process,
+                    runId: interruptedRunId,
+                    processRunStatus: "unknown",
                     publicErrorCode: "PAID_SMOKE_IDEMPOTENCY_FAILURE",
                     recovery: Object.freeze({
                         submissionAttempts: 2,
                         uniqueRuns: 2,
+                        initialAcceptanceInterrupted: true,
                         acceptanceResponseRecoveryVerified: false,
                         querySessions: 0,
                         queryRecoveryVerified: false,
@@ -188,13 +225,15 @@ export function createPaidAsyncImageSmoke(options: PaidAsyncImageSmokeOptions) {
                 });
             }
 
+            const deadline = now() + timeoutMs;
+
             let initialQueryInterrupted = false;
             try {
                 await query({
                     request,
                     baseUrl,
                     authorization,
-                    runId: first.runId,
+                    runId: replay.runId,
                     deadline,
                     now,
                 });
@@ -207,7 +246,7 @@ export function createPaidAsyncImageSmoke(options: PaidAsyncImageSmokeOptions) {
                     request,
                     baseUrl,
                     authorization,
-                    runId: first.runId,
+                    runId: replay.runId,
                     deadline,
                     now,
                     wait,
@@ -222,7 +261,8 @@ export function createPaidAsyncImageSmoke(options: PaidAsyncImageSmokeOptions) {
                     startedAt,
                     completedAt: clock(),
                     process,
-                    runId: first.runId,
+                    runId: replay.runId,
+                    processRunStatus: "unknown",
                     publicErrorCode: "PAID_SMOKE_QUERY_RECOVERY_FAILED",
                     recovery: Object.freeze({
                         ...recoveryEvidence(initialQueryInterrupted),
@@ -241,7 +281,8 @@ export function createPaidAsyncImageSmoke(options: PaidAsyncImageSmokeOptions) {
                     startedAt,
                     completedAt: clock(),
                     process,
-                    runId: first.runId,
+                    runId: replay.runId,
+                    processRunStatus: "failed",
                     publicErrorCode: terminalErrorCode(terminal),
                     recovery: recoveryEvidence(initialQueryInterrupted),
                     costApproval,
@@ -268,7 +309,8 @@ export function createPaidAsyncImageSmoke(options: PaidAsyncImageSmokeOptions) {
                     startedAt,
                     completedAt: clock(),
                     process,
-                    runId: first.runId,
+                    runId: replay.runId,
+                    processRunStatus: "succeeded",
                     publicErrorCode: "PAID_SMOKE_OBJECT_VERIFICATION_FAILED",
                     recovery: recoveryEvidence(initialQueryInterrupted),
                     costApproval,
@@ -282,7 +324,8 @@ export function createPaidAsyncImageSmoke(options: PaidAsyncImageSmokeOptions) {
                 startedAt,
                 completedAt: clock(),
                 process,
-                runId: first.runId,
+                runId: replay.runId,
+                processRunStatus: "succeeded",
                 recovery: recoveryEvidence(initialQueryInterrupted),
                 object,
                 costApproval,
@@ -295,6 +338,7 @@ function recoveryEvidence(initialQueryInterrupted: boolean): PaidSmokeRecovery {
     return Object.freeze({
         submissionAttempts: 2,
         uniqueRuns: 1,
+        initialAcceptanceInterrupted: true,
         acceptanceResponseRecoveryVerified: true,
         querySessions: 2,
         queryRecoveryVerified: true,
@@ -328,21 +372,7 @@ async function submit(
             body: unknown;
         }>,
 ): Promise<{ runId: string }> {
-    const response = await options.request(
-        new URL("/process-runs", options.baseUrl),
-        {
-            method: "POST",
-            headers: {
-                authorization: options.authorization,
-                "content-type": "application/json",
-                "idempotency-key": options.idempotencyKey,
-                "x-pipipi-caller-id": "forged-paid-smoke-must-be-removed",
-                "x-pipipi-gateway-token": "forged-paid-smoke-must-be-removed",
-            },
-            body: JSON.stringify(options.body),
-            signal: requestSignal(options.deadline, options.now),
-        },
-    );
+    const response = await postAcceptance(options);
     const value = await jsonRecord(response);
     if (
         response.status !== 202 ||
@@ -354,6 +384,57 @@ async function submit(
         throw new Error("Paid smoke submission was not durably accepted");
     }
     return { runId: value.runId };
+}
+
+async function interruptAcceptedResponse(
+    options: RequestContext &
+        Readonly<{
+            idempotencyKey: string;
+            body: unknown;
+        }>,
+): Promise<string> {
+    const response = await postAcceptance(options);
+    const location = response.headers.get("location");
+    if (response.status !== 202 || location === null) {
+        throw new Error("Paid smoke acceptance could not be interrupted");
+    }
+    const accepted = new URL(location, options.baseUrl);
+    const match = /^\/process-runs\/([^/?#]+)$/.exec(accepted.pathname);
+    if (
+        accepted.origin !== options.baseUrl.origin ||
+        accepted.search !== "" ||
+        accepted.hash !== "" ||
+        match?.[1] === undefined
+    ) {
+        throw new Error("Paid smoke acceptance location is invalid");
+    }
+    const runId = decodeURIComponent(match[1]);
+    if (runId.length < 1 || runId.length > 128) {
+        throw new Error("Paid smoke acceptance Run ID is invalid");
+    }
+    await response.body?.cancel();
+    return runId;
+}
+
+async function postAcceptance(
+    options: RequestContext &
+        Readonly<{
+            idempotencyKey: string;
+            body: unknown;
+        }>,
+): Promise<Response> {
+    return options.request(new URL("/process-runs", options.baseUrl), {
+        method: "POST",
+        headers: {
+            authorization: options.authorization,
+            "content-type": "application/json",
+            "idempotency-key": options.idempotencyKey,
+            "x-pipipi-caller-id": "forged-paid-smoke-must-be-removed",
+            "x-pipipi-gateway-token": "forged-paid-smoke-must-be-removed",
+        },
+        body: JSON.stringify(options.body),
+        signal: requestSignal(options.deadline, options.now),
+    });
 }
 
 async function query(
@@ -445,6 +526,7 @@ async function verifyObject(options: {
     }
     const response = await options.request(url, {
         method: "GET",
+        redirect: "manual",
         signal: requestSignal(options.deadline, options.now),
     });
     const contentType = response.headers.get("content-type")?.split(";", 1)[0];
@@ -532,6 +614,10 @@ function requestSignal(deadline: number, now: () => number): AbortSignal {
     const remaining = deadline - now();
     if (remaining <= 0) throw new Error("Paid smoke deadline elapsed");
     return AbortSignal.timeout(Math.min(remaining, 30_000));
+}
+
+function submissionDeadline(now: () => number): number {
+    return now() + 30_000;
 }
 
 function gatewayUrl(value: string): URL {

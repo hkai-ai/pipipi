@@ -166,9 +166,14 @@ jobs:
           [[ "$revision" =~ ^[0-9a-f]{40}$ ]]
           [[ "$expected_stage" =~ ^(canary|production)$ ]]
           [[ "$expected_traffic" =~ ^(1|5|25|50|100)$ ]]
-          for container in pipipi pipipi-process-dispatcher pipipi-process-worker pipipi-webhook-worker pipipi-retention-cleaner; do
+          for container in pipipi pipipi-business-api pipipi-process-dispatcher pipipi-process-worker pipipi-webhook-worker pipipi-retention-cleaner; do
             test "$(docker inspect "$container" --format '{{index .Config.Labels "com.pipipi.revision"}}')" = "$revision"
           done
+          test "$(docker inspect pipipi-business-api --format '{{.State.Health.Status}}')" = "healthy"
+          image_provider="$(docker inspect pipipi-business-api --format '{{range .Config.Env}}{{println .}}{{end}}' | awk -F= '$1 == "IMAGE_PROVIDER" { sub(/^[^=]*=/, ""); print }')"
+          storage_provider="$(docker inspect pipipi-business-api --format '{{range .Config.Env}}{{println .}}{{end}}' | awk -F= '$1 == "OBJECT_STORAGE_PROVIDER" { sub(/^[^=]*=/, ""); print }')"
+          test "$image_provider" = "fal"
+          test "$storage_provider" = "aliyun-oss"
           stage="$(docker inspect pipipi --format '{{range .Config.Env}}{{println .}}{{end}}' | awk -F= '$1 == "ASYNC_RELEASE_STAGE" { sub(/^[^=]*=/, ""); print }')"
           test "$stage" = "$expected_stage"
           traffic="$($app_root/shared/async-control/set-traffic get "$revision")"
@@ -219,8 +224,10 @@ jobs:
             .revision == $revision and .status == "succeeded" and
             .process == {id:"crt-interface-image", version:"v1"} and
             (.runId | type == "string" and length > 0) and
+            .processRunStatus == "succeeded" and
             .recovery.submissionAttempts == 2 and
             .recovery.uniqueRuns == 1 and
+            .recovery.initialAcceptanceInterrupted == true and
             .recovery.acceptanceResponseRecoveryVerified == true and
             .recovery.querySessions == 2 and
             .recovery.queryRecoveryVerified == true and
