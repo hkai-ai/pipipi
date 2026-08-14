@@ -229,7 +229,7 @@ docker compose \
 | --- | --- |
 | `api` | `BUSINESS_API_BASE_URL`；`PI_PROVIDER=openai` 时还需 `OPENAI_API_KEY`；启用异步入口后还需 `DATABASE_URL`、`ASYNC_GATEWAY_SHARED_SECRET`、三个 `PROCESS_RUN_*_RETENTION_MS`、`ASYNC_RELEASE_STAGE`、`ASYNC_GLOBAL_BACKLOG_LIMIT`、`ASYNC_CALLER_BACKLOG_LIMIT`、`ASYNC_BACKLOG_RETRY_AFTER_SECONDS` |
 | `process-dispatcher` | `DATABASE_URL`、`REDIS_URL` |
-| `process-worker` | `BUSINESS_API_BASE_URL`、`DATABASE_URL`、`REDIS_URL`、三个 `PROCESS_RUN_*_RETENTION_MS`；`PI_PROVIDER=openai` 时还需 `OPENAI_API_KEY` |
+| `process-worker` | `BUSINESS_API_BASE_URL`、`DATABASE_URL`、`REDIS_URL`、三个 `PROCESS_RUN_*_RETENTION_MS`、`PROCESS_RUN_RECORD_STORE`、`PROCESS_RUN_RECORD_CONTENT`；非生产文件存储还需 `PROCESS_RUN_RECORD_DIRECTORY`；生产固定为 `postgres` 与 `accepted-input-and-output`；`PI_PROVIDER=openai` 时还需 `OPENAI_API_KEY` |
 | `webhook-worker` | `DATABASE_URL`、`REDIS_URL`、`WEBHOOK_SECRET_ENCRYPTION_KEY` |
 | `retention-cleaner` | `DATABASE_URL` |
 | `async-operations` | `DATABASE_URL`、`REDIS_URL` |
@@ -244,6 +244,8 @@ npm run check:deployment-env -- webhook-worker
 npm run check:deployment-env -- retention-cleaner
 npm run check:deployment-env -- api
 ```
+
+异步生产 Compose 强制覆盖 `PROCESS_RUN_RECORD_STORE=postgres` 和 `PROCESS_RUN_RECORD_CONTENT=accepted-input-and-output`，生产预检也会拒绝其他值。Worker 与 API 共用 Run Observation Module：Worker 写入异步终态 Run Record 和 Attempt Activity Archive，API 的 Console Read Port 读取同一 PostgreSQL 数据。这样不会出现异步执行成功但控制台历史、统计和活动时间线为空，或记录随 Worker 容器删除的合法生产配置。
 
 预检不连接 PostgreSQL、Redis、模型或 Business Capability，不输出配置值，并在一次失败中列出该角色全部缺失变量。实际 Construction Root 会重复检查存在性，再校验格式和跨字段约束；`GET /readyz` 随后验证 migration 与外部依赖。预检通过不能替代 Secret、网络、容量和 smoke 门禁。
 

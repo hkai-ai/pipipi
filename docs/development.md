@@ -72,6 +72,7 @@ curl --fail -X POST http://127.0.0.1:3000/execute \
 | `npm run build:console` | 只构建控制台 | 否 |
 | `npm run test:integration:observation` | Run 观测的 PostgreSQL 契约测试 | 是，需要名称以 `_test` 结尾的库 |
 | `npm run check:deployment-env -- <role>` | 从已编译产物聚合检查一个部署角色的必填环境变量 | 否 |
+| `npm run audit:production-database` | 经 `DATABASE_URL` 实连并验证生产会话 TLS、专用库、无管理权限、无其他业务库访问且没有 `SET ROLE` 身份切换 | 是，只读访问 PostgreSQL |
 | `npm run db:migrate` | 对 `DATABASE_URL` 执行受锁保护的 PostgreSQL migration | 是，会修改指定数据库 |
 | `npm run db:migrate:verify` | 在编译产物中连续执行两次受锁 migration，并要求第二次没有任何待执行项 | 是；第一次可能修改指定数据库，第二次只验证幂等结果 |
 | `npm run recover:queue -- ...` | dry-run 或修复 PostgreSQL 与 Process Queue 的差异 | 是；`--apply` 会写 Queue、Outbox 与审计表 |

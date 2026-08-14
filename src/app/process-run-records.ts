@@ -6,9 +6,9 @@ import type {
 import { createJsonlDayFiles, utcDayOf } from "./jsonl-day-files.js";
 
 /**
- * A page of Run Records, newest first. `nextBefore` is the `recordedAt` to pass
- * back as `before` to continue reading older records; it is absent once the
- * archive has been read to its oldest retained record.
+ * A page of Run Records, newest first. `nextBefore` is an opaque cursor that
+ * combines `recordedAt` and `runId`, so equal timestamps cannot skip a record.
+ * It is absent once the archive has been read to its oldest retained record.
  */
 export type ProcessRunRecordPage = Readonly<{
     records: readonly ProcessRunRecord[];
@@ -20,6 +20,11 @@ export type ProcessRunRecordQuery = Readonly<{
     before?: string;
     process?: string;
     status?: "succeeded" | "failed";
+    errorCode?: string;
+    /** Inclusive lower bound, as a canonical ISO 8601 instant. */
+    since?: string;
+    /** Exclusive upper bound, as a canonical ISO 8601 instant. */
+    until?: string;
 }>;
 
 /**
@@ -72,28 +77,39 @@ export function createJsonlProcessRunRecordArchive(options: {
 
         list: async (query = {}) => {
             const limit = parseListLimit(query.limit);
-            const before = query.before;
-            const page: ProcessRunRecord[] = [];
+            const before = parseProcessRunRecordCursor(query.before);
+            const latest = new Map<string, ProcessRunRecord>();
 
             for (const file of await files.files()) {
                 const records = await files.read(file);
                 for (let index = records.length - 1; index >= 0; index -= 1) {
                     const record = records[index];
                     if (!record) continue;
-                    if (before !== undefined && record.recordedAt >= before) {
-                        continue;
-                    }
-                    if (!matchesFilters(record, query)) continue;
-                    page.push(record);
-                    if (page.length > limit) {
-                        return Object.freeze({
-                            records: Object.freeze(page.slice(0, limit)),
-                            nextBefore: page[limit - 1]?.recordedAt,
-                        });
-                    }
+                    if (!latest.has(record.runId))
+                        latest.set(record.runId, record);
                 }
             }
-            return Object.freeze({ records: Object.freeze(page) });
+            const matching = [...latest.values()]
+                .filter(
+                    (record) =>
+                        matchesFilters(record, query) &&
+                        comesBeforeCursor(record, before),
+                )
+                .sort(
+                    (left, right) =>
+                        right.recordedAt.localeCompare(left.recordedAt) ||
+                        right.runId.localeCompare(left.runId),
+                );
+            const records = Object.freeze(matching.slice(0, limit));
+            const last = records.at(-1);
+            return Object.freeze(
+                matching.length > limit && last
+                    ? {
+                          records,
+                          nextBefore: encodeProcessRunRecordCursor(last),
+                      }
+                    : { records },
+            );
         },
     });
 }
@@ -110,7 +126,7 @@ export function createJsonlProcessRunRecordReader(options: {
     const clock = options.clock ?? (() => new Date());
     const files = createRecordDayFiles(options, clock);
     return async (since) => {
-        const found: ProcessRunRecord[] = [];
+        const latest = new Map<string, ProcessRunRecord>();
         for (const file of await files.files()) {
             // Day files are named by UTC day, so a file entirely before the
             // window cannot contain a record inside it.
@@ -120,11 +136,17 @@ export function createJsonlProcessRunRecordReader(options: {
             ) {
                 continue;
             }
-            for (const record of await files.read(file)) {
-                if (record.recordedAt >= since) found.push(record);
+            const records = await files.read(file);
+            for (let index = records.length - 1; index >= 0; index -= 1) {
+                const record = records[index];
+                if (record && !latest.has(record.runId)) {
+                    latest.set(record.runId, record);
+                }
             }
         }
-        return found;
+        return [...latest.values()].filter(
+            (record) => record.recordedAt >= since,
+        );
     };
 }
 
@@ -178,7 +200,11 @@ function matchesFilters(
 ): boolean {
     return (
         (query.process === undefined || record.process === query.process) &&
-        (query.status === undefined || record.status === query.status)
+        (query.status === undefined || record.status === query.status) &&
+        (query.errorCode === undefined ||
+            record.errorCode === query.errorCode) &&
+        (query.since === undefined || record.recordedAt >= query.since) &&
+        (query.until === undefined || record.recordedAt < query.until)
     );
 }
 
@@ -188,6 +214,67 @@ function parseListLimit(value: number | undefined): number {
         throw new Error("Run Record list limit must be a positive integer");
     }
     return Math.min(value, maximumProcessRunRecordListLimit);
+}
+
+type ProcessRunRecordCursor = Readonly<{
+    recordedAt: string;
+    runId?: string;
+}>;
+
+export function encodeProcessRunRecordCursor(
+    record: Pick<ProcessRunRecord, "recordedAt" | "runId">,
+): string {
+    return `r1.${Buffer.from(
+        JSON.stringify([record.recordedAt, record.runId]),
+        "utf8",
+    ).toString("base64url")}`;
+}
+
+export function parseProcessRunRecordCursor(
+    value: string | undefined,
+): ProcessRunRecordCursor | undefined {
+    if (value === undefined) return undefined;
+    if (!value.startsWith("r1.")) {
+        const milliseconds = Date.parse(value);
+        if (!Number.isFinite(milliseconds)) {
+            throw new Error("Run Record cursor is invalid");
+        }
+        return Object.freeze({
+            recordedAt: new Date(milliseconds).toISOString(),
+        });
+    }
+    try {
+        const decoded: unknown = JSON.parse(
+            Buffer.from(value.slice(3), "base64url").toString("utf8"),
+        );
+        if (
+            !Array.isArray(decoded) ||
+            decoded.length !== 2 ||
+            typeof decoded[0] !== "string" ||
+            !Number.isFinite(Date.parse(decoded[0])) ||
+            typeof decoded[1] !== "string" ||
+            decoded[1].length === 0
+        ) {
+            throw new Error("invalid");
+        }
+        return Object.freeze({
+            recordedAt: new Date(Date.parse(decoded[0])).toISOString(),
+            runId: decoded[1],
+        });
+    } catch {
+        throw new Error("Run Record cursor is invalid");
+    }
+}
+
+function comesBeforeCursor(
+    record: ProcessRunRecord,
+    cursor: ProcessRunRecordCursor | undefined,
+): boolean {
+    if (!cursor) return true;
+    if (record.recordedAt !== cursor.recordedAt) {
+        return record.recordedAt < cursor.recordedAt;
+    }
+    return cursor.runId !== undefined && record.runId < cursor.runId;
 }
 
 /**

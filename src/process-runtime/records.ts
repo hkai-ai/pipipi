@@ -50,7 +50,7 @@ export function createProcessRunRecords(options: {
                     createRecord(completion, content, clock()),
                 );
                 const storage = options.adapter.store(record);
-                if (storage) void storage.catch(() => {});
+                return storage?.catch(() => {});
             } catch {
                 // Recording is best-effort and cannot change process execution.
             }

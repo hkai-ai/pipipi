@@ -16,6 +16,7 @@ import {
     defineProcessRegistration,
     failProcess,
     type ProcessRegistration,
+    type ProcessRunRecords,
 } from "../src/process-runtime/index.js";
 
 describe("Async Process Runs", () => {
@@ -122,8 +123,73 @@ describe("Async Process Runs", () => {
         );
     });
 
+    it("records only the authoritative terminal outcome with accepted input", async () => {
+        const record = vi.fn();
+        const fixture = createFixture([registration("v1")], {
+            runRecords: { record, find: async () => undefined },
+        });
+        await fixture.runs.submit(request("v1", "  request  "), {
+            callerId: "caller-a",
+            idempotencyKey: "observed-terminal",
+        });
+
+        await expect(fixture.drain.drainOne()).resolves.toBe("processed");
+
+        expect(record).toHaveBeenCalledOnce();
+        expect(record).toHaveBeenCalledWith({
+            result: {
+                runId: RUN_IDS[0],
+                process: "test-processing",
+                version: "v1",
+                status: "succeeded",
+                output: { value: "request" },
+            },
+            acceptedRequest: { input: { value: "request" } },
+        });
+    });
+
+    it("keeps the authoritative terminal outcome when observation storage fails", async () => {
+        const fixture = createFixture([registration("v1")], {
+            runRecords: {
+                record: async () => {
+                    throw new Error("observation unavailable");
+                },
+                find: async () => undefined,
+            },
+        });
+        await fixture.runs.submit(request("v1", "request"), {
+            callerId: "caller-a",
+            idempotencyKey: "observation-failure",
+        });
+
+        await expect(fixture.drain.drainOne()).resolves.toBe("processed");
+        await expect(
+            fixture.runs.find(RUN_IDS[0], caller("caller-a")),
+        ).resolves.toMatchObject({ status: "succeeded" });
+    });
+
+    it("bounds observation latency after the authoritative terminal outcome", async () => {
+        const fixture = createFixture([registration("v1")], {
+            runRecords: {
+                record: () => new Promise<void>(() => {}),
+                find: async () => undefined,
+            },
+            observationTimeoutMs: 1,
+        });
+        await fixture.runs.submit(request("v1", "request"), {
+            callerId: "caller-a",
+            idempotencyKey: "observation-timeout",
+        });
+
+        await expect(fixture.drain.drainOne()).resolves.toBe("processed");
+        await expect(
+            fixture.runs.find(RUN_IDS[0], caller("caller-a")),
+        ).resolves.toMatchObject({ status: "succeeded" });
+    });
+
     it("retries only a declared transient failure and keeps one public terminal state", async () => {
         const seenRunIds: string[] = [];
+        const record = vi.fn();
         let attempts = 0;
         const process = defineProcessRegistration({
             id: "test-processing",
@@ -146,7 +212,9 @@ describe("Async Process Runs", () => {
                     : { value: input.value.toUpperCase() };
             },
         });
-        const fixture = createFixture([process]);
+        const fixture = createFixture([process], {
+            runRecords: { record, find: async () => undefined },
+        });
         await fixture.runs.submit(request("v1", "request"), {
             callerId: "caller-a",
             idempotencyKey: "retry-safe",
@@ -159,6 +227,7 @@ describe("Async Process Runs", () => {
         await expect(
             fixture.runs.find(RUN_IDS[0], caller("caller-a")),
         ).resolves.toMatchObject({ status: "queued" });
+        expect(record).not.toHaveBeenCalled();
 
         await expect(
             fixture.worker.process({ schemaVersion: 1, runId: RUN_IDS[0] }),
@@ -170,6 +239,7 @@ describe("Async Process Runs", () => {
             output: { value: "REQUEST" },
         });
         expect(seenRunIds).toEqual([RUN_IDS[0], RUN_IDS[0]]);
+        expect(record).toHaveBeenCalledTimes(1);
     });
 
     it("does not retry permanent errors and fails after the declared limit", async () => {
@@ -425,10 +495,18 @@ describe("Async Process Runs", () => {
     });
 
     it("uses one queue for exact registrations and ignores duplicate terminal jobs", async () => {
-        const fixture = createFixture([
-            registration("v1", async (value) => ({ value: `v1:${value}` })),
-            registration("v2", async (value) => ({ value: `v2:${value}` })),
-        ]);
+        const record = vi.fn();
+        const fixture = createFixture(
+            [
+                registration("v1", async (value) => ({
+                    value: `v1:${value}`,
+                })),
+                registration("v2", async (value) => ({
+                    value: `v2:${value}`,
+                })),
+            ],
+            { runRecords: { record, find: async () => undefined } },
+        );
         const first = await fixture.runs.submit(request("v1", "one"), {
             callerId: "caller-a",
             idempotencyKey: "one",
@@ -458,6 +536,7 @@ describe("Async Process Runs", () => {
 
         await fixture.queue.enqueue({ schemaVersion: 1, runId: first.runId });
         await expect(fixture.drain.drainOne()).resolves.toBe("ignored");
+        expect(record).toHaveBeenCalledTimes(2);
         expect(
             await fixture.runs.find(first.runId, caller("caller-a")),
         ).toMatchObject({
@@ -596,6 +675,8 @@ function createFixture(
     options: {
         createRunId?: () => string;
         logSink?: (record: unknown) => void;
+        runRecords?: ProcessRunRecords;
+        observationTimeoutMs?: number;
     } = {},
 ) {
     const store = createInMemoryProcessRunStore({ maxRuns: 20 });
@@ -638,6 +719,8 @@ function createFixture(
         clock,
         createClaimToken: () => "claim-token",
         logSink: options.logSink,
+        runRecords: options.runRecords,
+        observationTimeoutMs: options.observationTimeoutMs,
     });
     return {
         runs,

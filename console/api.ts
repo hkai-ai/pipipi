@@ -31,6 +31,9 @@ export type RunTimeline = Readonly<{
 export type RunFilters = Readonly<{
     process?: string;
     status?: "succeeded" | "failed";
+    errorCode?: string;
+    since?: string;
+    until?: string;
 }>;
 
 /**
@@ -56,6 +59,9 @@ export function listRuns(
     if (options.before) query.set("before", options.before);
     if (options.process) query.set("process", options.process);
     if (options.status) query.set("status", options.status);
+    if (options.errorCode) query.set("errorCode", options.errorCode);
+    if (options.since) query.set("since", options.since);
+    if (options.until) query.set("until", options.until);
     return readJson(`runs?${query.toString()}`);
 }
 

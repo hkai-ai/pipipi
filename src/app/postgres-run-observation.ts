@@ -7,13 +7,15 @@ import type { ProcessRunRecord } from "../process-runtime/records.js";
 import type { ProcessRunActivityArchive } from "./process-run-activities.js";
 import {
     defaultProcessRunRecordListLimit,
+    encodeProcessRunRecordCursor,
     maximumProcessRunRecordListLimit,
     type ProcessRunRecordArchive,
+    parseProcessRunRecordCursor,
     redactProcessRunRecord,
 } from "./process-run-records.js";
 import {
     type RunObservationStats,
-    summariseRunObservation,
+    summariseAggregatedRunObservation,
 } from "./run-observation-stats.js";
 
 /**
@@ -69,18 +71,30 @@ export function createPostgresProcessRunRecordArchive(options: {
 
         list: async (query = {}) => {
             const limit = parseListLimit(query.limit);
+            const before = parseProcessRunRecordCursor(query.before);
             const { rows } = await pool.query(
                 `${recordSelect}
-                 where ($1::timestamptz is null or recorded_at < $1::timestamptz)
+                 where ($1::timestamptz is null
+                        or recorded_at < $1::timestamptz
+                        or (recorded_at = $1::timestamptz
+                            and $8::text is not null
+                            and run_id < $8::text))
                    and ($3::text is null or process_id = $3::text)
                    and ($4::text is null or status = $4::text)
+                   and ($5::text is null or error_code = $5::text)
+                   and ($6::timestamptz is null or recorded_at >= $6::timestamptz)
+                   and ($7::timestamptz is null or recorded_at < $7::timestamptz)
                  order by recorded_at desc, run_id desc
                  limit $2`,
                 [
-                    query.before ?? null,
+                    before?.recordedAt ?? null,
                     limit + 1,
                     query.process ?? null,
                     query.status ?? null,
+                    query.errorCode ?? null,
+                    query.since ?? null,
+                    query.until ?? null,
+                    before?.runId ?? null,
                 ],
             );
             const records = rows.slice(0, limit).map(toRecord);
@@ -88,7 +102,11 @@ export function createPostgresProcessRunRecordArchive(options: {
                 rows.length > limit
                     ? {
                           records: Object.freeze(records),
-                          nextBefore: records.at(-1)?.recordedAt,
+                          nextBefore: records.at(-1)
+                              ? encodeProcessRunRecordCursor(
+                                    records.at(-1) as ProcessRunRecord,
+                                )
+                              : undefined,
                       }
                     : { records: Object.freeze(records) },
             );
@@ -104,10 +122,11 @@ export function createPostgresProcessRunActivityArchive(options: {
     pool: Pool;
 }): ProcessRunActivityArchive {
     const pool = options.pool;
+    const pending = new Set<Promise<void>>();
 
     return Object.freeze({
         record: (record) => {
-            void pool
+            const write = pool
                 .query(
                     `insert into process_run_activities
                        (run_id, recorded_at, process_id, process_version,
@@ -128,7 +147,16 @@ export function createPostgresProcessRunActivityArchive(options: {
                         "errorCode" in record ? record.errorCode : null,
                     ],
                 )
-                .catch(() => {});
+                .then(
+                    () => {},
+                    () => {},
+                );
+            pending.add(write);
+            void write.finally(() => pending.delete(write));
+        },
+
+        flush: async () => {
+            await Promise.all([...pending]);
         },
 
         findByRun: async (runId) => {
@@ -158,14 +186,15 @@ export function createPostgresRunObservationStats(options: {
 
     return Object.freeze({
         summarise: async ({ since }) => {
-            const [counts, durations] = await Promise.all([
+            const [counts, durations, recentFailures] = await Promise.all([
                 pool.query(
-                    `select coalesce(process_id, 'unknown') as process_id,
+                    `select to_char(recorded_at at time zone 'UTC', 'YYYY-MM-DD') as day,
+                            coalesce(process_id, 'unknown') as process_id,
                             coalesce(process_version, 'unknown') as process_version,
                             status, error_code, count(*)::int as count
                        from process_run_records
                       where recorded_at >= $1
-                      group by 1, 2, 3, 4`,
+                      group by 1, 2, 3, 4, 5`,
                     [since],
                 ),
                 pool.query(
@@ -179,32 +208,37 @@ export function createPostgresRunObservationStats(options: {
                         and duration_ms is not null`,
                     [since],
                 ),
+                pool.query(
+                    `select run_id, recorded_at,
+                            coalesce(process_id, 'unknown') as process_id,
+                            coalesce(process_version, 'unknown') as process_version,
+                            error_code
+                       from process_run_records
+                      where recorded_at >= $1
+                        and status = 'failed'
+                        and error_code is not null
+                      order by recorded_at desc, run_id desc
+                      limit 10`,
+                    [since],
+                ),
             ]);
 
-            // Expanding the grouped counts keeps one shaping function for both
-            // stores, so the two can never disagree about how a summary looks.
-            const records = counts.rows.flatMap(
-                (row: CountRow): ProcessRunRecord[] =>
-                    Array.from({ length: row.count }, () => ({
-                        schemaVersion: 1,
-                        recordedAt: since,
-                        runId: "aggregated",
-                        process: row.process_id,
-                        version: row.process_version,
-                        status: row.status,
-                        ...(row.error_code === null
-                            ? {}
-                            : { errorCode: row.error_code }),
-                    })) as ProcessRunRecord[],
-            );
-
             const duration = durations.rows[0] as DurationRow | undefined;
-            return Object.freeze({
-                ...summariseRunObservation({
-                    since,
-                    records,
-                    attemptDurationsMs: [],
-                }),
+            return summariseAggregatedRunObservation({
+                since,
+                counts: counts.rows.map((row: CountRow) => ({
+                    day: row.day,
+                    process: row.process_id,
+                    version: row.process_version,
+                    status: row.status,
+                    ...(row.error_code === null
+                        ? {}
+                        : { errorCode: row.error_code }),
+                    count: row.count,
+                })),
+                recentFailures: Object.freeze(
+                    recentFailures.rows.map(toRecentFailure),
+                ),
                 attemptDurationMs: Object.freeze(
                     duration && duration.samples > 0
                         ? {
@@ -221,11 +255,20 @@ export function createPostgresRunObservationStats(options: {
 }
 
 type CountRow = Readonly<{
+    day: string;
     process_id: string;
     process_version: string;
     status: "succeeded" | "failed";
     error_code: string | null;
     count: number;
+}>;
+
+type RecentFailureRow = Readonly<{
+    run_id: string;
+    recorded_at: Date;
+    process_id: string;
+    process_version: string;
+    error_code: string;
 }>;
 
 type DurationRow = Readonly<{
@@ -321,6 +364,16 @@ function toActivity(row: ActivityRow): ProcessRunLogRecord {
         ...(row.duration_ms === null ? {} : { durationMs: row.duration_ms }),
         ...(row.error_code === null ? {} : { errorCode: row.error_code }),
     } as ProcessRunLogRecord;
+}
+
+function toRecentFailure(row: RecentFailureRow) {
+    return Object.freeze({
+        runId: row.run_id,
+        recordedAt: row.recorded_at.toISOString(),
+        process: row.process_id,
+        version: row.process_version,
+        errorCode: row.error_code,
+    });
 }
 
 function parseListLimit(value: number | undefined): number {

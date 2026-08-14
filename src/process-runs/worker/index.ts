@@ -1,11 +1,13 @@
 import { randomUUID } from "node:crypto";
 import type {
+    AcceptedProcessInput,
     ProcessAttemptRunner,
     ProcessErrorCode,
     ProcessRegistration,
     ProcessRegistry,
     ProcessRunResult,
 } from "../../process-runtime/index.js";
+import type { ProcessRunRecords } from "../../process-runtime/records.js";
 import {
     type AsyncOperationalLogSink,
     emitAsyncOperationalLog,
@@ -36,6 +38,8 @@ export function createProcessWorker(options: {
     createClaimToken?: () => string;
     logSink?: AsyncOperationalLogSink;
     logClock?: () => string;
+    runRecords?: ProcessRunRecords;
+    observationTimeoutMs?: number;
 }): ProcessWorker {
     const clock = options.clock ?? (() => new Date().toISOString());
     const createClaimToken = options.createClaimToken ?? randomUUID;
@@ -167,6 +171,14 @@ export function createProcessWorker(options: {
                             : { status: "failed", error: result.error },
                 });
                 const outcome = completed ? "processed" : "ignored";
+                if (completed) {
+                    await recordTerminalOutcome(
+                        options.runRecords,
+                        result,
+                        claim,
+                        options.observationTimeoutMs ?? 2_000,
+                    );
+                }
                 logProcessWork(
                     options.logSink,
                     logClock,
@@ -203,6 +215,33 @@ export function createProcessWorker(options: {
             return released.filter(Boolean).length;
         },
     });
+}
+
+async function recordTerminalOutcome(
+    records: ProcessRunRecords | undefined,
+    result: ProcessRunResult,
+    claim: Readonly<{ acceptedInput: AcceptedProcessInput }>,
+    timeoutMs: number,
+): Promise<void> {
+    if (!records) return;
+    try {
+        let timer: NodeJS.Timeout | undefined;
+        await Promise.race([
+            Promise.resolve(
+                records.record({
+                    result,
+                    acceptedRequest: { input: claim.acceptedInput.input },
+                }),
+            ).catch(() => {}),
+            new Promise<void>((resolve) => {
+                timer = setTimeout(resolve, timeoutMs);
+                timer.unref();
+            }),
+        ]);
+        if (timer) clearTimeout(timer);
+    } catch {
+        // Observation is best effort and cannot change the authoritative Run.
+    }
 }
 
 function logProcessWork(

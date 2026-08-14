@@ -69,6 +69,24 @@ describe("Process catalog description", () => {
         });
     });
 
+    it("describes only the activities reachable in the fixed content mode", () => {
+        const direct = describeProcessCatalog(registry).find(
+            (entry) => entry.process === "content-processing",
+        );
+        const agent = describeProcessCatalog(
+            createProductionRuntime({
+                BUSINESS_API_BASE_URL: "https://business.example",
+                CONTENT_PROCESSING_MODE: "agent",
+            }).registry,
+        ).find((entry) => entry.process === "content-processing");
+
+        expect(direct?.activities).toEqual(["content_processing"]);
+        expect(agent?.activities).toEqual([
+            "content_optimization",
+            "content_processing",
+        ]);
+    });
+
     it("derives an input and output Schema for every Process", () => {
         for (const entry of describeProcessCatalog(registry)) {
             expect(entry.input, `${entry.process} input`).toBeDefined();

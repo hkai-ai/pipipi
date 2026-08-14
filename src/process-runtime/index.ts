@@ -10,6 +10,7 @@ export {
     type ProcessRunLogRecord,
     type ProcessRunLogSink,
 } from "./logging.js";
+export type { ProcessRunRecords } from "./records.js";
 export {
     type AcceptedProcessInput,
     defineProcessRegistration,

@@ -12,14 +12,15 @@ const clock = () => new Date("2026-08-11T10:00:00.000Z");
 describe("Run observation contract: JSONL files", () => {
     describeRunObservationContract(async () => {
         const directory = await mkdtemp(join(tmpdir(), "pipipi-observation-"));
+        const activities = createJsonlProcessRunActivityArchive({
+            directory,
+            clock,
+        });
         return {
             archive: createJsonlProcessRunRecordArchive({ directory, clock }),
-            activities: createJsonlProcessRunActivityArchive({
-                directory,
-                clock,
-            }),
+            activities,
             stats: createJsonlRunObservationStats({ directory, clock }),
-            settle: () => new Promise((resolve) => setTimeout(resolve, 10)),
+            settle: activities.flush,
         };
     });
 });

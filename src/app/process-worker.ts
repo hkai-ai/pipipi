@@ -2,7 +2,10 @@ import { writeAsyncOperationalLog } from "../process-runs/ops/logging.js";
 import { createBullMqProcessWorker } from "../process-runs/queue/bullmq.js";
 import { createPostgresProcessRunStore } from "../process-runs/store/postgres.js";
 import { createProcessWorker } from "../process-runs/worker/index.js";
-import { createProcessAttemptRunner } from "../process-runtime/index.js";
+import {
+    combineProcessRunLogSinks,
+    createProcessAttemptRunner,
+} from "../process-runtime/index.js";
 import { createProductionRuntime } from "./business-processes.js";
 import {
     optionalNonEmpty,
@@ -21,6 +24,7 @@ import {
     type ConstructedRuntimeRoleService,
     constructRuntimeRoleService,
 } from "./role.js";
+import { constructProcessRunObservation } from "./run-observation.js";
 
 export function constructProcessWorkerService(
     environment: StartupEnvironment,
@@ -28,9 +32,16 @@ export function constructProcessWorkerService(
     assertDeploymentEnvironment(environment, "process-worker", {
         includeProviderCredentials: environment.NODE_ENV === "production",
     });
-    const runLogSink = createPinoProcessRunLogSink({
+    const pinoRunLogSink = createPinoProcessRunLogSink({
         level: environment.PROCESS_RUN_LOG_LEVEL,
     });
+    const observation = constructProcessRunObservation(environment);
+    const runLogSink = observation
+        ? combineProcessRunLogSinks(
+              pinoRunLogSink,
+              observation.activities.record,
+          )
+        : pinoRunLogSink;
     const processRuntime = createProductionRuntime(environment, { runLogSink });
     const port = parsePort(environment.PORT);
     const readinessTimeoutMs = parsePositiveInteger(
@@ -43,6 +54,11 @@ export function constructProcessWorkerService(
         environment.PROCESS_TIMEOUT_MS,
         30_000,
         "PROCESS_TIMEOUT_MS",
+    );
+    const observationTimeoutMs = parsePositiveInteger(
+        environment.PROCESS_RUN_OBSERVATION_TIMEOUT_MS,
+        2_000,
+        "PROCESS_RUN_OBSERVATION_TIMEOUT_MS",
     );
     const shutdownGraceMs = parseBoundedPositiveInteger(
         environment.PROCESS_WORKER_SHUTDOWN_GRACE_MS,
@@ -124,6 +140,8 @@ export function constructProcessWorkerService(
                 processTimeoutMs,
                 logSink: runLogSink,
             }),
+            runRecords: observation?.records,
+            observationTimeoutMs,
             logSink: writeAsyncOperationalLog,
         }),
     });
@@ -133,10 +151,25 @@ export function constructProcessWorkerService(
             await Promise.all([store.ready(), worker.ready()]);
         },
         close: async () => {
+            const failures: unknown[] = [];
             try {
                 await worker.close();
-            } finally {
-                await pool.end();
+            } catch (error) {
+                failures.push(error);
+            }
+            const closed = await Promise.allSettled([
+                pool.end(),
+                ...(observation?.close ? [observation.close()] : []),
+            ]);
+            for (const result of closed) {
+                if (result.status === "rejected") failures.push(result.reason);
+            }
+            if (failures.length === 1) throw failures[0];
+            if (failures.length > 1) {
+                throw new AggregateError(
+                    failures,
+                    "Process Worker resources failed to close",
+                );
             }
         },
     });

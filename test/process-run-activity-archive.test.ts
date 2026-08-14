@@ -33,11 +33,6 @@ function activity(
     } as ProcessRunLogRecord;
 }
 
-/** The archive records without awaiting, so reads need a turn to settle. */
-async function settle(): Promise<void> {
-    await new Promise((resolve) => setTimeout(resolve, 10));
-}
-
 describe("JSONL Process Run Activity Archive", () => {
     it("reconstructs an Attempt timeline for one Run", async () => {
         const directory = await createDirectory();
@@ -64,7 +59,7 @@ describe("JSONL Process Run Activity Archive", () => {
             }),
         );
         archive.record(activity({ runId: "other-run", sequence: 1 }));
-        await settle();
+        await archive.flush();
 
         const timeline = await archive.findByRun("run-1");
 
@@ -86,7 +81,7 @@ describe("JSONL Process Run Activity Archive", () => {
         archive.record(activity({ attemptNumber: 2, sequence: 1 }));
         archive.record(activity({ attemptNumber: 1, sequence: 2 }));
         archive.record(activity({ attemptNumber: 1, sequence: 1 }));
-        await settle();
+        await archive.flush();
 
         expect(
             (await archive.findByRun("run-1")).map(
@@ -102,7 +97,7 @@ describe("JSONL Process Run Activity Archive", () => {
             clock: fixedClock,
         });
         writer.record(activity());
-        await settle();
+        await writer.flush();
 
         const reader = createJsonlProcessRunActivityArchive({
             directory,
@@ -121,7 +116,7 @@ describe("JSONL Process Run Activity Archive", () => {
 
         archive.record(activity({ timestamp: "2026-08-10T23:59:59.000Z" }));
         archive.record(activity({ timestamp: "2026-08-11T00:00:01.000Z" }));
-        await settle();
+        await archive.flush();
 
         expect((await readdir(directory)).sort()).toEqual([
             "activities-2026-08-10.jsonl",
@@ -183,7 +178,7 @@ describe("JSONL Process Run Activity Archive", () => {
         });
 
         archive.record(activity());
-        await settle();
+        await archive.flush();
 
         expect(await readdir(directory)).toEqual([
             "activities-2026-08-11.jsonl",

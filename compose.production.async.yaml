@@ -70,6 +70,8 @@ services:
       CRT_BUSINESS_API_BASE_URL: http://127.0.0.1:4400
       PROCESS_QUEUE_NAME: ${PIPIPI_PROCESS_QUEUE_NAME:?PIPIPI_PROCESS_QUEUE_NAME is required}
       PROCESS_QUEUE_PREFIX: ${PIPIPI_PROCESS_QUEUE_PREFIX:?PIPIPI_PROCESS_QUEUE_PREFIX is required}
+      PROCESS_RUN_RECORD_STORE: postgres
+      PROCESS_RUN_RECORD_CONTENT: accepted-input-and-output
     healthcheck:
       <<: *runtime-healthcheck
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4320/readyz').then((response) => { if (!response.ok) process.exit(1); }).catch(() => process.exit(1))"]

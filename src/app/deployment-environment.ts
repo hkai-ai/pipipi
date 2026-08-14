@@ -43,6 +43,8 @@ const variablesByRole: Readonly<Record<DeploymentRole, readonly string[]>> =
             "PROCESS_RUN_ACCEPTED_INPUT_RETENTION_MS",
             "PROCESS_RUN_RESULT_RETENTION_MS",
             "PROCESS_RUN_METADATA_RETENTION_MS",
+            "PROCESS_RUN_RECORD_STORE",
+            "PROCESS_RUN_RECORD_CONTENT",
         ]),
         "webhook-worker": Object.freeze([
             "DATABASE_URL",
@@ -79,6 +81,14 @@ function consoleApiVariables(
         : Object.freeze(["PROCESS_RUN_RECORD_DIRECTORY"]);
 }
 
+function processWorkerObservationVariables(
+    environment: StartupEnvironment,
+): readonly string[] {
+    return environment.PROCESS_RUN_RECORD_STORE === "postgres"
+        ? Object.freeze([])
+        : Object.freeze(["PROCESS_RUN_RECORD_DIRECTORY"]);
+}
+
 const agentRoles: readonly DeploymentRole[] = Object.freeze([
     "api",
     "process-worker",
@@ -100,6 +110,9 @@ export function checkDeploymentEnvironment(
         ...(role === "api" &&
         environment.PROCESS_RUN_RECORD_STORE === "postgres"
             ? ["DATABASE_URL"]
+            : []),
+        ...(role === "process-worker"
+            ? processWorkerObservationVariables(environment)
             : []),
         ...(options.includeProviderCredentials &&
         agentRoles.includes(role) &&
@@ -124,11 +137,26 @@ export function assertDeploymentEnvironment(
         role,
         options,
     );
-    if (missingVariables.length === 0) return;
-
-    throw new Error(
-        `Deployment environment for ${role} is missing required variables: ${missingVariables.join(", ")}`,
-    );
+    if (missingVariables.length > 0) {
+        throw new Error(
+            `Deployment environment for ${role} is missing required variables: ${missingVariables.join(", ")}`,
+        );
+    }
+    if (role === "process-worker" && environment.NODE_ENV === "production") {
+        if (environment.PROCESS_RUN_RECORD_STORE !== "postgres") {
+            throw new Error(
+                "Production Process Worker requires PROCESS_RUN_RECORD_STORE=postgres",
+            );
+        }
+        if (
+            environment.PROCESS_RUN_RECORD_CONTENT !==
+            "accepted-input-and-output"
+        ) {
+            throw new Error(
+                "Production Process Worker requires PROCESS_RUN_RECORD_CONTENT=accepted-input-and-output",
+            );
+        }
+    }
 }
 
 export function parseDeploymentRole(value: string | undefined): DeploymentRole {

@@ -14,7 +14,7 @@ const acceptanceDescribe =
         : describe.skip;
 
 acceptanceDescribe("built Console async browser acceptance", () => {
-    it("submits once, survives refresh, and renders the terminal result", async () => {
+    it("recovers one submission and traces success and failure across Console views", async () => {
         const environment = await startConsoleAsyncAcceptanceEnvironment({
             databaseUrl: databaseUrl as string,
             redisUrl: redisUrl as string,
@@ -133,6 +133,57 @@ acceptanceDescribe("built Console async browser acceptance", () => {
                     expect(environment.effectCount("browser acceptance")).toBe(
                         1,
                     );
+
+                    await page.goto(`${environment.url}/console/#/submit`);
+                    await page
+                        .getByLabel("Business Process")
+                        .selectOption("content-processing");
+                    await page
+                        .getByLabel(/^content \*$/)
+                        .fill("browser failure");
+                    await page
+                        .getByRole("button", { name: "提交", exact: true })
+                        .click({ noWaitAfter: true });
+                    const failed = page.getByText(/Run [0-9a-f-]{36} · failed/);
+                    await failed.waitFor({ timeout: 15_000 });
+                    const failedRunId = /Run ([0-9a-f-]{36}) · failed/.exec(
+                        await failed.innerText(),
+                    )?.[1];
+                    expect(failedRunId).toMatch(/^[0-9a-f-]{36}$/);
+
+                    await page.goto(`${environment.url}/console/#/runs`);
+                    await page
+                        .getByLabel("Process")
+                        .selectOption("content-processing");
+                    await page.getByLabel("状态").selectOption("failed");
+                    await page.getByLabel("错误码").fill("dependency_failure");
+                    await page
+                        .getByLabel("起始（含）")
+                        .fill("2020-01-01T00:00");
+                    await page
+                        .getByLabel("结束（不含）")
+                        .fill("2099-01-01T00:00");
+                    await page
+                        .getByRole("button", { name: "应用筛选" })
+                        .click();
+                    await page.getByText(failedRunId as string).waitFor({
+                        timeout: 5_000,
+                    });
+
+                    await page.goto(`${environment.url}/console/#/stats`);
+                    await page
+                        .getByText("每日吞吐与失败分布")
+                        .waitFor({ timeout: 5_000 });
+                    await page.getByText("最近失败").waitFor();
+                    await page.getByText(failedRunId as string).waitFor();
+
+                    await page.goto(
+                        `${environment.url}/console/#/run/${failedRunId}`,
+                    );
+                    await page
+                        .getByText(/声明顺序：content_processing/)
+                        .waitFor({ timeout: 5_000 });
+                    await page.getByText(/与声明一致/).waitFor();
                 } finally {
                     await context.close();
                 }
@@ -142,7 +193,7 @@ acceptanceDescribe("built Console async browser acceptance", () => {
         } finally {
             await environment.close();
         }
-    }, 30_000);
+    }, 60_000);
 });
 
 async function chromeExecutable(): Promise<string> {

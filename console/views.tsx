@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "preact/hooks";
+import { compareAttemptActivities } from "./activity-comparison.js";
 import {
     type ConsoleProcessDescription,
     type ConsoleStats,
@@ -57,6 +58,13 @@ function useAsync<Result>(
 
 export function RunsView({ processes }: { processes: readonly string[] }) {
     const [filters, setFilters] = useState<RunFilters>({});
+    const [draft, setDraft] = useState({
+        process: "",
+        status: "",
+        errorCode: "",
+        since: "",
+        until: "",
+    });
     const [pages, setPages] = useState<ProcessRunRecord[][]>([]);
     const [before, setBefore] = useState<string | undefined>(undefined);
     const [nextBefore, setNextBefore] = useState<string | undefined>(undefined);
@@ -64,7 +72,14 @@ export function RunsView({ processes }: { processes: readonly string[] }) {
 
     const page = useAsync(
         () => listRuns({ ...filters, ...(before ? { before } : {}) }),
-        [filters.process, filters.status, before],
+        [
+            filters.process,
+            filters.status,
+            filters.errorCode,
+            filters.since,
+            filters.until,
+            before,
+        ],
     );
 
     useEffect(() => {
@@ -110,17 +125,42 @@ export function RunsView({ processes }: { processes: readonly string[] }) {
             </Panel>
 
             <Panel title="运行记录">
-                <div class="toolbar">
+                <form
+                    class="toolbar"
+                    onSubmit={(event) => {
+                        event.preventDefault();
+                        applyFilters({
+                            ...(draft.process
+                                ? { process: draft.process }
+                                : {}),
+                            ...(draft.status === "succeeded" ||
+                            draft.status === "failed"
+                                ? { status: draft.status }
+                                : {}),
+                            ...(draft.errorCode.trim()
+                                ? {
+                                      errorCode: draft.errorCode
+                                          .trim()
+                                          .toUpperCase(),
+                                  }
+                                : {}),
+                            ...(draft.since
+                                ? { since: localTimeAsIso(draft.since) }
+                                : {}),
+                            ...(draft.until
+                                ? { until: localTimeAsIso(draft.until) }
+                                : {}),
+                        });
+                    }}
+                >
                     <label>
                         Process
                         <select
-                            value={filters.process ?? ""}
+                            value={draft.process}
                             onChange={(event) =>
-                                applyFilters({
-                                    ...filters,
-                                    ...(event.currentTarget.value
-                                        ? { process: event.currentTarget.value }
-                                        : { process: undefined }),
+                                setDraft({
+                                    ...draft,
+                                    process: event.currentTarget.value,
                                 })
                             }
                         >
@@ -135,25 +175,76 @@ export function RunsView({ processes }: { processes: readonly string[] }) {
                     <label>
                         状态
                         <select
-                            value={filters.status ?? ""}
-                            onChange={(event) => {
-                                const value = event.currentTarget.value;
-                                applyFilters({
-                                    ...filters,
-                                    status:
-                                        value === "succeeded" ||
-                                        value === "failed"
-                                            ? value
-                                            : undefined,
-                                });
-                            }}
+                            value={draft.status}
+                            onChange={(event) =>
+                                setDraft({
+                                    ...draft,
+                                    status: event.currentTarget.value,
+                                })
+                            }
                         >
                             <option value="">全部</option>
                             <option value="succeeded">仅成功</option>
                             <option value="failed">仅失败</option>
                         </select>
                     </label>
-                </div>
+                    <label>
+                        错误码
+                        <input
+                            value={draft.errorCode}
+                            placeholder="AGENT_FAILURE"
+                            pattern="[A-Za-z][A-Za-z0-9_]{0,63}"
+                            onInput={(event) =>
+                                setDraft({
+                                    ...draft,
+                                    errorCode: event.currentTarget.value,
+                                })
+                            }
+                        />
+                    </label>
+                    <label>
+                        起始（含）
+                        <input
+                            type="datetime-local"
+                            value={draft.since}
+                            onInput={(event) =>
+                                setDraft({
+                                    ...draft,
+                                    since: event.currentTarget.value,
+                                })
+                            }
+                        />
+                    </label>
+                    <label>
+                        结束（不含）
+                        <input
+                            type="datetime-local"
+                            value={draft.until}
+                            onInput={(event) =>
+                                setDraft({
+                                    ...draft,
+                                    until: event.currentTarget.value,
+                                })
+                            }
+                        />
+                    </label>
+                    <button type="submit">应用筛选</button>
+                    <button
+                        type="button"
+                        onClick={() => {
+                            setDraft({
+                                process: "",
+                                status: "",
+                                errorCode: "",
+                                since: "",
+                                until: "",
+                            });
+                            applyFilters({});
+                        }}
+                    >
+                        清除
+                    </button>
+                </form>
 
                 {page.error ? <p class="error">{page.error}</p> : null}
                 {records.length === 0 && !page.loading ? (
@@ -254,6 +345,12 @@ function RunRow({ record }: { record: ProcessRunRecord }) {
 export function RunView({ runId }: { runId: string }) {
     const record = useAsync(() => findRun(runId), [runId]);
     const timeline = useAsync(() => findTimeline(runId), [runId]);
+    const catalog = useAsync(() => listProcesses(), []);
+    const registration = catalog.value?.processes.find(
+        (entry) =>
+            entry.process === record.value?.process &&
+            entry.version === record.value?.version,
+    );
 
     return (
         <>
@@ -266,7 +363,10 @@ export function RunView({ runId }: { runId: string }) {
                 {timeline.error ? (
                     <p class="error">{timeline.error}</p>
                 ) : (
-                    <Timeline timeline={timeline.value} />
+                    <Timeline
+                        timeline={timeline.value}
+                        declaredActivities={registration?.activities}
+                    />
                 )}
             </Panel>
         </>
@@ -325,7 +425,13 @@ function RunDetail({ record }: { record: ProcessRunRecord }) {
     );
 }
 
-function Timeline({ timeline }: { timeline?: RunTimeline }) {
+function Timeline({
+    timeline,
+    declaredActivities,
+}: {
+    timeline?: RunTimeline;
+    declaredActivities?: readonly string[];
+}) {
     if (!timeline) return <p class="hint">读取中…</p>;
     if (timeline.activities.length === 0) {
         return (
@@ -335,32 +441,80 @@ function Timeline({ timeline }: { timeline?: RunTimeline }) {
         );
     }
     return (
-        <ol class="timeline">
-            {timeline.activities.map((entry, index) => {
-                const outcome = "outcome" in entry ? entry.outcome : undefined;
-                const failed = outcome !== undefined && outcome !== "succeeded";
-                return (
-                    <li
-                        key={`${entry.attemptNumber}.${entry.sequence}.${index}`}
-                    >
-                        <span class="seq mono">
-                            #{entry.attemptNumber}.{entry.sequence}
-                        </span>
-                        <span class={failed ? "status-failed" : undefined}>
-                            {entry.event}
-                            {"activity" in entry ? ` · ${entry.activity}` : ""}
-                            {outcome ? ` → ${outcome}` : ""}
-                            {"errorCode" in entry ? ` ${entry.errorCode}` : ""}
-                        </span>
-                        <span class="dur">
-                            {"durationMs" in entry
-                                ? formatDuration(entry.durationMs)
-                                : ""}
-                        </span>
-                    </li>
-                );
-            })}
-        </ol>
+        <>
+            {declaredActivities ? (
+                <ActivityComparison
+                    declared={declaredActivities}
+                    timeline={timeline}
+                />
+            ) : null}
+            <ol class="timeline">
+                {timeline.activities.map((entry, index) => {
+                    const outcome =
+                        "outcome" in entry ? entry.outcome : undefined;
+                    const failed =
+                        outcome !== undefined && outcome !== "succeeded";
+                    return (
+                        <li
+                            key={`${entry.attemptNumber}.${entry.sequence}.${index}`}
+                        >
+                            <span class="seq mono">
+                                #{entry.attemptNumber}.{entry.sequence}
+                            </span>
+                            <span class={failed ? "status-failed" : undefined}>
+                                {entry.event}
+                                {"activity" in entry
+                                    ? ` · ${entry.activity}`
+                                    : ""}
+                                {outcome ? ` → ${outcome}` : ""}
+                                {"errorCode" in entry
+                                    ? ` ${entry.errorCode}`
+                                    : ""}
+                            </span>
+                            <span class="dur">
+                                {"durationMs" in entry
+                                    ? formatDuration(entry.durationMs)
+                                    : ""}
+                            </span>
+                        </li>
+                    );
+                })}
+            </ol>
+        </>
+    );
+}
+
+function ActivityComparison({
+    declared,
+    timeline,
+}: {
+    declared: readonly string[];
+    timeline: RunTimeline;
+}) {
+    const comparisons = compareAttemptActivities(declared, timeline.activities);
+    return (
+        <div class="comparison">
+            <p class="hint">声明顺序：{declared.join(" → ") || "无"}</p>
+            {comparisons.map((comparison) => (
+                <p
+                    class={
+                        comparison.outcome === "diverged"
+                            ? "status-failed"
+                            : "hint"
+                    }
+                    key={comparison.attemptNumber}
+                >
+                    Attempt {comparison.attemptNumber} 实际：
+                    {comparison.actual.join(" → ") || "尚未开始活动"}（
+                    {comparison.outcome === "matched"
+                        ? "与声明一致"
+                        : comparison.outcome === "ended-early"
+                          ? "按声明前缀提前结束"
+                          : "偏离声明顺序"}
+                    ）
+                </p>
+            ))}
+        </div>
     );
 }
 
@@ -493,8 +647,14 @@ export function StatsView() {
                     <Panel title="按 Process">
                         <ProcessCounts stats={stats.value} />
                     </Panel>
-                    <Panel title="失败分布">
+                    <Panel title="每日吞吐与失败分布">
+                        <DailyCounts stats={stats.value} />
+                    </Panel>
+                    <Panel title="窗口内失败分布">
                         <ErrorCounts stats={stats.value} />
+                    </Panel>
+                    <Panel title="最近失败">
+                        <RecentFailures stats={stats.value} />
                     </Panel>
                 </>
             ) : null}
@@ -619,6 +779,94 @@ function ErrorCounts({ stats }: { stats: ConsoleStats }) {
             </tbody>
         </table>
     );
+}
+
+function DailyCounts({ stats }: { stats: ConsoleStats }) {
+    if (stats.byDay.length === 0) {
+        return <p class="empty">窗口内没有执行。</p>;
+    }
+    return (
+        <div class="table-scroll">
+            <table>
+                <thead>
+                    <tr>
+                        <th>UTC 日期</th>
+                        <th class="numeric">成功</th>
+                        <th class="numeric">失败</th>
+                        <th>失败错误码</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {stats.byDay.map((entry) => (
+                        <tr key={entry.day}>
+                            <td>{entry.day}</td>
+                            <td class="numeric status-succeeded">
+                                {entry.succeeded}
+                            </td>
+                            <td class="numeric status-failed">
+                                {entry.failed}
+                            </td>
+                            <td>
+                                {entry.byErrorCode
+                                    .map(
+                                        ({ errorCode, count }) =>
+                                            `${errorCode} × ${count}`,
+                                    )
+                                    .join("，") || "—"}
+                            </td>
+                        </tr>
+                    ))}
+                </tbody>
+            </table>
+        </div>
+    );
+}
+
+function RecentFailures({ stats }: { stats: ConsoleStats }) {
+    if (stats.recentFailures.length === 0) {
+        return <p class="empty">窗口内没有失败。</p>;
+    }
+    return (
+        <div class="table-scroll">
+            <table>
+                <thead>
+                    <tr>
+                        <th>记录时间</th>
+                        <th>Process</th>
+                        <th>错误码</th>
+                        <th>runId</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {stats.recentFailures.map((entry) => (
+                        <tr key={entry.runId}>
+                            <td>{formatTime(entry.recordedAt)}</td>
+                            <td>
+                                {entry.process}
+                                <span class="hint"> {entry.version}</span>
+                            </td>
+                            <td class="status-failed">{entry.errorCode}</td>
+                            <td>
+                                <a
+                                    class="mono"
+                                    href={hrefFor({
+                                        view: "run",
+                                        runId: entry.runId,
+                                    })}
+                                >
+                                    {entry.runId}
+                                </a>
+                            </td>
+                        </tr>
+                    ))}
+                </tbody>
+            </table>
+        </div>
+    );
+}
+
+function localTimeAsIso(value: string): string {
+    return new Date(value).toISOString();
 }
 
 type FieldDescription = Readonly<{

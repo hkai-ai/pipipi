@@ -93,7 +93,7 @@ describe("JSONL Process Run Record Archive", () => {
             "run-3",
             "run-2",
         ]);
-        expect(first.nextBefore).toBe("2026-08-11T10:00:02.000Z");
+        expect(first.nextBefore).toMatch(/^r1\./);
 
         const second = await archive.list({
             limit: 2,

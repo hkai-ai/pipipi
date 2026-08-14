@@ -14,6 +14,8 @@ import { createJsonlDayFiles, utcDayOf } from "./jsonl-day-files.js";
  */
 export type ProcessRunActivityArchive = Readonly<{
     record: ProcessRunLogSink;
+    /** Waits for writes already accepted by this process; failures are isolated. */
+    flush: () => Promise<void>;
     /** One Run's records, in the order they were emitted. */
     findByRun: (runId: string) => Promise<readonly ProcessRunLogRecord[]>;
 }>;
@@ -38,6 +40,8 @@ export function createJsonlProcessRunActivityArchive(options: {
                 .append(utcDayOf(record.timestamp, clock), record)
                 .catch(() => {});
         },
+
+        flush: () => files.flush().catch(() => {}),
 
         findByRun: async (runId) => {
             const matches: ProcessRunLogRecord[] = [];

@@ -17,37 +17,15 @@ import {
 } from "../process-runs/ops/postgres.js";
 import { createPostgresProcessRunStore } from "../process-runs/store/postgres.js";
 import type { ProcessRegistry } from "../process-runtime/index.js";
-import {
-    createProcessRunRecords,
-    type ProcessRunRecords,
-} from "../process-runtime/records.js";
 import { createFileControlledAsyncIntake } from "./async-intake.js";
 import { createProductionRuntime } from "./business-processes.js";
 import type { StartupEnvironment } from "./config.js";
 import { assertDeploymentEnvironment } from "./deployment-environment.js";
-import {
-    createPostgresProcessRunActivityArchive,
-    createPostgresProcessRunRecordArchive,
-    createPostgresRunObservationStats,
-    pruneProcessRunObservation,
-} from "./postgres-run-observation.js";
 import { describeProcessCatalog } from "./process-catalog.js";
 import {
-    createJsonlProcessRunActivityArchive,
-    type ProcessRunActivityArchive,
-    pruneProcessRunActivities,
-} from "./process-run-activities.js";
-import {
-    createJsonlProcessRunRecordArchive,
-    defaultProcessRunRecordRetentionDays,
-    type ProcessRunRecordArchive,
-    parseProcessRunRecordContent,
-    pruneProcessRunRecords,
-} from "./process-run-records.js";
-import {
-    createJsonlRunObservationStats,
-    type RunObservationStats,
-} from "./run-observation-stats.js";
+    type ConstructedProcessRunObservation,
+    constructProcessRunObservation,
+} from "./run-observation.js";
 
 export type { StartupEnvironment } from "./config.js";
 
@@ -124,116 +102,6 @@ function closeResourcesOption(
     };
 }
 
-type ConstructedObservation = Readonly<{
-    records: ProcessRunRecords;
-    archive: ProcessRunRecordArchive;
-    activities: ProcessRunActivityArchive;
-    stats: RunObservationStats;
-    close?: () => Promise<void>;
-}>;
-
-/**
- * Builds the durable Run Record and activity archives.
- *
- * `postgres` is the production choice: the database is backed up and listing
- * and aggregation are queries. `file` keeps local development and tests free of
- * a database. Either way the storage must outlive the container, because a
- * release otherwise loses every record of what the service produced.
- *
- * Recording is deliberately independent of `ASYNC_PROCESS_RUNS_ENABLED`: a
- * synchronous release should still be able to say what it did.
- */
-function constructProcessRunObservation(
-    environment: StartupEnvironment,
-): ConstructedObservation | undefined {
-    const store = parseRecordStore(environment.PROCESS_RUN_RECORD_STORE);
-    const retentionDays = parsePositiveInteger(
-        environment.PROCESS_RUN_RECORD_RETENTION_DAYS,
-        defaultProcessRunRecordRetentionDays,
-        "PROCESS_RUN_RECORD_RETENTION_DAYS",
-    );
-    const content = parseProcessRunRecordContent(
-        environment.PROCESS_RUN_RECORD_CONTENT,
-    );
-
-    const built =
-        store === "postgres"
-            ? buildPostgresObservation(environment, retentionDays)
-            : buildFileObservation(environment, retentionDays);
-    if (!built) return undefined;
-
-    return Object.freeze({
-        ...built,
-        records: createProcessRunRecords({
-            adapter: built.archive,
-            content,
-        }),
-    });
-}
-
-function buildFileObservation(
-    environment: StartupEnvironment,
-    retentionDays: number,
-): Omit<ConstructedObservation, "records"> | undefined {
-    const directory = environment.PROCESS_RUN_RECORD_DIRECTORY?.trim();
-    if (!directory) return undefined;
-
-    // Best effort: a failed prune must not keep the service from listening.
-    void pruneProcessRunRecords({ directory, retentionDays }).catch(() => {});
-    void pruneProcessRunActivities({ directory, retentionDays }).catch(
-        () => {},
-    );
-    return {
-        archive: createJsonlProcessRunRecordArchive({
-            directory,
-            retentionDays,
-        }),
-        activities: createJsonlProcessRunActivityArchive({
-            directory,
-            retentionDays,
-        }),
-        stats: createJsonlRunObservationStats({ directory, retentionDays }),
-    };
-}
-
-function buildPostgresObservation(
-    environment: StartupEnvironment,
-    retentionDays: number,
-): Omit<ConstructedObservation, "records"> {
-    const pool = new Pool({
-        connectionString: parsePostgresConnectionString(
-            environment.DATABASE_URL,
-        ),
-        max: parsePositiveInteger(
-            environment.PROCESS_RUN_RECORD_POOL_MAX,
-            4,
-            "PROCESS_RUN_RECORD_POOL_MAX",
-        ),
-        connectionTimeoutMillis: parsePositiveInteger(
-            environment.ASYNC_POSTGRES_CONNECTION_TIMEOUT_MS,
-            5_000,
-            "ASYNC_POSTGRES_CONNECTION_TIMEOUT_MS",
-        ),
-        application_name: "pipipi-run-observation",
-    });
-    pool.on("error", () => {
-        console.error(
-            JSON.stringify({
-                event: "postgres_pool_error",
-                role: "pipipi-run-observation",
-                timestamp: new Date().toISOString(),
-            }),
-        );
-    });
-    void pruneProcessRunObservation({ pool, retentionDays }).catch(() => {});
-    return {
-        archive: createPostgresProcessRunRecordArchive({ pool }),
-        activities: createPostgresProcessRunActivityArchive({ pool }),
-        stats: createPostgresRunObservationStats({ pool }),
-        close: () => pool.end(),
-    };
-}
-
 /**
  * The built console ships beside the compiled server, so the default is derived
  * from this module's own location rather than a working directory. An override
@@ -246,21 +114,9 @@ function consoleAssetDirectory(environment: StartupEnvironment): string {
         : fileURLToPath(new URL("../console", import.meta.url));
 }
 
-function parseRecordStore(value: string | undefined): "file" | "postgres" {
-    if (value === undefined || value === "file") return "file";
-    if (value === "postgres") return "postgres";
-    throw new Error("PROCESS_RUN_RECORD_STORE must be file or postgres");
-}
-
 function constructConsole(
     environment: StartupEnvironment,
-    archive:
-        | Readonly<{
-              archive: ProcessRunRecordArchive;
-              activities: ProcessRunActivityArchive;
-              stats: RunObservationStats;
-          }>
-        | undefined,
+    archive: ConstructedProcessRunObservation | undefined,
     registry: ProcessRegistry,
 ): NonNullable<ProcessingHttpOptions["console"]> | undefined {
     if (!parseFeatureFlag(environment.CONSOLE_ENABLED, "CONSOLE_ENABLED")) {
@@ -271,8 +127,10 @@ function constructConsole(
             "PROCESS_RUN_RECORD_DIRECTORY is required when CONSOLE_ENABLED is true",
         );
     }
+    const revision = parseRevision(environment.PIPIPI_REVISION);
     return Object.freeze({
         basePath: parseConsoleBasePath(environment.CONSOLE_BASE_PATH),
+        ...(revision ? { revision } : {}),
         assetDirectory: consoleAssetDirectory(environment),
         records: Object.freeze({
             list: archive.archive.list,
@@ -284,6 +142,15 @@ function constructConsole(
         processes: describeProcessCatalog(registry),
         stats: Object.freeze({ summarise: archive.stats.summarise }),
     });
+}
+
+function parseRevision(value: string | undefined): string | undefined {
+    const revision = value?.trim();
+    if (!revision) return undefined;
+    if (!/^[0-9a-f]{40}$/.test(revision)) {
+        throw new Error("PIPIPI_REVISION must be a full lowercase commit SHA");
+    }
+    return revision;
 }
 
 /**

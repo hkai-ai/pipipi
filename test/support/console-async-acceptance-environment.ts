@@ -74,6 +74,7 @@ export async function startConsoleAsyncAcceptanceEnvironment(
             ASYNC_CALLER_BACKLOG_LIMIT: "100",
             ASYNC_BACKLOG_RETRY_AFTER_SECONDS: "5",
             ASYNC_RETRY_AFTER_SECONDS: "1",
+            PROCESS_RUN_RECORD_STORE: "file",
             PROCESS_RUN_RECORD_DIRECTORY: records,
             PROCESS_RUN_RECORD_CONTENT: "accepted-input-and-output",
             CONSOLE_ENABLED: "true",
@@ -98,6 +99,9 @@ export async function startConsoleAsyncAcceptanceEnvironment(
             ...sharedEnvironment,
             BUSINESS_API_BASE_URL: businessApi.url,
             BUSINESS_API_TIMEOUT_MS: "500",
+            PROCESS_RUN_RECORD_STORE: "file",
+            PROCESS_RUN_RECORD_DIRECTORY: records,
+            PROCESS_RUN_RECORD_CONTENT: "accepted-input-and-output",
             PROCESS_WORKER_CONCURRENCY: "1",
             PROCESS_WORKER_SHUTDOWN_GRACE_MS: "1000",
         });
@@ -249,6 +253,11 @@ async function respondToBusinessRequest(
         content: string;
     };
     effects.set(body.content, (effects.get(body.content) ?? 0) + 1);
+    if (body.content === "browser failure") {
+        response.writeHead(503, { "content-type": "application/json" });
+        response.end(JSON.stringify({ error: "simulated dependency failure" }));
+        return;
+    }
     response.writeHead(200, { "content-type": "application/json" });
     response.end(JSON.stringify({ content: `Processed: ${body.content}` }));
 }

@@ -13,6 +13,8 @@ describe("Production CI/CD workflow", () => {
         const acceptance = job(workflow, "async-acceptance", "deploy");
         const cleanup = step(acceptance, "Clean isolated dependencies");
         const deploy = job(workflow, "deploy");
+        const gateway = step(deploy, "Verify console gateway precondition");
+        const activation = step(deploy, "Activate release");
 
         expect(acceptance).toContain("name: Async durable acceptance");
         expect(acceptance).toContain(
@@ -33,9 +35,20 @@ describe("Production CI/CD workflow", () => {
         expect(deploy).toContain("SSH_KNOWN_HOSTS");
         expect(deploy).toContain("flock -n 9");
         expect(deploy).toContain("async-control/smoke-lease");
+        expect(gateway).toContain("CONSOLE_PUBLIC_URL");
+        expect(gateway).toContain("^(401|403)$");
+        expect(gateway).toContain('url.protocol !== "https:"');
+        expect(deploy.indexOf(gateway)).toBeLessThan(
+            deploy.indexOf(activation),
+        );
+        expect(deploy).toContain("run audit:production-database");
+        expect(deploy).toContain("pg-server.crt:/etc/pipipi/pg-server.crt:ro");
         expect(deploy).not.toContain("StrictHostKeyChecking=no");
+        expect(manifest.scripts["audit:production-database"]).toBe(
+            "node dist/bin/audit-production-database.js",
+        );
         expect(manifest.scripts["test:acceptance:async"]).toBe(
-            "npm run test:integration:postgres && npm run test:integration:async && npm run test:acceptance:console",
+            "npm run test:integration:postgres && npm run test:integration:observation && npm run test:integration:async && npm run test:acceptance:console",
         );
     });
 
@@ -93,6 +106,11 @@ describe("Production CI/CD workflow", () => {
             expect(service).toContain("env_file:");
             expect(service).toContain(`${variable}:?${variable} is required`);
         }
+        const processWorker = composeService(asyncCompose, "process-worker");
+        expect(processWorker).toContain("PROCESS_RUN_RECORD_STORE: postgres");
+        expect(processWorker).toContain(
+            "PROCESS_RUN_RECORD_CONTENT: accepted-input-and-output",
+        );
         expect(deploy).not.toContain("compose.async.yaml");
         expect(deploy).not.toContain("--remove-orphans");
         expect(deploy).toContain(

@@ -45,10 +45,11 @@
 | `PROCESS_RUN_RECORD_STORE` | `file` 或 `postgres`；默认 `file`，生产 Compose 固定为 `postgres` |
 | `DATABASE_URL` | `PROCESS_RUN_RECORD_STORE=postgres` 时必填。必须启用 TLS；自签证书用 `uselibpqcompat=true&sslmode=verify-ca&sslrootcert=<挂载路径>` 固定证书 |
 | `PROCESS_RUN_RECORD_POOL_MAX` | 记录存储独占的连接上限；默认 `4`，与异步角色的池分开，避免记录挤占业务连接 |
+| `PROCESS_RUN_OBSERVATION_TIMEOUT_MS` | Worker 等待活动冲刷与终态观测写入的上限；默认 `2000`，数据库 Pool 同时设置 query/statement timeout |
 | `PROCESS_RUN_RECORD_DIRECTORY` | 文件存储的目录；必须是宿主机卷。生产 Compose 保留为 `/var/lib/pipipi-run-records`，以便回退到文件存储时不改 Compose |
 | `PROCESS_RUN_RECORD_CONTENT` | `omit` 或 `accepted-input-and-output`；默认 `omit`，生产设为后者 |
 | `PROCESS_RUN_RECORD_RETENTION_DAYS` | 正整数；默认 `30`。应与对象存储生命周期规则对齐 |
-| `CONSOLE_ENABLED` | `true` 或 `false`；默认 `false`。为 `true` 时必须同时设置 `PROCESS_RUN_RECORD_DIRECTORY` |
+| `CONSOLE_ENABLED` | `true` 或 `false`；默认 `false`。为 `true` 时必须配置可用观测存储；文件模式必须设置 `PROCESS_RUN_RECORD_DIRECTORY` |
 | `CONSOLE_BASE_PATH` | 控制台挂载路径；默认 `/console`，不得遮蔽 `/execute`、`/process-runs`、`/healthz` 或 `/readyz` |
 | `PI_PROVIDER`、`PI_MODEL` | 按组设置；海报与 CRT 流程始终使用 Agent |
 | `OPENAI_BASE_URL`、`OPENAI_API_MODE` | 使用 OpenAI 或兼容网关时设置 |
@@ -110,6 +111,7 @@ Repository variables：
 | `REMOTE_HOST` | 服务器域名或 IP |
 | `REMOTE_USER` | 部署账户，当前服务器填写 `root` |
 | `REMOTE_PATH` | 绝对部署目录，例如 `/opt/pipipi` |
+| `CONSOLE_PUBLIC_URL` | 已由入口网关保护的完整 HTTPS 控制台路径；生产发布会在替换容器前验证匿名请求均被拒绝 |
 
 workflow 的生产 Job仍使用 GitHub `production` Environment 记录部署并执行并发控制。应在 Settings → Environments 创建 `production`，配置 required reviewer 和 `main` 分支限制，并把已核对的 `SSH_KNOWN_HOSTS` 保存为该 Environment 的 Secret；`async-internal` Environment 同样保存该值。其他连接 Secret 和 Variable 可使用 Repository scope。
 
@@ -280,7 +282,7 @@ Run Record 是给运维看的观测记录，不是异步 Run Store：它只保�
 
 同一个存储还保存 Run Activity 归档（PostgreSQL 的 `process_run_activities` 表，或 `activities-YYYY-MM-DD.jsonl`）。Pino 输出到 stdout 的活动日志会同时写入这里，因此 Attempt 与活动级时间线在容器重建后仍可按 `runId` 还原。Pino 侧行为不变，既有日志采集不受影响；持久化侧失败被隔离，不影响 stdout 输出，也不改变 Process 结果。
 
-两个归档是各自独立的尽力而为写入，都发生在响应路径之外。这意味着 `/execute` 返回后，Run Record 可能先于最后一条活动记录落盘；读取方不应假设其中一个可读就代表另一个已完整。
+两个归档是各自独立的尽力而为写入，不改变 Process 的权威结果。同步 `/execute` 不等待观测，因此响应后记录仍可能稍晚落盘；异步 Worker 在 Store 接受权威终态后，用有界等待先冲刷该进程已接受的活动，再写 Run Record，使控制台看到异步终态记录时也能看到其时间线。超过 `PROCESS_RUN_OBSERVATION_TIMEOUT_MS` 或写入失败会被隔离，不能阻止 Queue 确认或耗尽 Worker concurrency。
 
 `PROCESS_RUN_RECORD_CONTENT` 决定内容边界：
 
@@ -313,7 +315,7 @@ openssl s_client -starttls postgres -connect <数据库主机:端口> </dev/null
   | openssl x509 -outform PEM > /opt/pipipi/shared/pg-server.crt
 ```
 
-Schema 由部署脚本在激活新容器前执行 `npm run db:migrate` 应用，因此 `node-pg-migrate` 与 `migrations/` 随生产镜像发布。迁移使用 advisory lock，重复执行安全。
+Schema 由部署脚本在激活新容器前执行 `npm run db:migrate` 应用，因此 `node-pg-migrate` 与 `migrations/` 随生产镜像发布。迁移使用 advisory lock，重复执行安全。紧接着，部署脚本在同一镜像和 `DATABASE_URL` 上运行 `npm run audit:production-database`，通过 live session 强制验证 TLS 已启用、数据库不是 `postgres`/template 维护库、登录角色不是 PostgreSQL superuser，不具备建库、建角色、复制或绕过 RLS 等管理权限，不属于任何其他角色，不能连接同集群的其他非模板数据库，且 `session_user` 与 `current_user` 相同。任何一项失败都在替换容器前停止；用 `postgres` 登录再 `SET ROLE` 到应用角色或通过继承角色间接获得权限都不再被接受。共享集群应撤销其他数据库对该登录角色及 `PUBLIC` 的 `CONNECT`，再只向应用角色授予 `pipipi` 数据库所需权限。
 
 自签证书且按 IP 连接时不能用 `verify-full`：它校验主机名，而证书的 SAN 通常只有内部主机名。`verify-ca` 配合固定证书等价于证书 pinning，主动中间人无法用另一张证书冒充。`uselibpqcompat=true` 不能省，否则当前 `pg` 版本会把 `verify-ca` 也当成 `verify-full`。
 
@@ -325,13 +327,13 @@ Schema 由部署脚本在激活新容器前执行 `npm run db:migrate` 应用，
 | --- | --- |
 | `GET {base}` | 控制台页面。带不带尾斜杠都可以 |
 | `GET {base}/assets/<file>` | 构建产物。文件名带内容哈希，因此按不可变缓存返回 |
-| `GET {base}/runs?limit=&before=&process=&status=` | 按记录时间倒序读取 Run Record，可按 Process 与状态筛选 |
+| `GET {base}/runs?limit=&before=&process=&status=&errorCode=&since=&until=` | 按记录时间倒序读取 Run Record；组合筛选 Process、状态、错误码和时间范围。`since` 为闭区间、`until` 为开区间；`before` 是服务端返回的不透明稳定游标 |
 | `GET {base}/runs/{runId}` | 读取单条 Run Record |
 | `GET {base}/runs/{runId}/activities` | 读取该 Run 的 Attempt 与活动时间线，按 Attempt 序号和 sequence 排序 |
 | `GET {base}/processes` | 读取生产 catalog：精确版本、固定活动名、Registration 级重试策略，以及输入输出字段表 |
-| `GET {base}/stats?hours=` | 窗口内的执行计数、失败分布、Attempt 耗时分位数，以及实时并发占用。`hours` 为 1–720，缺省 24 |
+| `GET {base}/stats?hours=` | 窗口内的执行计数、按 Process 汇总、UTC 每日吞吐与错误码分布、最近失败、Attempt 耗时分位数，以及实时并发占用。`hours` 为 1–720，缺省 24 |
 
-页面是 Preact + Vite 构建的单页应用，四个视图：运行记录（检索、筛选、翻页）、服务压力、Process 目录、提交任务。它由 `npm run build` 一并构建到 `dist/console`，随镜像发布，由 API 同源提供——服务不启用 CORS，控制台不能独立部署到其他源。
+页面是 Preact + Vite 构建的单页应用，四个视图：运行记录（检索、组合筛选、稳定翻页，以及声明活动顺序与各 Attempt 实际顺序的对照）、服务压力（每日吞吐、错误随时间分布和最近失败）、Process 目录、提交任务。它由 `npm run build` 一并构建到 `dist/console`，随镜像发布，由 API 同源提供——服务不启用 CORS，控制台不能独立部署到其他源。
 
 构建工具与框架是 devDependencies，生产镜像用 `--omit=dev` 安装运行时依赖，因此它们不进入运行时容器，只有构建产物进入。
 
@@ -363,6 +365,36 @@ location /console {
     proxy_pass http://<服务器内网IP>:4300;
 }
 ```
+
+控制台上线后，还必须对当前生产 revision 手动运行 [Console production readiness](../.github/workflows/console-production-readiness.yml)。该工作流绑定受保护的 `console-production-readiness` Environment，只读检查服务器和公网网关，不部署镜像、不切换流量，也不触发 Process。Environment 需要以下配置：
+
+| 类型 | 名称 | 含义 |
+| --- | --- | --- |
+| Variable | `REMOTE_HOST`、`REMOTE_USER`、`REMOTE_PATH` | 与生产发布相同的 SSH 目标 |
+| Variable | `CONSOLE_PUBLIC_URL` | 已受网关保护的完整 HTTPS 控制台路径，不含 query、fragment 或凭证 |
+| Secret | `SSH_PRIVATE_KEY`、`SSH_KNOWN_HOSTS` | 只读核验服务器所需的 SSH 身份与固定 host key |
+| Secret | `CONSOLE_AUTHORIZATION` | 可直接作为 HTTP `Authorization` header 值的控制台凭证 |
+| Secret | `BACKUP_EVIDENCE_HMAC_KEY` | 至少 32 字节，只授予真实备份/恢复作业和该只读门禁，用于认证备份证据来源 |
+
+工作流要求主 API 与内部 CRT Business API 都运行输入的完整 commit SHA，并在活动主 API 容器中重新执行数据库 live audit。它随后从 `$REMOTE_PATH/shared/postgres-backup/evidence.json` 读取备份平台发布的证据。该文件不是人工勾选项：必须由真实成功的备份作业与定期恢复演练生成，且写入前应验证备份对象确实可恢复。格式为：
+
+```json
+{
+  "schemaVersion": 1,
+  "event": "postgres_backup_verified",
+  "status": "succeeded",
+  "databaseIdentitySha256": "64位小写十六进制摘要",
+  "backupId": "备份系统中的稳定非秘密引用",
+  "completedAt": "2026-08-14T12:00:00Z",
+  "restoreVerifiedAt": "2026-08-01T12:00:00Z",
+  "retentionUntil": "2026-12-31T00:00:00Z",
+  "signatureSha256": "64位小写十六进制 HMAC-SHA256"
+}
+```
+
+`databaseIdentitySha256` 是 UTF-8 字节 `数据库名 + NUL + 登录角色名 + NUL + service_instance_identity.identity` 的 SHA-256。最后一项由 migration 在数据库首次建立时随机生成，随真实备份和恢复保留，但不直接写入证据；同名 staging 或重新初始化的数据库不能复用摘要。备份作业必须先验证备份对象存在，再从隔离恢复实例读取该身份并完成可用性检查，最后用 `BACKUP_EVIDENCE_HMAC_KEY` 对 `schemaVersion、event、status、databaseIdentitySha256、backupId、completedAt、restoreVerifiedAt、retentionUntil` 按此顺序用 NUL 连接的 UTF-8 字节计算 HMAC-SHA256。手写或来自另一套库的 JSON 无法通过签名与 live identity 双重校验。
+
+时间必须是严格的 UTC 秒格式 `YYYY-MM-DDTHH:mm:ssZ`：备份完成不超过 24 小时，真实恢复验证不超过 90 天，剩余保留期不少于 30 天。公网核验要求未携带凭证访问控制台页面、Process 目录与统计 Interface 均返回 `401` 或 `403`；携带凭证不只要求 `200`，还会验证控制台 HTML 标记、Process catalog JSON 和统计 JSON 契约。若当前服务器存在异步 Compose 形状，同 revision 的 Process Worker 也必须在线，并固定使用 PostgreSQL 与完整输入输出观测策略。成功后只上传 revision、摘要、备份引用、时间、状态码和验证布尔值等无内容证据，保留 90 天；没有该次真实成功记录时，控制台的生产闭环未完成。
 
 ## 构建并检查镜像
 

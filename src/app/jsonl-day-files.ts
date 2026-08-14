@@ -15,6 +15,8 @@ export type JsonlDayFiles<Value> = Readonly<{
     files: () => Promise<readonly string[]>;
     /** Reads one day file, oldest line first. Unreadable lines are skipped. */
     read: (file: string) => Promise<Value[]>;
+    /** Waits until every append accepted by this writer has settled. */
+    flush: () => Promise<void>;
     /** Deletes day files outside the retention window. */
     prune: () => Promise<void>;
 }>;
@@ -56,12 +58,16 @@ export function createJsonlDayFiles<Value>(options: {
         append: (day, value) => {
             const line = `${JSON.stringify(value)}\n`;
             const file = join(directory, `${prefix}${day}.jsonl`);
-            pendingWrite = pendingWrite.then(async () => {
-                await mkdir(directory, { recursive: true });
-                await appendFile(file, line, "utf8");
-            });
+            pendingWrite = pendingWrite
+                .catch(() => {})
+                .then(async () => {
+                    await mkdir(directory, { recursive: true });
+                    await appendFile(file, line, "utf8");
+                });
             return pendingWrite;
         },
+
+        flush: () => pendingWrite,
 
         files: async () => {
             const cutoff = retainedDayOrEarlier();

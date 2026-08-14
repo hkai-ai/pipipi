@@ -135,6 +135,26 @@ jobs:
           chmod 600 ~/.ssh/known_hosts
           test -s ~/.ssh/known_hosts
 
+      - name: Verify console gateway precondition
+        env:
+          CONSOLE_PUBLIC_URL: ${{ vars.CONSOLE_PUBLIC_URL }}
+        run: |
+          set -Eeuo pipefail
+          node --input-type=module <<'NODE'
+          const url = new URL(process.env.CONSOLE_PUBLIC_URL ?? "");
+          if (
+            url.protocol !== "https:" || url.username || url.password ||
+            url.search || url.hash || url.pathname === "/"
+          ) throw new Error("CONSOLE_PUBLIC_URL must be a protected HTTPS path");
+          NODE
+          base="${CONSOLE_PUBLIC_URL%/}"
+          for suffix in "" "/processes" "/stats?hours=1"; do
+            status="$(curl --silent --output /dev/null --write-out '%{http_code}' \
+              --connect-timeout 10 --max-time 20 --proto '=https' \
+              "$base$suffix")"
+            [[ "$status" =~ ^(401|403)$ ]]
+          done
+
       - name: Upload release to server
         env:
           REMOTE_HOST: ${{ vars.REMOTE_HOST }}
@@ -244,6 +264,13 @@ jobs:
           docker run --rm --env-file "$shared_env" \
               --volume "$app_root/shared/pg-server.crt:/etc/pipipi/pg-server.crt:ro" \
               --entrypoint npm "$image" run db:migrate
+
+          # A URL can name a restricted role while the session actually logs in
+          # as a superuser and uses SET ROLE. Verify the live identity and TLS
+          # boundary before replacing either production container.
+          docker run --rm --env-file "$shared_env" \
+              --volume "$app_root/shared/pg-server.crt:/etc/pipipi/pg-server.crt:ro" \
+              --entrypoint npm "$image" run audit:production-database
 
           if docker inspect pipipi >/dev/null 2>&1; then
               previous_image="$(docker inspect pipipi --format '{{.Config.Image}}')"

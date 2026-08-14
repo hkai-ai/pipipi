@@ -63,7 +63,10 @@ export function createContentRegistration(
         version: "v1",
         inputSchema: contentProcessInputSchema,
         outputSchema: contentProcessOutputSchema,
-        activities: ["content_optimization", "content_processing"],
+        activities:
+            mode === "agent"
+                ? ["content_optimization", "content_processing"]
+                : ["content_processing"],
         retryPolicy: options.retryPolicy,
         execute: async (input, context) => {
             const preparedContent = input.content.replace(/\s+/g, " ");

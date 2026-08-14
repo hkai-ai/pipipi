@@ -32,14 +32,14 @@ describe("Async runtime role construction", () => {
 
     it("requires Worker business, persistence, Redis, and retention configuration", () => {
         expect(() => constructProcessWorkerService({})).toThrow(
-            "Deployment environment for process-worker is missing required variables: BUSINESS_API_BASE_URL, DATABASE_URL, REDIS_URL, PROCESS_RUN_ACCEPTED_INPUT_RETENTION_MS, PROCESS_RUN_RESULT_RETENTION_MS, PROCESS_RUN_METADATA_RETENTION_MS",
+            "Deployment environment for process-worker is missing required variables: BUSINESS_API_BASE_URL, DATABASE_URL, REDIS_URL, PROCESS_RUN_ACCEPTED_INPUT_RETENTION_MS, PROCESS_RUN_RESULT_RETENTION_MS, PROCESS_RUN_METADATA_RETENTION_MS, PROCESS_RUN_RECORD_STORE, PROCESS_RUN_RECORD_CONTENT, PROCESS_RUN_RECORD_DIRECTORY",
         );
         expect(() =>
             constructProcessWorkerService({
                 BUSINESS_API_BASE_URL: "https://business.example",
             }),
         ).toThrow(
-            "Deployment environment for process-worker is missing required variables: DATABASE_URL, REDIS_URL, PROCESS_RUN_ACCEPTED_INPUT_RETENTION_MS, PROCESS_RUN_RESULT_RETENTION_MS, PROCESS_RUN_METADATA_RETENTION_MS",
+            "Deployment environment for process-worker is missing required variables: DATABASE_URL, REDIS_URL, PROCESS_RUN_ACCEPTED_INPUT_RETENTION_MS, PROCESS_RUN_RESULT_RETENTION_MS, PROCESS_RUN_METADATA_RETENTION_MS, PROCESS_RUN_RECORD_STORE, PROCESS_RUN_RECORD_CONTENT, PROCESS_RUN_RECORD_DIRECTORY",
         );
         expect(() =>
             constructProcessWorkerService({
@@ -47,7 +47,7 @@ describe("Async runtime role construction", () => {
                 DATABASE_URL,
             }),
         ).toThrow(
-            "Deployment environment for process-worker is missing required variables: REDIS_URL, PROCESS_RUN_ACCEPTED_INPUT_RETENTION_MS, PROCESS_RUN_RESULT_RETENTION_MS, PROCESS_RUN_METADATA_RETENTION_MS",
+            "Deployment environment for process-worker is missing required variables: REDIS_URL, PROCESS_RUN_ACCEPTED_INPUT_RETENTION_MS, PROCESS_RUN_RESULT_RETENTION_MS, PROCESS_RUN_METADATA_RETENTION_MS, PROCESS_RUN_RECORD_STORE, PROCESS_RUN_RECORD_CONTENT, PROCESS_RUN_RECORD_DIRECTORY",
         );
         expect(() =>
             constructProcessWorkerService({
@@ -56,7 +56,7 @@ describe("Async runtime role construction", () => {
                 REDIS_URL,
             }),
         ).toThrow(
-            "Deployment environment for process-worker is missing required variables: PROCESS_RUN_ACCEPTED_INPUT_RETENTION_MS, PROCESS_RUN_RESULT_RETENTION_MS, PROCESS_RUN_METADATA_RETENTION_MS",
+            "Deployment environment for process-worker is missing required variables: PROCESS_RUN_ACCEPTED_INPUT_RETENTION_MS, PROCESS_RUN_RESULT_RETENTION_MS, PROCESS_RUN_METADATA_RETENTION_MS, PROCESS_RUN_RECORD_STORE, PROCESS_RUN_RECORD_CONTENT, PROCESS_RUN_RECORD_DIRECTORY",
         );
     });
 
@@ -67,6 +67,7 @@ describe("Async runtime role construction", () => {
                 DATABASE_URL,
                 REDIS_URL,
                 ...WORKER_RETENTION,
+                ...WORKER_OBSERVATION,
                 PROCESS_TIMEOUT_MS: "60000",
                 PROCESS_RUN_CLAIM_LEASE_MS: "60000",
             }),
@@ -80,6 +81,7 @@ describe("Async runtime role construction", () => {
                 DATABASE_URL,
                 REDIS_URL,
                 ...WORKER_RETENTION,
+                ...WORKER_OBSERVATION,
                 PROCESS_WORKER_SHUTDOWN_GRACE_MS: "60001",
             }),
         ).toThrow("PROCESS_WORKER_SHUTDOWN_GRACE_MS must not exceed 60000");
@@ -125,4 +127,8 @@ const WORKER_RETENTION = {
     PROCESS_RUN_ACCEPTED_INPUT_RETENTION_MS: "86400000",
     PROCESS_RUN_RESULT_RETENTION_MS: "604800000",
     PROCESS_RUN_METADATA_RETENTION_MS: "2592000000",
+} as const;
+const WORKER_OBSERVATION = {
+    PROCESS_RUN_RECORD_STORE: "postgres",
+    PROCESS_RUN_RECORD_CONTENT: "omit",
 } as const;

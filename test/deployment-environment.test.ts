@@ -96,6 +96,9 @@ describe("Deployment environment", () => {
                 "PROCESS_RUN_ACCEPTED_INPUT_RETENTION_MS",
                 "PROCESS_RUN_RESULT_RETENTION_MS",
                 "PROCESS_RUN_METADATA_RETENTION_MS",
+                "PROCESS_RUN_RECORD_STORE",
+                "PROCESS_RUN_RECORD_CONTENT",
+                "PROCESS_RUN_RECORD_DIRECTORY",
             ],
         ],
         [
@@ -123,7 +126,7 @@ describe("Deployment environment", () => {
                 "process-worker",
             ),
         ).toThrow(
-            "Deployment environment for process-worker is missing required variables: BUSINESS_API_BASE_URL, REDIS_URL, PROCESS_RUN_ACCEPTED_INPUT_RETENTION_MS, PROCESS_RUN_RESULT_RETENTION_MS, PROCESS_RUN_METADATA_RETENTION_MS",
+            "Deployment environment for process-worker is missing required variables: BUSINESS_API_BASE_URL, REDIS_URL, PROCESS_RUN_ACCEPTED_INPUT_RETENTION_MS, PROCESS_RUN_RESULT_RETENTION_MS, PROCESS_RUN_METADATA_RETENTION_MS, PROCESS_RUN_RECORD_STORE, PROCESS_RUN_RECORD_CONTENT, PROCESS_RUN_RECORD_DIRECTORY",
         );
 
         try {
@@ -135,6 +138,64 @@ describe("Deployment environment", () => {
             expect((error as Error).message).not.toContain(databaseUrl);
             expect((error as Error).message).not.toContain("secret-value");
         }
+    });
+
+    it("requires durable observation configuration for the Process Worker", () => {
+        const base = {
+            BUSINESS_API_BASE_URL: "https://business.example",
+            DATABASE_URL: "postgresql://service:secret@database.example/pipipi",
+            REDIS_URL: "redis://cache.example/0",
+            PROCESS_RUN_ACCEPTED_INPUT_RETENTION_MS: "86400000",
+            PROCESS_RUN_RESULT_RETENTION_MS: "604800000",
+            PROCESS_RUN_METADATA_RETENTION_MS: "2592000000",
+            PROCESS_RUN_RECORD_CONTENT: "accepted-input-and-output",
+        };
+
+        expect(
+            checkDeploymentEnvironment(
+                { ...base, PROCESS_RUN_RECORD_STORE: "file" },
+                "process-worker",
+            ).missingVariables,
+        ).toEqual(["PROCESS_RUN_RECORD_DIRECTORY"]);
+        expect(
+            checkDeploymentEnvironment(
+                { ...base, PROCESS_RUN_RECORD_STORE: "postgres" },
+                "process-worker",
+            ).missingVariables,
+        ).toEqual([]);
+    });
+
+    it("forces the production Process Worker onto the Console PostgreSQL observation store", () => {
+        const environment = {
+            NODE_ENV: "production",
+            BUSINESS_API_BASE_URL: "https://business.example",
+            DATABASE_URL: "postgresql://service:secret@database.example/pipipi",
+            REDIS_URL: "redis://cache.example/0",
+            PROCESS_RUN_ACCEPTED_INPUT_RETENTION_MS: "86400000",
+            PROCESS_RUN_RESULT_RETENTION_MS: "604800000",
+            PROCESS_RUN_METADATA_RETENTION_MS: "2592000000",
+            PROCESS_RUN_RECORD_STORE: "file",
+            PROCESS_RUN_RECORD_CONTENT: "accepted-input-and-output",
+            PROCESS_RUN_RECORD_DIRECTORY: "/tmp/records",
+        };
+
+        expect(() =>
+            assertDeploymentEnvironment(environment, "process-worker"),
+        ).toThrow(
+            "Production Process Worker requires PROCESS_RUN_RECORD_STORE=postgres",
+        );
+        expect(() =>
+            assertDeploymentEnvironment(
+                {
+                    ...environment,
+                    PROCESS_RUN_RECORD_STORE: "postgres",
+                    PROCESS_RUN_RECORD_CONTENT: "omit",
+                },
+                "process-worker",
+            ),
+        ).toThrow(
+            "Production Process Worker requires PROCESS_RUN_RECORD_CONTENT=accepted-input-and-output",
+        );
     });
 
     it("parses only explicit supported roles", () => {

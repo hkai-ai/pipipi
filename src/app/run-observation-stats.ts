@@ -10,6 +10,15 @@ export type RunObservationStats = Readonly<{
     ) => Promise<ConsoleStatsSummary>;
 }>;
 
+export type RunObservationCount = Readonly<{
+    day: string;
+    process: string;
+    version: string;
+    status: "succeeded" | "failed";
+    errorCode?: string;
+    count: number;
+}>;
+
 /**
  * File-backed statistics. The window is scanned on every request: at the volume
  * a single synchronous instance can produce, a full scan of the retained window
@@ -47,18 +56,79 @@ export function summariseRunObservation(input: {
     records: readonly ProcessRunRecord[];
     attemptDurationsMs: readonly number[];
 }): ConsoleStatsSummary {
+    const grouped = new Map<string, RunObservationCount>();
+    for (const record of input.records) {
+        const count = {
+            day: record.recordedAt.slice(0, 10),
+            process: record.process ?? "unknown",
+            version: record.version ?? "unknown",
+            status: record.status,
+            ...(record.errorCode ? { errorCode: record.errorCode } : {}),
+        };
+        const key = JSON.stringify(count);
+        grouped.set(key, {
+            ...count,
+            count: (grouped.get(key)?.count ?? 0) + 1,
+        });
+    }
+    const recentFailures = input.records
+        .filter(
+            (
+                record,
+            ): record is ProcessRunRecord & Readonly<{ errorCode: string }> =>
+                record.status === "failed" && record.errorCode !== undefined,
+        )
+        .sort(
+            (left, right) =>
+                right.recordedAt.localeCompare(left.recordedAt) ||
+                right.runId.localeCompare(left.runId),
+        )
+        .slice(0, 10)
+        .map((record) =>
+            Object.freeze({
+                runId: record.runId,
+                recordedAt: record.recordedAt,
+                process: record.process ?? "unknown",
+                version: record.version ?? "unknown",
+                errorCode: record.errorCode,
+            }),
+        );
+    return summariseAggregatedRunObservation({
+        since: input.since,
+        counts: [...grouped.values()],
+        recentFailures,
+        attemptDurationMs: summariseDurations(input.attemptDurationsMs),
+    });
+}
+
+/** Shapes SQL group rows without expanding each count back into fake Runs. */
+export function summariseAggregatedRunObservation(input: {
+    since: string;
+    counts: readonly RunObservationCount[];
+    recentFailures: ConsoleStatsSummary["recentFailures"];
+    attemptDurationMs: ConsoleStatsSummary["attemptDurationMs"];
+}): ConsoleStatsSummary {
     const totals = { succeeded: 0, failed: 0 };
     const byProcess = new Map<
         string,
         { process: string; version: string; succeeded: number; failed: number }
     >();
     const byErrorCode = new Map<string, number>();
+    const byDay = new Map<
+        string,
+        {
+            day: string;
+            succeeded: number;
+            failed: number;
+            byErrorCode: Map<string, number>;
+        }
+    >();
 
-    for (const record of input.records) {
-        totals[record.status] += 1;
+    for (const count of input.counts) {
+        totals[count.status] += count.count;
 
-        const process = record.process ?? "unknown";
-        const version = record.version ?? "unknown";
+        const process = count.process;
+        const version = count.version;
         const key = `${process}/${version}`;
         const entry = byProcess.get(key) ?? {
             process,
@@ -66,13 +136,27 @@ export function summariseRunObservation(input: {
             succeeded: 0,
             failed: 0,
         };
-        entry[record.status] += 1;
+        entry[count.status] += count.count;
         byProcess.set(key, entry);
 
-        if (record.status === "failed" && record.errorCode) {
+        const day = count.day;
+        const dayEntry = byDay.get(day) ?? {
+            day,
+            succeeded: 0,
+            failed: 0,
+            byErrorCode: new Map<string, number>(),
+        };
+        dayEntry[count.status] += count.count;
+        byDay.set(day, dayEntry);
+
+        if (count.status === "failed" && count.errorCode) {
             byErrorCode.set(
-                record.errorCode,
-                (byErrorCode.get(record.errorCode) ?? 0) + 1,
+                count.errorCode,
+                (byErrorCode.get(count.errorCode) ?? 0) + count.count,
+            );
+            dayEntry.byErrorCode.set(
+                count.errorCode,
+                (dayEntry.byErrorCode.get(count.errorCode) ?? 0) + count.count,
             );
         }
     }
@@ -93,7 +177,31 @@ export function summariseRunObservation(input: {
                 .map(([errorCode, count]) => ({ errorCode, count }))
                 .sort((left, right) => right.count - left.count),
         ),
-        attemptDurationMs: summariseDurations(input.attemptDurationsMs),
+        byDay: Object.freeze(
+            [...byDay.values()]
+                .sort((left, right) => left.day.localeCompare(right.day))
+                .map((entry) =>
+                    Object.freeze({
+                        day: entry.day,
+                        succeeded: entry.succeeded,
+                        failed: entry.failed,
+                        byErrorCode: Object.freeze(
+                            [...entry.byErrorCode.entries()]
+                                .map(([errorCode, count]) => ({
+                                    errorCode,
+                                    count,
+                                }))
+                                .sort((left, right) =>
+                                    left.errorCode.localeCompare(
+                                        right.errorCode,
+                                    ),
+                                ),
+                        ),
+                    }),
+                ),
+        ),
+        recentFailures: Object.freeze(input.recentFailures),
+        attemptDurationMs: input.attemptDurationMs,
     });
 }
 

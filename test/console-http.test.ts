@@ -69,6 +69,8 @@ const emptySummary = {
     totals: { succeeded: 0, failed: 0 },
     byProcess: [],
     byErrorCode: [],
+    byDay: [],
+    recentFailures: [],
     attemptDurationMs: { samples: 0 },
 } as const;
 
@@ -85,6 +87,16 @@ describe("operator console HTTP boundary", () => {
         expect(response.headers.get("cache-control")).toBe("no-store");
         expect(response.headers.get("x-robots-tag")).toBe("noindex, nofollow");
         expect(await response.text()).toContain("Business Process 控制台");
+    });
+
+    it("binds protected Console responses to the deployed revision", async () => {
+        const revision = "a".repeat(40);
+        const service = await startConsole({ revision });
+
+        for (const path of ["/console", "/console/runs?limit=1"]) {
+            const response = await fetch(`${service.url}${path}`);
+            expect(response.headers.get("x-pipipi-revision")).toBe(revision);
+        }
     });
 
     it("resolves assets against the deployed base path", async () => {
@@ -174,6 +186,50 @@ describe("operator console HTTP boundary", () => {
                 code: "INVALID_INPUT",
                 message: "limit must be a positive integer",
             },
+        });
+    });
+
+    it("passes all history filters through with canonical timestamps", async () => {
+        const queries: unknown[] = [];
+        const service = await startConsole({
+            list: async (query) => {
+                queries.push(query);
+                return { records: [] };
+            },
+        });
+
+        const response = await fetch(
+            `${service.url}/console/runs?process=crt-interface-image&status=failed&errorCode=AGENT_FAILURE&since=2026-08-11T10%3A00%3A00%2B08%3A00&until=2026-08-12T10%3A00%3A00%2B08%3A00`,
+        );
+
+        expect(response.status).toBe(200);
+        expect(queries).toEqual([
+            {
+                process: "crt-interface-image",
+                status: "failed",
+                errorCode: "AGENT_FAILURE",
+                since: "2026-08-11T02:00:00.000Z",
+                until: "2026-08-12T02:00:00.000Z",
+            },
+        ]);
+    });
+
+    it.each([
+        ["since=not-a-time", "since must be an ISO 8601 timestamp"],
+        [
+            "since=2026-08-12T00%3A00%3A00Z&until=2026-08-11T00%3A00%3A00Z",
+            "since must be earlier than until",
+        ],
+        ["errorCode=bad%20code", "errorCode has an invalid format"],
+    ])("rejects invalid history filters: %s", async (query, message) => {
+        const service = await startConsole();
+
+        const response = await fetch(`${service.url}/console/runs?${query}`);
+
+        expect(response.status).toBe(400);
+        expect(await response.json()).toMatchObject({
+            status: "failed",
+            error: { code: "INVALID_INPUT", message },
         });
     });
 
@@ -389,6 +445,7 @@ async function startConsole(
         >["findByRun"];
         processes?: ConsoleHttpOptions["processes"];
         summarise?: NonNullable<ConsoleHttpOptions["stats"]>["summarise"];
+        revision?: string;
         executor?: ProcessExecutor;
     } = {},
 ): Promise<RunningService> {
@@ -398,6 +455,7 @@ async function startConsole(
             {
                 console: {
                     basePath: options.basePath ?? "/console",
+                    ...(options.revision ? { revision: options.revision } : {}),
                     assetDirectory: builtConsoleDirectory,
                     records: {
                         list:

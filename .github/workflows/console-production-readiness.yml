@@ -1,0 +1,273 @@
+name: Console production readiness
+run-name: Console readiness for ${{ inputs.candidate_sha }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      candidate_sha:
+        description: Active production full commit SHA
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Verify protected console and durable observation
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: console-production-readiness
+    concurrency:
+      group: pipipi-production-release
+      cancel-in-progress: false
+
+    steps:
+      - name: Validate candidate
+        env:
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+        run: |
+          set -Eeuo pipefail
+          [[ "$CANDIDATE_SHA" =~ ^[0-9a-f]{40}$ ]]
+
+      - name: Configure SSH
+        env:
+          SSH_KNOWN_HOSTS: ${{ secrets.SSH_KNOWN_HOSTS }}
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+        run: |
+          set -Eeuo pipefail
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/id_ed25519 ~/.ssh/known_hosts
+
+      - name: Verify active database identity and backup evidence
+        env:
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+          REMOTE_HOST: ${{ vars.REMOTE_HOST }}
+          REMOTE_PATH: ${{ vars.REMOTE_PATH }}
+          REMOTE_USER: ${{ vars.REMOTE_USER }}
+        run: |
+          set -Eeuo pipefail
+          install -d -m 700 artifacts/console-production-readiness
+          ssh -o BatchMode=yes -o StrictHostKeyChecking=yes \
+            "$REMOTE_USER@$REMOTE_HOST" bash -s -- \
+            "$REMOTE_PATH" "$CANDIDATE_SHA" \
+            > artifacts/console-production-readiness/server.json <<'REMOTE'
+          set -Eeuo pipefail
+          app_root="$1"
+          revision="$2"
+          [[ "$app_root" =~ ^/[A-Za-z0-9._/-]+$ ]]
+          [[ "$revision" =~ ^[0-9a-f]{40}$ ]]
+          for container in pipipi pipipi-business-api; do
+            test "$(docker inspect "$container" --format '{{index .Config.Labels "com.pipipi.revision"}}')" = "$revision"
+          done
+          async_shape=false
+          if test -f "$app_root/shared/compose.production.async.yaml"; then
+            async_shape=true
+            test "$(docker inspect pipipi-process-worker --format '{{index .Config.Labels "com.pipipi.revision"}}')" = "$revision"
+            worker_store="$(docker inspect pipipi-process-worker --format '{{range .Config.Env}}{{println .}}{{end}}' | sed -n 's/^PROCESS_RUN_RECORD_STORE=//p')"
+            worker_content="$(docker inspect pipipi-process-worker --format '{{range .Config.Env}}{{println .}}{{end}}' | sed -n 's/^PROCESS_RUN_RECORD_CONTENT=//p')"
+            test "$worker_store" = "postgres"
+            test "$worker_content" = "accepted-input-and-output"
+          fi
+          database="$(docker exec pipipi npm run --silent audit:production-database)"
+          jq --exit-status '
+            .event == "production_database_identity_verified" and
+            (.databaseIdentitySha256 | test("^[0-9a-f]{64}$")) and
+            .tlsVerified == true and
+            .dedicatedDatabaseVerified == true and
+            .nonSuperuserVerified == true and
+            .administrativePrivilegesAbsent == true and
+            .otherDatabaseAccessAbsent == true and
+            .roleMembershipAbsent == true and
+            .roleSwitchingAbsent == true
+          ' <<< "$database" >/dev/null
+
+          backup="$app_root/shared/postgres-backup/evidence.json"
+          test -f "$backup"
+          now="$(date -u +%s)"
+          jq --exit-status --argjson database "$database" --argjson now "$now" '
+            .schemaVersion == 1 and
+            .event == "postgres_backup_verified" and
+            .status == "succeeded" and
+            (.databaseIdentitySha256 | test("^[0-9a-f]{64}$")) and
+            .databaseIdentitySha256 == $database.databaseIdentitySha256 and
+            (.backupId | type == "string" and test("^[A-Za-z0-9._:/-]{1,128}$")) and
+            (.completedAt | fromdateiso8601) <= $now and
+            (.completedAt | fromdateiso8601) >= ($now - 86400) and
+            (.restoreVerifiedAt | fromdateiso8601) <= $now and
+            (.restoreVerifiedAt | fromdateiso8601) >= ($now - 7776000) and
+            (.retentionUntil | fromdateiso8601) >= ($now + 2592000)
+          ' "$backup" >/dev/null
+
+          jq -n \
+            --arg revision "$revision" \
+            --argjson asyncShape "$async_shape" \
+            --argjson database "$database" \
+            --slurpfile backup "$backup" '
+            {
+              revision: $revision,
+              database: $database,
+              backup: {
+                databaseIdentitySha256: $backup[0].databaseIdentitySha256,
+                backupId: $backup[0].backupId,
+                completedAt: $backup[0].completedAt,
+                restoreVerifiedAt: $backup[0].restoreVerifiedAt,
+                retentionUntil: $backup[0].retentionUntil,
+                signatureSha256: $backup[0].signatureSha256
+              },
+              runtime: { asyncShape: $asyncShape }
+            }
+          '
+          REMOTE
+
+      - name: Verify console gateway authentication
+        env:
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+          CONSOLE_AUTHORIZATION: ${{ secrets.CONSOLE_AUTHORIZATION }}
+          CONSOLE_PUBLIC_URL: ${{ vars.CONSOLE_PUBLIC_URL }}
+        run: |
+          set -Eeuo pipefail
+          node --input-type=module <<'NODE' > artifacts/console-production-readiness/gateway.json
+          import { createHash } from "node:crypto";
+          const url = new URL(process.env.CONSOLE_PUBLIC_URL ?? "");
+          if (
+            url.protocol !== "https:" || url.username || url.password ||
+            url.search || url.hash || url.pathname === "/"
+          ) throw new Error("CONSOLE_PUBLIC_URL must be a protected HTTPS path");
+          if (!process.env.CONSOLE_AUTHORIZATION || /[\r\n]/.test(process.env.CONSOLE_AUTHORIZATION)) {
+            throw new Error("CONSOLE_AUTHORIZATION is required");
+          }
+          const authorization = process.env.CONSOLE_AUTHORIZATION;
+          const probes = ["", "/processes", "/stats?hours=1"];
+          const anonymousStatus = [];
+          const authenticatedStatus = [];
+          const bodies = [];
+          for (const suffix of probes) {
+            const target = `${url.href.replace(/\/$/, "")}${suffix}`;
+            const anonymous = await fetch(target, { redirect: "manual" });
+            if (anonymous.status !== 401 && anonymous.status !== 403) {
+              throw new Error(`Anonymous Console request was not rejected: ${suffix}`);
+            }
+            anonymousStatus.push(anonymous.status);
+            const authenticated = await fetch(target, {
+              headers: { authorization },
+              redirect: "manual",
+            });
+            if (authenticated.status !== 200) {
+              throw new Error(`Authenticated Console request failed: ${suffix}`);
+            }
+            if (authenticated.headers.get("x-pipipi-revision") !== process.env.CANDIDATE_SHA) {
+              throw new Error(`Console gateway revision mismatch: ${suffix}`);
+            }
+            authenticatedStatus.push(authenticated.status);
+            bodies.push({
+              contentType: authenticated.headers.get("content-type") ?? "",
+              body: await authenticated.text(),
+            });
+          }
+          if (!bodies[0].contentType.includes("text/html") ||
+              !bodies[0].body.includes("<title>Business Process 控制台</title>") ||
+              !bodies[0].body.includes('id="console"')) {
+            throw new Error("Console document contract is invalid");
+          }
+          const processes = JSON.parse(bodies[1].body);
+          if (!bodies[1].contentType.includes("application/json") ||
+              !Array.isArray(processes.processes) || processes.processes.length === 0 ||
+              !processes.processes.every((entry) =>
+                typeof entry.process === "string" && typeof entry.version === "string" &&
+                Array.isArray(entry.activities))) {
+            throw new Error("Console Process catalog contract is invalid");
+          }
+          const stats = JSON.parse(bodies[2].body);
+          if (!bodies[2].contentType.includes("application/json") ||
+              typeof stats.totals?.succeeded !== "number" ||
+              typeof stats.totals?.failed !== "number" ||
+              !Array.isArray(stats.byDay) || !Array.isArray(stats.recentFailures) ||
+              typeof stats.concurrency?.active !== "number" ||
+              typeof stats.concurrency?.limit !== "number") {
+            throw new Error("Console statistics contract is invalid");
+          }
+          console.log(JSON.stringify({
+            gateway: {
+              identitySha256: createHash("sha256").update(url.href.replace(/\/$/, "")).digest("hex"),
+              anonymousStatus,
+              authenticatedStatus,
+              revision: process.env.CANDIDATE_SHA,
+              documentVerified: true,
+              processCatalogVerified: true,
+              statisticsVerified: true,
+            },
+          }));
+          NODE
+
+      - name: Assemble readiness evidence
+        env:
+          BACKUP_EVIDENCE_HMAC_KEY: ${{ secrets.BACKUP_EVIDENCE_HMAC_KEY }}
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+        run: |
+          set -Eeuo pipefail
+          node --input-type=module <<'NODE'
+          import { createHmac, timingSafeEqual } from "node:crypto";
+          import { readFile } from "node:fs/promises";
+          const key = process.env.BACKUP_EVIDENCE_HMAC_KEY ?? "";
+          if (Buffer.byteLength(key, "utf8") < 32) {
+            throw new Error("BACKUP_EVIDENCE_HMAC_KEY must be at least 32 bytes");
+          }
+          const server = JSON.parse(await readFile("artifacts/console-production-readiness/server.json", "utf8"));
+          const backup = server.backup;
+          const payload = [
+            "1", "postgres_backup_verified", "succeeded",
+            backup.databaseIdentitySha256, backup.backupId, backup.completedAt,
+            backup.restoreVerifiedAt, backup.retentionUntil,
+          ].join("\0");
+          const expected = createHmac("sha256", key).update(payload).digest();
+          if (typeof backup.signatureSha256 !== "string" ||
+              !/^[0-9a-f]{64}$/.test(backup.signatureSha256)) {
+            throw new Error("Backup evidence signature is invalid");
+          }
+          const received = Buffer.from(backup.signatureSha256, "hex");
+          if (!timingSafeEqual(expected, received)) {
+            throw new Error("Backup evidence signature does not match");
+          }
+          NODE
+          jq -n \
+            --arg revision "$CANDIDATE_SHA" \
+            --slurpfile server artifacts/console-production-readiness/server.json \
+            --slurpfile gateway artifacts/console-production-readiness/gateway.json '
+            {
+              schemaVersion: 1,
+              event: "console_production_readiness_verified",
+              revision: $revision,
+              status: "succeeded",
+              database: $server[0].database,
+              backup: $server[0].backup,
+              gateway: $gateway[0].gateway
+            }
+          ' > artifacts/console-production-readiness/evidence.json
+          jq --exit-status --arg revision "$CANDIDATE_SHA" '
+            .revision == $revision and .status == "succeeded" and
+            .database.tlsVerified == true and
+            .database.dedicatedDatabaseVerified == true and
+            .database.nonSuperuserVerified == true and
+            .database.administrativePrivilegesAbsent == true and
+            .database.otherDatabaseAccessAbsent == true and
+            .database.roleMembershipAbsent == true and
+            .database.roleSwitchingAbsent == true and
+            .database.databaseIdentitySha256 == .backup.databaseIdentitySha256 and
+            .gateway.documentVerified == true and
+            .gateway.processCatalogVerified == true and
+            .gateway.statisticsVerified == true and
+            (.gateway.anonymousStatus | all(. == 401 or . == 403)) and
+            (.gateway.authenticatedStatus | all(. == 200))
+          ' artifacts/console-production-readiness/evidence.json >/dev/null
+
+      - name: Upload readiness evidence
+        uses: actions/upload-artifact@v6
+        with:
+          name: pipipi-console-production-readiness-${{ inputs.candidate_sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/console-production-readiness/evidence.json
+          if-no-files-found: error
+          retention-days: 90

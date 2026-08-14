@@ -199,10 +199,151 @@ export function describeRunObservationContract(
         expect(second.nextBefore).toBeUndefined();
     });
 
+    it("does not skip records that share the cursor timestamp", async () => {
+        const { archive } = await createBackend();
+        for (const runId of ["same-a", "same-b", "same-c"]) {
+            await archive.store(
+                processRunRecord({
+                    runId,
+                    recordedAt: "2026-08-11T10:00:00.000Z",
+                }),
+            );
+        }
+
+        const first = await archive.list({ limit: 2 });
+        const second = await archive.list({
+            limit: 2,
+            ...(first.nextBefore ? { before: first.nextBefore } : {}),
+        });
+
+        expect(first.records.map((record) => record.runId)).toEqual([
+            "same-c",
+            "same-b",
+        ]);
+        expect(second.records.map((record) => record.runId)).toEqual([
+            "same-a",
+        ]);
+    });
+
+    it("lists only the latest outcome of a replayed run", async () => {
+        const { archive } = await createBackend();
+        await archive.store(
+            processRunRecord({
+                runId: "listed-replay",
+                recordedAt: "2026-08-11T10:00:00.000Z",
+                status: "failed",
+                errorCode: "DEPENDENCY_FAILURE",
+            }),
+        );
+        await archive.store(
+            processRunRecord({
+                runId: "listed-replay",
+                recordedAt: "2026-08-11T10:00:01.000Z",
+                status: "succeeded",
+            }),
+        );
+
+        expect((await archive.list()).records).toEqual([
+            expect.objectContaining({
+                runId: "listed-replay",
+                status: "succeeded",
+            }),
+        ]);
+        expect((await archive.list({ status: "failed" })).records).toEqual([]);
+    });
+
     it("returns an empty page when nothing is stored", async () => {
         const { archive } = await createBackend();
 
         expect((await archive.list()).records).toEqual([]);
+    });
+
+    it("combines Process, status, error-code, and time-range filters", async () => {
+        const { archive } = await createBackend();
+        for (const record of [
+            processRunRecord({
+                runId: "matching",
+                recordedAt: "2026-08-11T10:30:00.000Z",
+                process: "crt-interface-image",
+                status: "failed",
+                errorCode: "AGENT_FAILURE",
+            }),
+            processRunRecord({
+                runId: "wrong-error",
+                recordedAt: "2026-08-11T10:20:00.000Z",
+                process: "crt-interface-image",
+                status: "failed",
+                errorCode: "DEPENDENCY_FAILURE",
+            }),
+            processRunRecord({
+                runId: "too-old",
+                recordedAt: "2026-08-11T09:59:59.999Z",
+                process: "crt-interface-image",
+                status: "failed",
+                errorCode: "AGENT_FAILURE",
+            }),
+            processRunRecord({
+                runId: "exclusive-end",
+                recordedAt: "2026-08-11T11:00:00.000Z",
+                process: "crt-interface-image",
+                status: "failed",
+                errorCode: "AGENT_FAILURE",
+            }),
+        ]) {
+            await archive.store(record);
+        }
+
+        const page = await archive.list({
+            process: "crt-interface-image",
+            status: "failed",
+            errorCode: "AGENT_FAILURE",
+            since: "2026-08-11T10:00:00.000Z",
+            until: "2026-08-11T11:00:00.000Z",
+        });
+
+        expect(page.records.map((record) => record.runId)).toEqual([
+            "matching",
+        ]);
+    });
+
+    it("keeps combined filters active across pagination", async () => {
+        const { archive } = await createBackend();
+        for (const [runId, recordedAt, errorCode] of [
+            ["match-new", "2026-08-11T10:40:00.000Z", "AGENT_FAILURE"],
+            ["match-old", "2026-08-11T10:20:00.000Z", "AGENT_FAILURE"],
+            ["not-a-match", "2026-08-11T10:30:00.000Z", "DEPENDENCY_FAILURE"],
+        ] as const) {
+            await archive.store(
+                processRunRecord({
+                    runId,
+                    recordedAt,
+                    process: "crt-interface-image",
+                    status: "failed",
+                    errorCode,
+                }),
+            );
+        }
+        const filters = {
+            process: "crt-interface-image",
+            status: "failed" as const,
+            errorCode: "AGENT_FAILURE",
+            since: "2026-08-11T10:00:00.000Z",
+            until: "2026-08-11T11:00:00.000Z",
+        };
+
+        const first = await archive.list({ ...filters, limit: 1 });
+        const second = await archive.list({
+            ...filters,
+            limit: 1,
+            ...(first.nextBefore ? { before: first.nextBefore } : {}),
+        });
+
+        expect(first.records.map((record) => record.runId)).toEqual([
+            "match-new",
+        ]);
+        expect(second.records.map((record) => record.runId)).toEqual([
+            "match-old",
+        ]);
     });
 
     it("reconstructs an Attempt timeline ordered by attempt then sequence", async () => {
@@ -303,6 +444,23 @@ export function describeRunObservationContract(
         expect(summary.byErrorCode).toEqual([
             { errorCode: "AGENT_FAILURE", count: 1 },
         ]);
+        expect(summary.byDay).toEqual([
+            {
+                day: "2026-08-11",
+                succeeded: 2,
+                failed: 1,
+                byErrorCode: [{ errorCode: "AGENT_FAILURE", count: 1 }],
+            },
+        ]);
+        expect(summary.recentFailures).toEqual([
+            {
+                runId: "c",
+                recordedAt: inWindow(3),
+                process: "crt-interface-image",
+                version: "v1",
+                errorCode: "AGENT_FAILURE",
+            },
+        ]);
     });
 
     it("excludes records older than the window", async () => {
@@ -321,6 +479,31 @@ export function describeRunObservationContract(
             succeeded: 1,
             failed: 0,
         });
+    });
+
+    it("counts only the latest outcome of a replayed run", async () => {
+        const { archive, stats } = await createBackend();
+        await archive.store(
+            processRunRecord({
+                runId: "stats-replay",
+                recordedAt: inWindow(1),
+                status: "failed",
+                errorCode: "DEPENDENCY_FAILURE",
+            }),
+        );
+        await archive.store(
+            processRunRecord({
+                runId: "stats-replay",
+                recordedAt: inWindow(2),
+                status: "succeeded",
+            }),
+        );
+
+        const summary = await stats.summarise({ since: windowStart });
+
+        expect(summary.totals).toEqual({ succeeded: 1, failed: 0 });
+        expect(summary.byErrorCode).toEqual([]);
+        expect(summary.recentFailures).toEqual([]);
     });
 
     it("summarises Attempt durations from finished Attempts only", async () => {
@@ -368,6 +551,8 @@ export function describeRunObservationContract(
         expect(summary.totals).toEqual({ succeeded: 0, failed: 0 });
         expect(summary.byProcess).toEqual([]);
         expect(summary.byErrorCode).toEqual([]);
+        expect(summary.byDay).toEqual([]);
+        expect(summary.recentFailures).toEqual([]);
         expect(summary.attemptDurationMs).toEqual({ samples: 0 });
     });
 }

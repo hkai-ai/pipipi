@@ -1096,6 +1096,8 @@ integrationDescribe("BullMQ Process Runtime", () => {
                 PROCESS_RUN_ACCEPTED_INPUT_RETENTION_MS: "86400000",
                 PROCESS_RUN_RESULT_RETENTION_MS: "604800000",
                 PROCESS_RUN_METADATA_RETENTION_MS: "2592000000",
+                PROCESS_RUN_RECORD_STORE: "postgres",
+                PROCESS_RUN_RECORD_CONTENT: "omit",
                 PROCESS_TIMEOUT_MS: "2000",
                 PROCESS_RUN_CLAIM_LEASE_MS: "5000",
                 ASYNC_POSTGRES_CONNECTION_TIMEOUT_MS: "500",

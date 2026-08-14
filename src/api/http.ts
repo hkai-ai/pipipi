@@ -53,6 +53,7 @@ export type ConsoleRecordPage = Readonly<{
  */
 export type ConsoleHttpOptions = Readonly<{
     basePath: string;
+    revision?: string;
     /** Directory holding the built console: `index.html` plus `assets/`. */
     assetDirectory: string;
     records: Readonly<{
@@ -62,6 +63,9 @@ export type ConsoleHttpOptions = Readonly<{
                 before?: string;
                 process?: string;
                 status?: "succeeded" | "failed";
+                errorCode?: string;
+                since?: string;
+                until?: string;
             }>,
         ) => Promise<ConsoleRecordPage>;
         find: (runId: string) => Promise<ProcessRunRecord | undefined>;
@@ -93,6 +97,22 @@ export type ConsoleStatsSummary = Readonly<{
         failed: number;
     }>[];
     byErrorCode: readonly Readonly<{ errorCode: string; count: number }>[];
+    byDay: readonly Readonly<{
+        day: string;
+        succeeded: number;
+        failed: number;
+        byErrorCode: readonly Readonly<{
+            errorCode: string;
+            count: number;
+        }>[];
+    }>[];
+    recentFailures: readonly Readonly<{
+        runId: string;
+        recordedAt: string;
+        process: string;
+        version: string;
+        errorCode: string;
+    }>[];
     attemptDurationMs: Readonly<{
         samples: number;
         p50?: number;
@@ -420,6 +440,9 @@ async function handleConsole(
     const path = url.pathname;
     const base = options.basePath;
     if (path !== base && !path.startsWith(`${base}/`)) return false;
+    if (options.revision) {
+        response.setHeader("x-pipipi-revision", options.revision);
+    }
 
     if (path === base || path === `${base}/`) {
         await assetsFor(options).writeDocument(response, base);
@@ -486,6 +509,48 @@ async function handleConsole(
         }
         const before = url.searchParams.get("before") ?? undefined;
         const process = url.searchParams.get("process") ?? undefined;
+        const errorCode = url.searchParams.get("errorCode") ?? undefined;
+        if (
+            errorCode !== undefined &&
+            !/^[A-Z][A-Z0-9_]{0,63}$/.test(errorCode)
+        ) {
+            writeFailureJson(
+                response,
+                400,
+                "INVALID_INPUT",
+                "errorCode has an invalid format",
+            );
+            return true;
+        }
+        const since = parseOptionalTimestamp(url.searchParams.get("since"));
+        if (since === "invalid") {
+            writeFailureJson(
+                response,
+                400,
+                "INVALID_INPUT",
+                "since must be an ISO 8601 timestamp",
+            );
+            return true;
+        }
+        const until = parseOptionalTimestamp(url.searchParams.get("until"));
+        if (until === "invalid") {
+            writeFailureJson(
+                response,
+                400,
+                "INVALID_INPUT",
+                "until must be an ISO 8601 timestamp",
+            );
+            return true;
+        }
+        if (since !== undefined && until !== undefined && since >= until) {
+            writeFailureJson(
+                response,
+                400,
+                "INVALID_INPUT",
+                "since must be earlier than until",
+            );
+            return true;
+        }
         response.setHeader("cache-control", "no-store");
         writeJson(
             response,
@@ -495,6 +560,9 @@ async function handleConsole(
                 ...(before === undefined ? {} : { before }),
                 ...(process === undefined ? {} : { process }),
                 ...(status === undefined ? {} : { status }),
+                ...(errorCode === undefined ? {} : { errorCode }),
+                ...(since === undefined ? {} : { since }),
+                ...(until === undefined ? {} : { until }),
             }),
         );
         return true;
@@ -564,6 +632,15 @@ function parseListLimitParameter(
     if (!/^\d+$/.test(value)) return "invalid";
     const limit = Number(value);
     return limit >= 1 ? limit : "invalid";
+}
+
+function parseOptionalTimestamp(
+    value: string | null,
+): string | undefined | "invalid" {
+    if (value === null) return undefined;
+    const milliseconds = Date.parse(value);
+    if (!Number.isFinite(milliseconds)) return "invalid";
+    return new Date(milliseconds).toISOString();
 }
 
 /**

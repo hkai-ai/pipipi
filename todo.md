@@ -12,17 +12,17 @@ Process 目录由 Registration Schema 推导，聚合统计与 Preact 单页界�
 
 - [ ] 在 OpenResty 为 `CONSOLE_BASE_PATH` 加 Basic Auth 或 `auth_request`。控制台没有应用内鉴权，页面上的提交表单会真实调用 `POST /execute` 并产生图片费用，Process 目录还会暴露内部 Schema。
 - [ ] 把 `CONSOLE_BASE_PATH` 从默认 `/console` 改成不可猜路径。这只是缓解手段，不能替代上一条。
-- [ ] 收紧数据库 `pg_hba.conf`：当前唯一允许远程连接的规则是 `host all postgres 0.0.0.0/0`，超级用户对全网开放且允许非 TLS 连接。专用账户 `pipipi_app` 已建好但没有 HBA 规则，放开后把连接串换成它并删掉 `options=-c role=`。
+- [ ] 收紧数据库 `pg_hba.conf`：当前唯一允许远程连接的规则是 `host all postgres 0.0.0.0/0`，超级用户对全网开放且允许非 TLS 连接。专用账户 `pipipi_app` 已建好但没有 HBA 规则。生产部署现会 live audit TLS、superuser 和 `SET ROLE`，因此必须先允许 `pipipi_app` 直接登录并删除 `options=-c role=`，旧 workaround 已不能通过发布门禁。
 
 ### 数据与运维
 
+- [ ] 让真实 PostgreSQL 备份作业发布 `$REMOTE_PATH/shared/postgres-backup/evidence.json`，完成一次可恢复性演练，并对活动 revision 运行受保护的 `Console production readiness`；手写证据不算完成。
 - [ ] 把 `PROCESS_RUN_RECORD_RETENTION_DAYS` 与对象存储生命周期规则对齐。控制台已经把加载失败的图片标为"对象已过期"，但保留期不匹配仍会让历史里出现大量死链。
 - [ ] 保留期清理目前只在启动时执行一次。长期运行的实例需要按日触发，或交给外部定时任务。
 - [ ] 数据库证书 2035 年到期，且 SAN 里没有 IP。若重签出带 `IP` SAN 的证书，可把连接串从 `verify-ca` 改回 `verify-full`。
 
 ### 控制台功能
 
-- [ ] 时间范围筛选。当前只有 Process、状态和游标翻页，事故对齐时间窗仍要手动翻。
 - [ ] 失败记录关联到对应的 Pino 活动日志检索入口。
 - [ ] 从记录一键重跑。记录已含完整输入，技术上可行，但会真实计费，等鉴权到位再加。
 - [ ] 同输入不同参数的并排对比（CRT 保留 `rawImage` 正是为此）。

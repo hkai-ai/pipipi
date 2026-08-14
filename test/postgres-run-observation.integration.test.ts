@@ -8,6 +8,7 @@ import {
     createPostgresRunObservationStats,
     pruneProcessRunObservation,
 } from "../src/app/postgres-run-observation.js";
+import { auditProductionDatabase } from "../src/app/production-database-audit.js";
 import {
     describeRunObservationContract,
     processRunActivity,
@@ -42,13 +43,15 @@ postgresDescribe("PostgreSQL Run observation", () => {
         await pool?.end();
     });
 
-    describeRunObservationContract(async () => ({
-        archive: createPostgresProcessRunRecordArchive({ pool }),
-        activities: createPostgresProcessRunActivityArchive({ pool }),
-        stats: createPostgresRunObservationStats({ pool }),
-        // Activity writes are fire-and-forget; give them a turn to land.
-        settle: () => new Promise((resolve) => setTimeout(resolve, 50)),
-    }));
+    describeRunObservationContract(async () => {
+        const activities = createPostgresProcessRunActivityArchive({ pool });
+        return {
+            archive: createPostgresProcessRunRecordArchive({ pool }),
+            activities,
+            stats: createPostgresRunObservationStats({ pool }),
+            settle: activities.flush,
+        };
+    });
 
     it("survives an independent adapter instance", async () => {
         await createPostgresProcessRunRecordArchive({ pool }).store(
@@ -74,7 +77,7 @@ postgresDescribe("PostgreSQL Run observation", () => {
             await archive.store(processRunRecord({ runId, recordedAt: at }));
             activities.record(processRunActivity({ runId, timestamp: at }));
         }
-        await new Promise((resolve) => setTimeout(resolve, 50));
+        await activities.flush();
 
         await pruneProcessRunObservation({ pool, retentionDays: 7, now });
 
@@ -92,6 +95,12 @@ postgresDescribe("PostgreSQL Run observation", () => {
                  values ('bad', now(), 'succeeded', 'DEPENDENCY_FAILURE')`,
             ),
         ).rejects.toThrow(/process_run_records_error_code_check/);
+    });
+
+    it("executes the live identity audit and rejects the non-TLS test session", async () => {
+        await expect(auditProductionDatabase(pool)).rejects.toThrow(
+            "Production database session must use TLS",
+        );
     });
 });
 
