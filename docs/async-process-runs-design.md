@@ -375,6 +375,7 @@ BullMQ 和网络只能提供至少一次执行。流程若会扣费、发布、�
 | BullMQ Adapter | 重复 Job、retry/backoff、stalled recovery、concurrency 和 graceful shutdown | 临时 Redis，不用 mock 代替关键语义 |
 | Webhook Delivery | 原始 body 签名、重复、超时、状态码策略、secret 轮换和 SSRF 拒绝 | 受控本地 HTTP endpoint |
 | Retention cleanup | 边界时间、重复清理、并发查询、部分失败、游标续跑和引用保护 | 临时 PostgreSQL |
+| Console 跨 Seam | 丢失首次 `202` 后同 key/同 `runId`、单次副作用、瞬时 GET 恢复、稳定业务失败、owner 隔离和客户端超时后继续查询 | 可信开发 Gateway、临时 PostgreSQL 与独立非零 Redis DB |
 | 故障注入 | API commit 后 Redis 断线、发布后未标记、Worker 崩溃、过期 claim、Webhook 断线 | 集成测试与 staging |
 | Queue Recovery | Redis `FLUSHDB` 后全量重建、pending Outbox 对账、dry-run、重复 apply 和活跃/过期租约 | 临时 PostgreSQL 与独立非零 Redis DB |
 

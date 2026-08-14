@@ -1102,6 +1102,7 @@ integrationDescribe("BullMQ Process Runtime", () => {
                 ASYNC_GLOBAL_BACKLOG_LIMIT: "1000",
                 ASYNC_CALLER_BACKLOG_LIMIT: "100",
                 ASYNC_BACKLOG_RETRY_AFTER_SECONDS: "5",
+                ASYNC_RETRY_AFTER_SECONDS: "1",
             });
             closeResources.push(api.application.close);
             const dispatcher = constructProcessDispatcherService({
@@ -1165,29 +1166,10 @@ integrationDescribe("BullMQ Process Runtime", () => {
             closeResources.push(() => gateway.close());
             await gateway.listen();
             const gatewayUrl = httpServerUrl(gateway.httpServer);
-            let pendingOperation: string | null = null;
-            const schedule = (milliseconds: number, operation: () => void) => {
-                const timer = setTimeout(operation, milliseconds);
-                return () => clearTimeout(timer);
-            };
-            const client = createProcessRunClient({
-                baseUrl: () => gatewayUrl,
-                createIdempotencyKey: () => "role-console-success",
-                fingerprint: async () => "role-console-success-fingerprint",
-                now: () => Date.now(),
-                pendingOperations: {
-                    read: () => pendingOperation,
-                    write: (value) => {
-                        pendingOperation = value;
-                    },
-                    clear: () => {
-                        pendingOperation = null;
-                    },
-                },
-                request: (url, init) => fetch(url, init),
-                schedule,
-                wait: createAbortableWait(schedule),
-            });
+            const client = createIntegrationProcessRunClient(
+                gatewayUrl,
+                "role-console-success",
+            );
             const progress: ProcessRunProgress[] = [];
             let observedQueued: () => void = () => undefined;
             const queued = new Promise<void>((resolveQueued) => {
@@ -1252,34 +1234,75 @@ integrationDescribe("BullMQ Process Runtime", () => {
                 throw new Error("Expected the Console Process Run to succeed");
             }
 
-            const callerHeaders = {
-                "content-type": "application/json",
-                [callerIdentityHeader]: "service:role-integration",
-                [gatewayAuthenticationHeader]: gatewaySecret,
-            };
-            const failureResponse = await fetch(
-                `${apiListening.url}/process-runs`,
-                {
-                    method: "POST",
-                    headers: {
-                        ...callerHeaders,
-                        "idempotency-key": "role-failure",
-                    },
-                    body: JSON.stringify({
+            let droppedRunId: string | undefined;
+            let hasReturnedTransientQueryFailure = false;
+            const replayedKeys: string[] = [];
+            const recoveredClient = createIntegrationProcessRunClient(
+                gatewayUrl,
+                "role-response-loss",
+                async (url, init) => {
+                    const response = await fetch(url, init);
+                    if (init.method === "POST") {
+                        replayedKeys.push(
+                            new Headers(init.headers).get("idempotency-key") ??
+                                "",
+                        );
+                        if (!droppedRunId && response.status === 202) {
+                            const accepted = (await response
+                                .clone()
+                                .json()) as {
+                                runId: string;
+                            };
+                            droppedRunId = accepted.runId;
+                            throw new TypeError("accepted response lost");
+                        }
+                    } else if (!hasReturnedTransientQueryFailure) {
+                        hasReturnedTransientQueryFailure = true;
+                        return new Response("bad gateway", { status: 502 });
+                    }
+                    return response;
+                },
+            );
+            const responseLossRequest = {
+                process: "content-processing",
+                version: "v1",
+                input: { content: "response lost" },
+            } as const;
+            await expect(
+                recoveredClient.execute(responseLossRequest),
+            ).resolves.toEqual({
+                status: "submission-pending",
+                classification: "acceptance-unknown",
+            });
+            const recoveredAfterLoss = await recoveredClient.execute(
+                responseLossRequest,
+                { timeoutMs: 10_000 },
+            );
+            expect(recoveredAfterLoss).toMatchObject({
+                status: "succeeded",
+                runId: droppedRunId,
+                output: { content: "Processed: response lost" },
+            });
+            expect(replayedKeys).toEqual([
+                "role-response-loss",
+                "role-response-loss",
+            ]);
+            expect(hasReturnedTransientQueryFailure).toBe(true);
+            expect(businessApi.effectCount("response lost")).toBe(1);
+
+            const failureClient = createIntegrationProcessRunClient(
+                gatewayUrl,
+                "role-failure",
+            );
+            await expect(
+                failureClient.execute(
+                    {
                         process: "content-processing",
                         version: "v1",
                         input: { content: "fail-dependency" },
-                    }),
-                },
-            );
-            const failure = (await failureResponse.json()) as { runId: string };
-            expect(failureResponse.status).toBe(202);
-
-            await expect(
-                waitForHttpRun(apiListening.url, failure.runId, {
-                    [callerIdentityHeader]: "service:role-integration",
-                    [gatewayAuthenticationHeader]: gatewaySecret,
-                }),
+                    },
+                    { timeoutMs: 10_000 },
+                ),
             ).resolves.toMatchObject({
                 status: "failed",
                 error: {
@@ -1288,16 +1311,65 @@ integrationDescribe("BullMQ Process Runtime", () => {
                 },
             });
 
+            const releaseSlowCapability = businessApi.hold(
+                "continue after timeout",
+            );
+            let timeoutSubmissionCount = 0;
+            const timeoutClient = createIntegrationProcessRunClient(
+                gatewayUrl,
+                "role-timeout-recovery",
+                async (url, init) => {
+                    if (init.method === "POST") timeoutSubmissionCount += 1;
+                    return fetch(url, init);
+                },
+            );
+            const timeoutRequest = {
+                process: "content-processing",
+                version: "v1",
+                input: { content: "continue after timeout" },
+            } as const;
+            const timedOut = await timeoutClient.execute(timeoutRequest, {
+                timeoutMs: 50,
+            });
+            expect(timedOut).toMatchObject({
+                status: "timed-out",
+                runId: expect.any(String),
+            });
+            if (timedOut.status !== "timed-out") {
+                throw new Error("Expected the Console Client to time out");
+            }
+            releaseSlowCapability();
+            const continued = await timeoutClient.execute(timeoutRequest, {
+                timeoutMs: 10_000,
+            });
+            expect(continued).toMatchObject({
+                status: "succeeded",
+                runId: timedOut.runId,
+                output: { content: "Processed: continue after timeout" },
+            });
+            expect(timeoutSubmissionCount).toBe(1);
+            expect(businessApi.effectCount("continue after timeout")).toBe(1);
+
+            const otherCallerHeaders = {
+                [callerIdentityHeader]: "service:other-caller",
+                [gatewayAuthenticationHeader]: gatewaySecret,
+            };
             const isolated = await fetch(
                 `${apiListening.url}/process-runs/${success.runId}`,
                 {
-                    headers: {
-                        [callerIdentityHeader]: "service:other-caller",
-                        [gatewayAuthenticationHeader]: gatewaySecret,
-                    },
+                    headers: otherCallerHeaders,
                 },
             );
+            const unknown = await fetch(
+                `${apiListening.url}/process-runs/00000000-0000-4000-8000-999999999999`,
+                { headers: otherCallerHeaders },
+            );
             expect(isolated.status).toBe(404);
+            expect(unknown.status).toBe(404);
+            expect(isolated.headers.get("content-type")).toBe(
+                unknown.headers.get("content-type"),
+            );
+            expect(await isolated.json()).toEqual(await unknown.json());
 
             const synchronous = await fetch(`${apiListening.url}/execute`, {
                 method: "POST",
@@ -1320,7 +1392,7 @@ integrationDescribe("BullMQ Process Runtime", () => {
                     .map((close) => close()),
             );
         }
-    }, 20_000);
+    }, 30_000);
 });
 
 const ignoredWorker: ProcessWorker = {
@@ -1471,9 +1543,13 @@ async function unusedRedisUrl(): Promise<string> {
 async function startBusinessApi(): Promise<{
     url: string;
     close: () => Promise<void>;
+    effectCount: (content: string) => number;
+    hold: (content: string) => () => void;
 }> {
+    const effectCounts = new Map<string, number>();
+    const holds = new Map<string, Promise<void>>();
     const server = createHttpServer((request, response) => {
-        void handleBusinessRequest(request, response);
+        void handleBusinessRequest(request, response, effectCounts, holds);
     });
     await new Promise<void>((resolve, reject) => {
         server.once("error", reject);
@@ -1489,12 +1565,25 @@ async function startBusinessApi(): Promise<{
     return {
         url: `http://127.0.0.1:${address.port}`,
         close: () => closeHttpServer(server),
+        effectCount: (content) => effectCounts.get(content) ?? 0,
+        hold: (content) => {
+            let release: () => void = () => undefined;
+            holds.set(
+                content,
+                new Promise<void>((resolve) => {
+                    release = resolve;
+                }),
+            );
+            return release;
+        },
     };
 }
 
 async function handleBusinessRequest(
     request: IncomingMessage,
     response: import("node:http").ServerResponse,
+    effectCounts: Map<string, number>,
+    holds: Map<string, Promise<void>>,
 ): Promise<void> {
     if (request.method !== "POST" || request.url !== "/process") {
         response.writeHead(404).end();
@@ -1507,6 +1596,8 @@ async function handleBusinessRequest(
     const body = JSON.parse(Buffer.concat(chunks).toString("utf8")) as {
         content: string;
     };
+    effectCounts.set(body.content, (effectCounts.get(body.content) ?? 0) + 1);
+    await holds.get(body.content);
     if (body.content === "fail-dependency") {
         response.writeHead(503).end();
         return;
@@ -1532,26 +1623,6 @@ async function waitForHttpStatus(url: string, status: number): Promise<number> {
     throw new Error(`${url} did not return ${status}`);
 }
 
-async function waitForHttpRun(
-    baseUrl: string,
-    runIdValue: string,
-    headers: Record<string, string>,
-): Promise<Record<string, unknown>> {
-    const deadline = Date.now() + 5_000;
-    while (Date.now() < deadline) {
-        const response = await fetch(`${baseUrl}/process-runs/${runIdValue}`, {
-            headers,
-        });
-        if (response.status === 200) {
-            const body = (await response.json()) as Record<string, unknown>;
-            if (body.status === "succeeded" || body.status === "failed")
-                return body;
-        }
-        await delay(20);
-    }
-    throw new Error(`Process Run ${runIdValue} did not reach a terminal state`);
-}
-
 function delay(milliseconds: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
@@ -1564,6 +1635,38 @@ function httpServerUrl(
         throw new Error("Expected an HTTP server address");
     }
     return `http://127.0.0.1:${address.port}`;
+}
+
+function createIntegrationProcessRunClient(
+    baseUrl: string,
+    idempotencyKey: string,
+    request: (url: URL, init: RequestInit) => Promise<Response> = (url, init) =>
+        fetch(url, init),
+) {
+    let pendingOperation: string | null = null;
+    const schedule = (milliseconds: number, operation: () => void) => {
+        const timer = setTimeout(operation, milliseconds);
+        return () => clearTimeout(timer);
+    };
+    return createProcessRunClient({
+        baseUrl: () => baseUrl,
+        createIdempotencyKey: () => idempotencyKey,
+        fingerprint: async (value) =>
+            `${idempotencyKey}:${value.length.toString()}`,
+        now: () => Date.now(),
+        pendingOperations: {
+            read: () => pendingOperation,
+            write: (value) => {
+                pendingOperation = value;
+            },
+            clear: () => {
+                pendingOperation = null;
+            },
+        },
+        request,
+        schedule,
+        wait: createAbortableWait(schedule),
+    });
 }
 
 async function migrate(url: string) {

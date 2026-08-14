@@ -127,7 +127,9 @@ npm run test:integration:async
 docker compose -f compose.integration.yaml down
 ```
 
-测试证明真实 Console Process Run Client 可经可信开发 Gateway、HTTP API、PostgreSQL Outbox、Redis、独立 Dispatcher 和 Worker 到达 `succeeded`。它还证明 Outbox 在 PostgreSQL commit 后才进入统一 `process-runs` Queue，Job 只含 `schemaVersion` 和 `runId`，Worker 仍能从数据库选择准确 Registration。故障用例覆盖 Dispatcher claim 过期、Redis 断线、重复 completed Job、Worker claim 过期接管、旧 token fencing 和停机超时 release。Compose Redis 使用 `noeviction` 和临时数据目录；它只用于测试，不代表生产高可用配置。
+测试证明真实 Console Process Run Client 可经可信开发 Gateway、HTTP API、PostgreSQL Outbox、Redis、独立 Dispatcher 和 Worker 到达 `succeeded`。跨 Seam 场景会在 durable acceptance 后丢弃首次 `202`，证明 Client 用同一个幂等键获得原 `runId`、权威 Run 与受控 Capability 副作用都只有一次；它还覆盖瞬时 GET 恢复、稳定业务失败、owner/未知 Run 不可区分的 `404`，以及客户端超时后服务端继续执行并由同一 owner 恢复结果。断言只使用 Client outcome、HTTP response 和公共 Process Run 状态，不读取 SQL 布局或 BullMQ 内部字段。
+
+同一 suite 还证明 Outbox 在 PostgreSQL commit 后才进入统一 `process-runs` Queue，Job 只含 `schemaVersion` 和 `runId`，Worker 仍能从数据库选择准确 Registration。故障用例覆盖 Dispatcher claim 过期、Redis 断线、重复 completed Job、Worker claim 过期接管、旧 token fencing 和停机超时 release。Compose Redis 使用 `noeviction` 和临时数据目录；它只用于测试，不代表生产高可用配置。
 
 ### 异步 HTTP 开发入口
 
