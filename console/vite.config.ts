@@ -26,7 +26,7 @@ export default defineConfig({
             "/console/runs": "http://127.0.0.1:4300",
             "/console/processes": "http://127.0.0.1:4300",
             "/console/stats": "http://127.0.0.1:4300",
-            "/execute": "http://127.0.0.1:4300",
+            "/process-runs": "http://127.0.0.1:4300",
         },
     },
 });

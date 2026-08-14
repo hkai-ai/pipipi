@@ -334,17 +334,18 @@ Schema 由部署脚本在激活新容器前执行 `npm run db:migrate` 应用，
 
 资源路由只提供构建输出 `assets` 目录下的单个文件，文件名按严格模式校验而不是解析为路径，因此请求无法走出构建目录。页面本身按部署的 `CONSOLE_BASE_PATH` 注入 `<base>`，所以改路径不需要重新构建。
 
-提交表单由 `{base}/processes` 返回的 Schema 生成：新增 Process 或改字段不需要改控制台。
+提交表单由 `{base}/processes` 返回的 Schema 生成：新增 Process 或改字段不需要改控制台。提交时，页面为每次操作生成新的 `Idempotency-Key`，调用 `POST /process-runs`，再按响应的 `Location` 与 `Retry-After` 查询 owner-scoped 结果。
 
 `{base}/processes` 的字段表由每个 Process Registration 自己的 Zod Schema 推导，因此不会与 `accept` 实际执行的校验漂移。它**不取代** [`docs/api.md`](api.md)：错误语义、计费边界、提交后依赖失败不可自动重试这类约束无法从 Schema 推导，仍以那份文档为准。某个 Schema 无法表示为 JSON Schema 时，该字段被省略而不是让整个目录视图失败。
 
 注意 `retry` 报告的是 Registration 级策略。`crt-interface-image` 在图片调用前对无副作用 Agent 编译的重试发生在 Registration 内部，不计为 Attempt，因此不出现在这里。
 
-启用前必须理解的三件事：
+启用前必须理解的四件事：
 
-- **控制台没有自带鉴权。** 页面上的提交表单会真实调用 `POST /execute`，每次都产生图片费用。公网入口必须在 OpenResty 一侧加 Basic Auth 或 `auth_request`；在加上之前，`CONSOLE_BASE_PATH` 设为不可猜路径只是缓解，不是访问控制。
+- **控制台没有自带鉴权。** 页面上的提交表单会真实调用 `POST /process-runs`，每次都可能产生图片费用。公网入口必须在 OpenResty 一侧加 Basic Auth 或 `auth_request`；可信网关还必须按异步 Interface 的要求注入 caller 身份。缺少任一层保护时，不得开放提交页面。
 - **必须先配置 `PROCESS_RUN_RECORD_DIRECTORY`。** 缺少它时部署环境预检和启动构造都会直接失败，避免上线一个永远空白的页面。
-- **提交是同步的。** 出图最长等待 `PROCESS_TIMEOUT_MS`（生产 240000 毫秒）。页面关闭不影响执行，结果仍会写入 Run Record。
+- **提交依赖异步运行角色。** 基础同步 Compose 仍保持 `ASYNC_PROCESS_RUNS_ENABLED=false`；部署方必须先按[异步发布手册](async-process-runs-runbook.md)完成 migration、角色、身份和容量门禁，再开放控制台提交。
+- **页面默认查询 300 秒。** 查询超时或关闭页面不取消已接受的 Process Run；调用方仍可用 `runId` 查询公共状态，终态随后写入 Run Record。
 
 OpenResty 上为控制台加 Basic Auth 的等价配置：
 

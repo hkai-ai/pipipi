@@ -82,18 +82,108 @@ export type ExecutionOutcome = Readonly<{
     body: unknown;
 }>;
 
+export const defaultExecutionTimeoutMs = 300_000;
+
+type ExecutionOptions = Readonly<{
+    timeoutMs?: number;
+    onAccepted?: (runId: string) => void;
+}>;
+
 /**
- * Submits a real Business Process execution. This is the one call that costs
- * money, so it is deliberately the only non-GET the console makes.
+ * Submits one durable Process Run, then follows the owner-scoped result
+ * location until the Run reaches a terminal state. The browser timeout stops
+ * polling only; it never cancels the accepted Run.
  */
-export async function execute(
+export async function executeAsync(
     process: string,
+    version: string,
     input: Record<string, unknown>,
+    options: ExecutionOptions = {},
 ): Promise<ExecutionOutcome> {
-    const response = await fetch(new URL("/execute", document.baseURI), {
+    const timeoutMs = options.timeoutMs ?? defaultExecutionTimeoutMs;
+    if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1) {
+        throw new Error("异步结果等待超时必须是正整数");
+    }
+
+    const submission = await fetch(new URL("/process-runs", document.baseURI), {
         method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ process, version: "v1", input }),
+        headers: {
+            accept: "application/json",
+            "content-type": "application/json",
+            "idempotency-key": crypto.randomUUID(),
+        },
+        body: JSON.stringify({ process, version, input }),
     });
-    return { httpStatus: response.status, body: await response.json() };
+    const submissionBody = await submission.json();
+    if (submission.status !== 202) {
+        return { httpStatus: submission.status, body: submissionBody };
+    }
+
+    const runId = readRunId(submissionBody);
+    const location = submission.headers.get("location");
+    if (!location) {
+        throw new Error("异步提交响应缺少结果地址");
+    }
+    options.onAccepted?.(runId);
+
+    const deadline = Date.now() + timeoutMs;
+    let retryAfterMs = readRetryAfterMs(submission);
+    for (;;) {
+        await waitToPoll(retryAfterMs, deadline, runId, timeoutMs);
+        const response = await fetch(new URL(location, document.baseURI), {
+            headers: { accept: "application/json" },
+        });
+        const body = await response.json();
+        if (!response.ok) {
+            return { httpStatus: response.status, body };
+        }
+        if (isTerminalRun(body)) {
+            return { httpStatus: response.status, body };
+        }
+        retryAfterMs = readRetryAfterMs(response);
+    }
+}
+
+function readRunId(value: unknown): string {
+    if (
+        typeof value === "object" &&
+        value !== null &&
+        "runId" in value &&
+        typeof value.runId === "string"
+    ) {
+        return value.runId;
+    }
+    throw new Error("异步提交响应缺少 runId");
+}
+
+function isTerminalRun(value: unknown): boolean {
+    if (typeof value !== "object" || value === null || !("status" in value)) {
+        return false;
+    }
+    return value.status === "succeeded" || value.status === "failed";
+}
+
+function readRetryAfterMs(response: Response): number {
+    const seconds = Number(response.headers.get("retry-after") ?? "2");
+    return Number.isFinite(seconds) && seconds > 0 ? seconds * 1_000 : 2_000;
+}
+
+async function waitToPoll(
+    retryAfterMs: number,
+    deadline: number,
+    runId: string,
+    timeoutMs: number,
+): Promise<void> {
+    const remainingMs = deadline - Date.now();
+    if (remainingMs <= 0) throw resultTimeout(runId, timeoutMs);
+    await new Promise((resolve) =>
+        setTimeout(resolve, Math.min(retryAfterMs, remainingMs)),
+    );
+    if (Date.now() >= deadline) throw resultTimeout(runId, timeoutMs);
+}
+
+function resultTimeout(runId: string, timeoutMs: number): Error {
+    return new Error(
+        `等待异步结果超过 ${timeoutMs / 1_000} 秒；Run ${runId} 仍会在服务端继续执行`,
+    );
 }

@@ -2,7 +2,7 @@ import { useEffect, useState } from "preact/hooks";
 import {
     type ConsoleProcessDescription,
     type ConsoleStats,
-    execute,
+    executeAsync,
     findRun,
     findTimeline,
     listProcesses,
@@ -643,14 +643,14 @@ export function SubmitView({
     return (
         <Panel title="提交任务">
             <p class="cost-warning">
-                提交会真实执行生产流程并产生图片费用。同步执行，出图最长可能等待
-                4 分钟；关闭页面不影响执行，结果仍会写入记录。
+                提交会真实执行生产流程并产生图片费用。控制台异步提交并查询结果，
+                默认等待 300 秒；关闭页面或等待超时不会取消服务端 Run。
             </p>
             <form
                 onSubmit={async (event) => {
                     event.preventDefault();
                     setRunning(true);
-                    setOutcome("已提交，等待流程返回…");
+                    setOutcome("正在提交异步任务…");
                     const input = Object.fromEntries(
                         fields
                             .map((field) => [
@@ -660,7 +660,17 @@ export function SubmitView({
                             .filter(([, value]) => value !== ""),
                     );
                     try {
-                        const result = await execute(entry.process, input);
+                        const result = await executeAsync(
+                            entry.process,
+                            entry.version,
+                            input,
+                            {
+                                onAccepted: (runId) =>
+                                    setOutcome(
+                                        `已提交 Run ${runId}，正在查询结果…`,
+                                    ),
+                            },
+                        );
                         setOutcome(
                             `${result.httpStatus} ${JSON.stringify(result.body, null, 2)}`,
                         );
@@ -742,7 +752,7 @@ export function SubmitView({
                 })}
 
                 <button type="submit" class="primary" disabled={running}>
-                    {running ? "执行中…" : "提交"}
+                    {running ? "等待结果…" : "提交"}
                 </button>
             </form>
             {outcome ? <pre style="margin-top:14px">{outcome}</pre> : null}
