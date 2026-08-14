@@ -22,6 +22,7 @@ services:
       - node dist/bin/check-deployment-environment.js api && exec node dist/bin/api.js
     environment:
       ASYNC_PROCESS_RUNS_ENABLED: "true"
+      ASYNC_RELEASE_STAGE: ${PIPIPI_ASYNC_RELEASE_STAGE:?PIPIPI_ASYNC_RELEASE_STAGE is required}
     healthcheck:
       <<: *runtime-healthcheck
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4300/readyz').then((response) => { if (!response.ok) process.exit(1); }).catch(() => process.exit(1))"]

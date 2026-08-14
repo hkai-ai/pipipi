@@ -57,6 +57,50 @@ docker compose -f compose.integration.yaml down
 - 观测系统已经导入 [`ops/async-observability.json`](../ops/async-observability.json)，并能按 `runId`、`eventId` 和 `deliveryId` 检索单行 JSON 日志；
 - 已批准 accepted input、result、metadata 和 Delivery history 的期限与数据库容量预算。
 
+## 受控 internal 发布入口
+
+`.github/workflows/async-internal-release.yml` 是唯一自动化异步启用入口。它只响应手动 `workflow_dispatch`，整个 Job 绑定 GitHub `async-internal` Environment。它与默认同步发布共享不可取消的 `pipipi-production-release` 并发组，并在服务器用同一个 `shared/deployment.lock` 做第二层互斥；同步与异步发布不能同时修改 `pipipi` Compose project、共享文件或 PostgreSQL schema。仓库管理员必须为该 Environment 配置 required reviewers 和只允许受保护分支；普通 `push`、Pull Request 与默认 `Production CI/CD` 都不能触发它。
+
+Environment 只保存部署连接和非秘密 Queue identity，不保存应用运行凭证：
+
+| 类型 | 名称 | 内容 |
+| --- | --- | --- |
+| Secret | `SSH_PRIVATE_KEY` | 连接单服务器部署账户的私钥 |
+| Secret | `SSH_KNOWN_HOSTS` | 通过独立可信渠道核对并固定的目标服务器 host key；不得在发布时用 `ssh-keyscan` 临时信任 |
+| Variable | `REMOTE_HOST`、`REMOTE_USER`、`REMOTE_PATH` | 与同步发布相同的服务器地址、账户和绝对应用目录 |
+| Variable | `PROCESS_QUEUE_NAME`、`PROCESS_QUEUE_PREFIX` | internal Process Queue identity；已有异步形状不允许发布时改变 |
+| Variable | `WEBHOOK_QUEUE_NAME`、`WEBHOOK_QUEUE_PREFIX` | internal Webhook Queue identity；已有异步形状不允许发布时改变 |
+
+服务器必须预先存在数据库证书、默认 Business API Secret 和五份最小角色 Secret：
+
+```text
+<REMOTE_PATH>/shared/.env
+<REMOTE_PATH>/shared/pg-server.crt
+<REMOTE_PATH>/shared/async-api.env
+<REMOTE_PATH>/shared/process-dispatcher.env
+<REMOTE_PATH>/shared/process-worker.env
+<REMOTE_PATH>/shared/webhook-worker.env
+<REMOTE_PATH>/shared/retention-cleaner.env
+```
+
+每份角色文件只包含[配置表](#配置与分阶段启用)中该角色拥有的值；Queue name/prefix 与 `ASYNC_RELEASE_STAGE` 由发布入口覆盖，不放在 Secret 文件里。API 文件必须包含 `ASYNC_GATEWAY_SHARED_SECRET`，Webhook 文件必须包含 `WEBHOOK_SECRET_ENCRYPTION_KEY`，需要 OpenAI 的 API 与 Process Worker 各自包含自己的 `OPENAI_API_KEY`。不要把 `.env` 复制成五份。
+
+手动运行时填写四项：完整 40 位 `candidate_sha`、生成其 release artifact 的 `candidate_ci_run_id`、已复核的 PostgreSQL `backup_id` 和审计用 `recovery_actor_id`。入口核对 CI run 的 commit、workflow 路径和完成状态，并要求该 run 的 `Check and build` 与 `Async durable acceptance` 都成功；随后只下载 `pipipi-<commit>` artifact，不重新构建镜像。
+
+远端 [`../ops/deploy-async-internal.sh`](../ops/deploy-async-internal.sh) 固定执行以下门禁：
+
+1. 验证输入、Docker/Compose、候选文件、数据库证书、五份角色 Secret 和可回滚的当前形状。
+2. 加载 CI 镜像，记录 archive SHA-256 与镜像 ID，并以安全的 Compose config 验证候选形状。
+3. 在每个角色自己的 env file 中运行环境预检；输出只含角色与变量名称，不含配置值。
+4. 用候选镜像连续执行两次 migration；只有第二次 `verificationCount=0` 才继续。失败不执行 down，已经应用的 additive schema 保留。
+5. 不传 cursor 执行 `recover --dry-run --mode=all`，遍历全部批次；只有至少一批、每批均为 manual/all/dry-run、累计 `failed=0` 且最后一批没有 `nextCursor` 才继续。
+6. 先启动 Business API、Retention Cleaner、Process Dispatcher、Process Worker 和 Webhook Worker 并等待各自 ready，再单独启动 API。
+7. 核对六个容器的镜像 ID、revision label、API 的 `internal` 阶段、Process Queue 两端 identity 和 Webhook Queue identity。
+
+任一门禁在角色切换前失败时，当前服务保持原样；角色切换后失败、Actions 取消、SSH 断开或进程收到 `HUP`/`INT`/`TERM` 时，脚本恢复先前保存的同步或异步 Compose 形状和镜像。回滚不会执行 migration down，也不会删除 PostgreSQL Run、Outbox 或 Queue。已有异步形状升级时，候选 Queue identity 必须与当前容器一致。
+
+每次尝试都在服务器 `shared/async-release-evidence/<commit>-<run>-<attempt>/` 写入且只回收 `evidence.json`、逐角色预检、migration 摘要、完整 Recovery batch JSONL 和 readiness 响应，并由 Actions 以 `pipipi-async-internal-evidence-*` artifact 保存 30 天。回滚 Compose 快照位于证据目录之外，结束后连同远端候选归档和 Compose 文件按精确路径删除。证据包含 commit、两个 Actions run ID、backup ID、镜像 ID/archive 摘要、前一形状、非秘密 Queue identity、migration/Recovery/角色门禁与回滚结果；不包含 Secret、连接 URL、服务器 Compose 快照或业务输入输出。该入口把 stage 固定为 `internal`，不包含 canary/production 提升动作。
+
 ## Migration 与部署顺序
 
 所有 migration 必须由一次性 Job 在新代码接流量前执行：
@@ -85,11 +129,12 @@ npm run db:migrate
 
 默认 [`compose.production.yaml`](../compose.production.yaml) 只包含 API 与内部 CRT Business API，并固定 `ASYNC_PROCESS_RUNS_ENABLED=false`。异步发布使用 [`compose.production.async.yaml`](../compose.production.async.yaml) 作为叠加层；它不会单独工作，也不会被当前自动部署激活。检测到任一异步角色容器时，默认自动部署也会拒绝继续，避免未经停流和排空就隐式退回同步形状。release artifact 会携带同一 commit 的默认 Compose、异步叠加层和镜像归档，发布人员必须核对三者来自同一 revision。叠加层用 `!override` 替换 API 的 Secret 文件列表，因此部署机必须提供 Docker Compose 2.24.4 或更高版本；`npm run check:deployment:async-shape` 会先检查版本。
 
-以下变量是 Compose 形状本身的非秘密输入；`PIPIPI_IMAGE`、`PIPIPI_REVISION`、四个 Queue 配置和五个角色 env file 路径缺少任一项都会在渲染时失败。API、Dispatcher、Process Worker、Webhook Worker 与 Cleaner 分别读取自己的 Secret 文件，避免把网关、模型、Webhook 加密或 Redis 凭证注入无关角色；默认 Business API 继续读取 `PIPIPI_ENV_FILE`。叠加层不创建 PostgreSQL 或 Redis。
+以下变量是 Compose 形状本身的非秘密输入；`PIPIPI_IMAGE`、`PIPIPI_REVISION`、`PIPIPI_ASYNC_RELEASE_STAGE`、四个 Queue 配置和五个角色 env file 路径缺少任一项都会在渲染时失败。API、Dispatcher、Process Worker、Webhook Worker 与 Cleaner 分别读取自己的 Secret 文件，避免把网关、模型、Webhook 加密或 Redis 凭证注入无关角色；默认 Business API 继续读取 `PIPIPI_ENV_FILE`。叠加层不创建 PostgreSQL 或 Redis。
 
 ```bash
 export PIPIPI_IMAGE='pipipi:<commit>'
 export PIPIPI_REVISION='<commit>'
+export PIPIPI_ASYNC_RELEASE_STAGE='internal'
 export PIPIPI_ENV_FILE='/opt/pipipi/shared/.env'
 export PIPIPI_ASYNC_API_ENV_FILE='/opt/pipipi/shared/async-api.env'
 export PIPIPI_PROCESS_DISPATCHER_ENV_FILE='/opt/pipipi/shared/process-dispatcher.env'

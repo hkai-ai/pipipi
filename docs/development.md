@@ -73,6 +73,7 @@ curl --fail -X POST http://127.0.0.1:3000/execute \
 | `npm run test:integration:observation` | Run 观测的 PostgreSQL 契约测试 | 是，需要名称以 `_test` 结尾的库 |
 | `npm run check:deployment-env -- <role>` | 从已编译产物聚合检查一个部署角色的必填环境变量 | 否 |
 | `npm run db:migrate` | 对 `DATABASE_URL` 执行受锁保护的 PostgreSQL migration | 是，会修改指定数据库 |
+| `npm run db:migrate:verify` | 在编译产物中连续执行两次受锁 migration，并要求第二次没有任何待执行项 | 是；第一次可能修改指定数据库，第二次只验证幂等结果 |
 | `npm run recover:queue -- ...` | dry-run 或修复 PostgreSQL 与 Process Queue 的差异 | 是；`--apply` 会写 Queue、Outbox 与审计表 |
 | `npm run observe:async` | 读取 PostgreSQL 与两个 BullMQ Queue，输出一次无内容运维快照 | 是，只读访问 PostgreSQL 与 Redis |
 | `npm run test:integration:postgres` | 运行真实 PostgreSQL migration 与 Store contract tests | 是，会重建明确的 `_test` 数据库 schema |
@@ -141,6 +142,8 @@ npm run test:acceptance:console:local
 命令自动选择常见位置的 Chrome；其他 Chromium-compatible 安装通过 `CHROME_PATH=/absolute/path` 指定。该验收有意不进入默认 `npm test` 的外部依赖路径，也不对组件私有状态或大面积快照做断言。
 
 Pull Request 和 `main` 的 `Production CI/CD` 另设稳定检查名 `Async durable acceptance`，与快速的 `Check and build` 分开运行。该 Job 在同一个隔离 Compose project 内依次执行 PostgreSQL Store contract、完整 BullMQ/跨 Seam suite 和浏览器验收；三层全部成功才允许生产 Job 继续。runner 在正常结束、失败和首次中断信号时清理，workflow 还用 `always()` 按本次 Actions run 的固定 project name 再执行幂等清理。Job 只使用仓库测试凭证和免费本地 Capability，不读取生产 Secret，也不上传失败产物。
+
+`Async internal release` 与上述 CI 分开，只支持 `workflow_dispatch`，并绑定 `async-internal` Environment。它不重新构建候选，而是验证操作者给出的 Production CI/CD run 中 `Check and build` 与 `Async durable acceptance` 都成功，再下载该 run 的精确 commit artifact。它与默认发布共享 Actions 并发组和服务器发布锁，并使用 Environment 固定的 SSH host key。发布脚本是 [`../ops/deploy-async-internal.sh`](../ops/deploy-async-internal.sh)；workflow 只负责候选验证、受保护授权、传输和声明过的证据文件回收，远端脚本拥有门禁顺序、角色切换、信号中断恢复和候选文件清理。
 
 同一 suite 还证明 Outbox 在 PostgreSQL commit 后才进入统一 `process-runs` Queue，Job 只含 `schemaVersion` 和 `runId`，Worker 仍能从数据库选择准确 Registration。故障用例覆盖 Dispatcher claim 过期、Redis 断线、重复 completed Job、Worker claim 过期接管、旧 token fencing 和停机超时 release。Compose Redis 使用 `noeviction` 和临时数据目录；它只用于测试，不代表生产高可用配置。
 

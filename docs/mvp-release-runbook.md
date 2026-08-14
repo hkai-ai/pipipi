@@ -86,9 +86,11 @@ Vercel Functions、Netlify Functions 和 Cloudflare Workers 不能直接运行�
 
 ## 单服务器 GitHub Actions 发布
 
-仓库通过 [production CI/CD](../.github/workflows/production-ci-cd.yml) 把同步 API 发布到一台 Linux Docker 服务器。Pull Request 并行执行确定性的 `Check and build` 与真实依赖的 `Async durable acceptance`；后者在隔离 PostgreSQL/Redis 中按固定顺序验证 Store、BullMQ/跨 Seam 和构建控制台的浏览器旅程，并始终执行 Compose 清理。`main` 推送和手动触发只有在两项检查都成功后，才把镜像归档与生产 Compose 上传服务器并激活。生产 Job 使用 GitHub `production` Environment 和 `pipipi-production` 并发组，同一时间只允许一次部署。
+仓库通过 [production CI/CD](../.github/workflows/production-ci-cd.yml) 把同步 API 发布到一台 Linux Docker 服务器。Pull Request 并行执行确定性的 `Check and build` 与真实依赖的 `Async durable acceptance`；后者在隔离 PostgreSQL/Redis 中按固定顺序验证 Store、BullMQ/跨 Seam 和构建控制台的浏览器旅程，并始终执行 Compose 清理。`main` 推送和手动触发只有在两项检查都成功后，才把镜像归档与生产 Compose 上传服务器并激活。生产 Job 使用 GitHub `production` Environment，并与异步 internal 发布共享 `pipipi-production-release` 并发组；服务器的 `shared/deployment.lock` 还会拒绝 Actions 之外的并发发布。
 
 生产镜像固定 Node.js 24、编译产物、生产依赖和七个 Runtime Skill，不包含源码、`.env` 或凭证。服务器加载 `pipipi:<commit>` 镜像，再通过 [`compose.production.yaml`](../compose.production.yaml) 以同一镜像重建 `pipipi` 和 `pipipi-business-api` 两个容器。部署脚本校验两个容器的 image tag、revision label、liveness 和 readiness；失败时恢复部署前的镜像与 Compose 形状。release artifact 同时携带 `pipipi-<commit>.compose.async.yaml`，但自动部署不上传或激活它；该文件只供通过异步 Runbook 门禁后的显式叠加部署使用。若服务器存在任一异步角色容器，默认同步流水线会拒绝继续；发布人员必须先按异步手册停流、处理已接受 Run，并执行显式回退，不能借普通发布隐式删除 Worker。
+
+异步 `internal` 使用独立的手动 [`Async internal release`](../.github/workflows/async-internal-release.yml)，不属于本同步流水线的自动步骤。它由 `async-internal` Environment 授权并复用本流水线产出的候选 artifact；完整配置、证据和回退要求见[异步发布手册](async-process-runs-runbook.md#受控-internal-发布入口)。
 
 ### GitHub 配置
 
@@ -99,6 +101,7 @@ Repository secrets：
 | 名称 | 内容 |
 | --- | --- |
 | `SSH_PRIVATE_KEY` | GitHub Actions 连接部署账户的私钥 |
+| `SSH_KNOWN_HOSTS` | 经独立可信渠道核对的目标服务器 host key；`production` 与 `async-internal` Environment 都必须可读取 |
 
 Repository variables：
 
@@ -108,7 +111,7 @@ Repository variables：
 | `REMOTE_USER` | 部署账户，当前服务器填写 `root` |
 | `REMOTE_PATH` | 绝对部署目录，例如 `/opt/pipipi` |
 
-workflow 的生产 Job 仍使用 GitHub `production` Environment 记录部署并执行并发控制。可以在 Settings → Environments 创建 `production`，配置 required reviewer 和 `main` 分支限制；不需要在 Environment 中重复配置上述 Secret 和 Variable。
+workflow 的生产 Job仍使用 GitHub `production` Environment 记录部署并执行并发控制。应在 Settings → Environments 创建 `production`，配置 required reviewer 和 `main` 分支限制，并把已核对的 `SSH_KNOWN_HOSTS` 保存为该 Environment 的 Secret；`async-internal` Environment 同样保存该值。其他连接 Secret 和 Variable 可使用 Repository scope。
 
 Actions 私钥只用于连接服务器。服务器不需要读取 Git 仓库或访问镜像仓库，因为流水线直接上传 CI 生成的镜像归档和 Compose 文件。
 
@@ -118,7 +121,7 @@ Actions 私钥只用于连接服务器。服务器不需要读取 Git 仓库或�
 
 ```bash
 sudo apt update
-sudo apt install -y curl docker.io docker-compose-v2
+sudo apt install -y curl docker.io docker-compose-v2 util-linux
 ```
 
 1Panel 已安装 Docker 时不要重复安装；只需确认 Docker Engine 与 Compose 可用：
@@ -182,7 +185,7 @@ ssh-keygen -t ed25519 -C "pipipi-github-actions" -f ./pipipi-deploy
 
 把 `pipipi-deploy.pub` 加入服务器部署账户的 `~/.ssh/authorized_keys`，把私钥正文保存为 Repository secret `SSH_PRIVATE_KEY`。
 
-流水线与现有两个项目保持一致，对 SSH 和 SCP 使用 `StrictHostKeyChecking=no`，因此不需要配置 `SSH_KNOWN_HOSTS`。该设置减少首次部署配置，但不会验证目标服务器的 host key；部署网络被劫持时存在中间人风险。
+从服务器控制台或另一条可信管理通道读取 SSH host key 指纹，由两名运维人员与服务器记录核对后，把完整 known_hosts 行保存为 `production` 和 `async-internal` Environment secret `SSH_KNOWN_HOSTS`。流水线固定 `StrictHostKeyChecking=yes`，不在发布网络路径上调用 `ssh-keyscan`；host key 轮换必须先复核并更新两个 Environment，不能临时关闭校验。
 
 ### 1Panel、OpenResty 与防火墙
 

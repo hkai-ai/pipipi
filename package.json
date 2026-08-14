@@ -50,6 +50,7 @@
         "test:acceptance:async": "npm run test:integration:postgres && npm run test:integration:async && npm run test:acceptance:console",
         "test:acceptance:async:local": "npm run build && ASYNC_INTEGRATION_TEST_SCRIPT=test:acceptance:async node --import tsx tools/run-async-integration.ts",
         "check:deployment:async-shape": "node --import tsx tools/check-async-production-compose.ts",
+        "db:migrate:verify": "node dist/bin/migrate-and-verify.js",
         "db:migrate": "node-pg-migrate up --migrations-dir migrations --advisory-lock-mode wait"
     },
     "dependencies": {

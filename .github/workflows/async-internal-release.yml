@@ -1,0 +1,225 @@
+name: Async internal release
+run-name: Async internal ${{ inputs.candidate_sha }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      candidate_sha:
+        description: Full 40-character commit SHA from a completed CI run
+        required: true
+        type: string
+      candidate_ci_run_id:
+        description: Production CI/CD run containing the candidate artifact
+        required: true
+        type: string
+      backup_id:
+        description: Reviewed PostgreSQL backup or restore-point identifier
+        required: true
+        type: string
+      recovery_actor_id:
+        description: Auditable operator identity for Queue Recovery
+        required: true
+        type: string
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  release-internal:
+    name: Release async internal
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment:
+      name: async-internal
+    concurrency:
+      group: pipipi-production-release
+      cancel-in-progress: false
+
+    steps:
+      - name: Validate release request
+        env:
+          BACKUP_ID: ${{ inputs.backup_id }}
+          CANDIDATE_CI_RUN_ID: ${{ inputs.candidate_ci_run_id }}
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+          RECOVERY_ACTOR_ID: ${{ inputs.recovery_actor_id }}
+        run: |
+          set -Eeuo pipefail
+          [[ "$CANDIDATE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$CANDIDATE_CI_RUN_ID" =~ ^[1-9][0-9]*$ ]]
+          [[ "$BACKUP_ID" =~ ^[A-Za-z0-9._:/@-]{1,256}$ ]]
+          [[ "$RECOVERY_ACTOR_ID" =~ ^[A-Za-z0-9._:/@-]{1,256}$ ]]
+
+      - name: Checkout immutable candidate
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.candidate_sha }}
+
+      - name: Verify candidate CI and download artifact
+        env:
+          CANDIDATE_CI_RUN_ID: ${{ inputs.candidate_ci_run_id }}
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -Eeuo pipefail
+          run_json="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$CANDIDATE_CI_RUN_ID")"
+          test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
+          test "$(jq -r '.head_sha' <<< "$run_json")" = "$CANDIDATE_SHA"
+          test "$(jq -r '.path' <<< "$run_json")" = ".github/workflows/production-ci-cd.yml"
+          test "$(jq -r '.status' <<< "$run_json")" = "completed"
+          jq --exit-status \
+              '.event == "push" or .event == "workflow_dispatch"' \
+              <<< "$run_json" >/dev/null
+
+          jobs_json="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$CANDIDATE_CI_RUN_ID/jobs?filter=latest&per_page=100")"
+          for required_job in "Check and build" "Async durable acceptance"; do
+              jq --exit-status --arg name "$required_job" \
+                  '.jobs | any(.name == $name and .conclusion == "success")' \
+                  <<< "$jobs_json" >/dev/null
+          done
+
+          mkdir -p release
+          gh run download "$CANDIDATE_CI_RUN_ID" \
+              --name "pipipi-$CANDIDATE_SHA" \
+              --dir release
+          test -f "release/pipipi-$CANDIDATE_SHA.image.tar.gz"
+          test -f "release/pipipi-$CANDIDATE_SHA.compose.yaml"
+          test -f "release/pipipi-$CANDIDATE_SHA.compose.async.yaml"
+          sha256sum release/*
+
+      - name: Validate candidate deployment shape
+        env:
+          PIPIPI_ASYNC_API_ENV_FILE: /dev/null
+          PIPIPI_ASYNC_RELEASE_STAGE: internal
+          PIPIPI_ENV_FILE: /dev/null
+          PIPIPI_IMAGE: pipipi:${{ inputs.candidate_sha }}
+          PIPIPI_PROCESS_DISPATCHER_ENV_FILE: /dev/null
+          PIPIPI_PROCESS_QUEUE_NAME: ${{ vars.PROCESS_QUEUE_NAME }}
+          PIPIPI_PROCESS_QUEUE_PREFIX: ${{ vars.PROCESS_QUEUE_PREFIX }}
+          PIPIPI_PROCESS_WORKER_ENV_FILE: /dev/null
+          PIPIPI_RETENTION_CLEANER_ENV_FILE: /dev/null
+          PIPIPI_REVISION: ${{ inputs.candidate_sha }}
+          PIPIPI_WEBHOOK_QUEUE_NAME: ${{ vars.WEBHOOK_QUEUE_NAME }}
+          PIPIPI_WEBHOOK_QUEUE_PREFIX: ${{ vars.WEBHOOK_QUEUE_PREFIX }}
+          PIPIPI_WEBHOOK_WORKER_ENV_FILE: /dev/null
+        run: >-
+          docker compose
+          --env-file /dev/null
+          --project-name pipipi
+          --file "release/pipipi-${{ inputs.candidate_sha }}.compose.yaml"
+          --file "release/pipipi-${{ inputs.candidate_sha }}.compose.async.yaml"
+          config --quiet
+
+      - name: Configure SSH
+        env:
+          SSH_KNOWN_HOSTS: ${{ secrets.SSH_KNOWN_HOSTS }}
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+        run: |
+          set -Eeuo pipefail
+          install -d -m 700 ~/.ssh
+          test -n "$SSH_KNOWN_HOSTS"
+          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/known_hosts
+          test -s ~/.ssh/known_hosts
+
+      - name: Upload candidate release
+        env:
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+          REMOTE_HOST: ${{ vars.REMOTE_HOST }}
+          REMOTE_USER: ${{ vars.REMOTE_USER }}
+        run: |
+          set -Eeuo pipefail
+          prefix="pipipi-async-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          scp -o BatchMode=yes -o StrictHostKeyChecking=yes \
+              "release/pipipi-$CANDIDATE_SHA.image.tar.gz" \
+              "$REMOTE_USER@$REMOTE_HOST:/tmp/$prefix.image.tar.gz"
+          scp -o BatchMode=yes -o StrictHostKeyChecking=yes \
+              "release/pipipi-$CANDIDATE_SHA.compose.yaml" \
+              "$REMOTE_USER@$REMOTE_HOST:/tmp/$prefix.compose.yaml"
+          scp -o BatchMode=yes -o StrictHostKeyChecking=yes \
+              "release/pipipi-$CANDIDATE_SHA.compose.async.yaml" \
+              "$REMOTE_USER@$REMOTE_HOST:/tmp/$prefix.compose.async.yaml"
+
+      - name: Release candidate to internal
+        env:
+          BACKUP_ID: ${{ inputs.backup_id }}
+          CANDIDATE_CI_RUN_ID: ${{ inputs.candidate_ci_run_id }}
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+          PROCESS_QUEUE_NAME: ${{ vars.PROCESS_QUEUE_NAME }}
+          PROCESS_QUEUE_PREFIX: ${{ vars.PROCESS_QUEUE_PREFIX }}
+          RECOVERY_ACTOR_ID: ${{ inputs.recovery_actor_id }}
+          REMOTE_HOST: ${{ vars.REMOTE_HOST }}
+          REMOTE_PATH: ${{ vars.REMOTE_PATH }}
+          REMOTE_USER: ${{ vars.REMOTE_USER }}
+          WEBHOOK_QUEUE_NAME: ${{ vars.WEBHOOK_QUEUE_NAME }}
+          WEBHOOK_QUEUE_PREFIX: ${{ vars.WEBHOOK_QUEUE_PREFIX }}
+        run: |
+          set -Eeuo pipefail
+          prefix="pipipi-async-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          ssh -o BatchMode=yes -o StrictHostKeyChecking=yes \
+              "$REMOTE_USER@$REMOTE_HOST" \
+              bash -s -- \
+              "$REMOTE_PATH" \
+              "$CANDIDATE_SHA" \
+              "$CANDIDATE_CI_RUN_ID" \
+              "$GITHUB_RUN_ID" \
+              "$GITHUB_RUN_ATTEMPT" \
+              "$BACKUP_ID" \
+              "$RECOVERY_ACTOR_ID" \
+              "/tmp/$prefix.image.tar.gz" \
+              "/tmp/$prefix.compose.yaml" \
+              "/tmp/$prefix.compose.async.yaml" \
+              "$PROCESS_QUEUE_NAME" \
+              "$PROCESS_QUEUE_PREFIX" \
+              "$WEBHOOK_QUEUE_NAME" \
+              "$WEBHOOK_QUEUE_PREFIX" \
+              < ops/deploy-async-internal.sh
+
+      - name: Collect release evidence
+        if: ${{ always() }}
+        env:
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+          REMOTE_HOST: ${{ vars.REMOTE_HOST }}
+          REMOTE_PATH: ${{ vars.REMOTE_PATH }}
+          REMOTE_USER: ${{ vars.REMOTE_USER }}
+        run: |
+          set -Eeuo pipefail
+          evidence_key="$CANDIDATE_SHA-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          remote_directory="$REMOTE_PATH/shared/async-release-evidence/$evidence_key"
+          mkdir -p evidence
+          for file in \
+              evidence.json \
+              environment-prechecks.jsonl \
+              migration.json \
+              recovery.jsonl \
+              readiness.jsonl; do
+              scp -o BatchMode=yes -o StrictHostKeyChecking=yes \
+                  "$REMOTE_USER@$REMOTE_HOST:$remote_directory/$file" \
+                  "evidence/$file"
+          done
+
+      - name: Clean remote candidate files
+        if: ${{ always() }}
+        env:
+          REMOTE_HOST: ${{ vars.REMOTE_HOST }}
+          REMOTE_USER: ${{ vars.REMOTE_USER }}
+        run: |
+          set -Eeuo pipefail
+          prefix="pipipi-async-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          ssh -o BatchMode=yes -o StrictHostKeyChecking=yes \
+              "$REMOTE_USER@$REMOTE_HOST" \
+              rm -f -- \
+              "/tmp/$prefix.image.tar.gz" \
+              "/tmp/$prefix.compose.yaml" \
+              "/tmp/$prefix.compose.async.yaml"
+
+      - name: Upload release evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: pipipi-async-internal-evidence-${{ inputs.candidate_sha }}-${{ github.run_attempt }}
+          path: evidence/
+          if-no-files-found: error
+          retention-days: 30

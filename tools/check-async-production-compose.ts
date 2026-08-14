@@ -45,6 +45,7 @@ const validationEnvironment = Object.freeze({
     PIPIPI_IMAGE: validationImage,
     PIPIPI_REVISION: validationRevision,
     PIPIPI_ENV_FILE: "/dev/null",
+    PIPIPI_ASYNC_RELEASE_STAGE: "internal",
     PIPIPI_ASYNC_API_ENV_FILE: "/dev/null",
     PIPIPI_PROCESS_DISPATCHER_ENV_FILE: "/dev/null",
     PIPIPI_PROCESS_WORKER_ENV_FILE: "/dev/null",
@@ -131,6 +132,10 @@ export function checkAsyncProductionCompose(): void {
         asyncServices.api?.environment?.ASYNC_PROCESS_RUNS_ENABLED === "true",
         "The explicit async production API must enable Async Process Runs",
     );
+    assert(
+        asyncServices.api?.environment?.ASYNC_RELEASE_STAGE === "internal",
+        "The explicit async production API must receive the selected release stage",
+    );
     assertQueuePair(
         asyncServices,
         "process-dispatcher",
@@ -152,6 +157,7 @@ export function checkAsyncProductionCompose(): void {
     for (const variable of [
         "PIPIPI_IMAGE",
         "PIPIPI_REVISION",
+        "PIPIPI_ASYNC_RELEASE_STAGE",
         "PIPIPI_ASYNC_API_ENV_FILE",
         "PIPIPI_PROCESS_DISPATCHER_ENV_FILE",
         "PIPIPI_PROCESS_WORKER_ENV_FILE",
