@@ -1,4 +1,4 @@
-import { useEffect, useState } from "preact/hooks";
+import { useEffect, useRef, useState } from "preact/hooks";
 import {
     type ConsoleProcessDescription,
     type ConsoleStats,
@@ -646,6 +646,14 @@ export function SubmitView({
         processRuns.pending(),
     );
     const [hasUnexpectedError, setHasUnexpectedError] = useState(false);
+    const execution = useRef<AbortController | undefined>(undefined);
+
+    useEffect(
+        () => () => {
+            execution.current?.abort();
+        },
+        [],
+    );
 
     const entry =
         processes.find((candidate) => candidate.process === selected) ??
@@ -655,6 +663,8 @@ export function SubmitView({
     if (!entry) return <Panel title="提交任务">读取 Process 目录中…</Panel>;
 
     const execute = async (intent: "continue" | "new") => {
+        const controller = new AbortController();
+        execution.current = controller;
         setRunning(true);
         setProgress(undefined);
         setOutcome(undefined);
@@ -671,12 +681,19 @@ export function SubmitView({
                     version: entry.version,
                     input,
                 },
-                { intent, onProgress: setProgress },
+                {
+                    intent,
+                    onProgress: setProgress,
+                    signal: controller.signal,
+                },
             );
             setOutcome(result);
         } catch {
             setHasUnexpectedError(true);
         } finally {
+            if (execution.current === controller) {
+                execution.current = undefined;
+            }
             setPending(processRuns.pending());
             setRunning(false);
         }
@@ -917,6 +934,13 @@ function Outcome({ result }: { result: ProcessRunOutcome }) {
                 <p class="error" style="margin-top:14px">
                     Run <code>{result.runId}</code> 查询超过
                     {result.timeoutMs / 1_000} 秒；服务端仍会继续执行。
+                </p>
+            );
+        case "cancelled":
+            return (
+                <p class="error" style="margin-top:14px">
+                    已停止查询 Run <code>{result.runId}</code>
+                    ；服务端不会收到取消请求，之后仍可继续查询。
                 </p>
             );
         case "rejected":

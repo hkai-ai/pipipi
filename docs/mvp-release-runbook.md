@@ -336,7 +336,7 @@ Schema 由部署脚本在激活新容器前执行 `npm run db:migrate` 应用，
 
 提交表单由 `{base}/processes` 返回的 Schema 生成：新增 Process 或改字段不需要改控制台。Console Process Run Client 在首次 POST 前把请求 SHA-256 摘要、幂等键、创建时间和恢复分类写入 tab-scoped `sessionStorage`；收到 `202` 后再保存 `runId` 与公开 Process identity。它不保存业务输入、输出、凭证或隐藏运行配置。响应丢失、可重试 admission 和刷新后的恢复都复用同一 key；未确定或可重试操作只有在操作者点击“明确开始新提交”时才会被替换。accepted 映射不能被新提交覆盖，必须等终态完成或由操作者点击“移除恢复记录”。Storage 读取、写入或清理失败时，Client 返回结构化不可用结果，且在无法完成首次持久化时禁止发送 POST。
 
-页面只调用 Console Process Run Client Interface。该 Module 在运行时校验提交、拒绝和查询响应，向页面公开 accepted/observed 进度，以及 succeeded、failed、结果过期、查询超时、acceptance unknown、可重试 admission、明确拒绝、恢复冲突、恢复存储不可用和协议错误；非 JSON、缺字段、未知状态、不一致的 `runId`，以及跨源或错误资源形状的 `Location` 都不会被页面当成有效 Process Run。刷新后，页面可继续查询已接受的 Run；未确定提交要求操作者重新填写相同输入，Client 以摘要匹配后才允许同 key 重放。
+页面只调用 Console Process Run Client Interface。该 Module 在运行时校验提交、拒绝和查询响应，向页面公开 accepted/observed 进度，以及 succeeded、failed、结果过期、查询超时、客户端取消、acceptance unknown、可重试 admission、明确拒绝、恢复冲突、恢复存储不可用和协议错误；非 JSON、缺字段、未知状态、不一致的 `runId`，以及跨源或错误资源形状的 `Location` 都不会被页面当成有效 Process Run。刷新后，页面可继续查询已接受的 Run；未确定提交要求操作者重新填写相同输入，Client 以摘要匹配后才允许同 key 重放。
 
 恢复记录按浏览器标签页隔离，只解决同一标签页刷新与单一活动操作，不跨标签共享。可信网关必须保证一个控制台标签页内的 caller session 稳定；切换 caller 前必须先处理或明确移除该标签页的恢复记录，不能把旧 caller 的 uncertain 操作带入新身份。
 
@@ -349,7 +349,7 @@ Schema 由部署脚本在激活新容器前执行 `npm run db:migrate` 应用，
 - **控制台没有自带鉴权。** 页面上的提交表单会真实调用 `POST /process-runs`，每次都可能产生图片费用。公网入口必须在 OpenResty 一侧加 Basic Auth 或 `auth_request`；可信网关还必须按异步 Interface 的要求注入 caller 身份。缺少任一层保护时，不得开放提交页面。
 - **必须先配置 `PROCESS_RUN_RECORD_DIRECTORY`。** 缺少它时部署环境预检和启动构造都会直接失败，避免上线一个永远空白的页面。
 - **提交依赖异步运行角色。** 基础同步 Compose 仍保持 `ASYNC_PROCESS_RUNS_ENABLED=false`；部署方必须先按[异步发布手册](async-process-runs-runbook.md)完成 migration、角色、身份和容量门禁，再开放控制台提交。
-- **页面默认查询 300 秒。** 查询超时或关闭页面不取消已接受的 Process Run；调用方仍可用 `runId` 查询公共状态，终态随后写入 Run Record。
+- **页面默认查询 300 秒。** 期限从 durable acceptance 后开始。有效 `Retry-After` 限制在 1–30 秒；缺失或无效时使用 1、2、4、8、16、30 秒的有界退避。瞬时 GET transport，以及 `429`、`502`、`504` 和经过验证的 `500`/`503` 服务失败会在期限内恢复；稳定 `401`/`404` 与协议错误立即结束当前等待。查询超时、AbortSignal 或关闭页面只会中止 transport、timer 与 polling，不会请求服务端取消；恢复映射保留，操作者仍可用同一 `runId` 继续查询，终态随后写入 Run Record。
 
 OpenResty 上为控制台加 Basic Auth 的等价配置：
 

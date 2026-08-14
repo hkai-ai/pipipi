@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { createAbortableWait } from "./abortable-wait.js";
 import { createProcessRunClient } from "./process-run-client.js";
 
 describe("Console Process Run Client", () => {
@@ -540,7 +541,6 @@ describe("Console Process Run Client", () => {
     });
 
     it("stops at the default 300-second deadline before another query", async () => {
-        let now = 0;
         const request = vi.fn().mockResolvedValueOnce(
             jsonResponse(
                 202,
@@ -557,13 +557,14 @@ describe("Console Process Run Client", () => {
                 },
             ),
         );
-        const wait = vi.fn(async (milliseconds: number) => {
-            now += milliseconds;
+        const cancelDeadline = vi.fn();
+        const schedule = vi.fn((_: number, operation: () => void) => {
+            operation();
+            return cancelDeadline;
         });
         const client = testClient(request, {
             createIdempotencyKey: () => "idempotency-slow",
-            now: () => now,
-            wait,
+            schedule,
         });
 
         await expect(
@@ -579,7 +580,8 @@ describe("Console Process Run Client", () => {
             version: "v1",
             timeoutMs: 300_000,
         });
-        expect(wait).toHaveBeenCalledWith(300_000);
+        expect(schedule).toHaveBeenCalledWith(300_000, expect.any(Function));
+        expect(cancelDeadline).toHaveBeenCalledOnce();
         expect(request).toHaveBeenCalledTimes(1);
     });
 
@@ -809,7 +811,10 @@ describe("Console Process Run Client", () => {
         });
         expect(refreshedRequest).toHaveBeenCalledWith(
             new URL("https://pi.example/process-runs/run-refresh"),
-            { headers: { accept: "application/json" } },
+            {
+                headers: { accept: "application/json" },
+                signal: expect.any(AbortSignal),
+            },
         );
         expect(pendingOperations.read()).toBeNull();
     });
@@ -1113,6 +1118,510 @@ describe("Console Process Run Client", () => {
         });
         expect(refreshedRequest).not.toHaveBeenCalled();
     });
+
+    it.each([
+        { retryAfter: "0.01", expected: 1_000 },
+        { retryAfter: "3", expected: 3_000 },
+        { retryAfter: "100", expected: 30_000 },
+        {
+            retryAfter: "Thu, 01 Jan 1970 00:00:03 GMT",
+            expected: 3_000,
+        },
+    ])(
+        "bounds Retry-After $retryAfter to $expected ms",
+        async ({ retryAfter, expected }) => {
+            let now = 0;
+            const wait = vi.fn(async (milliseconds: number) => {
+                now += milliseconds;
+            });
+            const request = vi
+                .fn()
+                .mockResolvedValueOnce(
+                    jsonResponse(
+                        202,
+                        {
+                            runId: "run-retry-after",
+                            process: "content-processing",
+                            version: "v1",
+                            status: "queued",
+                            createdAt: "2026-08-14T00:00:00.000Z",
+                        },
+                        {
+                            location: "/process-runs/run-retry-after",
+                            "retry-after": retryAfter,
+                        },
+                    ),
+                )
+                .mockResolvedValueOnce(
+                    jsonResponse(200, {
+                        runId: "run-retry-after",
+                        process: "content-processing",
+                        version: "v1",
+                        status: "succeeded",
+                        createdAt: "2026-08-14T00:00:00.000Z",
+                        startedAt: "2026-08-14T00:00:01.000Z",
+                        finishedAt: "2026-08-14T00:00:02.000Z",
+                        output: { content: "done" },
+                    }),
+                );
+            const client = testClient(request, { now: () => now, wait });
+
+            await expect(
+                client.execute(contentRequest()),
+            ).resolves.toMatchObject({
+                status: "succeeded",
+            });
+            expect(wait).toHaveBeenCalledWith(expected, expect.anything());
+        },
+    );
+
+    it("uses bounded exponential backoff for transient GET transport failures", async () => {
+        let now = 0;
+        const wait = vi.fn(async (milliseconds: number) => {
+            now += milliseconds;
+        });
+        const request = vi
+            .fn()
+            .mockResolvedValueOnce(
+                jsonResponse(
+                    202,
+                    {
+                        runId: "run-backoff",
+                        process: "content-processing",
+                        version: "v1",
+                        status: "queued",
+                        createdAt: "2026-08-14T00:00:00.000Z",
+                    },
+                    {
+                        location: "/process-runs/run-backoff",
+                        "retry-after": "invalid",
+                    },
+                ),
+            )
+            .mockRejectedValueOnce(new TypeError("gateway reset"))
+            .mockRejectedValueOnce(new TypeError("gateway reset"))
+            .mockResolvedValueOnce(
+                jsonResponse(200, {
+                    runId: "run-backoff",
+                    process: "content-processing",
+                    version: "v1",
+                    status: "succeeded",
+                    createdAt: "2026-08-14T00:00:00.000Z",
+                    startedAt: "2026-08-14T00:00:01.000Z",
+                    finishedAt: "2026-08-14T00:00:02.000Z",
+                    output: { content: "recovered" },
+                }),
+            );
+        const client = testClient(request, { now: () => now, wait });
+
+        await expect(client.execute(contentRequest())).resolves.toMatchObject({
+            status: "succeeded",
+        });
+        expect(wait.mock.calls.map(([milliseconds]) => milliseconds)).toEqual([
+            1_000, 2_000, 4_000,
+        ]);
+    });
+
+    it("recovers from a retryable non-JSON gateway response", async () => {
+        let now = 0;
+        const wait = vi.fn(async (milliseconds: number) => {
+            now += milliseconds;
+        });
+        const request = vi
+            .fn()
+            .mockResolvedValueOnce(
+                jsonResponse(
+                    202,
+                    {
+                        runId: "run-gateway",
+                        process: "content-processing",
+                        version: "v1",
+                        status: "queued",
+                        createdAt: "2026-08-14T00:00:00.000Z",
+                    },
+                    { location: "/process-runs/run-gateway" },
+                ),
+            )
+            .mockResolvedValueOnce(new Response("bad gateway", { status: 502 }))
+            .mockResolvedValueOnce(
+                jsonResponse(200, {
+                    runId: "run-gateway",
+                    process: "content-processing",
+                    version: "v1",
+                    status: "succeeded",
+                    createdAt: "2026-08-14T00:00:00.000Z",
+                    startedAt: "2026-08-14T00:00:01.000Z",
+                    finishedAt: "2026-08-14T00:00:02.000Z",
+                    output: { content: "recovered" },
+                }),
+            );
+        const client = testClient(request, { now: () => now, wait });
+
+        await expect(client.execute(contentRequest())).resolves.toMatchObject({
+            status: "succeeded",
+        });
+        expect(request).toHaveBeenCalledTimes(3);
+    });
+
+    it("recovers from a structured service-unavailable response", async () => {
+        let now = 0;
+        const wait = vi.fn(async (milliseconds: number) => {
+            now += milliseconds;
+        });
+        const request = vi
+            .fn()
+            .mockResolvedValueOnce(
+                jsonResponse(
+                    202,
+                    {
+                        runId: "run-service-unavailable",
+                        process: "content-processing",
+                        version: "v1",
+                        status: "queued",
+                        createdAt: "2026-08-14T00:00:00.000Z",
+                    },
+                    { location: "/process-runs/run-service-unavailable" },
+                ),
+            )
+            .mockResolvedValueOnce(
+                jsonResponse(
+                    503,
+                    {
+                        status: "failed",
+                        error: {
+                            code: "ASYNC_SERVICE_UNAVAILABLE",
+                            message: "Service temporarily unavailable",
+                        },
+                    },
+                    { "retry-after": "0.5" },
+                ),
+            )
+            .mockResolvedValueOnce(
+                jsonResponse(200, {
+                    runId: "run-service-unavailable",
+                    process: "content-processing",
+                    version: "v1",
+                    status: "succeeded",
+                    createdAt: "2026-08-14T00:00:00.000Z",
+                    startedAt: "2026-08-14T00:00:01.000Z",
+                    finishedAt: "2026-08-14T00:00:02.000Z",
+                    output: { content: "recovered" },
+                }),
+            );
+        const client = testClient(request, { now: () => now, wait });
+
+        await expect(client.execute(contentRequest())).resolves.toMatchObject({
+            status: "succeeded",
+        });
+        expect(wait.mock.calls.map(([milliseconds]) => milliseconds)).toEqual([
+            1_000, 1_000,
+        ]);
+        expect(request).toHaveBeenCalledTimes(3);
+    });
+
+    it("does not retry a stable authorization failure", async () => {
+        const request = vi
+            .fn()
+            .mockResolvedValueOnce(
+                jsonResponse(
+                    202,
+                    {
+                        runId: "run-unauthorized",
+                        process: "content-processing",
+                        version: "v1",
+                        status: "queued",
+                        createdAt: "2026-08-14T00:00:00.000Z",
+                    },
+                    { location: "/process-runs/run-unauthorized" },
+                ),
+            )
+            .mockResolvedValueOnce(
+                jsonResponse(401, {
+                    status: "failed",
+                    error: {
+                        code: "CALLER_UNAUTHORIZED",
+                        message: "Unauthorized",
+                    },
+                }),
+            );
+        const client = testClient(request);
+
+        await expect(client.execute(contentRequest())).resolves.toMatchObject({
+            status: "rejected",
+            phase: "query",
+            httpStatus: 401,
+            error: { code: "CALLER_UNAUTHORIZED" },
+        });
+        expect(request).toHaveBeenCalledTimes(2);
+    });
+
+    it("retries when a GET response body is interrupted in transit", async () => {
+        let now = 0;
+        const wait = vi.fn(async (milliseconds: number) => {
+            now += milliseconds;
+        });
+        const interrupted = jsonResponse(200, {});
+        vi.spyOn(interrupted, "json").mockRejectedValueOnce(
+            new TypeError("response body interrupted"),
+        );
+        const request = vi
+            .fn()
+            .mockResolvedValueOnce(
+                jsonResponse(
+                    202,
+                    {
+                        runId: "run-body-retry",
+                        process: "content-processing",
+                        version: "v1",
+                        status: "queued",
+                        createdAt: "2026-08-14T00:00:00.000Z",
+                    },
+                    { location: "/process-runs/run-body-retry" },
+                ),
+            )
+            .mockResolvedValueOnce(interrupted)
+            .mockResolvedValueOnce(
+                jsonResponse(200, {
+                    runId: "run-body-retry",
+                    process: "content-processing",
+                    version: "v1",
+                    status: "succeeded",
+                    createdAt: "2026-08-14T00:00:00.000Z",
+                    startedAt: "2026-08-14T00:00:01.000Z",
+                    finishedAt: "2026-08-14T00:00:02.000Z",
+                    output: { content: "recovered" },
+                }),
+            );
+        const client = testClient(request, { now: () => now, wait });
+
+        await expect(client.execute(contentRequest())).resolves.toMatchObject({
+            status: "succeeded",
+        });
+        expect(wait.mock.calls.map(([milliseconds]) => milliseconds)).toEqual([
+            1_000, 2_000,
+        ]);
+    });
+
+    it("keeps submission acceptance unknown when the POST body is interrupted", async () => {
+        const interrupted = jsonResponse(202, {});
+        vi.spyOn(interrupted, "json").mockRejectedValueOnce(
+            new TypeError("response body interrupted"),
+        );
+        const pendingOperations = memoryPendingOperations();
+        const client = testClient(vi.fn().mockResolvedValue(interrupted), {
+            pendingOperations,
+        });
+
+        await expect(client.execute(contentRequest())).resolves.toEqual({
+            status: "submission-pending",
+            classification: "acceptance-unknown",
+        });
+        expect(client.pending()).toMatchObject({
+            classification: "acceptance-unknown",
+        });
+    });
+
+    it("cancels client polling without removing the accepted Run mapping", async () => {
+        const controller = new AbortController();
+        const cancelDeadline = vi.fn();
+        const request = vi.fn().mockResolvedValueOnce(
+            jsonResponse(
+                202,
+                {
+                    runId: "run-cancelled",
+                    process: "content-processing",
+                    version: "v1",
+                    status: "queued",
+                    createdAt: "2026-08-14T00:00:00.000Z",
+                },
+                { location: "/process-runs/run-cancelled" },
+            ),
+        );
+        const wait = vi.fn(
+            async (_milliseconds: number, signal?: AbortSignal) => {
+                controller.abort();
+                if (signal?.aborted) {
+                    throw new DOMException("aborted", "AbortError");
+                }
+            },
+        );
+        const client = testClient(request, {
+            schedule: () => cancelDeadline,
+            wait,
+        });
+
+        await expect(
+            client.execute(contentRequest(), { signal: controller.signal }),
+        ).resolves.toEqual({
+            status: "cancelled",
+            runId: "run-cancelled",
+            process: "content-processing",
+            version: "v1",
+        });
+        expect(client.pending()).toMatchObject({
+            classification: "accepted",
+            runId: "run-cancelled",
+        });
+        expect(request).toHaveBeenCalledTimes(1);
+        expect(cancelDeadline).toHaveBeenCalledOnce();
+    });
+
+    it("aborts an in-flight GET at the deadline and clears the deadline timer", async () => {
+        let expire: (() => void) | undefined;
+        const cancelDeadline = vi.fn();
+        const request = vi
+            .fn()
+            .mockResolvedValueOnce(
+                jsonResponse(
+                    202,
+                    {
+                        runId: "run-deadline",
+                        process: "content-processing",
+                        version: "v1",
+                        status: "queued",
+                        createdAt: "2026-08-14T00:00:00.000Z",
+                    },
+                    { location: "/process-runs/run-deadline" },
+                ),
+            )
+            .mockImplementationOnce(
+                (_url: URL, init: RequestInit) =>
+                    new Promise<Response>((_resolve, reject) => {
+                        init.signal?.addEventListener(
+                            "abort",
+                            () =>
+                                reject(
+                                    new DOMException("aborted", "AbortError"),
+                                ),
+                            { once: true },
+                        );
+                    }),
+            );
+        const client = testClient(request, {
+            schedule: (_milliseconds, operation) => {
+                expire = operation;
+                return cancelDeadline;
+            },
+        });
+
+        const outcome = client.execute(contentRequest());
+        await vi.waitFor(() => expect(request).toHaveBeenCalledTimes(2));
+        expire?.();
+
+        await expect(outcome).resolves.toEqual({
+            status: "timed-out",
+            runId: "run-deadline",
+            process: "content-processing",
+            version: "v1",
+            timeoutMs: 300_000,
+        });
+        expect(cancelDeadline).toHaveBeenCalledOnce();
+        expect(client.pending()).toMatchObject({
+            classification: "accepted",
+            runId: "run-deadline",
+        });
+    });
+
+    it.each([
+        { stoppedBy: "caller", expectedStatus: "cancelled" },
+        { stoppedBy: "deadline", expectedStatus: "timed-out" },
+    ] as const)(
+        "returns $expectedStatus when $stoppedBy aborts GET body reading",
+        async ({ stoppedBy, expectedStatus }) => {
+            const controller = new AbortController();
+            let expire: (() => void) | undefined;
+            const response = jsonResponse(200, {});
+            const request = vi
+                .fn()
+                .mockResolvedValueOnce(
+                    jsonResponse(
+                        202,
+                        {
+                            runId: `run-body-${stoppedBy}`,
+                            process: "content-processing",
+                            version: "v1",
+                            status: "queued",
+                            createdAt: "2026-08-14T00:00:00.000Z",
+                        },
+                        { location: `/process-runs/run-body-${stoppedBy}` },
+                    ),
+                )
+                .mockImplementationOnce(
+                    async (_url: URL, init: RequestInit) => {
+                        vi.spyOn(response, "json").mockImplementationOnce(
+                            () =>
+                                new Promise((_resolve, reject) => {
+                                    init.signal?.addEventListener(
+                                        "abort",
+                                        () =>
+                                            reject(
+                                                new DOMException(
+                                                    "aborted",
+                                                    "AbortError",
+                                                ),
+                                            ),
+                                        { once: true },
+                                    );
+                                }),
+                        );
+                        return response;
+                    },
+                );
+            const client = testClient(request, {
+                schedule: (_milliseconds, operation) => {
+                    expire = operation;
+                    return vi.fn();
+                },
+            });
+
+            const outcome = client.execute(contentRequest(), {
+                signal: controller.signal,
+            });
+            await vi.waitFor(() => expect(request).toHaveBeenCalledTimes(2));
+            await vi.waitFor(() => expect(response.json).toHaveBeenCalled());
+            if (stoppedBy === "caller") controller.abort();
+            else expire?.();
+
+            await expect(outcome).resolves.toMatchObject({
+                status: expectedStatus,
+                runId: `run-body-${stoppedBy}`,
+            });
+        },
+    );
+});
+
+describe("Abortable wait", () => {
+    it("removes its listener after the timer resolves", async () => {
+        const controller = new AbortController();
+        const remove = vi.spyOn(controller.signal, "removeEventListener");
+        let resolveTimer: (() => void) | undefined;
+        const cancelTimer = vi.fn();
+        const wait = createAbortableWait((_milliseconds, operation) => {
+            resolveTimer = operation;
+            return cancelTimer;
+        });
+
+        const completion = wait(1_000, controller.signal);
+        resolveTimer?.();
+        await expect(completion).resolves.toBeUndefined();
+
+        expect(remove).toHaveBeenCalledWith("abort", expect.any(Function));
+        expect(cancelTimer).not.toHaveBeenCalled();
+    });
+
+    it("cancels its timer and removes its listener after abort", async () => {
+        const controller = new AbortController();
+        const remove = vi.spyOn(controller.signal, "removeEventListener");
+        const cancelTimer = vi.fn();
+        const wait = createAbortableWait(() => cancelTimer);
+
+        const completion = wait(1_000, controller.signal);
+        controller.abort();
+        await expect(completion).rejects.toMatchObject({ name: "AbortError" });
+
+        expect(cancelTimer).toHaveBeenCalledOnce();
+        expect(remove).toHaveBeenCalledWith("abort", expect.any(Function));
+    });
 });
 
 type ClientAdapters = Parameters<typeof createProcessRunClient>[0];
@@ -1127,6 +1636,7 @@ function testClient(
         fingerprint: async (value) => testFingerprint(value),
         now: () => 0,
         pendingOperations: memoryPendingOperations(),
+        schedule: () => () => undefined,
         wait: async () => undefined,
         ...overrides,
         request,

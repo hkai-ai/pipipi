@@ -1,4 +1,5 @@
 import type { ProcessErrorCode } from "../src/process-runtime/index.js";
+import { createAbortableWait } from "./abortable-wait.js";
 
 export type JsonValue =
     | null
@@ -90,6 +91,9 @@ export type ProcessRunOutcome =
                     status: "timed-out";
                     timeoutMs: number;
                 }>
+              | Readonly<{
+                    status: "cancelled";
+                }>
           ))
     | Readonly<{
           status: "rejected";
@@ -139,6 +143,7 @@ export type ProcessRunClient = Readonly<{
             timeoutMs?: number;
             onProgress?: (progress: ProcessRunProgress) => void;
             intent?: "continue" | "new";
+            signal?: AbortSignal;
         }>,
     ) => Promise<ProcessRunOutcome>;
     pending: () => PendingProcessRun | undefined;
@@ -156,7 +161,8 @@ type Adapters = Readonly<{
         clear: () => void;
     }>;
     request: (url: URL, init: RequestInit) => Promise<Response>;
-    wait: (milliseconds: number) => Promise<void>;
+    schedule: (milliseconds: number, operation: () => void) => () => void;
+    wait: (milliseconds: number, signal: AbortSignal) => Promise<void>;
 }>;
 
 export const defaultProcessRunTimeoutMs = 300_000;
@@ -256,6 +262,7 @@ export function createProcessRunClient(adapters: Adapters): ProcessRunClient {
                             "idempotency-key": pending.idempotencyKey,
                         },
                         body: requestBody,
+                        signal: options.signal,
                     },
                 );
             } catch {
@@ -269,7 +276,20 @@ export function createProcessRunClient(adapters: Adapters): ProcessRunClient {
                 });
             }
 
-            const body = await readJson(response);
+            let body: unknown;
+            try {
+                body = await readJson(response);
+            } catch (error) {
+                if (error instanceof ProtocolError) throw error;
+                writePendingOperation(adapters, {
+                    ...pending,
+                    classification: "acceptance-unknown",
+                });
+                return Object.freeze({
+                    status: "submission-pending",
+                    classification: "acceptance-unknown",
+                });
+            }
             if (response.status !== 202) {
                 const error = readRejection(
                     body,
@@ -286,7 +306,7 @@ export function createProcessRunClient(adapters: Adapters): ProcessRunClient {
                         status: "submission-pending",
                         classification: "retryable",
                         httpStatus: response.status,
-                        retryAfterMs: readRetryAfterMs(response),
+                        retryAfterMs: retryDelayMs(response, adapters.now(), 1),
                         error,
                     });
                 }
@@ -320,7 +340,7 @@ export function createProcessRunClient(adapters: Adapters): ProcessRunClient {
                 location,
                 timeoutMs,
                 options,
-                readRetryAfterMs(response),
+                retryDelayMs(response, adapters.now(), 1),
             );
         } catch (error) {
             if (error instanceof ProtocolError) {
@@ -348,53 +368,167 @@ export function createProcessRunClient(adapters: Adapters): ProcessRunClient {
     ): Promise<ProcessRunOutcome> {
         const deadline = adapters.now() + timeoutMs;
         let retryAfterMs = initialDelayMs;
-        for (;;) {
-            const remainingMs = deadline - adapters.now();
-            if (remainingMs <= 0) return timedOut(accepted, timeoutMs);
-            if (retryAfterMs > 0) {
-                await adapters.wait(Math.min(retryAfterMs, remainingMs));
-                if (adapters.now() >= deadline) {
-                    return timedOut(accepted, timeoutMs);
-                }
-            }
-
-            const observedResponse = await adapters.request(location, {
-                headers: { accept: "application/json" },
+        let retryAttempt = 1;
+        const polling = new AbortController();
+        let stoppedBy: "caller" | "deadline" | undefined;
+        const stopForCaller = () => {
+            if (stoppedBy) return;
+            stoppedBy = "caller";
+            polling.abort();
+        };
+        if (options.signal?.aborted) stopForCaller();
+        else
+            options.signal?.addEventListener("abort", stopForCaller, {
+                once: true,
             });
-            const observedBody = await readJson(observedResponse);
-            if (observedResponse.status !== 200) {
-                return Object.freeze({
-                    status: "rejected",
-                    phase: "query",
-                    httpStatus: observedResponse.status,
-                    runId: accepted.runId,
-                    process: accepted.process,
-                    version: accepted.version,
-                    error: readRejection(
+        const cancelDeadline = adapters.schedule(timeoutMs, () => {
+            if (stoppedBy) return;
+            stoppedBy = "deadline";
+            polling.abort();
+        });
+
+        try {
+            for (;;) {
+                const stopped = stoppedOutcome(accepted, timeoutMs, stoppedBy);
+                if (stopped) return stopped;
+                const remainingMs = deadline - adapters.now();
+                if (remainingMs <= 0) return timedOut(accepted, timeoutMs);
+                if (retryAfterMs > 0) {
+                    try {
+                        await adapters.wait(
+                            Math.min(retryAfterMs, remainingMs),
+                            polling.signal,
+                        );
+                    } catch (error) {
+                        const stoppedAfterWait = stoppedOutcome(
+                            accepted,
+                            timeoutMs,
+                            stoppedBy,
+                        );
+                        if (stoppedAfterWait) return stoppedAfterWait;
+                        throw error;
+                    }
+                    if (adapters.now() >= deadline) {
+                        return timedOut(accepted, timeoutMs);
+                    }
+                }
+
+                let observedResponse: Response;
+                try {
+                    observedResponse = await adapters.request(location, {
+                        headers: { accept: "application/json" },
+                        signal: polling.signal,
+                    });
+                } catch {
+                    const stoppedAfterRequest = stoppedOutcome(
+                        accepted,
+                        timeoutMs,
+                        stoppedBy,
+                    );
+                    if (stoppedAfterRequest) return stoppedAfterRequest;
+                    retryAttempt += 1;
+                    retryAfterMs = backoffMs(retryAttempt);
+                    continue;
+                }
+
+                const stoppedAfterResponse = stoppedOutcome(
+                    accepted,
+                    timeoutMs,
+                    stoppedBy,
+                );
+                if (stoppedAfterResponse) return stoppedAfterResponse;
+
+                if (isUnstructuredRetryableQuery(observedResponse)) {
+                    retryAttempt += 1;
+                    retryAfterMs = retryDelayMs(
+                        observedResponse,
+                        adapters.now(),
+                        retryAttempt,
+                    );
+                    continue;
+                }
+
+                let observedBody: unknown;
+                try {
+                    observedBody = await readJson(observedResponse);
+                } catch (error) {
+                    const stoppedAfterBody = stoppedOutcome(
+                        accepted,
+                        timeoutMs,
+                        stoppedBy,
+                    );
+                    if (stoppedAfterBody) return stoppedAfterBody;
+                    if (!isResponseBodyTransportError(error)) throw error;
+                    retryAttempt += 1;
+                    retryAfterMs = backoffMs(retryAttempt);
+                    continue;
+                }
+                const stoppedAfterBody = stoppedOutcome(
+                    accepted,
+                    timeoutMs,
+                    stoppedBy,
+                );
+                if (stoppedAfterBody) return stoppedAfterBody;
+                if (isStructuredRetryableQuery(observedResponse)) {
+                    readRejection(
                         observedBody,
                         observedResponse.status,
                         queryErrorStatuses,
                         "INVALID_RUN",
-                    ),
+                    );
+                    retryAttempt += 1;
+                    retryAfterMs = retryDelayMs(
+                        observedResponse,
+                        adapters.now(),
+                        retryAttempt,
+                    );
+                    continue;
+                }
+                if (observedResponse.status !== 200) {
+                    return Object.freeze({
+                        status: "rejected",
+                        phase: "query",
+                        httpStatus: observedResponse.status,
+                        runId: accepted.runId,
+                        process: accepted.process,
+                        version: accepted.version,
+                        error: readRejection(
+                            observedBody,
+                            observedResponse.status,
+                            queryErrorStatuses,
+                            "INVALID_RUN",
+                        ),
+                    });
+                }
+                const observed = readObserved(observedBody, accepted);
+                const terminal = terminalOutcome(observed);
+                if (terminal) {
+                    clearPendingOperation(adapters);
+                    return terminal;
+                }
+                if (
+                    observed.status !== "queued" &&
+                    observed.status !== "running"
+                ) {
+                    throw new ProtocolError("INVALID_RUN");
+                }
+                options.onProgress?.({
+                    phase: "observed",
+                    runId: observed.runId,
+                    process: observed.process,
+                    version: observed.version,
+                    status: observed.status,
                 });
+                retryAttempt = 1;
+                retryAfterMs = retryDelayMs(
+                    observedResponse,
+                    adapters.now(),
+                    retryAttempt,
+                );
             }
-            const observed = readObserved(observedBody, accepted);
-            const terminal = terminalOutcome(observed);
-            if (terminal) {
-                clearPendingOperation(adapters);
-                return terminal;
-            }
-            if (observed.status !== "queued" && observed.status !== "running") {
-                throw new ProtocolError("INVALID_RUN");
-            }
-            options.onProgress?.({
-                phase: "observed",
-                runId: observed.runId,
-                process: observed.process,
-                version: observed.version,
-                status: observed.status,
-            });
-            retryAfterMs = readRetryAfterMs(observedResponse);
+        } finally {
+            cancelDeadline();
+            options.signal?.removeEventListener("abort", stopForCaller);
         }
     }
 
@@ -433,6 +567,30 @@ function timedOut(accepted: Accepted, timeoutMs: number): ProcessRunOutcome {
     });
 }
 
+function cancelled(accepted: Accepted): ProcessRunOutcome {
+    return Object.freeze({
+        status: "cancelled",
+        runId: accepted.runId,
+        process: accepted.process,
+        version: accepted.version,
+    });
+}
+
+function stoppedOutcome(
+    accepted: Accepted,
+    timeoutMs: number,
+    stoppedBy: "caller" | "deadline" | undefined,
+): ProcessRunOutcome | undefined {
+    if (stoppedBy === "caller") return cancelled(accepted);
+    if (stoppedBy === "deadline") return timedOut(accepted, timeoutMs);
+    return undefined;
+}
+
+const scheduleWithTimeout: Adapters["schedule"] = (milliseconds, operation) => {
+    const timer = setTimeout(operation, milliseconds);
+    return () => clearTimeout(timer);
+};
+
 export const processRuns = createProcessRunClient({
     baseUrl: () => document.baseURI,
     createIdempotencyKey: () => crypto.randomUUID(),
@@ -445,8 +603,8 @@ export const processRuns = createProcessRunClient({
         clear: () => sessionStorage.removeItem(pendingOperationStorageKey),
     },
     request: (url, init) => fetch(url, init),
-    wait: (milliseconds) =>
-        new Promise((resolve) => setTimeout(resolve, milliseconds)),
+    schedule: scheduleWithTimeout,
+    wait: createAbortableWait(scheduleWithTimeout),
 });
 
 const pendingOperationStorageKey = "pipipi.console.process-run.pending.v1";
@@ -649,9 +807,19 @@ class ProtocolError extends Error {
 async function readJson(response: Response): Promise<unknown> {
     try {
         return await response.json();
-    } catch {
-        throw new ProtocolError("INVALID_JSON");
+    } catch (error) {
+        if (error instanceof SyntaxError) {
+            throw new ProtocolError("INVALID_JSON");
+        }
+        throw error;
     }
+}
+
+function isResponseBodyTransportError(error: unknown): boolean {
+    return (
+        error instanceof TypeError ||
+        (error instanceof DOMException && error.name === "AbortError")
+    );
 }
 
 type Accepted = RunIdentity &
@@ -852,9 +1020,58 @@ function readLocation(response: Response, baseUrl: URL, runId: string): URL {
     return location;
 }
 
-function readRetryAfterMs(response: Response): number {
-    const seconds = Number(response.headers.get("retry-after") ?? "2");
-    return Number.isFinite(seconds) && seconds > 0 ? seconds * 1_000 : 2_000;
+const minimumRetryDelayMs = 1_000;
+const maximumRetryDelayMs = 30_000;
+
+function retryDelayMs(
+    response: Response,
+    now: number,
+    attempt: number,
+): number {
+    const header = response.headers.get("retry-after")?.trim();
+    if (header) {
+        const seconds = Number(header);
+        if (Number.isFinite(seconds) && seconds > 0) {
+            return boundRetryDelay(seconds * 1_000);
+        }
+        const date = Date.parse(header);
+        if (Number.isFinite(date) && date > now) {
+            return boundRetryDelay(date - now);
+        }
+    }
+    return backoffMs(attempt);
+}
+
+function backoffMs(attempt: number): number {
+    return Math.min(
+        minimumRetryDelayMs * 2 ** Math.max(0, attempt - 1),
+        maximumRetryDelayMs,
+    );
+}
+
+function boundRetryDelay(milliseconds: number): number {
+    return Math.min(
+        maximumRetryDelayMs,
+        Math.max(minimumRetryDelayMs, milliseconds),
+    );
+}
+
+function isUnstructuredRetryableQuery(response: Response): boolean {
+    if (
+        response.status === 429 ||
+        response.status === 502 ||
+        response.status === 504
+    ) {
+        return true;
+    }
+    return (
+        (response.status === 500 || response.status === 503) &&
+        !response.headers.get("content-type")?.includes("application/json")
+    );
+}
+
+function isStructuredRetryableQuery(response: Response): boolean {
+    return response.status === 500 || response.status === 503;
 }
 
 function isStatus(
