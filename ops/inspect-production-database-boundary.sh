@@ -157,8 +157,10 @@ async function inspect(target) {
         statement_timeout: 5_000,
         max: 1,
     });
+    let client;
     try {
-        const result = await pool.query(`
+        client = await pool.connect();
+        const result = await client.query(`
             SELECT
               current_user AS "currentUser",
               session_user AS "sessionUser",
@@ -199,8 +201,12 @@ async function inspect(target) {
             WHERE role.rolname = session_user
         `);
         if (result.rows.length !== 1) return undefined;
-        return result.rows[0];
+        return {
+            ...result.rows[0],
+            clientTls: client.connection?.stream?.encrypted === true,
+        };
     } finally {
+        client?.release();
         await pool.end().catch(() => undefined);
     }
 }
@@ -217,7 +223,7 @@ let pinnedTlsConnectionAvailable = false;
 let pinnedTlsFailureReason = "none";
 try {
     const pinnedResult = await inspect(pinned.toString());
-    pinnedTlsConnectionAvailable = pinnedResult?.tls === true;
+    pinnedTlsConnectionAvailable = pinnedResult?.clientTls === true;
     if (!pinnedTlsConnectionAvailable) pinnedTlsFailureReason = "session_not_tls";
 } catch (error) {
     pinnedTlsConnectionAvailable = false;
@@ -228,7 +234,8 @@ let tlsWithoutCertificateVerificationAvailable = false;
 let tlsWithoutCertificateVerificationFailureReason = "none";
 try {
     const requiredResult = await inspect(tlsRequired.toString());
-    tlsWithoutCertificateVerificationAvailable = requiredResult?.tls === true;
+    tlsWithoutCertificateVerificationAvailable =
+        requiredResult?.clientTls === true;
     if (!tlsWithoutCertificateVerificationAvailable) {
         tlsWithoutCertificateVerificationFailureReason = "session_not_tls";
     }
@@ -257,7 +264,7 @@ const directEffectiveRoleLoginWithoutTlsAvailable =
     directWithoutTls !== undefined &&
     directWithoutTls.currentUser === current.currentUser &&
     directWithoutTls.sessionUser === current.currentUser &&
-    directWithoutTls.tls === false;
+    directWithoutTls.clientTls === false;
 
 let direct;
 try {
@@ -274,6 +281,7 @@ const directEffectiveRoleLoginAvailable =
     direct.sessionUser === current.currentUser;
 const directEffectiveRoleBoundaryVerified =
     directEffectiveRoleLoginAvailable &&
+    direct.clientTls === true &&
     direct.tls === true &&
     direct.superuser === false &&
     direct.administrativePrivilegesPresent === false &&
@@ -286,6 +294,7 @@ process.stdout.write(JSON.stringify({
     event: "production_database_boundary_inspected",
     status: "succeeded",
     currentConnection: {
+        clientTls: current.clientTls,
         tls: current.tls,
         roleSwitchingPresent: current.currentUser !== current.sessionUser,
         superuser: current.superuser,
@@ -316,6 +325,7 @@ if ! jq -e '
     .schemaVersion == 1 and
     .event == "production_database_boundary_inspected" and
     .status == "succeeded" and
+    (.currentConnection.clientTls | type == "boolean") and
     (.currentConnection.tls | type == "boolean") and
     (.currentConnection.roleSwitchingPresent | type == "boolean") and
     (.currentConnection.superuser | type == "boolean") and
@@ -324,6 +334,7 @@ if ! jq -e '
     (.currentConnection.roleMembershipPresent | type == "boolean") and
     (.currentConnection | keys | sort) == [
       "administrativePrivilegesPresent",
+      "clientTls",
       "otherDatabaseAccessPresent",
       "roleMembershipPresent",
       "roleSwitchingPresent",
