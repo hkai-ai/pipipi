@@ -69,6 +69,8 @@ Environment 只保存部署连接和非秘密 Queue identity，不保存应用�
 | Secret | `SSH_KNOWN_HOSTS` | 通过独立可信渠道核对并固定的目标服务器 host key；不得在发布时用 `ssh-keyscan` 临时信任 |
 | Secret | `ASYNC_INTERNAL_CALLER_A_AUTHORIZATION`、`ASYNC_INTERNAL_CALLER_B_AUTHORIZATION` | 两个不同、已认证 internal 操作者的网关凭证 |
 | Secret | `ASYNC_INTERNAL_SUCCESS_REQUEST`、`ASYNC_INTERNAL_FAILURE_REQUEST` | 受控成功请求与会稳定到达公开业务失败终态的请求 JSON；workflow 不输出或保存正文 |
+| Secret | `ASYNC_DATABASE_URL` | 数据库提供方签发给异步角色的专用非管理员连接；必须带用户名、密码、`uselibpqcompat=true`、`sslmode=verify-ca` 和容器内固定 CA 路径 `/etc/pipipi/pg-server.crt` |
+| Secret | `ASYNC_REDIS_URL` | 批准的外部 Redis 连接；必须使用带密码的 `rediss://`，不能指向基础 Compose 临时创建的 Redis |
 | Variable | `REMOTE_HOST`、`REMOTE_USER`、`REMOTE_PATH` | 与同步发布相同的服务器地址、账户和绝对应用目录 |
 | Variable | `ASYNC_INTERNAL_GATEWAY_BASE_URL` | 真实可信网关的 HTTPS Base URL |
 | Variable | `PROCESS_QUEUE_NAME`、`PROCESS_QUEUE_PREFIX` | internal Process Queue identity；已有异步形状不允许发布时改变 |
@@ -87,6 +89,10 @@ Environment 只保存部署连接和非秘密 Queue identity，不保存应用�
 ```
 
 每份角色文件只包含[配置表](#配置与分阶段启用)中该角色拥有的值；Queue name/prefix 与 `ASYNC_RELEASE_STAGE` 由发布入口覆盖，不放在 Secret 文件里。API 文件必须包含 `ASYNC_GATEWAY_SHARED_SECRET`，Webhook 文件必须包含 `WEBHOOK_SECRET_ENCRYPTION_KEY`，需要 OpenAI 的 API 与 Process Worker 各自包含自己的 `OPENAI_API_KEY`。不要把 `.env` 复制成五份。
+
+首次创建五份角色文件时，先手动运行受保护的 `.github/workflows/async-production-environment-provisioning.yml`，填写当前同步 revision、服务器已加载的候选 revision、`issue-<number>` 变更引用，并先选 `plan`。数据库与 Redis URL 只从 `async-internal` Environment Secret 读取，通过标准输入发送给远端脚本，不进入 SSH/SCP argv、日志或 artifact。入口要求两个同步容器正在运行、主 API 异步入口关闭、四个异步后台容器不存在，避免改写正在使用的角色配置。
+
+`plan` 持有与同步/异步发布相同的服务器部署锁，并在 `shared` 下的 0700 临时目录渲染候选文件：只从现有 `.env` 选取 API/Worker 共同拥有的 Agent 与 Process 配置，不复制 FAL、OSS 或其他角色 Secret；网关共享 Secret 和 Webhook 32-byte base64 Key 在服务器生成。它还要求 `.env` 中恰有一个 `DATABASE_URL`，在候选副本中只替换该行并保留其余配置。随后用候选不可变 image ID 和 `--network none` 验证连接契约与五角色环境预检，结束后删除候选文件。`apply` 重复同一验证，在提交前重验同步容器形状、候选镜像、五个目标，以及原 `.env` 的文件 identity 和完整摘要，再用同文件系统硬链接逐个安装，最后以已验证候选原子替换 `.env`；所有生产配置写入入口都必须遵守同一 `deployment.lock`，脚本会拒绝在提交前已观测到的锁外漂移，但普通文件系统不能为不持锁写入方提供 CAS 保证。在最后提交点前发生目标竞态、信号或安装失败时，脚本只删除仍与本次 candidate 为同一 inode 的角色文件，不会删除并发外部替换的文件。入口不覆盖或轮换已有角色文件，也不连接 PostgreSQL、Redis、模型或 Business Capability。artifact 只含 mode、revision、变更引用、候选验证、是否落盘，以及最终 `rollbackStatus`、`cleanupStatus`；失败证据只在清理完成后生成，清理或回滚不完整时本身也会失败。Runner 在脚本未启动、传输失败或输出非法时会写入脱敏的 transport/execution 失败证据；两类证据都不含 URL、Secret、摘要、临时路径或预检诊断。完成 `apply` 后必须重新运行下面的只读前置检查；它通过才能进入 internal release。
 
 在启用任何异步容器前，可以手动运行受保护的 `.github/workflows/async-production-prerequisites-inspection.yml`。输入当前同步生产 revision 与服务器上已加载的候选 revision；入口只读取服务器现状，不执行 migration、不启动或替换生产服务容器，也不连接 PostgreSQL、Redis、模型或 Business Capability。它要求当前主 API 与内部 Business API 都正在运行且匹配指定 revision、主 API 的异步入口精确关闭、四个异步后台容器尚未存在，并用候选镜像的不可变 image ID 创建无网络且自动删除的临时容器，分别执行五个角色的环境预检。检查期间若候选 tag 被重新指向其他镜像，整个检查 fail closed。
 

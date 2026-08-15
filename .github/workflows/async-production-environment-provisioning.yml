@@ -1,0 +1,220 @@
+name: Async production environment provisioning
+run-name: ${{ inputs.mode }} async role environments for ${{ inputs.candidate_sha }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      active_revision:
+        description: Active synchronous production full commit SHA
+        required: true
+        type: string
+      candidate_sha:
+        description: Loaded candidate image full commit SHA
+        required: true
+        type: string
+      mode:
+        description: Validate only or atomically create the five role files
+        required: true
+        default: plan
+        type: choice
+        options:
+          - plan
+          - apply
+      change_reference:
+        description: Approved issue reference such as issue-2
+        required: true
+        default: issue-2
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  provision:
+    name: Provision isolated async role environments
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: async-internal
+    concurrency:
+      group: pipipi-production-release
+      cancel-in-progress: false
+
+    steps:
+      - name: Initialize evidence directory
+        run: install -d -m 700 artifacts/async-production-environment-provisioning
+
+      - name: Validate request
+        env:
+          ACTIVE_REVISION: ${{ inputs.active_revision }}
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+          CHANGE_REFERENCE: ${{ inputs.change_reference }}
+          MODE: ${{ inputs.mode }}
+        run: |
+          set -Eeuo pipefail
+          [[ "$ACTIVE_REVISION" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$CANDIDATE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$MODE" =~ ^(plan|apply)$ ]]
+          [[ "$CHANGE_REFERENCE" =~ ^issue-[1-9][0-9]{0,9}$ ]]
+
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Validate production SSH target
+        env:
+          REMOTE_HOST: ${{ vars.REMOTE_HOST }}
+          REMOTE_PATH: ${{ vars.REMOTE_PATH }}
+          REMOTE_USER: ${{ vars.REMOTE_USER }}
+        run: |
+          set -Eeuo pipefail
+          ops/validate-production-ssh-target.sh \
+            "$REMOTE_HOST" "$REMOTE_USER" "$REMOTE_PATH"
+
+      - name: Configure SSH
+        env:
+          SSH_KNOWN_HOSTS: ${{ secrets.SSH_KNOWN_HOSTS }}
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+        run: |
+          set -Eeuo pipefail
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/id_ed25519 ~/.ssh/known_hosts
+
+      - name: Validate or apply role environments
+        env:
+          ACTIVE_REVISION: ${{ inputs.active_revision }}
+          ASYNC_DATABASE_URL: ${{ secrets.ASYNC_DATABASE_URL }}
+          ASYNC_REDIS_URL: ${{ secrets.ASYNC_REDIS_URL }}
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+          CHANGE_REFERENCE: ${{ inputs.change_reference }}
+          MODE: ${{ inputs.mode }}
+          PROCESS_QUEUE_NAME: ${{ vars.PROCESS_QUEUE_NAME }}
+          PROCESS_QUEUE_PREFIX: ${{ vars.PROCESS_QUEUE_PREFIX }}
+          REMOTE_HOST: ${{ vars.REMOTE_HOST }}
+          REMOTE_PATH: ${{ vars.REMOTE_PATH }}
+          REMOTE_USER: ${{ vars.REMOTE_USER }}
+          WEBHOOK_QUEUE_NAME: ${{ vars.WEBHOOK_QUEUE_NAME }}
+          WEBHOOK_QUEUE_PREFIX: ${{ vars.WEBHOOK_QUEUE_PREFIX }}
+        run: |
+          set -Eeuo pipefail
+          install -d -m 700 artifacts/async-production-environment-provisioning
+          evidence="artifacts/async-production-environment-provisioning/evidence.json"
+          remote_script="$REMOTE_PATH/shared/.provision-async-environments-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT.sh"
+          cleanup_remote=false
+          finalize() {
+            exit_code="$?"
+            trap - EXIT
+            set +e
+            if [ "$cleanup_remote" = true ]; then
+              ssh -o BatchMode=yes -o StrictHostKeyChecking=yes \
+                "$REMOTE_USER@$REMOTE_HOST" rm -f -- "$remote_script" \
+                >/dev/null 2>&1 || true
+            fi
+            exec ops/finalize-async-production-environment-evidence.sh \
+              "$evidence" \
+              "$exit_code" \
+              "$ACTIVE_REVISION" \
+              "$CANDIDATE_SHA" \
+              "$MODE" \
+              "$CHANGE_REFERENCE"
+          }
+          trap finalize EXIT
+          cleanup_remote=true
+          scp -q -o BatchMode=yes -o StrictHostKeyChecking=yes \
+            ops/provision-async-production-environments.sh \
+            "$REMOTE_USER@$REMOTE_HOST:$remote_script"
+          ssh -o BatchMode=yes -o StrictHostKeyChecking=yes \
+            "$REMOTE_USER@$REMOTE_HOST" chmod 700 -- "$remote_script"
+          {
+            printf '%s\0' "$ASYNC_DATABASE_URL"
+            printf '%s\0' "$ASYNC_REDIS_URL"
+          } | ssh -o BatchMode=yes -o StrictHostKeyChecking=yes \
+            "$REMOTE_USER@$REMOTE_HOST" bash "$remote_script" \
+            "$REMOTE_PATH" \
+            "$ACTIVE_REVISION" \
+            "$CANDIDATE_SHA" \
+            "$MODE" \
+            "$PROCESS_QUEUE_NAME" \
+            "$PROCESS_QUEUE_PREFIX" \
+            "$WEBHOOK_QUEUE_NAME" \
+            "$WEBHOOK_QUEUE_PREFIX" \
+            "$CHANGE_REFERENCE" \
+            > "$evidence"
+
+      - name: Finalize missing evidence
+        if: ${{ always() }}
+        env:
+          ACTIVE_REVISION: ${{ inputs.active_revision }}
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+          CHANGE_REFERENCE: ${{ inputs.change_reference }}
+          MODE: ${{ inputs.mode }}
+        run: |
+          set -Eeuo pipefail
+          install -d -m 700 artifacts/async-production-environment-provisioning
+          evidence="artifacts/async-production-environment-provisioning/evidence.json"
+          if ! jq -e \
+            --arg activeRevision "$ACTIVE_REVISION" \
+            --arg candidateRevision "$CANDIDATE_SHA" \
+            --arg changeReference "$CHANGE_REFERENCE" \
+            --arg mode "$MODE" '
+            def exact_keys($expected): (keys | sort) == ($expected | sort);
+            def common_shape:
+              .schemaVersion == 1 and
+              .event == "async_production_environment_provisioned" and
+              .mode == $mode and
+              .activeRevision == $activeRevision and
+              .candidateRevision == $candidateRevision and
+              .changeReference == $changeReference and
+              (.candidateVerified | type == "boolean") and
+              (.applied | type == "boolean") and
+              (
+                .rollbackStatus == "not_required" or
+                .rollbackStatus == "succeeded" or
+                .rollbackStatus == "failed" or
+                .rollbackStatus == "not_observed"
+              ) and
+              (
+                .cleanupStatus == "not_required" or
+                .cleanupStatus == "succeeded" or
+                .cleanupStatus == "failed" or
+                .cleanupStatus == "not_observed"
+              );
+            type == "object" and common_shape and
+            (
+              (
+                .status == "succeeded" and
+                .candidateVerified == true and
+                .applied == (.mode == "apply") and
+                .rollbackStatus == "not_required" and
+                .cleanupStatus == "succeeded" and
+                exact_keys([
+                  "schemaVersion", "event", "status", "mode",
+                  "activeRevision", "candidateRevision", "changeReference",
+                  "candidateVerified", "applied", "rollbackStatus", "cleanupStatus"
+                ])
+              ) or
+              (
+                .status == "failed" and
+                .candidateVerified == false and
+                (.failureReason | type == "string" and test("^[a-z0-9_]{1,64}$")) and
+                exact_keys([
+                  "schemaVersion", "event", "status", "mode",
+                  "activeRevision", "candidateRevision", "changeReference",
+                  "candidateVerified", "applied", "rollbackStatus", "cleanupStatus",
+                  "failureReason"
+                ])
+              )
+            )
+          ' "$evidence" >/dev/null 2>&1; then
+            printf '%s\n' '{"schemaVersion":1,"event":"async_production_environment_provisioned","status":"failed","mode":null,"activeRevision":null,"candidateRevision":null,"changeReference":null,"candidateVerified":false,"applied":false,"rollbackStatus":"not_observed","cleanupStatus":"not_observed","failureReason":"workflow_did_not_complete"}' > "$evidence"
+          fi
+
+      - name: Upload evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: pipipi-async-production-environment-provisioning-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/async-production-environment-provisioning/
+          if-no-files-found: error
+          retention-days: 30
