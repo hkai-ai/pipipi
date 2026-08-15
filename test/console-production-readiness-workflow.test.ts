@@ -3,17 +3,22 @@ import { describe, expect, it } from "vitest";
 
 describe("Console production readiness workflow", () => {
     it("is protected, read-only, same-revision, authenticated, and backup-gated", async () => {
-        const [workflow, serverAudit, runbook] = await Promise.all([
-            readFile(
-                ".github/workflows/console-production-readiness.yml",
-                "utf8",
-            ),
-            readFile(
-                "ops/collect-console-production-server-evidence.sh",
-                "utf8",
-            ),
-            readFile("docs/mvp-release-runbook.md", "utf8"),
-        ]);
+        const [workflow, serverAudit, gatewayHostAudit, runbook] =
+            await Promise.all([
+                readFile(
+                    ".github/workflows/console-production-readiness.yml",
+                    "utf8",
+                ),
+                readFile(
+                    "ops/collect-console-production-server-evidence.sh",
+                    "utf8",
+                ),
+                readFile(
+                    "ops/collect-console-gateway-host-evidence.sh",
+                    "utf8",
+                ),
+                readFile("docs/mvp-release-runbook.md", "utf8"),
+            ]);
 
         expect(workflow).toContain("workflow_dispatch:");
         expect(workflow).not.toMatch(/\n {2}(push|pull_request|schedule):/);
@@ -68,9 +73,35 @@ describe("Console production readiness workflow", () => {
         expect(serverAudit).toContain("sharedDatabaseUrlConfigured");
         expect(serverAudit).toContain("databaseCaPresent");
         expect(serverAudit).toContain("backupEvidencePresent");
+        expect(workflow).toContain("name: Inspect console gateway host");
+        expect(workflow).toContain("steps.server.outcome == 'failure'");
+        expect(workflow).toContain(
+            "< ops/collect-console-gateway-host-evidence.sh",
+        );
+        expect(workflow).toContain(
+            "> artifacts/console-production-readiness/gateway-host.json",
+        );
+        expect(workflow).toContain(
+            'publicPath: url.pathname.replace(/\\/$/, "")',
+        );
+        expect(workflow).toContain('"$domain" "$public_path"');
+        expect(gatewayHostAudit).toContain("console_gateway_host_inspected");
+        expect(gatewayHostAudit).toContain("config_enumeration_failed");
+        expect(gatewayHostAudit).toContain("config_parse_failed");
+        expect(gatewayHostAudit).toContain("matchingServerBlockCount");
+        expect(gatewayHostAudit).toContain("docker inspect");
+        expect(gatewayHostAudit).toContain("authBasicDirectiveCount");
+        expect(gatewayHostAudit).toContain("authRequestDirectiveCount");
+        expect(gatewayHostAudit).toContain("proxyPassDirectiveCount");
+        expect(gatewayHostAudit).toContain("reloadAdapter");
+        expect(gatewayHostAudit).not.toContain("sed -i");
+        expect(gatewayHostAudit).not.toContain("docker restart");
+        expect(gatewayHostAudit).not.toContain("docker exec");
         expect(runbook).toContain("databaseAuditFailure");
         expect(runbook).toContain("role_switching_present");
         expect(runbook).toContain("connection_or_unclassified_failure");
+        expect(runbook).toContain("gateway-host.json");
+        expect(runbook).toContain("console_gateway_host_inspected");
         expect(workflow).toContain("name: Record failed readiness gate");
         expect(workflow).toMatch(
             /SERVER_OUTCOME: \$\{\{ steps\.server\.outcome \}\}/,

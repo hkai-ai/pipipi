@@ -61,6 +61,33 @@ jobs:
             < ops/collect-console-production-server-evidence.sh \
             > artifacts/console-production-readiness/server.json
 
+      - name: Inspect console gateway host
+        if: ${{ failure() && steps.server.outcome == 'failure' }}
+        env:
+          CONSOLE_PUBLIC_URL: ${{ vars.CONSOLE_PUBLIC_URL }}
+          REMOTE_HOST: ${{ vars.REMOTE_HOST }}
+          REMOTE_USER: ${{ vars.REMOTE_USER }}
+        run: |
+          set -Eeuo pipefail
+          install -d -m 700 artifacts/console-production-readiness
+          target="$(node --input-type=module --eval '
+            const url = new URL(process.env.CONSOLE_PUBLIC_URL ?? "");
+            if (
+              url.protocol !== "https:" || url.username || url.password ||
+              url.search || url.hash || url.pathname === "/"
+            ) throw new Error("CONSOLE_PUBLIC_URL must be a protected HTTPS path");
+            console.log(JSON.stringify({
+              domain: url.hostname,
+              publicPath: url.pathname.replace(/\/$/, ""),
+            }));
+          ')"
+          domain="$(jq -r '.domain' <<< "$target")"
+          public_path="$(jq -r '.publicPath' <<< "$target")"
+          ssh -o BatchMode=yes -o StrictHostKeyChecking=yes \
+            "$REMOTE_USER@$REMOTE_HOST" bash -s -- "$domain" "$public_path" \
+            < ops/collect-console-gateway-host-evidence.sh \
+            > artifacts/console-production-readiness/gateway-host.json
+
       - name: Verify console gateway authentication
         id: gateway
         env:
