@@ -88,6 +88,10 @@ Environment 只保存部署连接和非秘密 Queue identity，不保存应用�
 
 每份角色文件只包含[配置表](#配置与分阶段启用)中该角色拥有的值；Queue name/prefix 与 `ASYNC_RELEASE_STAGE` 由发布入口覆盖，不放在 Secret 文件里。API 文件必须包含 `ASYNC_GATEWAY_SHARED_SECRET`，Webhook 文件必须包含 `WEBHOOK_SECRET_ENCRYPTION_KEY`，需要 OpenAI 的 API 与 Process Worker 各自包含自己的 `OPENAI_API_KEY`。不要把 `.env` 复制成五份。
 
+在启用任何异步容器前，可以手动运行受保护的 `.github/workflows/async-production-prerequisites-inspection.yml`。输入当前同步生产 revision 与服务器上已加载的候选 revision；入口只读取服务器现状，不执行 migration、不启动或替换生产服务容器，也不连接 PostgreSQL、Redis、模型或 Business Capability。它要求当前主 API 与内部 Business API 都正在运行且匹配指定 revision、主 API 的异步入口精确关闭、四个异步后台容器尚未存在，并用候选镜像的不可变 image ID 创建无网络且自动删除的临时容器，分别执行五个角色的环境预检。检查期间若候选 tag 被重新指向其他镜像，整个检查 fail closed。
+
+证据只包含 revision 和布尔结果：数据库 CA 是否存在、六份配置中的 `DATABASE_URL` 摘要是否一致、Dispatcher/Worker/Webhook 的 `REDIS_URL` 摘要是否一致、Redis URL 是否使用 `rediss://`、网关共享 Secret 是否至少 32 bytes、Webhook 加密 Key 是否为规范的 32-byte base64，以及各角色文件是否为非符号链接的 `root:root 0600` 文件、变量名是否全部属于该角色的显式 allowlist、预检是否通过。存在未授权或重复变量时，不会把该文件注入候选预检容器。`redisTlsConfigured` 只证明 URL scheme，不证明网络可达、服务端证书有效或 Redis 高可用；角色预检也不能替代 Construction、readiness、备份恢复、容量和真实网关 smoke。artifact 不保存 URL、Secret、摘要、预检诊断或业务内容。
+
 手动运行时填写四项：完整 40 位 `candidate_sha`、生成其 release artifact 的 `candidate_ci_run_id`、已复核的 PostgreSQL `backup_id` 和审计用 `recovery_actor_id`。入口核对 CI run 的 commit、workflow 路径和完成状态，并要求该 run 的 `Check and build` 与 `Async durable acceptance` 都成功；随后只下载 `pipipi-<commit>` artifact，不重新构建镜像。
 
 远端 [`../ops/deploy-async-internal.sh`](../ops/deploy-async-internal.sh) 固定执行以下门禁：

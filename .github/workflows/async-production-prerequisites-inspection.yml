@@ -1,0 +1,97 @@
+name: Async production prerequisites inspection
+run-name: Async prerequisites for ${{ inputs.candidate_sha }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      active_revision:
+        description: Active production full commit SHA
+        required: true
+        type: string
+      candidate_sha:
+        description: Loaded candidate image full commit SHA
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    name: Inspect async production prerequisites without activation
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: async-internal
+    concurrency:
+      group: pipipi-production-release
+      cancel-in-progress: false
+
+    steps:
+      - name: Validate request
+        env:
+          ACTIVE_REVISION: ${{ inputs.active_revision }}
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+        run: |
+          set -Eeuo pipefail
+          [[ "$ACTIVE_REVISION" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$CANDIDATE_SHA" =~ ^[0-9a-f]{40}$ ]]
+
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Validate production SSH target
+        env:
+          REMOTE_HOST: ${{ vars.REMOTE_HOST }}
+          REMOTE_PATH: ${{ vars.REMOTE_PATH }}
+          REMOTE_USER: ${{ vars.REMOTE_USER }}
+        run: |
+          set -Eeuo pipefail
+          ops/validate-production-ssh-target.sh \
+            "$REMOTE_HOST" "$REMOTE_USER" "$REMOTE_PATH"
+
+      - name: Configure SSH
+        env:
+          SSH_KNOWN_HOSTS: ${{ secrets.SSH_KNOWN_HOSTS }}
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+        run: |
+          set -Eeuo pipefail
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/id_ed25519 ~/.ssh/known_hosts
+
+      - name: Inspect async prerequisites
+        env:
+          ACTIVE_REVISION: ${{ inputs.active_revision }}
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+          PROCESS_QUEUE_NAME: ${{ vars.PROCESS_QUEUE_NAME }}
+          PROCESS_QUEUE_PREFIX: ${{ vars.PROCESS_QUEUE_PREFIX }}
+          REMOTE_HOST: ${{ vars.REMOTE_HOST }}
+          REMOTE_PATH: ${{ vars.REMOTE_PATH }}
+          REMOTE_USER: ${{ vars.REMOTE_USER }}
+          WEBHOOK_QUEUE_NAME: ${{ vars.WEBHOOK_QUEUE_NAME }}
+          WEBHOOK_QUEUE_PREFIX: ${{ vars.WEBHOOK_QUEUE_PREFIX }}
+        run: |
+          set -Eeuo pipefail
+          install -d -m 700 artifacts/async-production-prerequisites
+          ssh -o BatchMode=yes -o StrictHostKeyChecking=yes \
+            "$REMOTE_USER@$REMOTE_HOST" bash -s -- \
+            "$REMOTE_PATH" \
+            "$ACTIVE_REVISION" \
+            "$CANDIDATE_SHA" \
+            "$PROCESS_QUEUE_NAME" \
+            "$PROCESS_QUEUE_PREFIX" \
+            "$WEBHOOK_QUEUE_NAME" \
+            "$WEBHOOK_QUEUE_PREFIX" \
+            < ops/inspect-async-production-prerequisites.sh \
+            > artifacts/async-production-prerequisites/evidence.json
+
+      - name: Upload evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: pipipi-async-production-prerequisites-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/async-production-prerequisites/
+          if-no-files-found: error
+          retention-days: 30
