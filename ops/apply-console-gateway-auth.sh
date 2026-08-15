@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-if [ "$#" -ne 11 ]; then
-    echo "Usage: $0 <domain> <public-path> <public-url> <revision> <host-config> <config-sha256> <container> <container-config> <htpasswd-source> <authorization-source> <collector>" >&2
+if [ "$#" -ne 13 ]; then
+    echo "Usage: $0 <domain> <public-path> <public-url> <revision> <host-config> <config-sha256> <container> <container-config> <htpasswd-source> <authorization-source> <collector> <application-container> <legacy-revision-or-none>" >&2
     exit 64
 fi
 
@@ -17,6 +17,8 @@ container_config="$8"
 htpasswd_source="$9"
 authorization_source="${10}"
 collector="${11}"
+application_container="${12}"
+legacy_revision="${13}"
 
 if ! [[ "$domain" =~ ^[a-z0-9.-]+$ ]] ||
     ! [[ "$public_path" =~ ^/[A-Za-z0-9_-]+$ ]] ||
@@ -25,7 +27,10 @@ if ! [[ "$domain" =~ ^[a-z0-9.-]+$ ]] ||
     ! [[ "$expected_config_sha256" =~ ^[0-9a-f]{64}$ ]] ||
     ! [[ "$host_config" =~ ^/[A-Za-z0-9._/-]+$ ]] ||
     ! [[ "$container_config" =~ ^/[A-Za-z0-9._/-]+$ ]] ||
-    ! [[ "$container" =~ ^[A-Za-z0-9_.-]+$ ]]; then
+    ! [[ "$container" =~ ^[A-Za-z0-9_.-]+$ ]] ||
+    ! [[ "$application_container" =~ ^[A-Za-z0-9_.-]+$ ]] ||
+    { [ "$legacy_revision" != "none" ] && ! [[ "$legacy_revision" =~ ^[0-9a-f]{40}$ ]]; } ||
+    { [ "$legacy_revision" != "none" ] && [ "$legacy_revision" != "$revision" ]; }; then
     exit 64
 fi
 for source in "$htpasswd_source" "$authorization_source" "$collector"; do
@@ -73,6 +78,8 @@ backup_directory="$(mktemp -d)"
 curl_config="$backup_directory/curl.conf"
 headers="$backup_directory/headers"
 anonymous_headers="$backup_directory/anonymous-headers"
+local_body="$backup_directory/local-body"
+public_body="$backup_directory/public-body"
 auth_host_config="$(dirname "$host_config")/.pipipi-console.htpasswd"
 auth_container_config="$(dirname "$container_config")/.pipipi-console.htpasswd"
 config_backup="$backup_directory/site.conf"
@@ -85,6 +92,88 @@ credential_sha256="$(sha256sum "$htpasswd_source" | cut -d ' ' -f 1)"
 auth_backup_sha256=""
 rollback_status="not_required"
 failure_stage="precondition"
+
+verify_response_contract() {
+    local suffix="$1"
+    local response_headers="$2"
+    local response_body="$3"
+    if [ "$suffix" = "" ]; then
+        awk '
+            {
+                line = tolower($0)
+                sub(/\r$/, "", line)
+                if (line ~ /^content-type:[[:space:]]*text\/html([[:space:];]|$)/) found = 1
+            }
+            END { exit(found ? 0 : 1) }
+        ' "$response_headers" &&
+            grep -Fq '<title>Business Process 控制台</title>' "$response_body" &&
+            grep -Fq 'id="console"' "$response_body"
+    elif [ "$suffix" = "/processes" ]; then
+        awk '
+            {
+                line = tolower($0)
+                sub(/\r$/, "", line)
+                if (line ~ /^content-type:[[:space:]]*application\/json([[:space:];]|$)/) found = 1
+            }
+            END { exit(found ? 0 : 1) }
+        ' "$response_headers" &&
+            jq --exit-status '
+                (.processes | type == "array" and length > 0) and
+                all(.processes[];
+                    (.process | type == "string") and
+                    (.version | type == "string") and
+                    (.activities | type == "array"))
+            ' "$response_body" >/dev/null
+    else
+        awk '
+            {
+                line = tolower($0)
+                sub(/\r$/, "", line)
+                if (line ~ /^content-type:[[:space:]]*application\/json([[:space:];]|$)/) found = 1
+            }
+            END { exit(found ? 0 : 1) }
+        ' "$response_headers" &&
+            jq --exit-status '
+                (.totals.succeeded | type == "number") and
+                (.totals.failed | type == "number") and
+                (.byDay | type == "array") and
+                (.recentFailures | type == "array") and
+                (.concurrency.active | type == "number") and
+                (.concurrency.limit | type == "number")
+            ' "$response_body" >/dev/null
+    fi
+}
+
+revision_header_mode() {
+    local response_headers="$1"
+    local count
+    local values
+    count="$(awk '
+        {
+            line = $0
+            sub(/\r$/, "", line)
+            if (tolower(line) ~ /^x-pipipi-revision:[[:space:]]*/) count += 1
+        }
+        END { print count + 0 }
+    ' "$response_headers")"
+    values="$(awk '
+        {
+            line = $0
+            sub(/\r$/, "", line)
+            if (tolower(line) ~ /^x-pipipi-revision:[[:space:]]*/) {
+                sub(/^[^:]*:[[:space:]]*/, "", line)
+                print line
+            }
+        }
+    ' "$response_headers")"
+    if [ "$count" -eq 1 ] && [ "$values" = "$revision" ]; then
+        printf '%s' header
+    elif [ "$count" -eq 0 ] && [ "$legacy_revision" = "$revision" ]; then
+        printf '%s' legacy
+    else
+        return 1
+    fi
+}
 
 cleanup() {
     rm -f -- "$evidence"
@@ -175,6 +264,15 @@ trap cleanup EXIT
 actual_config_sha256="$(sha256sum "$host_config" | cut -d ' ' -f 1)"
 if [ "$actual_config_sha256" != "$expected_config_sha256" ]; then
     echo "Gateway configuration digest changed" >&2
+    rollback
+fi
+application_snapshot="$(docker inspect "$application_container" --format '{{.Id}}|{{.State.Running}}|{{index .Config.Labels "com.pipipi.revision"}}')"
+IFS='|' read -r application_identity application_running application_revision extra_application_field <<< "$application_snapshot"
+if ! [[ "$application_identity" =~ ^[0-9a-f]{64}$ ]] ||
+    [ "$application_running" != true ] ||
+    [ "$application_revision" != "$revision" ] ||
+    [ -n "$extra_application_field" ]; then
+    echo "Application container revision does not match" >&2
     rollback
 fi
 
@@ -310,8 +408,60 @@ printf 'header = "Authorization: %s"\n' "$authorization" > "$curl_config"
 chmod 600 "$curl_config"
 anonymous_statuses=""
 authenticated_statuses=""
+local_anonymous_statuses=""
+local_authenticated_statuses=""
+header_revision_count=0
+legacy_revision_count=0
 for suffix in "" "/processes" "/stats?hours=1"; do
-    failure_stage="anonymous_probe"
+    failure_stage="local_anonymous_probe"
+    : > "$anonymous_headers"
+    local_anonymous_status="$(curl --silent --show-error --output /dev/null \
+        --dump-header "$anonymous_headers" --write-out '%{http_code}' \
+        --connect-timeout 10 --max-time 20 --proto '=https' --noproxy '*' \
+        --resolve "$domain:443:127.0.0.1" "$public_url$suffix")"
+    if [ "$local_anonymous_status" != "401" ] || ! awk '
+        {
+            line = tolower($0)
+            sub(/\r$/, "", line)
+            if (line ~ /^www-authenticate:[[:space:]]*basic([[:space:]]|$)/) found = 1
+        }
+        END { exit(found ? 0 : 1) }
+    ' "$anonymous_headers"; then
+        echo "Local anonymous Console probe was not rejected" >&2
+        rollback
+    fi
+    failure_stage="local_authenticated_probe"
+    : > "$headers"
+    : > "$local_body"
+    local_authenticated_status="$(curl --silent --show-error --output "$local_body" \
+        --dump-header "$headers" --write-out '%{http_code}' \
+        --connect-timeout 10 --max-time 20 --max-filesize 1048576 \
+        --proto '=https' --noproxy '*' \
+        --resolve "$domain:443:127.0.0.1" \
+        --config "$curl_config" "$public_url$suffix")"
+    if [ "$local_authenticated_status" != "200" ]; then
+        echo "Local authenticated Console probe failed" >&2
+        rollback
+    fi
+    failure_stage="local_revision_probe"
+    local_revision_mode="$(revision_header_mode "$headers")" || {
+        echo "Local Console revision probe failed" >&2
+        rollback
+    }
+    failure_stage="local_contract_probe"
+    if ! verify_response_contract "$suffix" "$headers" "$local_body"; then
+        echo "Local Console response contract is invalid" >&2
+        rollback
+    fi
+    if [ "$local_revision_mode" = header ]; then
+        header_revision_count=$((header_revision_count + 1))
+    else
+        legacy_revision_count=$((legacy_revision_count + 1))
+    fi
+    local_anonymous_statuses+="${local_anonymous_status}"$'\n'
+    local_authenticated_statuses+="${local_authenticated_status}"$'\n'
+
+    failure_stage="public_anonymous_probe"
     : > "$anonymous_headers"
     anonymous_status="$(curl --silent --show-error --output /dev/null \
         --dump-header "$anonymous_headers" --write-out '%{http_code}' \
@@ -328,33 +478,52 @@ for suffix in "" "/processes" "/stats?hours=1"; do
         echo "Anonymous Console probe was not rejected" >&2
         rollback
     fi
-    failure_stage="authenticated_probe"
+    failure_stage="public_authenticated_probe"
     : > "$headers"
-    authenticated_status="$(curl --silent --show-error --output /dev/null \
+    : > "$public_body"
+    authenticated_status="$(curl --silent --show-error --output "$public_body" \
         --dump-header "$headers" --write-out '%{http_code}' \
-        --connect-timeout 10 --max-time 20 --proto '=https' \
+        --connect-timeout 10 --max-time 20 --max-filesize 1048576 \
+        --proto '=https' \
         --config "$curl_config" "$public_url$suffix")"
     if [ "$authenticated_status" != "200" ]; then
         echo "Authenticated Console probe failed" >&2
         rollback
     fi
-    failure_stage="revision_probe"
-    if ! awk -v revision="$revision" '
-        BEGIN { found = 0 }
-        {
-            line = $0
-            sub(/\r$/, "", line)
-            if (tolower(line) == "x-pipipi-revision: " revision) found = 1
-        }
-        END { exit(found ? 0 : 1) }
-    ' "$headers"; then
+    failure_stage="public_revision_probe"
+    public_revision_mode="$(revision_header_mode "$headers")" || {
         echo "Console revision probe failed" >&2
         rollback
+    }
+    failure_stage="public_contract_probe"
+    if ! verify_response_contract "$suffix" "$headers" "$public_body"; then
+        echo "Public Console response contract is invalid" >&2
+        rollback
+    fi
+    if [ "$public_revision_mode" = header ]; then
+        header_revision_count=$((header_revision_count + 1))
+    else
+        legacy_revision_count=$((legacy_revision_count + 1))
     fi
     anonymous_statuses+="${anonymous_status}"$'\n'
     authenticated_statuses+="${authenticated_status}"$'\n'
 done
 
+failure_stage="revision_consistency"
+if [ "$header_revision_count" -eq 6 ] && [ "$legacy_revision_count" -eq 0 ]; then
+    revision_verification="response_header_and_contract"
+elif [ "$header_revision_count" -eq 0 ] && [ "$legacy_revision_count" -eq 6 ]; then
+    revision_verification="legacy_container_and_contract"
+else
+    echo "Console revision evidence is inconsistent" >&2
+    rollback
+fi
+
+failure_stage="application_revision_consistency"
+if [ "$(docker inspect "$application_container" --format '{{.Id}}|{{.State.Running}}|{{index .Config.Labels "com.pipipi.revision"}}')" != "$application_snapshot" ]; then
+    echo "Application container changed during verification" >&2
+    rollback
+fi
 failure_stage="credential_consistency"
 if [ "$(sha256sum "$auth_host_config" 2>/dev/null | cut -d ' ' -f 1)" != "$credential_sha256" ] ||
     [ "$(docker exec "$container" stat -c '%a:%g' "$auth_container_config")" != "640:$worker_gid" ]; then
@@ -370,8 +539,11 @@ fi
 failure_stage="evidence"
 if ! jq -n \
     --arg revision "$revision" \
+    --arg revisionVerification "$revision_verification" \
     --arg configSha256 "$config_sha256" \
     --arg rollbackStatus "$rollback_status" \
+    --arg localAnonymousStatuses "$local_anonymous_statuses" \
+    --arg localAuthenticatedStatuses "$local_authenticated_statuses" \
     --arg anonymousStatuses "$anonymous_statuses" \
     --arg authenticatedStatuses "$authenticated_statuses" '
     {
@@ -379,7 +551,10 @@ if ! jq -n \
         event: "console_gateway_auth_changed",
         status: "succeeded",
         revision: $revision,
+        revisionVerification: $revisionVerification,
         configSha256: $configSha256,
+        localAnonymousStatus: ($localAnonymousStatuses | split("\n") | map(select(length > 0) | tonumber)),
+        localAuthenticatedStatus: ($localAuthenticatedStatuses | split("\n") | map(select(length > 0) | tonumber)),
         anonymousStatus: ($anonymousStatuses | split("\n") | map(select(length > 0) | tonumber)),
         authenticatedStatus: ($authenticatedStatuses | split("\n") | map(select(length > 0) | tonumber)),
         rollbackStatus: $rollbackStatus

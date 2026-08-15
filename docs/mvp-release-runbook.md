@@ -366,9 +366,11 @@ location /console {
 }
 ```
 
-现有生产虚拟主机由 1Panel 管理、Console 与其他 Interface 共用同一反代时，使用受保护的 [Console gateway change](../.github/workflows/console-gateway-change.yml) 做一次性变更。工作流要求先由只读 readiness artifact 固定宿主配置路径、SHA-256、容器名与容器内配置路径；变更前再次核对完整摘要和 mount Adapter，从已核验备份生成 candidate，并在凭证安装前和原子替换前重复校验活动摘要，避免覆盖 1Panel 并发变更。它只在唯一 `server_name` 内按 `$uri` 为 Console 路径启用动态 Basic realm，不改变已有 `location` 或 `proxy_pass`。
+现有生产虚拟主机由 1Panel 管理、Console 与其他 Interface 共用同一反代时，使用受保护的 [Console gateway change](../.github/workflows/console-gateway-change.yml) 做一次性变更。工作流要求先由只读 readiness artifact 固定宿主配置路径、SHA-256、网关容器名与容器内配置路径；`CONSOLE_GATEWAY_APPLICATION_CONTAINER` 固定提供 Console 的应用容器。变更前再次核对完整摘要、mount Adapter 和应用容器的 `com.pipipi.revision` label，从已核验备份生成 candidate，并在凭证安装前和原子替换前重复校验活动摘要，避免覆盖 1Panel 并发变更。它只在唯一 `server_name` 内按 `$uri` 为 Console 路径启用动态 Basic realm，不改变已有 `location` 或 `proxy_pass`。
 
-工作流仅允许生产 root SSH Adapter，把 `CONSOLE_BASIC_AUTH_HTPASSWD` 与 `CONSOLE_AUTHORIZATION` 作为相互独立的 Environment Secret 临时传到权限为 `0700` 的服务器目录；认证文件由 root 持有、group 精确设置为活动 OpenResty worker GID，权限为 `0640`。安装后执行 `openresty -t`、reload、三条匿名/认证公网探测和 revision 核对；匿名请求必须是带 `WWW-Authenticate: Basic` challenge 的 `401`，普通上游 `403` 不算认证生效。配置测试、reload、探测、revision、证据输出或 SSH hangup 任一步失败都恢复本次实际改变的配置与认证文件并再次测试、reload；若 1Panel 在 activation 前改变配置，只撤销本次认证文件变更，绝不以旧备份覆盖外部配置。成功 artifact 只记录状态码、revision 和配置摘要；失败 artifact 只记录稳定失败阶段与 `rollbackStatus`，不包含用户名、凭证、配置正文或上游地址。
+工作流仅允许生产 root SSH Adapter，把 `CONSOLE_BASIC_AUTH_HTPASSWD` 与 `CONSOLE_AUTHORIZATION` 作为相互独立的 Environment Secret 临时传到权限为 `0700` 的服务器目录；认证文件由 root 持有、group 精确设置为活动 OpenResty worker GID，权限为 `0640`。安装后执行 `openresty -t` 和 reload，再对页面、Process 目录和统计 Interface 分别执行本机 HTTPS 与公网匿名/认证探测。匿名请求必须返回带 `WWW-Authenticate: Basic` challenge 的 `401`；普通上游 `403` 不算认证生效。认证请求必须返回 `200`，并满足 HTML、Process catalog JSON 或统计 JSON 契约。
+
+正常版本的六条认证响应都必须携带输入 revision 的 `x-pipipi-revision`。若活动旧版本尚未实现该响应头，Environment 可临时设置 `CONSOLE_GATEWAY_LEGACY_REVISION`；它必须精确等于本次输入 SHA。此兼容路径仍要求六条返回体契约全部匹配，并在探测前后确认应用容器保持运行、容器身份未变且 revision label 精确匹配；它不接受空、重复、混合或错误响应头。新版本上线后删除该变量。配置测试、reload、探测、revision、契约、证据输出或 SSH hangup 任一步失败都恢复本次实际改变的配置与认证文件，并再次测试、reload；若 1Panel 在 activation 前改变配置，只撤销本次认证文件变更，绝不以旧备份覆盖外部配置。成功 artifact 只记录状态码、revision、revision 验证方式和配置摘要；失败 artifact 只记录稳定失败阶段与 `rollbackStatus`，不包含用户名、凭证、响应体、配置正文或上游地址。
 
 控制台上线后，还必须对当前生产 revision 手动运行 [Console production readiness](../.github/workflows/console-production-readiness.yml)。该工作流绑定受保护的 `console-production-readiness` Environment，只读检查服务器和公网网关，不部署镜像、不切换流量，也不触发 Process。Environment 需要以下配置：
 

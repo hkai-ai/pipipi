@@ -78,7 +78,7 @@ describe("Console gateway authentication change", () => {
         expect(JSON.parse(result.stdout)).toMatchObject({
             event: "console_gateway_auth_change_failed",
             status: "failed",
-            failureStage: "anonymous_probe",
+            failureStage: "public_anonymous_probe",
             rollbackStatus: "succeeded",
         });
         expect(await readFile(fixture.config, "utf8")).toBe(original);
@@ -92,6 +92,125 @@ describe("Console gateway authentication change", () => {
         expect(dockerLog.match(/openresty -s reload/g)).toHaveLength(2);
     });
 
+    it("rolls back before public verification when the local gateway does not challenge", async () => {
+        const fixture = await createFixture({ localAnonymousStatus: 200 });
+        const original = await readFile(fixture.config, "utf8");
+
+        const result = runChange(fixture);
+
+        expect(result.status).not.toBe(0);
+        expect(JSON.parse(result.stdout)).toMatchObject({
+            failureStage: "local_anonymous_probe",
+            rollbackStatus: "succeeded",
+        });
+        expect(await readFile(fixture.config, "utf8")).toBe(original);
+    });
+
+    it("accepts a pinned legacy revision only when the container label and response contracts agree", async () => {
+        const fixture = await createFixture({
+            legacyRevision: REVISION,
+            revisionHeader: false,
+        });
+
+        const result = runChange(fixture);
+
+        expect(result.status, result.stderr).toBe(0);
+        expect(JSON.parse(result.stdout)).toMatchObject({
+            revision: REVISION,
+            revisionVerification: "legacy_container_and_contract",
+            localAnonymousStatus: [401, 401, 401],
+            localAuthenticatedStatus: [200, 200, 200],
+        });
+    });
+
+    it("rejects a legacy response when the application container revision differs", async () => {
+        const fixture = await createFixture({
+            applicationRevision: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            legacyRevision: REVISION,
+            revisionHeader: false,
+        });
+
+        const result = runChange(fixture);
+
+        expect(result.status).not.toBe(0);
+        expect(JSON.parse(result.stdout)).toMatchObject({
+            failureStage: "precondition",
+            rollbackStatus: "not_required",
+        });
+    });
+
+    it("rolls back when a legacy response body does not satisfy the Console contract", async () => {
+        const fixture = await createFixture({
+            legacyRevision: REVISION,
+            processContractValid: false,
+            revisionHeader: false,
+        });
+
+        const result = runChange(fixture);
+
+        expect(result.status).not.toBe(0);
+        expect(JSON.parse(result.stdout)).toMatchObject({
+            failureStage: "local_contract_probe",
+            rollbackStatus: "succeeded",
+        });
+    });
+
+    it("rolls back if the application revision changes during verification", async () => {
+        const fixture = await createFixture({
+            changeApplicationRevisionDuringProbe: true,
+        });
+
+        const result = runChange(fixture);
+
+        expect(result.status).not.toBe(0);
+        expect(JSON.parse(result.stdout)).toMatchObject({
+            failureStage: "application_revision_consistency",
+            rollbackStatus: "succeeded",
+        });
+    });
+
+    it("rolls back if the application container is replaced during verification", async () => {
+        const fixture = await createFixture({
+            changeApplicationIdentityDuringProbe: true,
+        });
+
+        const result = runChange(fixture);
+
+        expect(result.status).not.toBe(0);
+        expect(JSON.parse(result.stdout)).toMatchObject({
+            failureStage: "application_revision_consistency",
+            rollbackStatus: "succeeded",
+        });
+    });
+
+    it("rejects an empty revision header instead of treating it as absent", async () => {
+        const fixture = await createFixture({
+            emptyRevisionHeader: true,
+            legacyRevision: REVISION,
+            revisionHeader: false,
+        });
+
+        const result = runChange(fixture);
+
+        expect(result.status).not.toBe(0);
+        expect(JSON.parse(result.stdout)).toMatchObject({
+            failureStage: "local_revision_probe",
+            rollbackStatus: "succeeded",
+        });
+    });
+
+    it("rejects duplicate revision headers", async () => {
+        const fixture = await createFixture({ duplicateRevisionHeader: true });
+
+        const result = runChange(fixture);
+
+        expect(result.status).not.toBe(0);
+        expect(JSON.parse(result.stdout)).toMatchObject({
+            failureStage: "local_revision_probe",
+            rollbackStatus: "succeeded",
+        });
+    });
+
     it("reports a failed rollback without exposing credentials", async () => {
         const fixture = await createFixture({
             anonymousStatus: 200,
@@ -103,7 +222,7 @@ describe("Console gateway authentication change", () => {
         expect(result.status).not.toBe(0);
         expect(JSON.parse(result.stdout)).toMatchObject({
             event: "console_gateway_auth_change_failed",
-            failureStage: "anonymous_probe",
+            failureStage: "public_anonymous_probe",
             rollbackStatus: "failed",
         });
         expect(result.stdout).not.toContain("fixture-password");
@@ -145,7 +264,9 @@ describe("Console gateway authentication change", () => {
             failureStage: "precondition",
             rollbackStatus: "not_required",
         });
-        expect(await readFile(fixture.dockerLog, "utf8")).toBe("");
+        expect(await readFile(fixture.dockerLog, "utf8")).toMatch(
+            /^inspect pipipi --format .*com\.pipipi\.revision.*\n$/,
+        );
     });
 
     it("fails closed without replacing a dangling credential symlink", async () => {
@@ -362,18 +483,28 @@ describe("Console gateway authentication change", () => {
 
     async function createFixture(
         options: {
+            applicationRevision?: string;
             anonymousChallenge?: boolean;
             anonymousStatus?: number;
+            changeApplicationIdentityDuringProbe?: boolean;
+            changeApplicationRevisionDuringProbe?: boolean;
             changeDuringCollector?: boolean;
             changeBeforeActivation?: boolean;
             changeDuringProbe?: boolean;
             changeCredentialDuringProbe?: boolean;
             danglingAuth?: boolean;
+            duplicateRevisionHeader?: boolean;
+            emptyRevisionHeader?: boolean;
             failRollback?: boolean;
             failCredentialPreparation?: boolean;
             failConfigRestore?: boolean;
             existingAuth?: boolean;
+            legacyRevision?: string;
+            localAnonymousChallenge?: boolean;
+            localAnonymousStatus?: number;
             probeDelay?: boolean;
+            processContractValid?: boolean;
+            revisionHeader?: boolean;
             restoreOriginalDuringProbe?: boolean;
             signalStage?: "install" | "auth-mv" | "config-mv";
         } = {},
@@ -442,6 +573,21 @@ if [ "\${3:-}" = "stat" ]; then
   printf '%s\n' '640:101'
   exit 0
 fi
+if [[ "$*" == *"com.pipipi.revision"* ]]; then
+  application_id="bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+  if [ "$FAKE_CHANGE_APPLICATION_IDENTITY_DURING_PROBE" = true ] &&
+     [ -e "$FAKE_APPLICATION_REVISION_CHANGE_MARKER" ]; then
+    application_id="cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+  fi
+  if [ "$FAKE_CHANGE_APPLICATION_REVISION_DURING_PROBE" = true ] &&
+     [ -e "$FAKE_APPLICATION_REVISION_CHANGE_MARKER" ]; then
+    application_revision="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  else
+    application_revision="$FAKE_APP_REVISION"
+  fi
+  printf '%s|true|%s\n' "$application_id" "$application_revision"
+  exit 0
+fi
 if [ "$FAKE_FAIL_ROLLBACK" = true ] && [[ "$*" == *"openresty -s reload"* ]]; then
   reloads="$(grep -c 'openresty -s reload' "$FAKE_DOCKER_LOG")"
   if [ "$reloads" -ge 2 ]; then exit 13; fi
@@ -454,14 +600,24 @@ exit 0
                 `#!/usr/bin/env bash
 authenticated=false
 header_file=""
+output_file="/dev/null"
+local_probe=false
+arguments=" $* "
+if [[ "$arguments" == *" --resolve "* ]]; then local_probe=true; fi
 while [ "$#" -gt 0 ]; do
   if [ "$1" = "--config" ]; then authenticated=true; shift 2; continue; fi
   if [ "$1" = "--dump-header" ]; then header_file="$2"; shift 2; continue; fi
+  if [ "$1" = "--output" ]; then output_file="$2"; shift 2; continue; fi
+  if [ "$1" = "--resolve" ]; then shift 2; continue; fi
   shift
 done
 if [ "$FAKE_CHANGE_DURING_PROBE" = true ] && [ ! -e "$FAKE_PROBE_CHANGE_MARKER" ]; then
   : > "$FAKE_PROBE_CHANGE_MARKER"
   printf '%s\n' 'server { server_name probe-change.example.com; }' > "$FAKE_CONFIG_PATH"
+fi
+if [ "$FAKE_CHANGE_APPLICATION_REVISION_DURING_PROBE" = true ] ||
+   [ "$FAKE_CHANGE_APPLICATION_IDENTITY_DURING_PROBE" = true ]; then
+  : > "$FAKE_APPLICATION_REVISION_CHANGE_MARKER"
 fi
 if [ "$FAKE_RESTORE_ORIGINAL_DURING_PROBE" = true ] && [ ! -e "$FAKE_ORIGINAL_CHANGE_MARKER" ]; then
   : > "$FAKE_ORIGINAL_CHANGE_MARKER"
@@ -476,13 +632,44 @@ if [ "$FAKE_PROBE_DELAY" = true ]; then
   sleep 1
 fi
 if [ "$authenticated" = true ]; then
-  printf 'x-pipipi-revision: %s\r\n' "$FAKE_REVISION" > "$header_file"
+  : > "$header_file"
+  if [ "$FAKE_REVISION_HEADER" = true ]; then
+    printf 'x-pipipi-revision: %s\r\n' "$FAKE_REVISION" >> "$header_file"
+    if [ "$FAKE_DUPLICATE_REVISION_HEADER" = true ]; then
+      printf 'x-pipipi-revision: %s\r\n' "$FAKE_REVISION" >> "$header_file"
+    fi
+  elif [ "$FAKE_EMPTY_REVISION_HEADER" = true ]; then
+    printf 'x-pipipi-revision:\r\n' >> "$header_file"
+  fi
+  case "$arguments" in
+    *'/processes'*)
+      printf 'content-type: application/json\r\n' >> "$header_file"
+      if [ "$FAKE_PROCESS_CONTRACT_VALID" = true ]; then
+        printf '%s' '{"processes":[{"process":"fixture","version":"v1","activities":[]}]}' > "$output_file"
+      else
+        printf '%s' '{"processes":[]}' > "$output_file"
+      fi
+      ;;
+    *'/stats?hours=1'*)
+      printf 'content-type: application/json\r\n' >> "$header_file"
+      printf '%s' '{"totals":{"succeeded":0,"failed":0},"byDay":[],"recentFailures":[],"concurrency":{"active":0,"limit":4},"attemptDurationMs":{"samples":0}}' > "$output_file"
+      ;;
+    *)
+      printf 'content-type: text/html\r\n' >> "$header_file"
+      printf '%s' '<title>Business Process 控制台</title><div id="console"></div>' > "$output_file"
+      ;;
+  esac
   printf '200'
 else
-  if [ "$FAKE_ANONYMOUS_CHALLENGE" = true ]; then
+  if { [ "$local_probe" = true ] && [ "$FAKE_LOCAL_ANONYMOUS_CHALLENGE" = true ]; } ||
+     { [ "$local_probe" = false ] && [ "$FAKE_ANONYMOUS_CHALLENGE" = true ]; }; then
     printf 'WWW-Authenticate: Basic realm="pipipi console"\r\n' > "$header_file"
   fi
-  printf '%s' "$FAKE_ANONYMOUS_STATUS"
+  if [ "$local_probe" = true ]; then
+    printf '%s' "$FAKE_LOCAL_ANONYMOUS_STATUS"
+  else
+    printf '%s' "$FAKE_ANONYMOUS_STATUS"
+  fi
 fi
 `,
             ),
@@ -525,14 +712,21 @@ exec /bin/cp "$@"
             ),
         ]);
         return {
+            applicationRevision: options.applicationRevision ?? REVISION,
             anonymousStatus: options.anonymousStatus ?? 401,
             anonymousChallenge: options.anonymousChallenge ?? true,
+            changeApplicationRevisionDuringProbe:
+                options.changeApplicationRevisionDuringProbe ?? false,
+            changeApplicationIdentityDuringProbe:
+                options.changeApplicationIdentityDuringProbe ?? false,
             authorization,
             binaries,
             collector,
             config,
             configSha256,
             dockerLog,
+            duplicateRevisionHeader: options.duplicateRevisionHeader ?? false,
+            emptyRevisionHeader: options.emptyRevisionHeader ?? false,
             changeDuringCollector: options.changeDuringCollector ?? false,
             changeBeforeActivation: options.changeBeforeActivation ?? false,
             changeDuringProbe: options.changeDuringProbe ?? false,
@@ -543,8 +737,13 @@ exec /bin/cp "$@"
                 options.failCredentialPreparation ?? false,
             failConfigRestore: options.failConfigRestore ?? false,
             htpasswd,
+            legacyRevision: options.legacyRevision ?? "none",
+            localAnonymousChallenge: options.localAnonymousChallenge ?? true,
+            localAnonymousStatus: options.localAnonymousStatus ?? 401,
             probeDelay: options.probeDelay ?? false,
             probeMarker,
+            processContractValid: options.processContractValid ?? true,
+            revisionHeader: options.revisionHeader ?? true,
             restoreOriginalDuringProbe:
                 options.restoreOriginalDuringProbe ?? false,
             signalMarker,
@@ -554,14 +753,19 @@ exec /bin/cp "$@"
 });
 
 type Fixture = Readonly<{
+    applicationRevision: string;
     anonymousChallenge: boolean;
     anonymousStatus: number;
+    changeApplicationIdentityDuringProbe: boolean;
+    changeApplicationRevisionDuringProbe: boolean;
     authorization: string;
     binaries: string;
     collector: string;
     config: string;
     configSha256: string;
     dockerLog: string;
+    duplicateRevisionHeader: boolean;
+    emptyRevisionHeader: boolean;
     changeDuringCollector: boolean;
     changeBeforeActivation: boolean;
     changeDuringProbe: boolean;
@@ -570,8 +774,13 @@ type Fixture = Readonly<{
     failCredentialPreparation: boolean;
     failConfigRestore: boolean;
     htpasswd: string;
+    legacyRevision: string;
+    localAnonymousChallenge: boolean;
+    localAnonymousStatus: number;
     probeDelay: boolean;
     probeMarker: string;
+    processContractValid: boolean;
+    revisionHeader: boolean;
     restoreOriginalDuringProbe: boolean;
     signalMarker: string;
     signalStage: "install" | "auth-mv" | "config-mv" | "none";
@@ -599,6 +808,8 @@ function changeArgs(fixture: Fixture) {
         fixture.htpasswd,
         fixture.authorization,
         fixture.collector,
+        "pipipi",
+        fixture.legacyRevision,
     ];
 }
 
@@ -606,9 +817,19 @@ function changeEnv(fixture: Fixture) {
     return {
         ...process.env,
         FAKE_ANONYMOUS_STATUS: String(fixture.anonymousStatus),
+        FAKE_APP_REVISION: fixture.applicationRevision,
+        FAKE_APPLICATION_REVISION_CHANGE_MARKER: `${fixture.probeMarker}-application-revision`,
         FAKE_ANONYMOUS_CHALLENGE: String(fixture.anonymousChallenge),
+        FAKE_LOCAL_ANONYMOUS_CHALLENGE: String(fixture.localAnonymousChallenge),
+        FAKE_LOCAL_ANONYMOUS_STATUS: String(fixture.localAnonymousStatus),
         FAKE_CHANGE_DURING_COLLECTOR: String(fixture.changeDuringCollector),
         FAKE_CHANGE_BEFORE_ACTIVATION: String(fixture.changeBeforeActivation),
+        FAKE_CHANGE_APPLICATION_IDENTITY_DURING_PROBE: String(
+            fixture.changeApplicationIdentityDuringProbe,
+        ),
+        FAKE_CHANGE_APPLICATION_REVISION_DURING_PROBE: String(
+            fixture.changeApplicationRevisionDuringProbe,
+        ),
         FAKE_CHANGE_DURING_PROBE: String(fixture.changeDuringProbe),
         FAKE_CHANGE_CREDENTIAL_DURING_PROBE: String(
             fixture.changeCredentialDuringProbe,
@@ -621,6 +842,8 @@ function changeEnv(fixture: Fixture) {
         FAKE_CONFIG_SHA256: fixture.configSha256,
         FAKE_CREDENTIAL_CHANGE_MARKER: `${fixture.probeMarker}-credential`,
         FAKE_DOCKER_LOG: fixture.dockerLog,
+        FAKE_DUPLICATE_REVISION_HEADER: String(fixture.duplicateRevisionHeader),
+        FAKE_EMPTY_REVISION_HEADER: String(fixture.emptyRevisionHeader),
         FAKE_FAIL_ROLLBACK: String(fixture.failRollback),
         FAKE_FAIL_CREDENTIAL_PREPARATION: String(
             fixture.failCredentialPreparation,
@@ -631,10 +854,12 @@ function changeEnv(fixture: Fixture) {
         FAKE_PROBE_DELAY: String(fixture.probeDelay),
         FAKE_PROBE_CHANGE_MARKER: `${fixture.probeMarker}-changed`,
         FAKE_PROBE_MARKER: fixture.probeMarker,
+        FAKE_PROCESS_CONTRACT_VALID: String(fixture.processContractValid),
         FAKE_RESTORE_ORIGINAL_DURING_PROBE: String(
             fixture.restoreOriginalDuringProbe,
         ),
         FAKE_REVISION: REVISION,
+        FAKE_REVISION_HEADER: String(fixture.revisionHeader),
         FAKE_SIGNAL_MARKER: fixture.signalMarker,
         FAKE_SIGNAL_STAGE: fixture.signalStage,
         PATH: `${fixture.binaries}:${process.env.PATH}`,
@@ -648,7 +873,7 @@ async function writeExecutable(file: string, content: string) {
 
 async function waitForFile(file: string) {
     const { access } = await import("node:fs/promises");
-    for (let attempt = 0; attempt < 100; attempt += 1) {
+    for (let attempt = 0; attempt < 250; attempt += 1) {
         try {
             await access(file);
             return;

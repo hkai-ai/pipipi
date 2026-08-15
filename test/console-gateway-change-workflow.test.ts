@@ -15,6 +15,11 @@ describe("Console gateway change workflow", () => {
         expect(workflow).toContain("group: pipipi-production-release");
         expect(workflow).toContain("CONSOLE_GATEWAY_HOST_CONFIG_SHA256");
         expect(workflow).toContain("CONSOLE_GATEWAY_CONTAINER_CONFIG_PATH");
+        expect(workflow).toContain("CONSOLE_GATEWAY_APPLICATION_CONTAINER");
+        expect(workflow).toContain("CONSOLE_GATEWAY_LEGACY_REVISION");
+        expect(workflow).toContain(
+            '[ "$ACTIVE_REVISION" = "$LEGACY_REVISION" ]',
+        );
         expect(workflow).toContain('[[ "$REMOTE_HOST" =~');
         expect(workflow).toContain('[ "$REMOTE_USER" = "root" ]');
         expect(workflow).toContain("CONSOLE_PUBLIC_URL path is not safe");
@@ -39,6 +44,8 @@ describe("Console gateway change workflow", () => {
         expect(script).toContain("www-authenticate:");
         expect(script).toContain('[ "$authenticated_status" != "200" ]');
         expect(script).toContain("x-pipipi-revision:");
+        expect(script).toContain("legacy_container_and_contract");
+        expect(script).toContain('--resolve "$domain:443:127.0.0.1"');
         expect(script).toContain("console_gateway_auth_change_failed");
         expect(script).toContain("trap rollback ERR HUP INT TERM");
         expect(script).toContain("stat -c '%a:%g'");

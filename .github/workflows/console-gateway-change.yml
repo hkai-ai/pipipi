@@ -30,16 +30,23 @@ jobs:
       - name: Validate protected inputs
         env:
           ACTIVE_REVISION: ${{ inputs.active_revision }}
+          APPLICATION_CONTAINER: ${{ vars.CONSOLE_GATEWAY_APPLICATION_CONTAINER }}
           CONFIG_PATH: ${{ vars.CONSOLE_GATEWAY_HOST_CONFIG_PATH }}
           CONFIG_SHA256: ${{ vars.CONSOLE_GATEWAY_HOST_CONFIG_SHA256 }}
           CONTAINER: ${{ vars.CONSOLE_GATEWAY_CONTAINER }}
           CONTAINER_CONFIG_PATH: ${{ vars.CONSOLE_GATEWAY_CONTAINER_CONFIG_PATH }}
           CONSOLE_PUBLIC_URL: ${{ vars.CONSOLE_PUBLIC_URL }}
+          LEGACY_REVISION: ${{ vars.CONSOLE_GATEWAY_LEGACY_REVISION }}
           REMOTE_HOST: ${{ vars.REMOTE_HOST }}
           REMOTE_USER: ${{ vars.REMOTE_USER }}
         run: |
           set -Eeuo pipefail
           [[ "$ACTIVE_REVISION" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$APPLICATION_CONTAINER" =~ ^[A-Za-z0-9_.-]+$ ]]
+          if [ -n "$LEGACY_REVISION" ]; then
+            [[ "$LEGACY_REVISION" =~ ^[0-9a-f]{40}$ ]]
+            [ "$ACTIVE_REVISION" = "$LEGACY_REVISION" ]
+          fi
           [[ "$CONFIG_PATH" =~ ^/[A-Za-z0-9._/-]+$ ]]
           [[ "$CONFIG_SHA256" =~ ^[0-9a-f]{64}$ ]]
           [[ "$CONTAINER" =~ ^[A-Za-z0-9_.-]+$ ]]
@@ -73,11 +80,13 @@ jobs:
       - name: Apply scoped Console authentication
         env:
           ACTIVE_REVISION: ${{ inputs.active_revision }}
+          APPLICATION_CONTAINER: ${{ vars.CONSOLE_GATEWAY_APPLICATION_CONTAINER }}
           CONFIG_PATH: ${{ vars.CONSOLE_GATEWAY_HOST_CONFIG_PATH }}
           CONFIG_SHA256: ${{ vars.CONSOLE_GATEWAY_HOST_CONFIG_SHA256 }}
           CONSOLE_AUTHORIZATION: ${{ secrets.CONSOLE_AUTHORIZATION }}
           CONSOLE_BASIC_AUTH_HTPASSWD: ${{ secrets.CONSOLE_BASIC_AUTH_HTPASSWD }}
           CONSOLE_PUBLIC_URL: ${{ vars.CONSOLE_PUBLIC_URL }}
+          LEGACY_REVISION: ${{ vars.CONSOLE_GATEWAY_LEGACY_REVISION }}
           CONTAINER: ${{ vars.CONSOLE_GATEWAY_CONTAINER }}
           CONTAINER_CONFIG_PATH: ${{ vars.CONSOLE_GATEWAY_CONTAINER_CONFIG_PATH }}
           REMOTE_HOST: ${{ vars.REMOTE_HOST }}
@@ -115,6 +124,7 @@ jobs:
           domain="$(jq -r .domain <<< "$target")"
           public_path="$(jq -r .path <<< "$target")"
           public_url="$(jq -r .url <<< "$target")"
+          legacy_revision="${LEGACY_REVISION:-none}"
           ssh -o BatchMode=yes -o StrictHostKeyChecking=yes \
             "$REMOTE_USER@$REMOTE_HOST" bash \
               "$remote_bundle/apply-console-gateway-auth.sh" \
@@ -123,6 +133,7 @@ jobs:
               "$CONTAINER_CONFIG_PATH" "$remote_bundle/htpasswd" \
               "$remote_bundle/authorization" \
               "$remote_bundle/collect-console-gateway-host-evidence.sh" \
+              "$APPLICATION_CONTAINER" "$legacy_revision" \
             > artifacts/console-gateway-change/evidence.json
 
       - name: Upload change evidence
