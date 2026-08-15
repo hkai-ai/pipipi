@@ -1,0 +1,135 @@
+name: Console gateway change
+run-name: Protect production Console at ${{ inputs.active_revision }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      active_revision:
+        description: Active production full commit SHA
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  protect:
+    name: Apply and verify scoped Console authentication
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: console-gateway-change
+    concurrency:
+      group: pipipi-production-release
+      cancel-in-progress: false
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Validate protected inputs
+        env:
+          ACTIVE_REVISION: ${{ inputs.active_revision }}
+          CONFIG_PATH: ${{ vars.CONSOLE_GATEWAY_HOST_CONFIG_PATH }}
+          CONFIG_SHA256: ${{ vars.CONSOLE_GATEWAY_HOST_CONFIG_SHA256 }}
+          CONTAINER: ${{ vars.CONSOLE_GATEWAY_CONTAINER }}
+          CONTAINER_CONFIG_PATH: ${{ vars.CONSOLE_GATEWAY_CONTAINER_CONFIG_PATH }}
+          CONSOLE_PUBLIC_URL: ${{ vars.CONSOLE_PUBLIC_URL }}
+          REMOTE_HOST: ${{ vars.REMOTE_HOST }}
+          REMOTE_USER: ${{ vars.REMOTE_USER }}
+        run: |
+          set -Eeuo pipefail
+          [[ "$ACTIVE_REVISION" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$CONFIG_PATH" =~ ^/[A-Za-z0-9._/-]+$ ]]
+          [[ "$CONFIG_SHA256" =~ ^[0-9a-f]{64}$ ]]
+          [[ "$CONTAINER" =~ ^[A-Za-z0-9_.-]+$ ]]
+          [[ "$CONTAINER_CONFIG_PATH" =~ ^/[A-Za-z0-9._/-]+$ ]]
+          [[ "$REMOTE_HOST" =~ ^[A-Za-z0-9][A-Za-z0-9.-]*$ ]]
+          [[ "$REMOTE_USER" =~ ^[A-Za-z0-9_][A-Za-z0-9_-]*$ ]]
+          [ "$REMOTE_USER" = "root" ]
+          node --input-type=module <<'NODE'
+          const url = new URL(process.env.CONSOLE_PUBLIC_URL ?? "");
+          if (
+            url.protocol !== "https:" || url.username || url.password ||
+            url.search || url.hash || url.pathname === "/"
+          ) throw new Error("CONSOLE_PUBLIC_URL must be a protected HTTPS path");
+          const path = url.pathname.replace(/\/$/, "");
+          if (!/^\/[A-Za-z0-9_-]+$/.test(path)) {
+            throw new Error("CONSOLE_PUBLIC_URL path is not safe for the remote adapter");
+          }
+          NODE
+
+      - name: Configure SSH
+        env:
+          SSH_KNOWN_HOSTS: ${{ secrets.SSH_KNOWN_HOSTS }}
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+        run: |
+          set -Eeuo pipefail
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/id_ed25519 ~/.ssh/known_hosts
+
+      - name: Apply scoped Console authentication
+        env:
+          ACTIVE_REVISION: ${{ inputs.active_revision }}
+          CONFIG_PATH: ${{ vars.CONSOLE_GATEWAY_HOST_CONFIG_PATH }}
+          CONFIG_SHA256: ${{ vars.CONSOLE_GATEWAY_HOST_CONFIG_SHA256 }}
+          CONSOLE_AUTHORIZATION: ${{ secrets.CONSOLE_AUTHORIZATION }}
+          CONSOLE_BASIC_AUTH_HTPASSWD: ${{ secrets.CONSOLE_BASIC_AUTH_HTPASSWD }}
+          CONSOLE_PUBLIC_URL: ${{ vars.CONSOLE_PUBLIC_URL }}
+          CONTAINER: ${{ vars.CONSOLE_GATEWAY_CONTAINER }}
+          CONTAINER_CONFIG_PATH: ${{ vars.CONSOLE_GATEWAY_CONTAINER_CONFIG_PATH }}
+          REMOTE_HOST: ${{ vars.REMOTE_HOST }}
+          REMOTE_USER: ${{ vars.REMOTE_USER }}
+        run: |
+          set -Eeuo pipefail
+          install -d -m 700 artifacts/console-gateway-change
+          credential_directory="$(mktemp -d)"
+          remote_bundle="/tmp/pipipi-console-gateway-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          cleanup() {
+            rm -rf -- "$credential_directory"
+            ssh -o BatchMode=yes -o StrictHostKeyChecking=yes \
+              "$REMOTE_USER@$REMOTE_HOST" rm -rf -- "$remote_bundle" >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+          printf '%s\n' "$CONSOLE_BASIC_AUTH_HTPASSWD" > "$credential_directory/htpasswd"
+          printf '%s\n' "$CONSOLE_AUTHORIZATION" > "$credential_directory/authorization"
+          chmod 600 "$credential_directory/htpasswd" "$credential_directory/authorization"
+          ssh -o BatchMode=yes -o StrictHostKeyChecking=yes \
+            "$REMOTE_USER@$REMOTE_HOST" install -d -m 700 -- "$remote_bundle"
+          scp -o BatchMode=yes -o StrictHostKeyChecking=yes \
+            ops/apply-console-gateway-auth.sh \
+            ops/collect-console-gateway-host-evidence.sh \
+            "$credential_directory/htpasswd" \
+            "$credential_directory/authorization" \
+            "$REMOTE_USER@$REMOTE_HOST:$remote_bundle/"
+          target="$(node --input-type=module --eval '
+            const url = new URL(process.env.CONSOLE_PUBLIC_URL);
+            console.log(JSON.stringify({
+              domain: url.hostname,
+              path: url.pathname.replace(/\/$/, ""),
+              url: url.href.replace(/\/$/, ""),
+            }));
+          ')"
+          domain="$(jq -r .domain <<< "$target")"
+          public_path="$(jq -r .path <<< "$target")"
+          public_url="$(jq -r .url <<< "$target")"
+          ssh -o BatchMode=yes -o StrictHostKeyChecking=yes \
+            "$REMOTE_USER@$REMOTE_HOST" bash \
+              "$remote_bundle/apply-console-gateway-auth.sh" \
+              "$domain" "$public_path" "$public_url" "$ACTIVE_REVISION" \
+              "$CONFIG_PATH" "$CONFIG_SHA256" "$CONTAINER" \
+              "$CONTAINER_CONFIG_PATH" "$remote_bundle/htpasswd" \
+              "$remote_bundle/authorization" \
+              "$remote_bundle/collect-console-gateway-host-evidence.sh" \
+            > artifacts/console-gateway-change/evidence.json
+
+      - name: Upload change evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: pipipi-console-gateway-change-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/console-gateway-change
+          if-no-files-found: warn
+          retention-days: 90
