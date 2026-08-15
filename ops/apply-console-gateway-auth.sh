@@ -64,7 +64,7 @@ if ! decoded_authorization="$(printf '%s' "${authorization#Basic }" | base64 --d
 fi
 unset decoded_authorization
 
-for command in awk base64 curl docker jq realpath sha256sum; do
+for command in awk base64 curl docker jq realpath sha256sum sleep; do
     command -v "$command" >/dev/null 2>&1 || {
         echo "Required command is unavailable: $command" >&2
         exit 69
@@ -92,6 +92,10 @@ credential_sha256="$(sha256sum "$htpasswd_source" | cut -d ' ' -f 1)"
 auth_backup_sha256=""
 rollback_status="not_required"
 failure_stage="precondition"
+anonymous_probe_attempts=20
+anonymous_probe_pause_seconds=0.25
+anonymous_probe_timeout_seconds=1
+authenticated_probe_timeout_seconds=20
 
 verify_response_contract() {
     local suffix="$1"
@@ -414,19 +418,31 @@ header_revision_count=0
 legacy_revision_count=0
 for suffix in "" "/processes" "/stats?hours=1"; do
     failure_stage="local_anonymous_probe"
-    : > "$anonymous_headers"
-    local_anonymous_status="$(curl --silent --show-error --output /dev/null \
-        --dump-header "$anonymous_headers" --write-out '%{http_code}' \
-        --connect-timeout 10 --max-time 20 --proto '=https' --noproxy '*' \
-        --resolve "$domain:443:127.0.0.1" "$public_url$suffix")"
-    if [ "$local_anonymous_status" != "401" ] || ! awk '
-        {
-            line = tolower($0)
-            sub(/\r$/, "", line)
-            if (line ~ /^www-authenticate:[[:space:]]*basic([[:space:]]|$)/) found = 1
-        }
-        END { exit(found ? 0 : 1) }
-    ' "$anonymous_headers"; then
+    local_anonymous_ready=false
+    for ((attempt = 1; attempt <= anonymous_probe_attempts; attempt += 1)); do
+        : > "$anonymous_headers"
+        local_anonymous_status="transport_error"
+        if local_anonymous_status="$(curl --silent --show-error --output /dev/null \
+            --dump-header "$anonymous_headers" --write-out '%{http_code}' \
+            --connect-timeout 1 --max-time "$anonymous_probe_timeout_seconds" \
+            --proto '=https' --noproxy '*' \
+            --resolve "$domain:443:127.0.0.1" "$public_url$suffix")" &&
+            [ "$local_anonymous_status" = "401" ] && awk '
+            {
+                line = tolower($0)
+                sub(/\r$/, "", line)
+                if (line ~ /^www-authenticate:[[:space:]]*basic([[:space:]]|$)/) found = 1
+            }
+            END { exit(found ? 0 : 1) }
+        ' "$anonymous_headers"; then
+            local_anonymous_ready=true
+            break
+        fi
+        if [ "$attempt" -lt "$anonymous_probe_attempts" ]; then
+            sleep "$anonymous_probe_pause_seconds"
+        fi
+    done
+    if [ "$local_anonymous_ready" != true ]; then
         echo "Local anonymous Console probe was not rejected" >&2
         rollback
     fi
@@ -435,7 +451,8 @@ for suffix in "" "/processes" "/stats?hours=1"; do
     : > "$local_body"
     local_authenticated_status="$(curl --silent --show-error --output "$local_body" \
         --dump-header "$headers" --write-out '%{http_code}' \
-        --connect-timeout 10 --max-time 20 --max-filesize 1048576 \
+        --connect-timeout 10 --max-time "$authenticated_probe_timeout_seconds" \
+        --max-filesize 1048576 \
         --proto '=https' --noproxy '*' \
         --resolve "$domain:443:127.0.0.1" \
         --config "$curl_config" "$public_url$suffix")"
@@ -462,19 +479,30 @@ for suffix in "" "/processes" "/stats?hours=1"; do
     local_authenticated_statuses+="${local_authenticated_status}"$'\n'
 
     failure_stage="public_anonymous_probe"
-    : > "$anonymous_headers"
-    anonymous_status="$(curl --silent --show-error --output /dev/null \
-        --dump-header "$anonymous_headers" --write-out '%{http_code}' \
-        --connect-timeout 10 --max-time 20 --proto '=https' \
-        "$public_url$suffix")"
-    if [ "$anonymous_status" != "401" ] || ! awk '
-        {
-            line = tolower($0)
-            sub(/\r$/, "", line)
-            if (line ~ /^www-authenticate:[[:space:]]*basic([[:space:]]|$)/) found = 1
-        }
-        END { exit(found ? 0 : 1) }
-    ' "$anonymous_headers"; then
+    public_anonymous_ready=false
+    for ((attempt = 1; attempt <= anonymous_probe_attempts; attempt += 1)); do
+        : > "$anonymous_headers"
+        anonymous_status="transport_error"
+        if anonymous_status="$(curl --silent --show-error --output /dev/null \
+            --dump-header "$anonymous_headers" --write-out '%{http_code}' \
+            --connect-timeout 1 --max-time "$anonymous_probe_timeout_seconds" \
+            --proto '=https' "$public_url$suffix")" &&
+            [ "$anonymous_status" = "401" ] && awk '
+            {
+                line = tolower($0)
+                sub(/\r$/, "", line)
+                if (line ~ /^www-authenticate:[[:space:]]*basic([[:space:]]|$)/) found = 1
+            }
+            END { exit(found ? 0 : 1) }
+        ' "$anonymous_headers"; then
+            public_anonymous_ready=true
+            break
+        fi
+        if [ "$attempt" -lt "$anonymous_probe_attempts" ]; then
+            sleep "$anonymous_probe_pause_seconds"
+        fi
+    done
+    if [ "$public_anonymous_ready" != true ]; then
         echo "Anonymous Console probe was not rejected" >&2
         rollback
     fi
@@ -483,7 +511,8 @@ for suffix in "" "/processes" "/stats?hours=1"; do
     : > "$public_body"
     authenticated_status="$(curl --silent --show-error --output "$public_body" \
         --dump-header "$headers" --write-out '%{http_code}' \
-        --connect-timeout 10 --max-time 20 --max-filesize 1048576 \
+        --connect-timeout 10 --max-time "$authenticated_probe_timeout_seconds" \
+        --max-filesize 1048576 \
         --proto '=https' \
         --config "$curl_config" "$public_url$suffix")"
     if [ "$authenticated_status" != "200" ]; then

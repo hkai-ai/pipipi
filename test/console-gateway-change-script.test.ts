@@ -106,6 +106,58 @@ describe("Console gateway authentication change", () => {
         expect(await readFile(fixture.config, "utf8")).toBe(original);
     });
 
+    it("waits for a reloaded OpenResty worker to start challenging locally", async () => {
+        const fixture = await createFixture({
+            localAnonymousWarmupAttempts: 1,
+        });
+
+        const result = runChange(fixture);
+
+        expect(result.status, result.stderr).toBe(0);
+        expect(JSON.parse(result.stdout)).toMatchObject({
+            localAnonymousStatus: [401, 401, 401],
+        });
+    });
+
+    it("retries a transient local transport failure during reload", async () => {
+        const fixture = await createFixture({
+            localAnonymousTransportFailures: 1,
+        });
+
+        const result = runChange(fixture);
+
+        expect(result.status, result.stderr).toBe(0);
+        expect(JSON.parse(result.stdout)).toMatchObject({
+            localAnonymousStatus: [401, 401, 401],
+        });
+    });
+
+    it("waits for a reloaded OpenResty worker to start challenging publicly", async () => {
+        const fixture = await createFixture({
+            publicAnonymousWarmupAttempts: 1,
+        });
+
+        const result = runChange(fixture);
+
+        expect(result.status, result.stderr).toBe(0);
+        expect(JSON.parse(result.stdout)).toMatchObject({
+            anonymousStatus: [401, 401, 401],
+        });
+    });
+
+    it("retries a transient public transport failure during reload", async () => {
+        const fixture = await createFixture({
+            publicAnonymousTransportFailures: 1,
+        });
+
+        const result = runChange(fixture);
+
+        expect(result.status, result.stderr).toBe(0);
+        expect(JSON.parse(result.stdout)).toMatchObject({
+            anonymousStatus: [401, 401, 401],
+        });
+    });
+
     it("accepts a pinned legacy revision only when the container label and response contracts agree", async () => {
         const fixture = await createFixture({
             legacyRevision: REVISION,
@@ -502,8 +554,12 @@ describe("Console gateway authentication change", () => {
             legacyRevision?: string;
             localAnonymousChallenge?: boolean;
             localAnonymousStatus?: number;
+            localAnonymousTransportFailures?: number;
+            localAnonymousWarmupAttempts?: number;
             probeDelay?: boolean;
             processContractValid?: boolean;
+            publicAnonymousWarmupAttempts?: number;
+            publicAnonymousTransportFailures?: number;
             revisionHeader?: boolean;
             restoreOriginalDuringProbe?: boolean;
             signalStage?: "install" | "auth-mv" | "config-mv";
@@ -666,9 +722,31 @@ else
     printf 'WWW-Authenticate: Basic realm="pipipi console"\r\n' > "$header_file"
   fi
   if [ "$local_probe" = true ]; then
-    printf '%s' "$FAKE_LOCAL_ANONYMOUS_STATUS"
+    local_attempt=1
+    if [ -f "$FAKE_LOCAL_ANONYMOUS_ATTEMPT_FILE" ]; then
+      local_attempt=$(( $(cat "$FAKE_LOCAL_ANONYMOUS_ATTEMPT_FILE") + 1 ))
+    fi
+    printf '%s' "$local_attempt" > "$FAKE_LOCAL_ANONYMOUS_ATTEMPT_FILE"
+    if [ "$local_attempt" -le "$FAKE_LOCAL_ANONYMOUS_TRANSPORT_FAILURES" ]; then
+      exit 7
+    elif [ "$local_attempt" -le "$FAKE_LOCAL_ANONYMOUS_WARMUP_ATTEMPTS" ]; then
+      printf '200'
+    else
+      printf '%s' "$FAKE_LOCAL_ANONYMOUS_STATUS"
+    fi
   else
-    printf '%s' "$FAKE_ANONYMOUS_STATUS"
+    public_attempt=1
+    if [ -f "$FAKE_PUBLIC_ANONYMOUS_ATTEMPT_FILE" ]; then
+      public_attempt=$(( $(cat "$FAKE_PUBLIC_ANONYMOUS_ATTEMPT_FILE") + 1 ))
+    fi
+    printf '%s' "$public_attempt" > "$FAKE_PUBLIC_ANONYMOUS_ATTEMPT_FILE"
+    if [ "$public_attempt" -le "$FAKE_PUBLIC_ANONYMOUS_TRANSPORT_FAILURES" ]; then
+      exit 7
+    elif [ "$public_attempt" -le "$FAKE_PUBLIC_ANONYMOUS_WARMUP_ATTEMPTS" ]; then
+      printf '200'
+    else
+      printf '%s' "$FAKE_ANONYMOUS_STATUS"
+    fi
   fi
 fi
 `,
@@ -710,6 +788,13 @@ fi
 exec /bin/cp "$@"
 `,
             ),
+            writeExecutable(
+                path.join(binaries, "sleep"),
+                `#!/usr/bin/env bash
+if [ "\${1:-}" = "0.25" ]; then exit 0; fi
+exec /bin/sleep "$@"
+`,
+            ),
         ]);
         return {
             applicationRevision: options.applicationRevision ?? REVISION,
@@ -740,9 +825,17 @@ exec /bin/cp "$@"
             legacyRevision: options.legacyRevision ?? "none",
             localAnonymousChallenge: options.localAnonymousChallenge ?? true,
             localAnonymousStatus: options.localAnonymousStatus ?? 401,
+            localAnonymousTransportFailures:
+                options.localAnonymousTransportFailures ?? 0,
+            localAnonymousWarmupAttempts:
+                options.localAnonymousWarmupAttempts ?? 0,
             probeDelay: options.probeDelay ?? false,
             probeMarker,
             processContractValid: options.processContractValid ?? true,
+            publicAnonymousWarmupAttempts:
+                options.publicAnonymousWarmupAttempts ?? 0,
+            publicAnonymousTransportFailures:
+                options.publicAnonymousTransportFailures ?? 0,
             revisionHeader: options.revisionHeader ?? true,
             restoreOriginalDuringProbe:
                 options.restoreOriginalDuringProbe ?? false,
@@ -777,9 +870,13 @@ type Fixture = Readonly<{
     legacyRevision: string;
     localAnonymousChallenge: boolean;
     localAnonymousStatus: number;
+    localAnonymousTransportFailures: number;
+    localAnonymousWarmupAttempts: number;
     probeDelay: boolean;
     probeMarker: string;
     processContractValid: boolean;
+    publicAnonymousWarmupAttempts: number;
+    publicAnonymousTransportFailures: number;
     revisionHeader: boolean;
     restoreOriginalDuringProbe: boolean;
     signalMarker: string;
@@ -822,6 +919,13 @@ function changeEnv(fixture: Fixture) {
         FAKE_ANONYMOUS_CHALLENGE: String(fixture.anonymousChallenge),
         FAKE_LOCAL_ANONYMOUS_CHALLENGE: String(fixture.localAnonymousChallenge),
         FAKE_LOCAL_ANONYMOUS_STATUS: String(fixture.localAnonymousStatus),
+        FAKE_LOCAL_ANONYMOUS_TRANSPORT_FAILURES: String(
+            fixture.localAnonymousTransportFailures,
+        ),
+        FAKE_LOCAL_ANONYMOUS_ATTEMPT_FILE: `${fixture.probeMarker}-local-anonymous-attempt`,
+        FAKE_LOCAL_ANONYMOUS_WARMUP_ATTEMPTS: String(
+            fixture.localAnonymousWarmupAttempts,
+        ),
         FAKE_CHANGE_DURING_COLLECTOR: String(fixture.changeDuringCollector),
         FAKE_CHANGE_BEFORE_ACTIVATION: String(fixture.changeBeforeActivation),
         FAKE_CHANGE_APPLICATION_IDENTITY_DURING_PROBE: String(
@@ -855,6 +959,13 @@ function changeEnv(fixture: Fixture) {
         FAKE_PROBE_CHANGE_MARKER: `${fixture.probeMarker}-changed`,
         FAKE_PROBE_MARKER: fixture.probeMarker,
         FAKE_PROCESS_CONTRACT_VALID: String(fixture.processContractValid),
+        FAKE_PUBLIC_ANONYMOUS_ATTEMPT_FILE: `${fixture.probeMarker}-public-anonymous-attempt`,
+        FAKE_PUBLIC_ANONYMOUS_WARMUP_ATTEMPTS: String(
+            fixture.publicAnonymousWarmupAttempts,
+        ),
+        FAKE_PUBLIC_ANONYMOUS_TRANSPORT_FAILURES: String(
+            fixture.publicAnonymousTransportFailures,
+        ),
         FAKE_RESTORE_ORIGINAL_DURING_PROBE: String(
             fixture.restoreOriginalDuringProbe,
         ),

@@ -40,7 +40,8 @@ describe("Console gateway change workflow", () => {
             'docker exec "$container" openresty -s reload',
         );
         expect(script).toContain("rollback()");
-        expect(script).toContain('[ "$anonymous_status" != "401" ]');
+        expect(script).toContain('[ "$anonymous_status" = "401" ]');
+        expect(script).toContain("public_anonymous_ready");
         expect(script).toContain("www-authenticate:");
         expect(script).toContain('[ "$authenticated_status" != "200" ]');
         expect(script).toContain("x-pipipi-revision:");
@@ -52,5 +53,31 @@ describe("Console gateway change workflow", () => {
         expect(script).not.toContain('echo "$authorization"');
         expect(runbook).toContain("Console gateway change");
         expect(runbook).toContain("CONSOLE_BASIC_AUTH_HTPASSWD");
+
+        const attempts = numberAssignment(script, "anonymous_probe_attempts");
+        const pause = numberAssignment(script, "anonymous_probe_pause_seconds");
+        const anonymousTimeout = numberAssignment(
+            script,
+            "anonymous_probe_timeout_seconds",
+        );
+        const authenticatedTimeout = numberAssignment(
+            script,
+            "authenticated_probe_timeout_seconds",
+        );
+        const jobTimeoutMinutes = Number(
+            workflow.match(/timeout-minutes:\s*(\d+)/)?.[1],
+        );
+        const probeBudgetSeconds =
+            6 * (attempts * anonymousTimeout + (attempts - 1) * pause) +
+            6 * authenticatedTimeout;
+        expect(probeBudgetSeconds).toBeLessThan(jobTimeoutMinutes * 60 * 0.6);
     });
 });
+
+function numberAssignment(source: string, name: string): number {
+    const value = Number(
+        source.match(new RegExp(`^${name}=([0-9.]+)$`, "m"))?.[1],
+    );
+    if (!Number.isFinite(value)) throw new Error(`${name} must be numeric`);
+    return value;
+}
