@@ -12,6 +12,14 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
+const sha256sum = spawnSync("bash", ["-lc", "command -v sha256sum"], {
+    encoding: "utf8",
+}).stdout.trim();
+
+if (sha256sum === "") {
+    throw new Error("sha256sum is required for gateway evidence tests");
+}
+
 describe("Console effective gateway evidence", () => {
     const directories: string[] = [];
 
@@ -83,10 +91,10 @@ if [ "$1" = exec ]; then
             ;;
         sha256sum)
             case "$4" in
-                /etc/nginx/site.conf) /sbin/sha256sum "$FAKE_CONFIG_ROOT/site.conf" ;;
-                /etc/nginx/proxy/site.conf) /sbin/sha256sum "$FAKE_PROXY_MOUNT" ;;
-                /usr/local/openresty/nginx/conf/nginx.conf) /sbin/sha256sum "$FAKE_INTERNAL_CONFIG" ;;
-                /usr/local/openresty/nginx/conf/empty.conf) /sbin/sha256sum "$FAKE_EMPTY_CONFIG" ;;
+                /etc/nginx/site.conf) "$FAKE_SHA256SUM" "$FAKE_CONFIG_ROOT/site.conf" ;;
+                /etc/nginx/proxy/site.conf) "$FAKE_SHA256SUM" "$FAKE_PROXY_MOUNT" ;;
+                /usr/local/openresty/nginx/conf/nginx.conf) "$FAKE_SHA256SUM" "$FAKE_INTERNAL_CONFIG" ;;
+                /usr/local/openresty/nginx/conf/empty.conf) "$FAKE_SHA256SUM" "$FAKE_EMPTY_CONFIG" ;;
                 *) exit 2 ;;
             esac
             ;;
@@ -117,6 +125,7 @@ fi
                     FAKE_EMPTY_CONFIG: emptyConfig,
                     FAKE_INTERNAL_CONFIG: internalConfig,
                     FAKE_PROXY_MOUNT: proxyMount,
+                    FAKE_SHA256SUM: sha256sum,
                     PATH: `${binaries}:${process.env.PATH ?? ""}`,
                 },
             },
@@ -187,7 +196,7 @@ if [ "$1" = exec ]; then
             printf '%s\n' "$5"
             ;;
         sha256sum)
-            /sbin/sha256sum "$FAKE_CONFIG"
+            "$FAKE_SHA256SUM" "$FAKE_CONFIG"
             ;;
         *) exit 2 ;;
     esac
@@ -203,7 +212,7 @@ if [[ "$1" == */site.conf ]]; then
     echo digest-secret >&2
     exit 1
 fi
-exec /sbin/sha256sum "$@"
+exec "$FAKE_SHA256SUM" "$@"
 `,
         );
         await Promise.all(
@@ -225,6 +234,7 @@ exec /sbin/sha256sum "$@"
                 env: {
                     ...process.env,
                     FAKE_CONFIG: config,
+                    FAKE_SHA256SUM: sha256sum,
                     PATH: `${binaries}:${process.env.PATH ?? ""}`,
                 },
             },
@@ -270,7 +280,7 @@ if [ "$1" = exec ]; then
             printf '%s\n' "$5"
             ;;
         sha256sum)
-            /sbin/sha256sum "$FAKE_CONFIG"
+            "$FAKE_SHA256SUM" "$FAKE_CONFIG"
             ;;
         *) exit 2 ;;
     esac
@@ -294,6 +304,7 @@ fi
                 env: {
                     ...process.env,
                     FAKE_CONFIG: config,
+                    FAKE_SHA256SUM: sha256sum,
                     PATH: `${binaries}:${process.env.PATH ?? ""}`,
                 },
             },
@@ -338,7 +349,7 @@ if [ "$1" = exec ]; then
             count=$((count + 1))
             printf '%s\n' "$count" > "$FAKE_DIGEST_COUNT"
             if [ "$count" -eq 1 ]; then
-                /sbin/sha256sum "$FAKE_CONFIG"
+                "$FAKE_SHA256SUM" "$FAKE_CONFIG"
             else
                 printf '%064d  %s\n' 0 "$4"
             fi
@@ -366,6 +377,7 @@ fi
                     ...process.env,
                     FAKE_CONFIG: config,
                     FAKE_DIGEST_COUNT: digestCount,
+                    FAKE_SHA256SUM: sha256sum,
                     PATH: `${binaries}:${process.env.PATH ?? ""}`,
                 },
             },
