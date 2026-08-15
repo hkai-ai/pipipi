@@ -221,7 +221,9 @@ describe("Async internal deployment script", () => {
                 "services: {}\n",
             );
         }
-        const releaseRunId = String(releaseSequence++);
+        // GitHub's run ID is globally unique. Preserve that production
+        // invariant when Vitest files or separate test processes share /tmp.
+        const releaseRunId = String(process.pid * 10_000 + releaseSequence++);
         const candidatePrefix = `/tmp/pipipi-async-${releaseRunId}-1`;
         const archive = `${candidatePrefix}.image.tar.gz`;
         const baseCompose = `${candidatePrefix}.compose.yaml`;
