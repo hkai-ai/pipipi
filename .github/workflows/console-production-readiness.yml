@@ -31,6 +31,9 @@ jobs:
           set -Eeuo pipefail
           [[ "$CANDIDATE_SHA" =~ ^[0-9a-f]{40}$ ]]
 
+      - name: Checkout
+        uses: actions/checkout@v6
+
       - name: Configure SSH
         env:
           SSH_KNOWN_HOSTS: ${{ secrets.SSH_KNOWN_HOSTS }}
@@ -55,97 +58,8 @@ jobs:
           ssh -o BatchMode=yes -o StrictHostKeyChecking=yes \
             "$REMOTE_USER@$REMOTE_HOST" bash -s -- \
             "$REMOTE_PATH" "$CANDIDATE_SHA" \
-            > artifacts/console-production-readiness/server.json <<'REMOTE'
-          set -Eeuo pipefail
-          app_root="$1"
-          revision="$2"
-          failure_gate="runtime_revision"
-          record_failure() {
-            exit_code="$?"
-            if [ "$exit_code" -ne 0 ]; then
-              trap - EXIT
-              jq -n \
-                --arg revision "$revision" \
-                --arg failureGate "$failure_gate" '
-                {
-                  schemaVersion: 1,
-                  event: "console_server_readiness_failed",
-                  revision: $revision,
-                  status: "failed",
-                  failureGate: $failureGate
-                }
-              '
-            fi
-            exit "$exit_code"
-          }
-          trap record_failure EXIT
-          [[ "$app_root" =~ ^/[A-Za-z0-9._/-]+$ ]]
-          [[ "$revision" =~ ^[0-9a-f]{40}$ ]]
-          for container in pipipi pipipi-business-api; do
-            test "$(docker inspect "$container" --format '{{index .Config.Labels "com.pipipi.revision"}}')" = "$revision"
-          done
-          failure_gate="async_observation_shape"
-          async_shape=false
-          if test -f "$app_root/shared/compose.production.async.yaml"; then
-            async_shape=true
-            test "$(docker inspect pipipi-process-worker --format '{{index .Config.Labels "com.pipipi.revision"}}')" = "$revision"
-            worker_store="$(docker inspect pipipi-process-worker --format '{{range .Config.Env}}{{println .}}{{end}}' | sed -n 's/^PROCESS_RUN_RECORD_STORE=//p')"
-            worker_content="$(docker inspect pipipi-process-worker --format '{{range .Config.Env}}{{println .}}{{end}}' | sed -n 's/^PROCESS_RUN_RECORD_CONTENT=//p')"
-            test "$worker_store" = "postgres"
-            test "$worker_content" = "accepted-input-and-output"
-          fi
-          failure_gate="database_audit"
-          database="$(docker exec pipipi npm run --silent audit:production-database)"
-          jq --exit-status '
-            .event == "production_database_identity_verified" and
-            (.databaseIdentitySha256 | test("^[0-9a-f]{64}$")) and
-            .tlsVerified == true and
-            .dedicatedDatabaseVerified == true and
-            .nonSuperuserVerified == true and
-            .administrativePrivilegesAbsent == true and
-            .otherDatabaseAccessAbsent == true and
-            .roleMembershipAbsent == true and
-            .roleSwitchingAbsent == true
-          ' <<< "$database" >/dev/null
-
-          failure_gate="backup_evidence"
-          backup="$app_root/shared/postgres-backup/evidence.json"
-          test -f "$backup"
-          now="$(date -u +%s)"
-          jq --exit-status --argjson database "$database" --argjson now "$now" '
-            .schemaVersion == 1 and
-            .event == "postgres_backup_verified" and
-            .status == "succeeded" and
-            (.databaseIdentitySha256 | test("^[0-9a-f]{64}$")) and
-            .databaseIdentitySha256 == $database.databaseIdentitySha256 and
-            (.backupId | type == "string" and test("^[A-Za-z0-9._:/-]{1,128}$")) and
-            (.completedAt | fromdateiso8601) <= $now and
-            (.completedAt | fromdateiso8601) >= ($now - 86400) and
-            (.restoreVerifiedAt | fromdateiso8601) <= $now and
-            (.restoreVerifiedAt | fromdateiso8601) >= ($now - 7776000) and
-            (.retentionUntil | fromdateiso8601) >= ($now + 2592000)
-          ' "$backup" >/dev/null
-
-          jq -n \
-            --arg revision "$revision" \
-            --argjson asyncShape "$async_shape" \
-            --argjson database "$database" \
-            --slurpfile backup "$backup" '
-            {
-              revision: $revision,
-              database: $database,
-              backup: {
-                databaseIdentitySha256: $backup[0].databaseIdentitySha256,
-                backupId: $backup[0].backupId,
-                completedAt: $backup[0].completedAt,
-                restoreVerifiedAt: $backup[0].restoreVerifiedAt,
-                retentionUntil: $backup[0].retentionUntil,
-                signatureSha256: $backup[0].signatureSha256
-              },
-              runtime: { asyncShape: $asyncShape }
-            }
-          '
-          REMOTE
+            < ops/collect-console-production-server-evidence.sh \
+            > artifacts/console-production-readiness/server.json
 
       - name: Verify console gateway authentication
         id: gateway

@@ -396,6 +396,8 @@ location /console {
 
 时间必须是严格的 UTC 秒格式 `YYYY-MM-DDTHH:mm:ssZ`：备份完成不超过 24 小时，真实恢复验证不超过 90 天，剩余保留期不少于 30 天。公网核验要求未携带凭证访问控制台页面、Process 目录与统计 Interface 均返回 `401` 或 `403`；携带凭证不只要求 `200`，还会验证控制台 HTML 标记、Process catalog JSON 和统计 JSON 契约。若当前服务器存在异步 Compose 形状，同 revision 的 Process Worker 也必须在线，并固定使用 PostgreSQL 与完整输入输出观测策略。成功后只上传 revision、摘要、备份引用、时间、状态码和验证布尔值等无内容证据，保留 90 天；没有该次真实成功记录时，控制台的生产闭环未完成。
 
+失败时同样上传 artifact。`server.json` 的 `failureGate` 标识 revision、异步形状、数据库或备份门禁，`databaseAuditFailure` 只使用稳定错误码：`database_url_required`、`tls_required`、`dedicated_database_required`、`non_superuser_required`、`administrative_privileges_present`、`other_database_access_present`、`role_switching_present`、`role_membership_present`、`invalid_audit_result` 或 `connection_or_unclassified_failure`。`prerequisites` 只记录活动容器与共享 `.env` 是否配置数据库、CA 文件和备份证据是否存在；它不上传连接串、环境变量值或远端原始异常。无法归类的连接错误必须回到服务器受控终端排查，不能为了诊断把原始 stderr 加进 Actions artifact。
+
 ## 构建并检查镜像
 
 从干净的发布提交构建镜像，并记录生成的镜像摘要：
