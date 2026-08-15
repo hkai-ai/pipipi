@@ -107,11 +107,47 @@ if (!/^postgres(?:ql)?:$/.test(source.protocol)) process.exit(1);
 const pinned = new URL(source);
 pinned.searchParams.set("uselibpqcompat", "true");
 pinned.searchParams.set("sslmode", "verify-ca");
+pinned.searchParams.delete("ssl");
+pinned.searchParams.delete("sslcert");
+pinned.searchParams.delete("sslkey");
 pinned.searchParams.set("sslrootcert", "/etc/pipipi/pg-server.crt");
 const tlsRequired = new URL(source);
 tlsRequired.searchParams.set("uselibpqcompat", "true");
 tlsRequired.searchParams.set("sslmode", "require");
+tlsRequired.searchParams.delete("ssl");
+tlsRequired.searchParams.delete("sslcert");
+tlsRequired.searchParams.delete("sslkey");
 tlsRequired.searchParams.delete("sslrootcert");
+
+function classifyTlsFailure(error) {
+    const code =
+        typeof error === "object" && error !== null && "code" in error &&
+        typeof error.code === "string" ? error.code : "";
+    const message =
+        error instanceof Error ? error.message.toLowerCase() : "";
+    if (
+        [
+            "DEPTH_ZERO_SELF_SIGNED_CERT",
+            "ERR_TLS_CERT_ALTNAME_INVALID",
+            "SELF_SIGNED_CERT_IN_CHAIN",
+            "UNABLE_TO_GET_ISSUER_CERT_LOCALLY",
+            "UNABLE_TO_VERIFY_LEAF_SIGNATURE",
+        ].includes(code)
+    ) return "certificate_verification_failed";
+    if (code.startsWith("28")) return "authentication_failed";
+    if (
+        message.includes("does not support ssl") ||
+        message.includes("ssl is not enabled")
+    ) return "server_tls_unavailable";
+    if (
+        code.startsWith("08") ||
+        ["ECONNREFUSED", "ECONNRESET", "ENETUNREACH", "ETIMEDOUT"].includes(code)
+    ) return "transport_failure";
+    if (message.includes("certificate")) {
+        return "certificate_verification_failed";
+    }
+    return "unexpected_failure";
+}
 
 async function inspect(target) {
     const pool = new Pool({
@@ -178,19 +214,28 @@ try {
 if (!current) process.exit(1);
 
 let pinnedTlsConnectionAvailable = false;
+let pinnedTlsFailureReason = "none";
 try {
     const pinnedResult = await inspect(pinned.toString());
     pinnedTlsConnectionAvailable = pinnedResult?.tls === true;
-} catch {
+    if (!pinnedTlsConnectionAvailable) pinnedTlsFailureReason = "session_not_tls";
+} catch (error) {
     pinnedTlsConnectionAvailable = false;
+    pinnedTlsFailureReason = classifyTlsFailure(error);
 }
 
 let tlsWithoutCertificateVerificationAvailable = false;
+let tlsWithoutCertificateVerificationFailureReason = "none";
 try {
     const requiredResult = await inspect(tlsRequired.toString());
     tlsWithoutCertificateVerificationAvailable = requiredResult?.tls === true;
-} catch {
+    if (!tlsWithoutCertificateVerificationAvailable) {
+        tlsWithoutCertificateVerificationFailureReason = "session_not_tls";
+    }
+} catch (error) {
     tlsWithoutCertificateVerificationAvailable = false;
+    tlsWithoutCertificateVerificationFailureReason =
+        classifyTlsFailure(error);
 }
 
 let directWithoutTls;
@@ -249,7 +294,9 @@ process.stdout.write(JSON.stringify({
         roleMembershipPresent: current.roleMembershipPresent,
     },
     pinnedTlsConnectionAvailable,
+    pinnedTlsFailureReason,
     tlsWithoutCertificateVerificationAvailable,
+    tlsWithoutCertificateVerificationFailureReason,
     directEffectiveRoleLoginAvailable,
     directEffectiveRoleLoginWithoutTlsAvailable,
     directEffectiveRoleBoundaryVerified,
@@ -284,7 +331,27 @@ if ! jq -e '
       "tls"
     ] and
     (.pinnedTlsConnectionAvailable | type == "boolean") and
+    (.pinnedTlsFailureReason as $reason | [
+      "none",
+      "authentication_failed",
+      "certificate_verification_failed",
+      "server_tls_unavailable",
+      "session_not_tls",
+      "transport_failure",
+      "unexpected_failure"
+    ] | index($reason) != null) and
+    (.pinnedTlsConnectionAvailable == (.pinnedTlsFailureReason == "none")) and
     (.tlsWithoutCertificateVerificationAvailable | type == "boolean") and
+    (.tlsWithoutCertificateVerificationFailureReason as $reason | [
+      "none",
+      "authentication_failed",
+      "certificate_verification_failed",
+      "server_tls_unavailable",
+      "session_not_tls",
+      "transport_failure",
+      "unexpected_failure"
+    ] | index($reason) != null) and
+    (.tlsWithoutCertificateVerificationAvailable == (.tlsWithoutCertificateVerificationFailureReason == "none")) and
     (.directEffectiveRoleLoginAvailable | type == "boolean") and
     (.directEffectiveRoleLoginWithoutTlsAvailable | type == "boolean") and
     (.directEffectiveRoleBoundaryVerified | type == "boolean") and
@@ -298,12 +365,14 @@ if ! jq -e '
       "directEffectiveRoleLoginWithoutTlsAvailable",
       "event",
       "pinnedTlsConnectionAvailable",
+      "pinnedTlsFailureReason",
       "schemaVersion",
       "serverCertificateConfigured",
       "serverKeyConfigured",
       "serverTlsEnabled",
       "status",
-      "tlsWithoutCertificateVerificationAvailable"
+      "tlsWithoutCertificateVerificationAvailable",
+      "tlsWithoutCertificateVerificationFailureReason"
     ]
 ' "$result" >/dev/null 2>&1; then
     inspection_failure "database_boundary_result_invalid"

@@ -110,6 +110,28 @@ describe("Production database boundary inspection", () => {
         expect(url.searchParams.has("sslcert")).toBe(false);
         expect(url.searchParams.has("sslkey")).toBe(false);
         expect(url.searchParams.has("sslrootcert")).toBe(false);
+
+        for (const sslmode of ["verify-ca", "require"]) {
+            const connection = result.connections.find((candidate) => {
+                const candidateUrl = new URL(candidate);
+                return (
+                    candidateUrl.searchParams.get("sslmode") === sslmode &&
+                    (sslmode === "require" ||
+                        candidateUrl.searchParams.get("sslrootcert") ===
+                            "/etc/pipipi/pg-server.crt")
+                );
+            });
+            expect(connection).toBeDefined();
+            if (connection === undefined)
+                throw new Error(`Missing ${sslmode} TLS connection`);
+            const tlsUrl = new URL(connection);
+            expect(tlsUrl.searchParams.has("ssl")).toBe(false);
+            expect(tlsUrl.searchParams.has("sslcert")).toBe(false);
+            expect(tlsUrl.searchParams.has("sslkey")).toBe(false);
+            if (sslmode === "require") {
+                expect(tlsUrl.searchParams.has("sslrootcert")).toBe(false);
+            }
+        }
     });
 
     it("does not call a disable-mode connection non-TLS when the live session says otherwise", async () => {
@@ -118,6 +140,37 @@ describe("Production database boundary inspection", () => {
         expect(result.output.directEffectiveRoleLoginWithoutTlsAvailable).toBe(
             false,
         );
+    });
+
+    it("classifies a server without TLS using a redacted stable reason", async () => {
+        const result = await runEmbeddedCollector(
+            false,
+            "server_tls_unavailable",
+        );
+
+        expect(result.output.tlsWithoutCertificateVerificationAvailable).toBe(
+            false,
+        );
+        expect(
+            result.output.tlsWithoutCertificateVerificationFailureReason,
+        ).toBe("server_tls_unavailable");
+        expect(result.stdout).not.toContain("server does not support SSL");
+        expect(result.stderr).toBe("");
+    });
+
+    it("classifies client-certificate authentication as authentication failure", async () => {
+        const result = await runEmbeddedCollector(
+            false,
+            "certificate_authentication_failed",
+        );
+
+        expect(
+            result.output.tlsWithoutCertificateVerificationFailureReason,
+        ).toBe("authentication_failed");
+        expect(result.stdout).not.toContain(
+            "certificate authentication failed",
+        );
+        expect(result.stderr).toBe("");
     });
 
     it("returns only redacted live-boundary facts", async () => {
@@ -141,7 +194,9 @@ describe("Production database boundary inspection", () => {
                 roleMembershipPresent: false,
             },
             pinnedTlsConnectionAvailable: true,
+            pinnedTlsFailureReason: "none",
             tlsWithoutCertificateVerificationAvailable: true,
+            tlsWithoutCertificateVerificationFailureReason: "none",
             directEffectiveRoleLoginAvailable: false,
             directEffectiveRoleLoginWithoutTlsAvailable: false,
             directEffectiveRoleBoundaryVerified: false,
@@ -298,9 +353,9 @@ if [ "$1" = run ]; then
     if [ "$FAKE_INVALID_RESULT" = true ]; then
         printf '%s\n' '{"databaseUrl":"postgres://fixture-secret"}'
     elif [ "$FAKE_NESTED_SECRET" = true ]; then
-        printf '%s\n' '{"schemaVersion":1,"event":"production_database_boundary_inspected","status":"succeeded","currentConnection":{"tls":false,"roleSwitchingPresent":true,"superuser":true,"administrativePrivilegesPresent":true,"otherDatabaseAccessPresent":true,"roleMembershipPresent":false,"databaseUrl":"postgres://fixture-secret"},"pinnedTlsConnectionAvailable":true,"tlsWithoutCertificateVerificationAvailable":true,"directEffectiveRoleLoginAvailable":false,"directEffectiveRoleLoginWithoutTlsAvailable":false,"directEffectiveRoleBoundaryVerified":false,"serverTlsEnabled":false,"serverCertificateConfigured":true,"serverKeyConfigured":true}'
+        printf '%s\n' '{"schemaVersion":1,"event":"production_database_boundary_inspected","status":"succeeded","currentConnection":{"tls":false,"roleSwitchingPresent":true,"superuser":true,"administrativePrivilegesPresent":true,"otherDatabaseAccessPresent":true,"roleMembershipPresent":false,"databaseUrl":"postgres://fixture-secret"},"pinnedTlsConnectionAvailable":true,"pinnedTlsFailureReason":"none","tlsWithoutCertificateVerificationAvailable":true,"tlsWithoutCertificateVerificationFailureReason":"none","directEffectiveRoleLoginAvailable":false,"directEffectiveRoleLoginWithoutTlsAvailable":false,"directEffectiveRoleBoundaryVerified":false,"serverTlsEnabled":false,"serverCertificateConfigured":true,"serverKeyConfigured":true}'
     else
-        printf '%s\n' '{"schemaVersion":1,"event":"production_database_boundary_inspected","status":"succeeded","currentConnection":{"tls":false,"roleSwitchingPresent":true,"superuser":true,"administrativePrivilegesPresent":true,"otherDatabaseAccessPresent":true,"roleMembershipPresent":false},"pinnedTlsConnectionAvailable":true,"tlsWithoutCertificateVerificationAvailable":true,"directEffectiveRoleLoginAvailable":false,"directEffectiveRoleLoginWithoutTlsAvailable":false,"directEffectiveRoleBoundaryVerified":false,"serverTlsEnabled":false,"serverCertificateConfigured":true,"serverKeyConfigured":true}'
+        printf '%s\n' '{"schemaVersion":1,"event":"production_database_boundary_inspected","status":"succeeded","currentConnection":{"tls":false,"roleSwitchingPresent":true,"superuser":true,"administrativePrivilegesPresent":true,"otherDatabaseAccessPresent":true,"roleMembershipPresent":false},"pinnedTlsConnectionAvailable":true,"pinnedTlsFailureReason":"none","tlsWithoutCertificateVerificationAvailable":true,"tlsWithoutCertificateVerificationFailureReason":"none","directEffectiveRoleLoginAvailable":false,"directEffectiveRoleLoginWithoutTlsAvailable":false,"directEffectiveRoleBoundaryVerified":false,"serverTlsEnabled":false,"serverCertificateConfigured":true,"serverKeyConfigured":true}'
     fi
     exit 0
 fi
@@ -374,7 +429,13 @@ async function waitForFile(file: string) {
     throw new Error("Timed out waiting for signal fixture");
 }
 
-async function runEmbeddedCollector(disableReturnsTls: boolean) {
+async function runEmbeddedCollector(
+    disableReturnsTls: boolean,
+    tlsRequiredFailure:
+        | "certificate_authentication_failed"
+        | "server_tls_unavailable"
+        | undefined = undefined,
+) {
     const root = await mkdtemp(path.join(tmpdir(), "pipipi-db-collector-"));
     const moduleDirectory = path.join(root, "node_modules", "pg");
     await mkdir(moduleDirectory, { recursive: true });
@@ -403,6 +464,14 @@ export class Pool {
         const url = new URL(this.connectionString);
         const switching = url.searchParams.has("options");
         const disabled = url.searchParams.get("sslmode") === "disable";
+        if (url.searchParams.get("sslmode") === "require" && process.env.FAKE_TLS_REQUIRED_FAILURE === "server_tls_unavailable") {
+            throw new Error("server does not support SSL");
+        }
+        if (url.searchParams.get("sslmode") === "require" && process.env.FAKE_TLS_REQUIRED_FAILURE === "certificate_authentication_failed") {
+            const error = new Error("certificate authentication failed");
+            error.code = "28000";
+            throw error;
+        }
         return { rows: [{
             currentUser: switching ? "app_role" : url.username,
             sessionUser: url.username,
@@ -430,6 +499,7 @@ export class Pool {
                 "postgres://postgres:fixture-secret@127.0.0.1/pipipi?options=-c%20role%3Dapp_role&uselibpqcompat=true&sslmode=verify-ca&ssl=true&sslcert=%2Ffixture-client.crt&sslkey=%2Ffixture-client.key&sslrootcert=%2Fwrong-ca.pem",
             FAKE_DISABLE_RETURNS_TLS: String(disableReturnsTls),
             FAKE_POOL_LOG: poolLog,
+            FAKE_TLS_REQUIRED_FAILURE: tlsRequiredFailure ?? "",
         },
     });
     try {
@@ -437,7 +507,11 @@ export class Pool {
         return {
             output: JSON.parse(run.stdout) as {
                 directEffectiveRoleLoginWithoutTlsAvailable: boolean;
+                tlsWithoutCertificateVerificationAvailable: boolean;
+                tlsWithoutCertificateVerificationFailureReason: string;
             },
+            stderr: run.stderr,
+            stdout: run.stdout,
             connections: (await readFile(poolLog, "utf8"))
                 .trim()
                 .split("\n")
