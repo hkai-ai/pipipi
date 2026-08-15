@@ -128,8 +128,7 @@ while IFS=$'\t' read -r host_source container_destination; do
     if ! is_canonical_absolute_path "$container_destination"; then
         inspection_failure "noncanonical_gateway_mount_destination"
     fi
-    if ! destination_canonical="$(container_realpath "$container_destination")" ||
-        [ "$destination_canonical" != "$container_destination" ]; then
+    if ! destination_canonical="$(container_realpath "$container_destination")"; then
         inspection_failure "noncanonical_gateway_mount_destination"
     fi
     if [ "$host_source" = "__pipipi_unavailable_mount_source__" ]; then

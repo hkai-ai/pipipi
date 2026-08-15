@@ -75,7 +75,11 @@ if [ "$1" = exec ]; then
             printf '\n'
             ;;
         readlink)
-            printf '%s\n' "$5"
+            case "$5" in
+                /etc/nginx-link) printf '/etc/nginx\n' ;;
+                /etc/nginx-link/*) printf '/etc/nginx/%s\n' "\${5#/etc/nginx-link/}" ;;
+                *) printf '%s\n' "$5" ;;
+            esac
             ;;
         sha256sum)
             case "$4" in
@@ -89,7 +93,7 @@ if [ "$1" = exec ]; then
         *) exit 2 ;;
     esac
 elif [ "$1" = inspect ]; then
-    printf '[{"Source":"%s","Destination":"/etc/nginx"},{"Source":"%s","Destination":"/etc/nginx/proxy/site.conf"},{"Source":"","Destination":"/tmp/nginx-cache"}]\n' "$FAKE_CONFIG_ROOT" "$FAKE_PROXY_MOUNT"
+    printf '[{"Source":"%s","Destination":"/etc/nginx-link"},{"Source":"%s","Destination":"/etc/nginx-link/proxy/site.conf"},{"Source":"","Destination":"/tmp/nginx-cache"}]\n' "$FAKE_CONFIG_ROOT" "$FAKE_PROXY_MOUNT"
 else
     exit 2
 fi
