@@ -202,7 +202,7 @@ rollback_deployment() {
         fi
         install -m 600 "$previous_async_compose" "$async_compose" || return 1
         compose_up_async "$previous_image" "$previous_revision" || return 1
-        return
+        return 0
     fi
     rm -f "$async_compose" || return 1
     compose_up_sync "$previous_image" "$previous_revision" || return 1
