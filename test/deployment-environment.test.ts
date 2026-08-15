@@ -108,6 +108,14 @@ describe("Deployment environment", () => {
         ["retention-cleaner", ["DATABASE_URL"]],
         ["async-operations", ["DATABASE_URL", "REDIS_URL"]],
         ["process-recovery", ["DATABASE_URL", "REDIS_URL"]],
+        [
+            "availability-monitor",
+            [
+                "PIPIPI_REVISION",
+                "AVAILABILITY_PUBLIC_BASE_URL",
+                "AVAILABILITY_WEBHOOK_URL",
+            ],
+        ],
     ] as const)("defines the required variables for %s", (role, variables) => {
         expect(checkDeploymentEnvironment({}, role)).toEqual({
             role,
