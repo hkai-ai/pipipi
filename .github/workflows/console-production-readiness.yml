@@ -43,6 +43,7 @@ jobs:
           chmod 600 ~/.ssh/id_ed25519 ~/.ssh/known_hosts
 
       - name: Verify active database identity and backup evidence
+        id: server
         env:
           CANDIDATE_SHA: ${{ inputs.candidate_sha }}
           REMOTE_HOST: ${{ vars.REMOTE_HOST }}
@@ -58,11 +59,32 @@ jobs:
           set -Eeuo pipefail
           app_root="$1"
           revision="$2"
+          failure_gate="runtime_revision"
+          record_failure() {
+            exit_code="$?"
+            if [ "$exit_code" -ne 0 ]; then
+              trap - EXIT
+              jq -n \
+                --arg revision "$revision" \
+                --arg failureGate "$failure_gate" '
+                {
+                  schemaVersion: 1,
+                  event: "console_server_readiness_failed",
+                  revision: $revision,
+                  status: "failed",
+                  failureGate: $failureGate
+                }
+              '
+            fi
+            exit "$exit_code"
+          }
+          trap record_failure EXIT
           [[ "$app_root" =~ ^/[A-Za-z0-9._/-]+$ ]]
           [[ "$revision" =~ ^[0-9a-f]{40}$ ]]
           for container in pipipi pipipi-business-api; do
             test "$(docker inspect "$container" --format '{{index .Config.Labels "com.pipipi.revision"}}')" = "$revision"
           done
+          failure_gate="async_observation_shape"
           async_shape=false
           if test -f "$app_root/shared/compose.production.async.yaml"; then
             async_shape=true
@@ -72,6 +94,7 @@ jobs:
             test "$worker_store" = "postgres"
             test "$worker_content" = "accepted-input-and-output"
           fi
+          failure_gate="database_audit"
           database="$(docker exec pipipi npm run --silent audit:production-database)"
           jq --exit-status '
             .event == "production_database_identity_verified" and
@@ -85,6 +108,7 @@ jobs:
             .roleSwitchingAbsent == true
           ' <<< "$database" >/dev/null
 
+          failure_gate="backup_evidence"
           backup="$app_root/shared/postgres-backup/evidence.json"
           test -f "$backup"
           now="$(date -u +%s)"
@@ -124,6 +148,7 @@ jobs:
           REMOTE
 
       - name: Verify console gateway authentication
+        id: gateway
         env:
           CANDIDATE_SHA: ${{ inputs.candidate_sha }}
           CONSOLE_AUTHORIZATION: ${{ secrets.CONSOLE_AUTHORIZATION }}
@@ -204,6 +229,7 @@ jobs:
           NODE
 
       - name: Assemble readiness evidence
+        id: assemble
         env:
           BACKUP_EVIDENCE_HMAC_KEY: ${{ secrets.BACKUP_EVIDENCE_HMAC_KEY }}
           CANDIDATE_SHA: ${{ inputs.candidate_sha }}
@@ -264,10 +290,59 @@ jobs:
             (.gateway.authenticatedStatus | all(. == 200))
           ' artifacts/console-production-readiness/evidence.json >/dev/null
 
+      - name: Record failed readiness gate
+        if: ${{ failure() }}
+        env:
+          ASSEMBLE_OUTCOME: ${{ steps.assemble.outcome }}
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+          GATEWAY_OUTCOME: ${{ steps.gateway.outcome }}
+          SERVER_OUTCOME: ${{ steps.server.outcome }}
+        run: |
+          set -Eeuo pipefail
+          directory=artifacts/console-production-readiness
+          install -d -m 700 "$directory"
+          revision=""
+          failure_gate="invalid_candidate"
+          if [[ "$CANDIDATE_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            revision="$CANDIDATE_SHA"
+            failure_gate="preflight"
+          fi
+          if [ "$SERVER_OUTCOME" = "failure" ]; then
+            failure_gate="$(jq -r '
+              select(.event == "console_server_readiness_failed") |
+              .failureGate // empty
+            ' "$directory/server.json" 2>/dev/null || true)"
+            failure_gate="${failure_gate:-server_readiness}"
+          elif [ "$GATEWAY_OUTCOME" = "failure" ]; then
+            failure_gate="gateway_authentication"
+          elif [ "$ASSEMBLE_OUTCOME" = "failure" ]; then
+            failure_gate="backup_signature"
+          fi
+          jq -n \
+            --arg revision "$revision" \
+            --arg failureGate "$failure_gate" \
+            --arg serverOutcome "$SERVER_OUTCOME" \
+            --arg gatewayOutcome "$GATEWAY_OUTCOME" \
+            --arg assembleOutcome "$ASSEMBLE_OUTCOME" '
+            {
+              schemaVersion: 1,
+              event: "console_production_readiness_failed",
+              revision: (if $revision == "" then null else $revision end),
+              status: "failed",
+              failureGate: $failureGate,
+              steps: {
+                server: $serverOutcome,
+                gateway: $gatewayOutcome,
+                assemble: $assembleOutcome
+              }
+            }
+          ' > "$directory/failure.json"
+
       - name: Upload readiness evidence
+        if: ${{ always() }}
         uses: actions/upload-artifact@v6
         with:
-          name: pipipi-console-production-readiness-${{ inputs.candidate_sha }}-${{ github.run_id }}-${{ github.run_attempt }}
-          path: artifacts/console-production-readiness/evidence.json
+          name: pipipi-console-production-readiness-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/console-production-readiness/
           if-no-files-found: error
           retention-days: 90

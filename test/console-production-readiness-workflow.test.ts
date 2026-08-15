@@ -41,6 +41,37 @@ describe("Console production readiness workflow", () => {
         expect(workflow).toContain("documentVerified");
         expect(workflow).toContain("processCatalogVerified");
         expect(workflow).toContain("statisticsVerified");
+        expect(workflow).toContain("id: server");
+        expect(workflow).toContain("id: gateway");
+        expect(workflow).toContain("id: assemble");
+        expect(workflow).toContain("console_server_readiness_failed");
+        expect(workflow).toContain('failure_gate="database_audit"');
+        expect(workflow).toContain('failure_gate="backup_evidence"');
+        expect(workflow).toContain("name: Record failed readiness gate");
+        expect(workflow).toMatch(
+            /SERVER_OUTCOME: \$\{\{ steps\.server\.outcome \}\}/,
+        );
+        expect(workflow).toMatch(
+            /GATEWAY_OUTCOME: \$\{\{ steps\.gateway\.outcome \}\}/,
+        );
+        expect(workflow).toMatch(
+            /ASSEMBLE_OUTCOME: \$\{\{ steps\.assemble\.outcome \}\}/,
+        );
+        expect(workflow).toMatch(/if: \$\{\{ failure\(\) \}\}/);
+        expect(workflow).toMatch(/if: \$\{\{ always\(\) \}\}/);
+        expect(workflow).toContain(
+            "path: artifacts/console-production-readiness/",
+        );
+        expect(workflow).toMatch(
+            /name: pipipi-console-production-readiness-\$\{\{ github\.run_id \}\}-\$\{\{ github\.run_attempt \}\}/,
+        );
+        expect(workflow).not.toMatch(
+            /name: pipipi-console-production-readiness-.*inputs\.candidate_sha/,
+        );
+        expect(workflow).toContain('revision=""');
+        expect(workflow).toContain(
+            'revision: (if $revision == "" then null else $revision end)',
+        );
         expect(workflow).toContain("retention-days: 90");
         expect(workflow).not.toContain("docker compose up");
         expect(workflow).not.toContain("set-traffic");
