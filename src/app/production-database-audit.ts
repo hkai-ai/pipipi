@@ -16,6 +16,48 @@ export type ProductionDatabaseAudit = Readonly<{
     roleSwitchingAbsent: true;
 }>;
 
+const fixedCaConnectionError =
+    "Production database connection must use the fixed CA";
+
+export function parseProductionDatabaseAuditConnection(
+    value: string | undefined,
+): string {
+    const candidate = value?.trim();
+    if (!candidate) throw new Error(fixedCaConnectionError);
+    try {
+        const url = new URL(candidate);
+        const allowedParameters = new Set([
+            "uselibpqcompat",
+            "sslmode",
+            "sslrootcert",
+        ]);
+        const exactly = (key: string, expected: string): boolean => {
+            const values = url.searchParams.getAll(key);
+            return values.length === 1 && values[0] === expected;
+        };
+        const database = decodeURIComponent(url.pathname.slice(1));
+        if (
+            !["postgres:", "postgresql:"].includes(url.protocol) ||
+            !url.username ||
+            !url.password ||
+            !url.hostname ||
+            !database ||
+            database.includes("/") ||
+            [...url.searchParams.keys()].some(
+                (key) => !allowedParameters.has(key),
+            ) ||
+            !exactly("uselibpqcompat", "true") ||
+            !exactly("sslmode", "verify-ca") ||
+            !exactly("sslrootcert", "/etc/pipipi/pg-server.crt")
+        ) {
+            throw new Error();
+        }
+    } catch {
+        throw new Error(fixedCaConnectionError);
+    }
+    return candidate;
+}
+
 /**
  * Verifies the effective production database security boundary over the live
  * connection. URL inspection cannot prove that a named role is not a

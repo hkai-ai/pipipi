@@ -65,11 +65,13 @@ evidence_key="$revision-$release_run_id-$release_run_attempt"
 evidence_directory="$shared/async-release-evidence/$evidence_key"
 evidence_file="$evidence_directory/evidence.json"
 precheck_log="$evidence_directory/environment-prechecks.jsonl"
+database_audit_log="$evidence_directory/database.json"
 migration_log="$evidence_directory/migration.json"
 recovery_log="$evidence_directory/recovery.jsonl"
 readiness_log="$evidence_directory/readiness.jsonl"
 work_root="$shared/.async-release-work"
 work_directory="$work_root/$evidence_key"
+database_audit_candidate="$work_directory/database.json"
 previous_base_compose="$work_directory/previous.compose.yaml"
 previous_async_compose="$work_directory/previous.compose.async.yaml"
 image="pipipi:$revision"
@@ -82,6 +84,7 @@ previous_image=""
 previous_revision=""
 image_id=""
 archive_sha256=""
+database_boundary_verified="false"
 migration_applied_count="0"
 migration_verified="false"
 recovery_batch_count="0"
@@ -104,10 +107,16 @@ fi
 mkdir -p "$evidence_directory" "$work_root" "$work_directory"
 chmod 700 "$evidence_directory" "$work_root" "$work_directory"
 : > "$precheck_log"
+: > "$database_audit_log"
 : > "$migration_log"
 : > "$recovery_log"
 : > "$readiness_log"
-chmod 600 "$precheck_log" "$migration_log" "$recovery_log" "$readiness_log"
+chmod 600 \
+    "$precheck_log" \
+    "$database_audit_log" \
+    "$migration_log" \
+    "$recovery_log" \
+    "$readiness_log"
 
 write_evidence() {
     status="$1"
@@ -132,6 +141,7 @@ write_evidence() {
         "  \"processQueuePrefix\": \"$process_queue_prefix\"," \
         "  \"webhookQueueName\": \"$webhook_queue_name\"," \
         "  \"webhookQueuePrefix\": \"$webhook_queue_prefix\"," \
+        "  \"databaseBoundaryVerified\": $database_boundary_verified," \
         "  \"migrationAppliedCount\": $migration_applied_count," \
         "  \"migrationVerified\": $migration_verified," \
         "  \"recoveryStartedWithEmptyCursor\": $recovery_started_with_empty_cursor," \
@@ -231,6 +241,7 @@ finalize_release() {
         "$image_archive" \
         "$base_compose_source" \
         "$async_compose_source" \
+        "$database_audit_candidate" \
         "$previous_base_compose" \
         "$previous_async_compose"
     rmdir "$work_directory" "$work_root" 2>/dev/null || true
@@ -253,6 +264,7 @@ failure_gate="preflight"
 command -v docker >/dev/null
 docker compose version >/dev/null
 command -v flock >/dev/null
+command -v jq >/dev/null
 for required_file in \
     "$image_archive" \
     "$base_compose_source" \
@@ -359,7 +371,7 @@ failure_gate="environment_prechecks"
 docker run --rm --env-file "$shared_env" \
     --env IMAGE_PROVIDER=fal \
     --env OBJECT_STORAGE_PROVIDER=aliyun-oss \
-    --entrypoint node "$image" \
+    --entrypoint node "$image_id" \
     dist/bin/check-deployment-environment.js crt-business-api >> "$precheck_log"
 docker run --rm --env-file "$api_env" \
     --env ASYNC_PROCESS_RUNS_ENABLED=true \
@@ -367,34 +379,61 @@ docker run --rm --env-file "$api_env" \
     --env CONSOLE_ENABLED=true \
     --env PROCESS_RUN_RECORD_STORE=postgres \
     --env CRT_BUSINESS_API_BASE_URL=http://127.0.0.1:4400 \
-    --entrypoint node "$image" \
+    --entrypoint node "$image_id" \
     dist/bin/check-deployment-environment.js api >> "$precheck_log"
 docker run --rm --env-file "$dispatcher_env" \
     --env PROCESS_QUEUE_NAME="$process_queue_name" \
     --env PROCESS_QUEUE_PREFIX="$process_queue_prefix" \
-    --entrypoint node "$image" \
+    --entrypoint node "$image_id" \
     dist/bin/check-deployment-environment.js process-dispatcher >> "$precheck_log"
 docker run --rm --env-file "$worker_env" \
     --env CRT_BUSINESS_API_BASE_URL=http://127.0.0.1:4400 \
     --env PROCESS_QUEUE_NAME="$process_queue_name" \
     --env PROCESS_QUEUE_PREFIX="$process_queue_prefix" \
-    --entrypoint node "$image" \
+    --entrypoint node "$image_id" \
     dist/bin/check-deployment-environment.js process-worker >> "$precheck_log"
 docker run --rm --env-file "$webhook_env" \
     --env WEBHOOK_QUEUE_NAME="$webhook_queue_name" \
     --env WEBHOOK_QUEUE_PREFIX="$webhook_queue_prefix" \
-    --entrypoint node "$image" \
+    --entrypoint node "$image_id" \
     dist/bin/check-deployment-environment.js webhook-worker >> "$precheck_log"
 docker run --rm --env-file "$retention_env" \
-    --entrypoint node "$image" \
+    --entrypoint node "$image_id" \
     dist/bin/check-deployment-environment.js retention-cleaner >> "$precheck_log"
 
-failure_gate="database_migration"
-docker run --rm --env-file "$dispatcher_env" \
+failure_gate="database_boundary"
+docker run --rm --network host --env-file "$dispatcher_env" \
     --volume "$database_ca:/etc/pipipi/pg-server.crt:ro" \
-    --entrypoint node "$image" \
+    --entrypoint npm "$image_id" \
+    run --silent audit:production-database \
+    > "$database_audit_candidate" 2>/dev/null
+jq --exit-status '
+    type == "object" and
+    (keys | sort) == ([
+        "event", "databaseIdentitySha256", "tlsVerified",
+        "dedicatedDatabaseVerified", "nonSuperuserVerified",
+        "administrativePrivilegesAbsent", "otherDatabaseAccessAbsent",
+        "roleMembershipAbsent", "roleSwitchingAbsent"
+    ] | sort) and
+    .event == "production_database_identity_verified" and
+    (.databaseIdentitySha256 | test("^[0-9a-f]{64}$")) and
+    .tlsVerified == true and
+    .dedicatedDatabaseVerified == true and
+    .nonSuperuserVerified == true and
+    .administrativePrivilegesAbsent == true and
+    .otherDatabaseAccessAbsent == true and
+    .roleMembershipAbsent == true and
+    .roleSwitchingAbsent == true
+' "$database_audit_candidate" >/dev/null
+install -m 600 -- "$database_audit_candidate" "$database_audit_log"
+database_boundary_verified="true"
+
+failure_gate="database_migration"
+docker run --rm --network host --env-file "$dispatcher_env" \
+    --volume "$database_ca:/etc/pipipi/pg-server.crt:ro" \
+    --entrypoint node "$image_id" \
     dist/bin/migrate-and-verify.js > "$migration_log"
-migration_summary="$(docker run --rm -i --entrypoint node "$image" -e '
+migration_summary="$(docker run --rm -i --entrypoint node "$image_id" -e '
 const chunks = [];
 for await (const chunk of process.stdin) chunks.push(chunk);
 const record = JSON.parse(Buffer.concat(chunks).toString("utf8"));
@@ -407,14 +446,14 @@ migration_verified="true"
 
 failure_gate="queue_recovery"
 recovery_started_with_empty_cursor="true"
-docker run --rm --env-file "$dispatcher_env" \
+docker run --rm --network host --env-file "$dispatcher_env" \
     --env PROCESS_QUEUE_NAME="$process_queue_name" \
     --env PROCESS_QUEUE_PREFIX="$process_queue_prefix" \
     --env PROCESS_RECOVERY_ACTOR_ID="$recovery_actor_id" \
     --volume "$database_ca:/etc/pipipi/pg-server.crt:ro" \
-    --entrypoint node "$image" \
+    --entrypoint node "$image_id" \
     dist/bin/recover.js --dry-run --mode=all > "$recovery_log"
-recovery_summary="$(docker run --rm -i --entrypoint node "$image" -e '
+recovery_summary="$(docker run --rm -i --entrypoint node "$image_id" -e '
 const chunks = [];
 for await (const chunk of process.stdin) chunks.push(chunk);
 const reports = Buffer.concat(chunks).toString("utf8").trim().split("\n").filter(Boolean).map(JSON.parse);

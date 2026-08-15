@@ -1,7 +1,28 @@
 import { describe, expect, it } from "vitest";
-import { auditProductionDatabase } from "../src/app/production-database-audit.js";
+import {
+    auditProductionDatabase,
+    parseProductionDatabaseAuditConnection,
+} from "../src/app/production-database-audit.js";
 
 describe("Production database audit", () => {
+    it("requires the fixed production CA contract before connecting", () => {
+        const connection =
+            "postgresql://pipipi:secret@database.internal/pipipi?uselibpqcompat=true&sslmode=verify-ca&sslrootcert=%2Fetc%2Fpipipi%2Fpg-server.crt";
+
+        expect(parseProductionDatabaseAuditConnection(connection)).toBe(
+            connection,
+        );
+        for (const invalid of [
+            "postgresql://pipipi:secret@database.internal/pipipi?uselibpqcompat=true&sslmode=require&sslrootcert=%2Fetc%2Fpipipi%2Fpg-server.crt",
+            "postgresql://pipipi:secret@database.internal/pipipi?uselibpqcompat=true&sslmode=verify-ca",
+            "postgresql://pipipi:secret@database.internal/pipipi?uselibpqcompat=true&sslmode=verify-ca&sslrootcert=%2Fetc%2Fpipipi%2Fpg-server.crt&options=-c%20role%3Dpostgres",
+        ]) {
+            expect(() =>
+                parseProductionDatabaseAuditConnection(invalid),
+            ).toThrow("Production database connection must use the fixed CA");
+        }
+    });
+
     it("accepts an encrypted dedicated database session without role switching", async () => {
         const result = await auditProductionDatabase(
             database({

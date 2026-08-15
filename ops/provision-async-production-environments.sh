@@ -3,7 +3,7 @@
 set -Eeuo pipefail
 
 emit_invalid_request() {
-    printf '%s\n' '{"schemaVersion":1,"event":"async_production_environment_provisioned","status":"failed","mode":null,"activeRevision":null,"candidateRevision":null,"changeReference":null,"candidateVerified":false,"applied":false,"rollbackStatus":"not_required","cleanupStatus":"not_required","failureReason":"invalid_request"}'
+    printf '%s\n' '{"schemaVersion":1,"event":"async_production_environment_provisioned","status":"failed","mode":null,"activeRevision":null,"candidateRevision":null,"changeReference":null,"candidateVerified":false,"applied":false,"rollbackStatus":"not_required","cleanupStatus":"not_required","databaseConfigurationSource":"not_observed","redisConfigurationSource":"not_observed","failureReason":"invalid_request"}'
 }
 
 if [ "$#" -ne 9 ]; then
@@ -56,6 +56,8 @@ applied=false
 completed=false
 success_ready=false
 failure_reason=""
+database_configuration_source="not_observed"
+redis_configuration_source="not_observed"
 
 emit_result() {
     local status="$1"
@@ -66,8 +68,10 @@ emit_result() {
         --arg candidateRevision "$candidate_revision" \
         --arg changeReference "$change_reference" \
         --arg cleanupStatus "$cleanup_status" \
+        --arg databaseConfigurationSource "$database_configuration_source" \
         --arg failureReason "$failure_reason" \
         --arg mode "$mode" \
+        --arg redisConfigurationSource "$redis_configuration_source" \
         --arg rollbackStatus "$rollback_status" \
         --arg status "$status" \
         --argjson applied "$applied" '
@@ -82,7 +86,9 @@ emit_result() {
             candidateVerified: ($status == "succeeded"),
             applied: $applied,
             rollbackStatus: $rollbackStatus,
-            cleanupStatus: $cleanupStatus
+            cleanupStatus: $cleanupStatus,
+            databaseConfigurationSource: $databaseConfigurationSource,
+            redisConfigurationSource: $redisConfigurationSource
         }
         + if $status == "failed" then { failureReason: $failureReason } else {} end
     '
@@ -180,10 +186,15 @@ redis_url=""
 if ! IFS= read -r -d '' database_url || ! IFS= read -r -d '' redis_url; then
     provision_failure "invalid_secret_payload"
 fi
-if [ -z "$database_url" ] || [ -z "$redis_url" ] ||
-    [[ "$database_url" == *$'\n'* ]] || [[ "$database_url" == *$'\r'* ]] ||
+if [[ "$database_url" == *$'\n'* ]] || [[ "$database_url" == *$'\r'* ]] ||
     [[ "$redis_url" == *$'\n'* ]] || [[ "$redis_url" == *$'\r'* ]]; then
     provision_failure "invalid_secret_payload"
+fi
+if [ -n "$database_url" ]; then
+    database_configuration_source="protected_override"
+fi
+if [ -n "$redis_url" ]; then
+    redis_configuration_source="protected_override"
 fi
 
 file_restricted() {
@@ -246,6 +257,18 @@ shared_environment_unchanged() {
         [ "$current_digest" = "$shared_env_digest" ]
 }
 
+standard_connection_defined_once() {
+    local key="$1"
+    awk -v key="$key" '
+        index($0, key "=") == 1 {
+            count++
+        }
+        END {
+            if (count != 1) exit 1
+        }
+    ' "$shared_env"
+}
+
 if ! api_sync_intake_disabled || ! container_running_at_revision pipipi-business-api; then
     provision_failure "current_sync_shape_invalid"
 fi
@@ -275,6 +298,44 @@ if ! work_directory="$(mktemp -d "$shared/.async-environment-provision.XXXXXX")"
     provision_failure "candidate_workspace_failed"
 fi
 chmod 700 "$work_directory"
+
+if [ -z "$database_url" ] || [ -z "$redis_url" ]; then
+    connection_probe="$work_directory/connection-probe.compose.yaml"
+    resolved_connections="$work_directory/resolved-connections.json"
+    printf '%s\n' \
+        'services:' \
+        '  connection-probe:' \
+        "    image: \"$candidate_image_id\"" \
+        '    env_file:' \
+        "      - \"$shared_env\"" > "$connection_probe"
+    chmod 600 "$connection_probe"
+    if ! docker compose --project-name pipipi-async-environment-probe \
+        --env-file /dev/null \
+        --file "$connection_probe" \
+        config --format json > "$resolved_connections" 2>/dev/null; then
+        provision_failure "standard_connection_resolution_failed"
+    fi
+    chmod 600 "$resolved_connections"
+    if [ -z "$database_url" ]; then
+        if ! standard_connection_defined_once DATABASE_URL ||
+            ! database_url="$(jq -er '.services["connection-probe"].environment.DATABASE_URL | select(type == "string" and length > 0)' "$resolved_connections" 2>/dev/null)"; then
+            provision_failure "standard_database_url_unavailable"
+        fi
+        database_configuration_source="shared_environment"
+    fi
+    if [ -z "$redis_url" ]; then
+        if ! standard_connection_defined_once REDIS_URL ||
+            ! redis_url="$(jq -er '.services["connection-probe"].environment.REDIS_URL | select(type == "string" and length > 0)' "$resolved_connections" 2>/dev/null)"; then
+            provision_failure "standard_redis_url_unavailable"
+        fi
+        redis_configuration_source="shared_environment"
+    fi
+    if [[ "$database_url" == *$'\n'* ]] || [[ "$database_url" == *$'\r'* ]] ||
+        [[ "$redis_url" == *$'\n'* ]] || [[ "$redis_url" == *$'\r'* ]]; then
+        provision_failure "standard_connection_resolution_failed"
+    fi
+fi
+
 api_candidate="$work_directory/async-api.env"
 dispatcher_candidate="$work_directory/process-dispatcher.env"
 worker_candidate="$work_directory/process-worker.env"
@@ -416,6 +477,33 @@ if (!exactly(database, "sslrootcert", "/etc/pipipi/pg-server.crt")) process.exit
 if (redis.protocol !== "rediss:" || !redis.hostname || !redis.password) process.exit(1);
 ' >/dev/null 2>&1; then
     provision_failure "connection_contract_invalid"
+fi
+
+database_audit="$work_directory/database-audit.json"
+if ! docker run --rm --network host --env-file "$dispatcher_candidate" \
+    --volume "$database_ca:/etc/pipipi/pg-server.crt:ro" \
+    --entrypoint npm "$candidate_image_id" \
+    run --silent audit:production-database \
+    > "$database_audit" 2>/dev/null ||
+    ! jq -e '
+        type == "object" and
+        (keys | sort) == ([
+            "event", "databaseIdentitySha256", "tlsVerified",
+            "dedicatedDatabaseVerified", "nonSuperuserVerified",
+            "administrativePrivilegesAbsent", "otherDatabaseAccessAbsent",
+            "roleMembershipAbsent", "roleSwitchingAbsent"
+        ] | sort) and
+        .event == "production_database_identity_verified" and
+        (.databaseIdentitySha256 | test("^[0-9a-f]{64}$")) and
+        .tlsVerified == true and
+        .dedicatedDatabaseVerified == true and
+        .nonSuperuserVerified == true and
+        .administrativePrivilegesAbsent == true and
+        .otherDatabaseAccessAbsent == true and
+        .roleMembershipAbsent == true and
+        .roleSwitchingAbsent == true
+    ' "$database_audit" >/dev/null 2>&1; then
+    provision_failure "database_boundary_invalid"
 fi
 
 run_preflight() {

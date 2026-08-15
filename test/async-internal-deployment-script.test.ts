@@ -49,6 +49,7 @@ describe("Async internal deployment script", () => {
         const log = await readFile(fixture.dockerLog, "utf8");
         expectOrdered(log, [
             "check-deployment-environment.js api",
+            "audit:production-database",
             "migrate-and-verify.js",
             "recover.js --dry-run --mode=all",
             "business-api retention-cleaner process-dispatcher process-worker webhook-worker",
@@ -63,6 +64,7 @@ describe("Async internal deployment script", () => {
             previousShape: "sync",
             previousRevision: PREVIOUS,
             releaseStage: "internal",
+            databaseBoundaryVerified: true,
             migrationVerified: true,
             recoveryStartedWithEmptyCursor: true,
             recoveryFinalCursorEmpty: true,
@@ -83,12 +85,48 @@ describe("Async internal deployment script", () => {
                 ),
             ),
         ).toEqual([
+            "database.json",
             "environment-prechecks.jsonl",
             "evidence.json",
             "migration.json",
             "readiness.jsonl",
             "recovery.jsonl",
         ]);
+    });
+
+    it("stops before migration when the live database boundary is invalid", async () => {
+        const fixture = await createFixture({ failDatabaseAudit: true });
+
+        const result = runDeployment(fixture);
+
+        expect(result.status).not.toBe(0);
+        expect(result.stderr).not.toContain("database-secret");
+        expect(result.stderr).not.toContain("database.internal");
+        const log = await readFile(fixture.dockerLog, "utf8");
+        expect(log).toContain("audit:production-database");
+        expect(log).not.toContain("migrate-and-verify.js");
+        expect(await readFile(fixture.stateFile, "utf8")).toBe(
+            "sync:previous\n",
+        );
+        await expect(evidenceRecord(fixture)).resolves.toMatchObject({
+            status: "failed",
+            failedGate: "database_boundary",
+            databaseBoundaryVerified: false,
+            migrationVerified: false,
+            rollbackStatus: "not_required",
+        });
+        await expect(
+            readFile(
+                path.join(
+                    fixture.appRoot,
+                    "shared",
+                    "async-release-evidence",
+                    `${CANDIDATE}-${fixture.releaseRunId}-1`,
+                    "database.json",
+                ),
+                "utf8",
+            ),
+        ).resolves.toBe("");
     });
 
     it("restores the synchronous shape when API activation fails", async () => {
@@ -183,6 +221,7 @@ describe("Async internal deployment script", () => {
     });
 
     async function createFixture(options?: {
+        failDatabaseAudit?: boolean;
         failApiActivation?: boolean;
         failRollbackInstall?: boolean;
         initialShape?: "sync" | "async";
@@ -247,6 +286,7 @@ describe("Async internal deployment script", () => {
             dockerLog,
             stateFile,
             failApiActivation: options?.failApiActivation ?? false,
+            failDatabaseAudit: options?.failDatabaseAudit ?? false,
             failRollbackInstall: options?.failRollbackInstall ?? false,
             interruptAfterBackground:
                 options?.interruptAfterBackground ?? false,
@@ -264,6 +304,7 @@ type Fixture = Readonly<{
     dockerLog: string;
     stateFile: string;
     failApiActivation: boolean;
+    failDatabaseAudit: boolean;
     failRollbackInstall: boolean;
     interruptAfterBackground: boolean;
     releaseRunId: string;
@@ -299,6 +340,9 @@ function runDeployment(fixture: Fixture) {
                 FAKE_DOCKER_LOG: fixture.dockerLog,
                 FAKE_DOCKER_STATE: fixture.stateFile,
                 FAKE_FAIL_API: fixture.failApiActivation ? "true" : "false",
+                FAKE_FAIL_DATABASE_AUDIT: fixture.failDatabaseAudit
+                    ? "true"
+                    : "false",
                 FAKE_FAIL_ROLLBACK_INSTALL: fixture.failRollbackInstall
                     ? "true"
                     : "false",
@@ -415,7 +459,17 @@ fi
 
 if [ "$1" = "run" ]; then
     payload="$(cat)"
-    if [[ " $* " == *"database_migration_verified"* ]]; then
+    [[ " $* " != *" pipipi:$FAKE_CANDIDATE "* ]]
+    if [[ " $* " == *" audit:production-database "* || " $* " == *" migrate-and-verify.js "* || " $* " == *" recover.js --dry-run --mode=all "* ]]; then
+        [[ " $* " == *" --network host "* ]]
+    fi
+    if [[ " $* " == *" audit:production-database "* ]]; then
+        if [ "$FAKE_FAIL_DATABASE_AUDIT" = true ]; then
+            printf '%s\n' 'connection to database.internal failed for database-secret' >&2
+            exit 1
+        fi
+        printf '%s\n' '{"event":"production_database_identity_verified","databaseIdentitySha256":"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd","tlsVerified":true,"dedicatedDatabaseVerified":true,"nonSuperuserVerified":true,"administrativePrivilegesAbsent":true,"otherDatabaseAccessAbsent":true,"roleMembershipAbsent":true,"roleSwitchingAbsent":true}'
+    elif [[ " $* " == *"database_migration_verified"* ]]; then
         printf '0'
     elif [[ " $* " == *"process_queue_recovery_batch_completed"* ]]; then
         printf '1 0'

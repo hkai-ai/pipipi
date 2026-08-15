@@ -270,6 +270,111 @@ describe("Async production environment provisioning", () => {
         expect(result.stderr).toBe("");
     });
 
+    it("falls back to audited standard connection variables when overrides are empty", async () => {
+        const fixture = await createFixture({ standardConnections: true });
+
+        const result = runProvisioning(fixture, "apply", {
+            databaseUrl: "",
+            redisUrl: "",
+        });
+
+        expect(result.status, result.stderr).toBe(0);
+        expect(JSON.parse(result.stdout)).toMatchObject({
+            status: "succeeded",
+            databaseConfigurationSource: "shared_environment",
+            redisConfigurationSource: "shared_environment",
+        });
+        await expectRoleFiles(fixture.shared, true);
+        await expect(stat(fixture.databaseAuditMarker)).resolves.toBeDefined();
+        const dispatcher = await readFile(
+            path.join(fixture.shared, "process-dispatcher.env"),
+            "utf8",
+        );
+        expect(dispatcher).toContain(`DATABASE_URL=${DATABASE_URL}`);
+        expect(dispatcher).toContain(`REDIS_URL=${REDIS_URL}`);
+        expect(result.stdout).not.toContain("database-secret");
+        expect(result.stdout).not.toContain("redis-secret");
+    });
+
+    it("resolves quoted and commented fallback values with Compose env-file semantics", async () => {
+        const fixture = await createFixture({
+            quotedStandardConnections: true,
+            standardConnections: true,
+        });
+
+        const result = runProvisioning(fixture, "apply", {
+            databaseUrl: "",
+            redisUrl: "",
+        });
+
+        expect(result.status, result.stderr).toBe(0);
+        const dispatcher = await readFile(
+            path.join(fixture.shared, "process-dispatcher.env"),
+            "utf8",
+        );
+        expect(dispatcher).toContain(`DATABASE_URL=${DATABASE_URL}`);
+        expect(dispatcher).toContain(`REDIS_URL=${REDIS_URL}`);
+        expect(dispatcher).not.toContain("approved fallback");
+        expect(dispatcher).not.toContain('DATABASE_URL="');
+    });
+
+    it("rejects a standard database fallback that fails the live boundary audit", async () => {
+        const fixture = await createFixture({ standardConnections: true });
+
+        const result = runProvisioning(fixture, "apply", {
+            databaseAuditFails: true,
+            databaseUrl: "",
+            redisUrl: "",
+        });
+
+        expect(result.status).toBe(1);
+        expect(JSON.parse(result.stdout)).toMatchObject({
+            status: "failed",
+            failureReason: "database_boundary_invalid",
+            databaseConfigurationSource: "shared_environment",
+            redisConfigurationSource: "shared_environment",
+        });
+        await expectRoleFiles(fixture.shared, false);
+    });
+
+    it("rejects a protected database override that fails the live boundary audit", async () => {
+        const fixture = await createFixture();
+
+        const result = runProvisioning(fixture, "apply", {
+            databaseAuditFails: true,
+        });
+
+        expect(result.status).toBe(1);
+        expect(JSON.parse(result.stdout)).toMatchObject({
+            status: "failed",
+            failureReason: "database_boundary_invalid",
+            databaseConfigurationSource: "protected_override",
+            redisConfigurationSource: "protected_override",
+        });
+        await expectRoleFiles(fixture.shared, false);
+    });
+
+    it("fails closed when the standard Redis fallback is absent", async () => {
+        const fixture = await createFixture({
+            standardConnections: true,
+            standardRedisAbsent: true,
+        });
+
+        const result = runProvisioning(fixture, "plan", {
+            databaseUrl: "",
+            redisUrl: "",
+        });
+
+        expect(result.status).toBe(1);
+        expect(JSON.parse(result.stdout)).toMatchObject({
+            status: "failed",
+            failureReason: "standard_redis_url_unavailable",
+            databaseConfigurationSource: "shared_environment",
+            redisConfigurationSource: "not_observed",
+        });
+        await expectRoleFiles(fixture.shared, false);
+    });
+
     it("rejects PostgreSQL query parameters that can override the authority", async () => {
         const fixture = await createFixture();
 
@@ -459,7 +564,13 @@ describe("Async production environment provisioning", () => {
         expect(result.stderr).toBe("");
     });
 
-    async function createFixture() {
+    async function createFixture(
+        options: Readonly<{
+            quotedStandardConnections?: boolean;
+            standardConnections?: boolean;
+            standardRedisAbsent?: boolean;
+        }> = {},
+    ) {
         const root = await mkdtemp(
             path.join(tmpdir(), "pipipi-async-provision-"),
         );
@@ -467,6 +578,7 @@ describe("Async production environment provisioning", () => {
         const appRoot = path.join(root, "app");
         const shared = path.join(appRoot, "shared");
         const binaries = path.join(root, "bin");
+        const databaseAuditMarker = path.join(root, "database-audit-ran");
         await Promise.all([
             mkdir(shared, { recursive: true }),
             mkdir(binaries),
@@ -475,7 +587,16 @@ describe("Async production environment provisioning", () => {
             path.join(shared, ".env"),
             [
                 "BUSINESS_API_BASE_URL=http://127.0.0.1:4400",
-                `DATABASE_URL=${ORIGINAL_DATABASE_URL}`,
+                options.quotedStandardConnections
+                    ? `DATABASE_URL="${DATABASE_URL}" # approved fallback`
+                    : `DATABASE_URL=${options.standardConnections ? DATABASE_URL : ORIGINAL_DATABASE_URL}`,
+                ...(options.standardConnections && !options.standardRedisAbsent
+                    ? [
+                          options.quotedStandardConnections
+                              ? `REDIS_URL='${REDIS_URL}' # approved fallback`
+                              : `REDIS_URL=${REDIS_URL}`,
+                      ]
+                    : []),
                 "PI_PROVIDER=openai",
                 "PI_MODEL=gpt-5.6-terra",
                 "OPENAI_API_KEY=openai-secret",
@@ -512,6 +633,11 @@ if [ "$1" = image ] && [ "$2" = inspect ]; then
     printf 'sha256:%064d\n' 1
     exit 0
 fi
+if [ "$1" = compose ]; then
+    printf '{"services":{"connection-probe":{"environment":{"DATABASE_URL":"%s","REDIS_URL":"%s"}}}}\n' \
+        "$FAKE_STANDARD_DATABASE_URL" "$FAKE_STANDARD_REDIS_URL"
+    exit 0
+fi
 if [ "$1" = inspect ]; then
     if [ "$2" = pipipi ]; then
         printf '[{"State":{"Running":true},"Config":{"Labels":{"com.pipipi.revision":"%s"},"Env":["ASYNC_PROCESS_RUNS_ENABLED=false"]}}]\n' "$FAKE_ACTIVE_REVISION"
@@ -525,6 +651,13 @@ if [ "$1" = inspect ]; then
     exit 1
 fi
 if [ "$1" = run ]; then
+    if [[ " $* " == *" audit:production-database "* ]]; then
+        [[ " $* " == *" --network host "* ]]
+        : > "$FAKE_DATABASE_AUDIT_MARKER"
+        [ "$FAKE_DATABASE_AUDIT_FAILS" != true ]
+        printf '%s\n' '{"event":"production_database_identity_verified","databaseIdentitySha256":"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd","tlsVerified":true,"dedicatedDatabaseVerified":true,"nonSuperuserVerified":true,"administrativePrivilegesAbsent":true,"otherDatabaseAccessAbsent":true,"roleMembershipAbsent":true,"roleSwitchingAbsent":true}'
+        exit 0
+    fi
     [[ " $* " == *" --rm "* ]]
     [[ " $* " == *" --network none "* ]]
     [[ " $* " == *" sha256:0000000000000000000000000000000000000000000000000000000000000001 "* ]]
@@ -604,7 +737,20 @@ set -Eeuo pipefail
 [ "$2" = 9 ]
 `,
         );
-        return { appRoot, binaries, shared, stateDirectory: root };
+        return {
+            appRoot,
+            binaries,
+            databaseAuditMarker,
+            standardDatabaseUrl: options.standardConnections
+                ? DATABASE_URL
+                : ORIGINAL_DATABASE_URL,
+            standardRedisUrl:
+                options.standardConnections && !options.standardRedisAbsent
+                    ? REDIS_URL
+                    : "",
+            shared,
+            stateDirectory: root,
+        };
     }
 });
 
@@ -617,12 +763,16 @@ function runProvisioning(
     fixture: {
         appRoot: string;
         binaries: string;
+        databaseAuditMarker: string;
+        standardDatabaseUrl: string;
+        standardRedisUrl: string;
         stateDirectory: string;
     },
     mode: "plan" | "apply",
     options: Readonly<{
         asyncRoleExists?: boolean;
         cleanupFailureTarget?: string;
+        databaseAuditFails?: boolean;
         databaseUrl?: string;
         failedRole?: string;
         installFailureTarget?: string;
@@ -658,7 +808,13 @@ function runProvisioning(
                     options.asyncRoleExists ?? false,
                 ),
                 FAKE_CLEANUP_FAILURE_TARGET: options.cleanupFailureTarget ?? "",
+                FAKE_DATABASE_AUDIT_FAILS: String(
+                    options.databaseAuditFails ?? false,
+                ),
+                FAKE_DATABASE_AUDIT_MARKER: fixture.databaseAuditMarker,
                 FAKE_FAILED_ROLE: options.failedRole ?? "",
+                FAKE_STANDARD_DATABASE_URL: fixture.standardDatabaseUrl,
+                FAKE_STANDARD_REDIS_URL: fixture.standardRedisUrl,
                 FAKE_INSTALL_FAILURE_TARGET: options.installFailureTarget ?? "",
                 FAKE_LN: "/bin/ln",
                 FAKE_NODE: process.execPath,
@@ -702,6 +858,8 @@ function environmentEvidence(status: "succeeded" | "failed") {
         applied: status === "succeeded",
         rollbackStatus: "not_required",
         cleanupStatus: "succeeded",
+        databaseConfigurationSource: "protected_override",
+        redisConfigurationSource: "protected_override",
         ...(status === "failed" ? { failureReason: "fixture_failure" } : {}),
     };
 }

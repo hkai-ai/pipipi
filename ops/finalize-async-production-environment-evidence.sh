@@ -37,6 +37,16 @@ evidence_status="$(jq -er \
         (.candidateVerified | type == "boolean") and
         (.applied | type == "boolean") and
         (
+            .databaseConfigurationSource == "protected_override" or
+            .databaseConfigurationSource == "shared_environment" or
+            .databaseConfigurationSource == "not_observed"
+        ) and
+        (
+            .redisConfigurationSource == "protected_override" or
+            .redisConfigurationSource == "shared_environment" or
+            .redisConfigurationSource == "not_observed"
+        ) and
+        (
             .rollbackStatus == "not_required" or
             .rollbackStatus == "succeeded" or
             .rollbackStatus == "failed" or
@@ -57,10 +67,13 @@ evidence_status="$(jq -er \
                 .applied == (.mode == "apply") and
                 .rollbackStatus == "not_required" and
                 .cleanupStatus == "succeeded" and
+                .databaseConfigurationSource != "not_observed" and
+                .redisConfigurationSource != "not_observed" and
                 exact_keys([
                     "schemaVersion", "event", "status", "mode",
                     "activeRevision", "candidateRevision", "changeReference",
-                    "candidateVerified", "applied", "rollbackStatus", "cleanupStatus"
+                    "candidateVerified", "applied", "rollbackStatus", "cleanupStatus",
+                    "databaseConfigurationSource", "redisConfigurationSource"
                 ])
             ) or
             (
@@ -71,6 +84,7 @@ evidence_status="$(jq -er \
                     "schemaVersion", "event", "status", "mode",
                     "activeRevision", "candidateRevision", "changeReference",
                     "candidateVerified", "applied", "rollbackStatus", "cleanupStatus",
+                    "databaseConfigurationSource", "redisConfigurationSource",
                     "failureReason"
                 ])
             )
@@ -107,6 +121,8 @@ if ! jq -n \
         applied: false,
         rollbackStatus: "not_observed",
         cleanupStatus: "not_observed",
+        databaseConfigurationSource: "not_observed",
+        redisConfigurationSource: "not_observed",
         failureReason: "workflow_transport_or_execution_failed"
     }
 ' > "$temporary" || ! mv -f -- "$temporary" "$evidence"; then

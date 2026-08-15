@@ -43,6 +43,7 @@ describe("Async internal release workflow", () => {
         const script = await readFile("ops/deploy-async-internal.sh", "utf8");
         const gates = [
             'failure_gate="environment_prechecks"',
+            'failure_gate="database_boundary"',
             'failure_gate="database_migration"',
             'failure_gate="queue_recovery"',
             'failure_gate="background_activation"',
@@ -59,6 +60,7 @@ describe("Async internal release workflow", () => {
             previous = current;
         }
         expect(script).toContain("dist/bin/migrate-and-verify.js");
+        expect(script).toContain("audit:production-database");
         expect(script).toContain("dist/bin/recover.js --dry-run --mode=all");
         expect(script).toContain("reports.at(-1).nextCursor !== undefined");
         expect(script).toContain('recovery_failed_count" -ne 0');
@@ -80,6 +82,7 @@ describe("Async internal release workflow", () => {
             "imageId",
             "imageArchiveSha256",
             "backupId",
+            "databaseBoundaryVerified",
             "migrationVerified",
             "recoveryStartedWithEmptyCursor",
             "recoveryFinalCursorEmpty",
