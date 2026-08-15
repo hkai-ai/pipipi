@@ -88,6 +88,10 @@ describe("Console production readiness workflow", () => {
         expect(gatewayHostAudit).toContain("console_gateway_host_inspected");
         expect(gatewayHostAudit).toContain("config_enumeration_failed");
         expect(gatewayHostAudit).toContain("config_parse_failed");
+        expect(gatewayHostAudit).toContain(
+            "gateway_container_enumeration_failed",
+        );
+        expect(gatewayHostAudit).toContain("gateway_mount_inspection_failed");
         expect(gatewayHostAudit).toContain("matchingServerBlockCount");
         expect(gatewayHostAudit).toContain("docker inspect");
         expect(gatewayHostAudit).toContain("authBasicDirectiveCount");

@@ -1,5 +1,12 @@
 import { spawnSync } from "node:child_process";
-import { chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import {
+    chmod,
+    mkdir,
+    mkdtemp,
+    rm,
+    symlink,
+    writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -21,7 +28,9 @@ describe("Console gateway host evidence script", () => {
 
     it("finds one managed server without exposing its configuration", async () => {
         const fixture = await createFixture();
-        const config = path.join(fixture.configRoot, "site.conf");
+        const configDirectory = path.join(fixture.configRoot, "conf.d");
+        await mkdir(configDirectory);
+        const config = path.join(configDirectory, "site.conf");
         await writeFile(
             config,
             `server {
@@ -87,6 +96,52 @@ describe("Console gateway host evidence script", () => {
                 consoleLocationDirectiveCount: 1,
                 proxyPassDirectiveCount: 2,
             },
+        });
+    });
+
+    it("discovers configuration roots from the running gateway mounts", async () => {
+        const fixture = await createFixture();
+        const unrelatedRoot = path.join(
+            path.dirname(fixture.configRoot),
+            "unrelated-conf",
+        );
+        await mkdir(unrelatedRoot);
+        const mountedConfigDirectory = path.join(fixture.configRoot, "conf.d");
+        await mkdir(mountedConfigDirectory);
+        await writeFile(
+            path.join(mountedConfigDirectory, "site.conf"),
+            `server { server_name ${DOMAIN}; }\n`,
+        );
+
+        const result = runAudit(fixture, "/console", [unrelatedRoot]);
+
+        expect(result.status, result.stderr).toBe(0);
+        expect(JSON.parse(result.stdout)).toMatchObject({
+            status: "discovered",
+            matchingServerBlockCount: 1,
+            reloadAdapter: {
+                kind: "docker_container",
+                containerNames: ["openresty"],
+            },
+        });
+    });
+
+    it("deduplicates configs reached through overlapping scan roots", async () => {
+        const fixture = await createFixture();
+        await writeFile(
+            path.join(fixture.configRoot, "site.conf"),
+            `server { server_name ${DOMAIN}; }\n`,
+        );
+
+        const result = runAudit(fixture, "/console", [
+            path.dirname(fixture.configRoot),
+        ]);
+
+        expect(result.status, result.stderr).toBe(0);
+        expect(JSON.parse(result.stdout)).toMatchObject({
+            status: "discovered",
+            matchingConfigCount: 1,
+            matchingServerBlockCount: 1,
         });
     });
 
@@ -203,8 +258,191 @@ exit 13
         });
     });
 
+    it("does not scan non-configuration mounts below /etc/nginx", async () => {
+        const fixture = await createFixture({
+            mountDestination: "/etc/nginx/html",
+        });
+        const unrelatedRoot = path.join(
+            path.dirname(fixture.configRoot),
+            "unrelated-conf",
+        );
+        await mkdir(unrelatedRoot);
+        await writeFile(
+            path.join(fixture.configRoot, "site.conf"),
+            `server { server_name ${DOMAIN}; }\n`,
+        );
+
+        const result = runAudit(fixture, "/console", [unrelatedRoot]);
+
+        expect(result.status, result.stderr).toBe(0);
+        expect(JSON.parse(result.stdout)).toMatchObject({
+            status: "not_found",
+            reloadAdapter: {
+                kind: "unavailable",
+                containerNames: [],
+            },
+        });
+    });
+
+    it("does not associate configs outside allowed scopes of a root mount", async () => {
+        const fixture = await createFixture();
+        const unrelatedRoot = path.join(
+            path.dirname(fixture.configRoot),
+            "unrelated-conf",
+        );
+        const htmlRoot = path.join(fixture.configRoot, "html");
+        await Promise.all([mkdir(unrelatedRoot), mkdir(htmlRoot)]);
+        await writeFile(
+            path.join(htmlRoot, "site.conf"),
+            `server { server_name ${DOMAIN}; }\n`,
+        );
+
+        const result = runAudit(fixture, "/console", [unrelatedRoot]);
+
+        expect(result.status, result.stderr).toBe(0);
+        expect(JSON.parse(result.stdout)).toMatchObject({
+            status: "not_found",
+            reloadAdapter: {
+                kind: "unavailable",
+                containerNames: [],
+            },
+        });
+    });
+
+    it("discovers extensionless sites-enabled symlinks", async () => {
+        const fixture = await createFixture();
+        const unrelatedRoot = path.join(
+            path.dirname(fixture.configRoot),
+            "unrelated-conf",
+        );
+        const availableRoot = path.join(fixture.configRoot, "sites-available");
+        const enabledRoot = path.join(fixture.configRoot, "sites-enabled");
+        await Promise.all([
+            mkdir(unrelatedRoot),
+            mkdir(availableRoot),
+            mkdir(enabledRoot),
+        ]);
+        const availableConfig = path.join(availableRoot, DOMAIN);
+        await writeFile(availableConfig, `server { server_name ${DOMAIN}; }\n`);
+        await symlink(availableConfig, path.join(enabledRoot, DOMAIN));
+
+        const result = runAudit(fixture, "/console", [unrelatedRoot]);
+
+        expect(result.status, result.stderr).toBe(0);
+        expect(JSON.parse(result.stdout)).toMatchObject({
+            status: "discovered",
+            reloadAdapter: {
+                kind: "docker_container",
+                containerNames: ["openresty"],
+            },
+        });
+    });
+
+    it("fails closed for sites-enabled symlinks outside the config mount", async () => {
+        const fixture = await createFixture();
+        const unrelatedRoot = path.join(
+            path.dirname(fixture.configRoot),
+            "unrelated-conf",
+        );
+        const enabledRoot = path.join(fixture.configRoot, "sites-enabled");
+        const outsideConfig = path.join(
+            path.dirname(fixture.configRoot),
+            "outside.conf",
+        );
+        await Promise.all([mkdir(unrelatedRoot), mkdir(enabledRoot)]);
+        await writeFile(outsideConfig, `server { server_name ${DOMAIN}; }\n`);
+        await symlink(outsideConfig, path.join(enabledRoot, DOMAIN));
+
+        const result = runAudit(fixture, "/console", [unrelatedRoot]);
+
+        expect(result.status).not.toBe(0);
+        expect(JSON.parse(result.stdout)).toMatchObject({
+            status: "inspection_failed",
+            failureReason: "site_config_target_outside_scope",
+        });
+        expect(result.stdout).not.toContain(outsideConfig);
+    });
+
+    it("fails closed for directory symlinks below sites-enabled", async () => {
+        const fixture = await createFixture();
+        const unrelatedRoot = path.join(
+            path.dirname(fixture.configRoot),
+            "unrelated-conf",
+        );
+        const availableRoot = path.join(fixture.configRoot, "sites-available");
+        const enabledRoot = path.join(fixture.configRoot, "sites-enabled");
+        await Promise.all([
+            mkdir(unrelatedRoot),
+            mkdir(availableRoot),
+            mkdir(enabledRoot),
+        ]);
+        await symlink(availableRoot, path.join(enabledRoot, "directory"));
+
+        const result = runAudit(fixture, "/console", [unrelatedRoot]);
+
+        expect(result.status).not.toBe(0);
+        expect(JSON.parse(result.stdout)).toMatchObject({
+            status: "inspection_failed",
+            failureReason: "site_config_target_invalid",
+        });
+    });
+
+    it("supports a single configuration file mounted into the gateway", async () => {
+        const fixture = await createFixture({ mountFile: true });
+        const unrelatedRoot = path.join(
+            path.dirname(fixture.configRoot),
+            "unrelated-conf",
+        );
+        await mkdir(unrelatedRoot);
+        await writeFile(
+            path.join(fixture.configRoot, "mounted.conf"),
+            `server { server_name ${DOMAIN}; }\n`,
+        );
+
+        const result = runAudit(fixture, "/console", [unrelatedRoot]);
+
+        expect(result.status, result.stderr).toBe(0);
+        expect(JSON.parse(result.stdout)).toMatchObject({
+            status: "discovered",
+            reloadAdapter: {
+                kind: "docker_container",
+                containerNames: ["openresty"],
+            },
+        });
+    });
+
+    it("fails closed when gateway mounts cannot be inspected", async () => {
+        const fixture = await createFixture({ inspectFailure: true });
+
+        const result = runAudit(fixture);
+
+        expect(result.status).not.toBe(0);
+        expect(JSON.parse(result.stdout)).toMatchObject({
+            status: "inspection_failed",
+            failureReason: "gateway_mount_inspection_failed",
+        });
+    });
+
+    it("fails closed when gateway containers cannot be enumerated", async () => {
+        const fixture = await createFixture({ dockerPsFailure: true });
+
+        const result = runAudit(fixture);
+
+        expect(result.status).not.toBe(0);
+        expect(JSON.parse(result.stdout)).toMatchObject({
+            status: "inspection_failed",
+            failureReason: "gateway_container_enumeration_failed",
+        });
+    });
+
     async function createFixture(
-        options: { mountConfig?: boolean } = {},
+        options: {
+            dockerPsFailure?: boolean;
+            inspectFailure?: boolean;
+            mountConfig?: boolean;
+            mountDestination?: string;
+            mountFile?: boolean;
+        } = {},
     ): Promise<Fixture> {
         const directory = await mkdtemp(
             path.join(tmpdir(), "pipipi-console-gateway-"),
@@ -219,12 +457,23 @@ exit 13
             `#!/usr/bin/env bash
 set -eu
 if [ "$1" = "ps" ]; then
+    ${options.dockerPsFailure === true ? "exit 13" : ""}
     printf '%s\\t%s\\n' 'openresty' '1panel/openresty:fixture'
     exit 0
 fi
 if [ "$1" = "inspect" ]; then
-    printf '[{"Source":"%s","Destination":"/etc/nginx"}]\\n' '${
-        options.mountConfig === false ? "/unrelated" : configRoot
+    ${options.inspectFailure === true ? "exit 13" : ""}
+    printf '[{"Source":"%s","Destination":"%s"}]\\n' '${
+        options.mountFile === true
+            ? path.join(configRoot, "mounted.conf")
+            : configRoot
+    }' '${
+        options.mountDestination ??
+        (options.mountConfig === false
+            ? "/backup"
+            : options.mountFile === true
+              ? "/etc/nginx/conf.d/site.conf"
+              : "/etc/nginx")
     }'
     exit 0
 fi
@@ -240,14 +489,18 @@ type Fixture = Readonly<{
     configRoot: string;
 }>;
 
-function runAudit(fixture: Fixture, publicPath = "/console") {
+function runAudit(
+    fixture: Fixture,
+    publicPath = "/console",
+    configRoots = [fixture.configRoot],
+) {
     return spawnSync(
         "bash",
         [
             "ops/collect-console-gateway-host-evidence.sh",
             DOMAIN,
             publicPath,
-            fixture.configRoot,
+            ...configRoots,
         ],
         {
             cwd: process.cwd(),

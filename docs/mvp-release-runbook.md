@@ -398,7 +398,7 @@ location /console {
 
 失败时同样上传 artifact。`server.json` 的 `failureGate` 标识 revision、异步形状、数据库或备份门禁，`databaseAuditFailure` 只使用稳定错误码：`database_url_required`、`tls_required`、`dedicated_database_required`、`non_superuser_required`、`administrative_privileges_present`、`other_database_access_present`、`role_switching_present`、`role_membership_present`、`invalid_audit_result` 或 `connection_or_unclassified_failure`。`prerequisites` 只记录活动容器与共享 `.env` 是否配置数据库、CA 文件和备份证据是否存在；它不上传连接串、环境变量值或远端原始异常。无法归类的连接错误必须回到服务器受控终端排查，不能为了诊断把原始 stderr 加进 Actions artifact。
 
-服务器门禁失败时，工作流还会生成只读的 `gateway-host.json`。事件 `console_gateway_host_inspected` 只记录与生产域名精确匹配的 OpenResty/Nginx `server` block 数量；唯一匹配时再记录配置绝对路径、文件 SHA-256、目标公网路径对应的 `location` 计数，以及该 block 内非注释的 `auth_basic`、`auth_request` 与 `proxy_pass` 指令计数。Docker reload Adapter 只有在唯一网关容器的 mount 覆盖命中配置时才成立。它不上传配置正文、反代目标、证书、认证文件或 Secret；枚举或解析不完整会返回 `inspection_failed`，零个或多个 block 匹配也只用于诊断，不能自动选择文件或修改网关。
+服务器门禁失败时，工作流还会生成只读的 `gateway-host.json`。检查范围包括受控默认目录与运行中 OpenResty/Nginx 容器 mount 到 `nginx.conf`、`conf.d`、`sites-enabled` 或 `http.d` 的 host 配置来源；`sites-enabled` 支持无 `.conf` 后缀的普通文件和目标仍位于同一配置 mount 内的文件软链，目录、循环或越界软链会 fail closed，重叠目录中的同一 block 会去重。HTML、证书、日志或备份 mount 不参与扫描，也不能建立 reload 归属。事件 `console_gateway_host_inspected` 只记录与生产域名精确匹配的 `server` block 数量；唯一匹配时再记录配置绝对路径、文件 SHA-256、目标公网路径对应的 `location` 计数，以及该 block 内非注释的 `auth_basic`、`auth_request` 与 `proxy_pass` 指令计数。Docker reload Adapter 只有在唯一网关容器的允许配置 scope 覆盖命中配置时才成立。它不上传配置正文、反代目标、证书、认证文件或 Secret；容器枚举、mount 读取、配置枚举或解析不完整都会返回 `inspection_failed`，零个或多个 block 匹配也只用于诊断，不能自动选择文件或修改网关。
 
 ## 构建并检查镜像
 
