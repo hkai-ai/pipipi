@@ -108,6 +108,10 @@ const pinned = new URL(source);
 pinned.searchParams.set("uselibpqcompat", "true");
 pinned.searchParams.set("sslmode", "verify-ca");
 pinned.searchParams.set("sslrootcert", "/etc/pipipi/pg-server.crt");
+const tlsRequired = new URL(source);
+tlsRequired.searchParams.set("uselibpqcompat", "true");
+tlsRequired.searchParams.set("sslmode", "require");
+tlsRequired.searchParams.delete("sslrootcert");
 
 async function inspect(target) {
     const pool = new Pool({
@@ -145,6 +149,10 @@ async function inspect(target) {
                   AND pg_has_role(session_user, member_role.oid, 'MEMBER')
               ) AS "roleMembershipPresent",
               COALESCE(ssl.ssl, false) AS "tls",
+              current_setting('ssl') = 'on' AS "serverTlsEnabled",
+              current_setting('ssl_cert_file') <> ''
+                AS "serverCertificateConfigured",
+              current_setting('ssl_key_file') <> '' AS "serverKeyConfigured",
               EXISTS (
                 SELECT 1
                 FROM service_instance_identity
@@ -176,6 +184,35 @@ try {
 } catch {
     pinnedTlsConnectionAvailable = false;
 }
+
+let tlsWithoutCertificateVerificationAvailable = false;
+try {
+    const requiredResult = await inspect(tlsRequired.toString());
+    tlsWithoutCertificateVerificationAvailable = requiredResult?.tls === true;
+} catch {
+    tlsWithoutCertificateVerificationAvailable = false;
+}
+
+let directWithoutTls;
+try {
+    const directUrl = new URL(source);
+    directUrl.username = current.currentUser;
+    directUrl.searchParams.delete("options");
+    directUrl.searchParams.set("uselibpqcompat", "true");
+    directUrl.searchParams.set("sslmode", "disable");
+    directUrl.searchParams.delete("ssl");
+    directUrl.searchParams.delete("sslcert");
+    directUrl.searchParams.delete("sslkey");
+    directUrl.searchParams.delete("sslrootcert");
+    directWithoutTls = await inspect(directUrl.toString());
+} catch {
+    directWithoutTls = undefined;
+}
+const directEffectiveRoleLoginWithoutTlsAvailable =
+    directWithoutTls !== undefined &&
+    directWithoutTls.currentUser === current.currentUser &&
+    directWithoutTls.sessionUser === current.currentUser &&
+    directWithoutTls.tls === false;
 
 let direct;
 try {
@@ -212,8 +249,13 @@ process.stdout.write(JSON.stringify({
         roleMembershipPresent: current.roleMembershipPresent,
     },
     pinnedTlsConnectionAvailable,
+    tlsWithoutCertificateVerificationAvailable,
     directEffectiveRoleLoginAvailable,
+    directEffectiveRoleLoginWithoutTlsAvailable,
     directEffectiveRoleBoundaryVerified,
+    serverTlsEnabled: current.serverTlsEnabled,
+    serverCertificateConfigured: current.serverCertificateConfigured,
+    serverKeyConfigured: current.serverKeyConfigured,
 }));
 NODE
 then
@@ -242,16 +284,26 @@ if ! jq -e '
       "tls"
     ] and
     (.pinnedTlsConnectionAvailable | type == "boolean") and
+    (.tlsWithoutCertificateVerificationAvailable | type == "boolean") and
     (.directEffectiveRoleLoginAvailable | type == "boolean") and
+    (.directEffectiveRoleLoginWithoutTlsAvailable | type == "boolean") and
     (.directEffectiveRoleBoundaryVerified | type == "boolean") and
+    (.serverTlsEnabled | type == "boolean") and
+    (.serverCertificateConfigured | type == "boolean") and
+    (.serverKeyConfigured | type == "boolean") and
     (keys | sort) == [
       "currentConnection",
       "directEffectiveRoleBoundaryVerified",
       "directEffectiveRoleLoginAvailable",
+      "directEffectiveRoleLoginWithoutTlsAvailable",
       "event",
       "pinnedTlsConnectionAvailable",
       "schemaVersion",
-      "status"
+      "serverCertificateConfigured",
+      "serverKeyConfigured",
+      "serverTlsEnabled",
+      "status",
+      "tlsWithoutCertificateVerificationAvailable"
     ]
 ' "$result" >/dev/null 2>&1; then
     inspection_failure "database_boundary_result_invalid"

@@ -57,6 +57,13 @@ describe("Production database boundary inspection", () => {
         expect(script).not.toContain('--env-file "$shared_env"');
         expect(script).toContain('sslmode", "verify-ca"');
         expect(script).toContain("directEffectiveRoleBoundaryVerified");
+        expect(script).toContain(
+            'directUrl.searchParams.set("sslmode", "disable")',
+        );
+        expect(script).toContain(
+            'directUrl.searchParams.delete("sslrootcert")',
+        );
+        expect(script).toContain("directWithoutTls.tls === false");
         expect(script).toContain("trap 'on_signal 129' HUP");
         expect(script).toContain("trap 'on_signal 130' INT");
         expect(script).toContain("trap 'on_signal 143' TERM");
@@ -82,6 +89,37 @@ describe("Production database boundary inspection", () => {
         expect(result.stderr).toBe("");
     });
 
+    it("forces the effective-role credential probe to disable inherited TLS", async () => {
+        const result = await runEmbeddedCollector(false);
+
+        expect(result.output.directEffectiveRoleLoginWithoutTlsAvailable).toBe(
+            true,
+        );
+        const directWithoutTls = result.connections.find((connection) => {
+            const url = new URL(connection);
+            return (
+                url.username === "app_role" &&
+                url.searchParams.get("sslmode") === "disable"
+            );
+        });
+        expect(directWithoutTls).toBeDefined();
+        if (directWithoutTls === undefined)
+            throw new Error("Missing disable-mode direct connection");
+        const url = new URL(directWithoutTls);
+        expect(url.searchParams.has("ssl")).toBe(false);
+        expect(url.searchParams.has("sslcert")).toBe(false);
+        expect(url.searchParams.has("sslkey")).toBe(false);
+        expect(url.searchParams.has("sslrootcert")).toBe(false);
+    });
+
+    it("does not call a disable-mode connection non-TLS when the live session says otherwise", async () => {
+        const result = await runEmbeddedCollector(true);
+
+        expect(result.output.directEffectiveRoleLoginWithoutTlsAvailable).toBe(
+            false,
+        );
+    });
+
     it("returns only redacted live-boundary facts", async () => {
         const fixture = await createFixture();
 
@@ -103,8 +141,13 @@ describe("Production database boundary inspection", () => {
                 roleMembershipPresent: false,
             },
             pinnedTlsConnectionAvailable: true,
+            tlsWithoutCertificateVerificationAvailable: true,
             directEffectiveRoleLoginAvailable: false,
+            directEffectiveRoleLoginWithoutTlsAvailable: false,
             directEffectiveRoleBoundaryVerified: false,
+            serverTlsEnabled: false,
+            serverCertificateConfigured: true,
+            serverKeyConfigured: true,
         });
         expect(result.stdout).not.toContain("fixture-secret");
         expect(result.stdout).not.toContain("postgres://");
@@ -255,9 +298,9 @@ if [ "$1" = run ]; then
     if [ "$FAKE_INVALID_RESULT" = true ]; then
         printf '%s\n' '{"databaseUrl":"postgres://fixture-secret"}'
     elif [ "$FAKE_NESTED_SECRET" = true ]; then
-        printf '%s\n' '{"schemaVersion":1,"event":"production_database_boundary_inspected","status":"succeeded","currentConnection":{"tls":false,"roleSwitchingPresent":true,"superuser":true,"administrativePrivilegesPresent":true,"otherDatabaseAccessPresent":true,"roleMembershipPresent":false,"databaseUrl":"postgres://fixture-secret"},"pinnedTlsConnectionAvailable":true,"directEffectiveRoleLoginAvailable":false,"directEffectiveRoleBoundaryVerified":false}'
+        printf '%s\n' '{"schemaVersion":1,"event":"production_database_boundary_inspected","status":"succeeded","currentConnection":{"tls":false,"roleSwitchingPresent":true,"superuser":true,"administrativePrivilegesPresent":true,"otherDatabaseAccessPresent":true,"roleMembershipPresent":false,"databaseUrl":"postgres://fixture-secret"},"pinnedTlsConnectionAvailable":true,"tlsWithoutCertificateVerificationAvailable":true,"directEffectiveRoleLoginAvailable":false,"directEffectiveRoleLoginWithoutTlsAvailable":false,"directEffectiveRoleBoundaryVerified":false,"serverTlsEnabled":false,"serverCertificateConfigured":true,"serverKeyConfigured":true}'
     else
-        printf '%s\n' '{"schemaVersion":1,"event":"production_database_boundary_inspected","status":"succeeded","currentConnection":{"tls":false,"roleSwitchingPresent":true,"superuser":true,"administrativePrivilegesPresent":true,"otherDatabaseAccessPresent":true,"roleMembershipPresent":false},"pinnedTlsConnectionAvailable":true,"directEffectiveRoleLoginAvailable":false,"directEffectiveRoleBoundaryVerified":false}'
+        printf '%s\n' '{"schemaVersion":1,"event":"production_database_boundary_inspected","status":"succeeded","currentConnection":{"tls":false,"roleSwitchingPresent":true,"superuser":true,"administrativePrivilegesPresent":true,"otherDatabaseAccessPresent":true,"roleMembershipPresent":false},"pinnedTlsConnectionAvailable":true,"tlsWithoutCertificateVerificationAvailable":true,"directEffectiveRoleLoginAvailable":false,"directEffectiveRoleLoginWithoutTlsAvailable":false,"directEffectiveRoleBoundaryVerified":false,"serverTlsEnabled":false,"serverCertificateConfigured":true,"serverKeyConfigured":true}'
     fi
     exit 0
 fi
@@ -329,4 +372,78 @@ async function waitForFile(file: string) {
         }
     }
     throw new Error("Timed out waiting for signal fixture");
+}
+
+async function runEmbeddedCollector(disableReturnsTls: boolean) {
+    const root = await mkdtemp(path.join(tmpdir(), "pipipi-db-collector-"));
+    const moduleDirectory = path.join(root, "node_modules", "pg");
+    await mkdir(moduleDirectory, { recursive: true });
+    const script = await readFile(
+        "ops/inspect-production-database-boundary.sh",
+        "utf8",
+    );
+    const collector = script.match(/<<'NODE'\n([\s\S]*?)\nNODE\n/)?.[1];
+    if (collector === undefined)
+        throw new Error("Collector heredoc is missing");
+    const collectorFile = path.join(root, "collector.mjs");
+    const poolLog = path.join(root, "pool.jsonl");
+    await Promise.all([
+        writeFile(collectorFile, collector),
+        writeFile(
+            path.join(moduleDirectory, "package.json"),
+            JSON.stringify({ type: "module", exports: "./index.js" }),
+        ),
+        writeFile(
+            path.join(moduleDirectory, "index.js"),
+            `import { appendFileSync } from "node:fs";
+export class Pool {
+    constructor(options) { this.connectionString = options.connectionString; }
+    async query() {
+        appendFileSync(process.env.FAKE_POOL_LOG, JSON.stringify(this.connectionString) + "\\n");
+        const url = new URL(this.connectionString);
+        const switching = url.searchParams.has("options");
+        const disabled = url.searchParams.get("sslmode") === "disable";
+        return { rows: [{
+            currentUser: switching ? "app_role" : url.username,
+            sessionUser: url.username,
+            superuser: url.username === "postgres",
+            administrativePrivilegesPresent: url.username === "postgres",
+            otherDatabaseAccessPresent: url.username === "postgres",
+            roleMembershipPresent: false,
+            tls: disabled ? process.env.FAKE_DISABLE_RETURNS_TLS === "true" : true,
+            serverTlsEnabled: true,
+            serverCertificateConfigured: true,
+            serverKeyConfigured: true,
+            databaseIdentityPresent: true,
+        }] };
+    }
+    async end() {}
+}
+`,
+        ),
+    ]);
+    const run = spawnSync(process.execPath, [collectorFile], {
+        encoding: "utf8",
+        env: {
+            ...process.env,
+            DATABASE_URL:
+                "postgres://postgres:fixture-secret@127.0.0.1/pipipi?options=-c%20role%3Dapp_role&uselibpqcompat=true&sslmode=verify-ca&ssl=true&sslcert=%2Ffixture-client.crt&sslkey=%2Ffixture-client.key&sslrootcert=%2Fwrong-ca.pem",
+            FAKE_DISABLE_RETURNS_TLS: String(disableReturnsTls),
+            FAKE_POOL_LOG: poolLog,
+        },
+    });
+    try {
+        expect(run.status, run.stderr).toBe(0);
+        return {
+            output: JSON.parse(run.stdout) as {
+                directEffectiveRoleLoginWithoutTlsAvailable: boolean;
+            },
+            connections: (await readFile(poolLog, "utf8"))
+                .trim()
+                .split("\n")
+                .map((line) => JSON.parse(line) as string),
+        };
+    } finally {
+        await rm(root, { recursive: true, force: true });
+    }
 }
