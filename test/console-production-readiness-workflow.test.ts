@@ -98,6 +98,7 @@ describe("Console production readiness workflow", () => {
         expect(gatewayHostAudit).toContain("authRequestDirectiveCount");
         expect(gatewayHostAudit).toContain("proxyPassDirectiveCount");
         expect(gatewayHostAudit).toContain("reloadAdapter");
+        expect(gatewayHostAudit).toContain("containerConfigPath");
         expect(gatewayHostAudit).not.toContain("sed -i");
         expect(gatewayHostAudit).not.toContain("docker restart");
         expect(gatewayHostAudit).not.toContain("docker exec");

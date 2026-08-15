@@ -68,6 +68,7 @@ describe("Console gateway host evidence script", () => {
             reloadAdapter: {
                 kind: "docker_container",
                 containerNames: ["openresty"],
+                configPath: "/etc/nginx/conf.d/site.conf",
             },
         });
         expect(result.stdout).not.toContain("fixture-secret");
@@ -122,6 +123,7 @@ describe("Console gateway host evidence script", () => {
             reloadAdapter: {
                 kind: "docker_container",
                 containerNames: ["openresty"],
+                configPath: "/etc/nginx/conf.d/site.conf",
             },
         });
     });
@@ -324,7 +326,10 @@ exit 13
         ]);
         const availableConfig = path.join(availableRoot, DOMAIN);
         await writeFile(availableConfig, `server { server_name ${DOMAIN}; }\n`);
-        await symlink(availableConfig, path.join(enabledRoot, DOMAIN));
+        await symlink(
+            path.join("..", "sites-available", DOMAIN),
+            path.join(enabledRoot, DOMAIN),
+        );
 
         const result = runAudit(fixture, "/console", [unrelatedRoot]);
 
@@ -334,6 +339,7 @@ exit 13
             reloadAdapter: {
                 kind: "docker_container",
                 containerNames: ["openresty"],
+                configPath: `/etc/nginx/sites-available/${DOMAIN}`,
             },
         });
     });
@@ -358,9 +364,75 @@ exit 13
         expect(result.status).not.toBe(0);
         expect(JSON.parse(result.stdout)).toMatchObject({
             status: "inspection_failed",
-            failureReason: "site_config_target_outside_scope",
+            failureReason: "site_config_target_unreachable_in_container",
         });
         expect(result.stdout).not.toContain(outsideConfig);
+    });
+
+    it("maps container-absolute sites-enabled symlinks", async () => {
+        const fixture = await createFixture();
+        const unrelatedRoot = path.join(
+            path.dirname(fixture.configRoot),
+            "unrelated-conf",
+        );
+        const availableRoot = path.join(fixture.configRoot, "sites-available");
+        const enabledRoot = path.join(fixture.configRoot, "sites-enabled");
+        await Promise.all([
+            mkdir(unrelatedRoot),
+            mkdir(availableRoot),
+            mkdir(enabledRoot),
+        ]);
+        await writeFile(
+            path.join(availableRoot, DOMAIN),
+            `server { server_name ${DOMAIN}; }\n`,
+        );
+        await symlink(
+            `/etc/nginx/sites-available/${DOMAIN}`,
+            path.join(enabledRoot, DOMAIN),
+        );
+
+        const result = runAudit(fixture, "/console", [unrelatedRoot]);
+
+        expect(result.status, result.stderr).toBe(0);
+        expect(JSON.parse(result.stdout)).toMatchObject({
+            status: "discovered",
+            reloadAdapter: {
+                kind: "docker_container",
+                containerNames: ["openresty"],
+                configPath: `/etc/nginx/sites-available/${DOMAIN}`,
+            },
+        });
+    });
+
+    it("fails closed for non-normalized container-absolute symlinks", async () => {
+        const fixture = await createFixture({ shadowSitesAvailable: true });
+        const unrelatedRoot = path.join(
+            path.dirname(fixture.configRoot),
+            "unrelated-conf",
+        );
+        const availableRoot = path.join(fixture.configRoot, "sites-available");
+        const enabledRoot = path.join(fixture.configRoot, "sites-enabled");
+        await Promise.all([
+            mkdir(unrelatedRoot),
+            mkdir(availableRoot),
+            mkdir(enabledRoot),
+        ]);
+        await writeFile(
+            path.join(availableRoot, DOMAIN),
+            `server { server_name ${DOMAIN}; }\n`,
+        );
+        await symlink(
+            `/etc/nginx/sites-enabled/../sites-available/${DOMAIN}`,
+            path.join(enabledRoot, DOMAIN),
+        );
+
+        const result = runAudit(fixture, "/console", [unrelatedRoot]);
+
+        expect(result.status).not.toBe(0);
+        expect(JSON.parse(result.stdout)).toMatchObject({
+            status: "inspection_failed",
+            failureReason: "site_config_target_invalid",
+        });
     });
 
     it("fails closed for directory symlinks below sites-enabled", async () => {
@@ -376,7 +448,10 @@ exit 13
             mkdir(availableRoot),
             mkdir(enabledRoot),
         ]);
-        await symlink(availableRoot, path.join(enabledRoot, "directory"));
+        await symlink(
+            path.join("..", "sites-available"),
+            path.join(enabledRoot, "directory"),
+        );
 
         const result = runAudit(fixture, "/console", [unrelatedRoot]);
 
@@ -407,6 +482,164 @@ exit 13
             reloadAdapter: {
                 kind: "docker_container",
                 containerNames: ["openresty"],
+                configPath: "/etc/nginx/conf.d/site.conf",
+            },
+        });
+    });
+
+    it("does not map a parent config hidden by a directory mount", async () => {
+        const fixture = await createFixture({ shadowDirectory: true });
+        const configDirectory = path.join(fixture.configRoot, "conf.d");
+        const unrelatedRoot = path.join(
+            path.dirname(fixture.configRoot),
+            "unrelated-conf",
+        );
+        await Promise.all([mkdir(configDirectory), mkdir(unrelatedRoot)]);
+        await writeFile(
+            path.join(configDirectory, "site.conf"),
+            `server { server_name ${DOMAIN}; }\n`,
+        );
+
+        const result = runAudit(fixture, "/console", [unrelatedRoot]);
+
+        expect(result.status, result.stderr).toBe(0);
+        expect(JSON.parse(result.stdout)).toMatchObject({
+            status: "discovered",
+            reloadAdapter: {
+                kind: "unavailable",
+                containerNames: [],
+                configPath: null,
+            },
+        });
+    });
+
+    it("does not map a parent config hidden by a file mount", async () => {
+        const fixture = await createFixture({ shadowFile: true });
+        const configDirectory = path.join(fixture.configRoot, "conf.d");
+        const unrelatedRoot = path.join(
+            path.dirname(fixture.configRoot),
+            "unrelated-conf",
+        );
+        await Promise.all([mkdir(configDirectory), mkdir(unrelatedRoot)]);
+        await writeFile(
+            path.join(configDirectory, "site.conf"),
+            `server { server_name ${DOMAIN}; }\n`,
+        );
+
+        const result = runAudit(fixture, "/console", [unrelatedRoot]);
+
+        expect(result.status, result.stderr).toBe(0);
+        expect(JSON.parse(result.stdout)).toMatchObject({
+            status: "discovered",
+            reloadAdapter: {
+                kind: "unavailable",
+                containerNames: [],
+                configPath: null,
+            },
+        });
+    });
+
+    it("does not map a symlink target hidden by an unscanned mount", async () => {
+        const fixture = await createFixture({ shadowSitesAvailable: true });
+        const unrelatedRoot = path.join(
+            path.dirname(fixture.configRoot),
+            "unrelated-conf",
+        );
+        const availableRoot = path.join(fixture.configRoot, "sites-available");
+        const enabledRoot = path.join(fixture.configRoot, "sites-enabled");
+        await Promise.all([
+            mkdir(unrelatedRoot),
+            mkdir(availableRoot),
+            mkdir(enabledRoot),
+        ]);
+        await writeFile(
+            path.join(availableRoot, DOMAIN),
+            `server { server_name ${DOMAIN}; }\n`,
+        );
+        await symlink(
+            path.join("..", "sites-available", DOMAIN),
+            path.join(enabledRoot, DOMAIN),
+        );
+
+        const result = runAudit(fixture, "/console", [unrelatedRoot]);
+
+        expect(result.status, result.stderr).toBe(0);
+        expect(JSON.parse(result.stdout)).toMatchObject({
+            status: "discovered",
+            reloadAdapter: {
+                kind: "unavailable",
+                containerNames: [],
+                configPath: null,
+            },
+        });
+    });
+
+    it("does not map a symlink whose sites-enabled entry is hidden", async () => {
+        const fixture = await createFixture({ shadowSitesEnabled: true });
+        const unrelatedRoot = path.join(
+            path.dirname(fixture.configRoot),
+            "unrelated-conf",
+        );
+        const availableRoot = path.join(fixture.configRoot, "sites-available");
+        const enabledRoot = path.join(fixture.configRoot, "sites-enabled");
+        await Promise.all([
+            mkdir(unrelatedRoot),
+            mkdir(availableRoot),
+            mkdir(enabledRoot),
+        ]);
+        await writeFile(
+            path.join(availableRoot, DOMAIN),
+            `server { server_name ${DOMAIN}; }\n`,
+        );
+        await symlink(
+            path.join("..", "sites-available", DOMAIN),
+            path.join(enabledRoot, DOMAIN),
+        );
+
+        const result = runAudit(fixture, "/console", [unrelatedRoot]);
+
+        expect(result.status, result.stderr).toBe(0);
+        expect(JSON.parse(result.stdout)).toMatchObject({
+            status: "discovered",
+            reloadAdapter: {
+                kind: "unavailable",
+                containerNames: [],
+                configPath: null,
+            },
+        });
+    });
+
+    it("does not map a symlink target hidden by a tmpfs mount", async () => {
+        const fixture = await createFixture({ tmpfsSitesAvailable: true });
+        const unrelatedRoot = path.join(
+            path.dirname(fixture.configRoot),
+            "unrelated-conf",
+        );
+        const availableRoot = path.join(fixture.configRoot, "sites-available");
+        const enabledRoot = path.join(fixture.configRoot, "sites-enabled");
+        await Promise.all([
+            mkdir(unrelatedRoot),
+            mkdir(availableRoot),
+            mkdir(enabledRoot),
+        ]);
+        await writeFile(
+            path.join(availableRoot, DOMAIN),
+            `server { server_name ${DOMAIN}; }\n`,
+        );
+        await symlink(
+            path.join("..", "sites-available", DOMAIN),
+            path.join(enabledRoot, DOMAIN),
+        );
+
+        const result = runAudit(fixture, "/console", [unrelatedRoot]);
+
+        expect(result.status, result.stderr).toBe(0);
+        expect(JSON.parse(result.stdout)).toMatchObject({
+            status: "discovered",
+            reloadAdapter: {
+                kind: "unavailable",
+                containerNames: [],
+                configPath: null,
             },
         });
     });
@@ -442,6 +675,11 @@ exit 13
             mountConfig?: boolean;
             mountDestination?: string;
             mountFile?: boolean;
+            shadowDirectory?: boolean;
+            shadowFile?: boolean;
+            shadowSitesAvailable?: boolean;
+            shadowSitesEnabled?: boolean;
+            tmpfsSitesAvailable?: boolean;
         } = {},
     ): Promise<Fixture> {
         const directory = await mkdtemp(
@@ -451,6 +689,30 @@ exit 13
         const binaries = path.join(directory, "bin");
         const configRoot = path.join(directory, "conf.d");
         await Promise.all([mkdir(binaries), mkdir(configRoot)]);
+        const shadowDirectory = path.join(directory, "shadow-directory");
+        const shadowFile = path.join(directory, "shadow.conf");
+        if (options.shadowDirectory === true) await mkdir(shadowDirectory);
+        if (options.shadowFile === true) {
+            await writeFile(
+                shadowFile,
+                "server { server_name unrelated.example.com; }\n",
+            );
+        }
+        const shadowSitesAvailable = path.join(
+            directory,
+            "shadow-sites-available",
+        );
+        if (options.shadowSitesAvailable === true) {
+            await mkdir(shadowSitesAvailable);
+            await writeFile(
+                path.join(shadowSitesAvailable, DOMAIN),
+                "server { server_name unrelated.example.com; }\n",
+            );
+        }
+        const shadowSitesEnabled = path.join(directory, "shadow-sites-enabled");
+        if (options.shadowSitesEnabled === true) {
+            await mkdir(shadowSitesEnabled);
+        }
         const docker = path.join(binaries, "docker");
         await writeExecutable(
             docker,
@@ -463,7 +725,19 @@ if [ "$1" = "ps" ]; then
 fi
 if [ "$1" = "inspect" ]; then
     ${options.inspectFailure === true ? "exit 13" : ""}
-    printf '[{"Source":"%s","Destination":"%s"}]\\n' '${
+    printf '[{"Source":"%s","Destination":"%s"}${
+        options.shadowDirectory === true
+            ? `,{"Source":"${shadowDirectory}","Destination":"/etc/nginx/conf.d"}`
+            : options.shadowFile === true
+              ? `,{"Source":"${shadowFile}","Destination":"/etc/nginx/conf.d/site.conf"}`
+              : options.shadowSitesAvailable === true
+                ? `,{"Source":"${shadowSitesAvailable}","Destination":"/etc/nginx/sites-available"}`
+                : options.shadowSitesEnabled === true
+                  ? `,{"Source":"${shadowSitesEnabled}","Destination":"/etc/nginx/sites-enabled"}`
+                  : options.tmpfsSitesAvailable === true
+                    ? `,{"Source":"","Destination":"/etc/nginx/sites-available","Type":"tmpfs"}`
+                    : ""
+    }]\\n' '${
         options.mountFile === true
             ? path.join(configRoot, "mounted.conf")
             : configRoot

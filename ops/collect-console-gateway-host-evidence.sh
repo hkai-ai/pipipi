@@ -8,6 +8,7 @@ fi
 
 domain="$1"
 public_path="$2"
+unavailable_mount_source="__pipipi_unavailable_mount_source__"
 shift 2
 if [ "${#domain}" -gt 253 ] || [[ "$domain" != *.* ]] || [[ "$domain" == *..* ]]; then
     exit 64
@@ -44,7 +45,11 @@ candidates="$(mktemp)"
 matches="$(mktemp)"
 containers="$(mktemp)"
 container_mounts="$(mktemp)"
+all_container_mounts="$(mktemp)"
 correlated_containers="$(mktemp)"
+correlated_mappings="$(mktemp)"
+candidate_container_paths="$(mktemp)"
+effective_sources="$(mktemp)"
 mount_sources="$(mktemp)"
 scan_roots="$(mktemp)"
 scan_files="$(mktemp)"
@@ -53,7 +58,10 @@ site_candidates="$(mktemp)"
 cleanup() {
     rm -f -- \
         "$candidates" "$matches" "$containers" "$container_mounts" \
-        "$correlated_containers" "$mount_sources" "$scan_roots" \
+        "$all_container_mounts" \
+        "$correlated_containers" "$correlated_mappings" \
+        "$candidate_container_paths" "$effective_sources" \
+        "$mount_sources" "$scan_roots" \
         "$scan_files" "$scan_site_roots" "$site_candidates" || true
 }
 trap cleanup EXIT
@@ -87,7 +95,8 @@ else
             fi
         done
         if [ -d "$root/sites-enabled" ]; then
-            printf '%s\t%s\n' "$root/sites-enabled" "$root" >> "$scan_site_roots"
+            printf '%s\t%s\t-\t-\n' \
+                "$root/sites-enabled" "$root" >> "$scan_site_roots"
         fi
         if [ -f "$root/nginx.conf" ]; then
             printf '%s\n' "$root/nginx.conf" >> "$scan_files"
@@ -109,13 +118,27 @@ if command -v docker >/dev/null 2>&1; then
             .[]? |
             select((.Source | type) == "string") |
             select((.Destination | type) == "string") |
-            [.Source, .Destination] | @tsv
+            [
+                (if .Source == "" then "__pipipi_unavailable_mount_source__" else .Source end),
+                .Destination
+            ] | @tsv
         ' \
             > "$mount_sources" 2>/dev/null <<< "$mounts"; then
             inspection_failure "gateway_mount_inspection_failed"
         fi
         while IFS=$'\t' read -r source destination; do
             [ -n "$source" ] || continue
+            if [ "$destination" = "/etc/nginx" ] ||
+                [[ "$destination" == /etc/nginx/* ]] ||
+                [ "$destination" = "/usr/local/openresty/nginx/conf" ] ||
+                [[ "$destination" == /usr/local/openresty/nginx/conf/* ]]; then
+                printf '%s\t%s\t%s\n' \
+                    "$container" "$source" "$destination" \
+                    >> "$all_container_mounts"
+            fi
+            if [ "$source" = "$unavailable_mount_source" ]; then
+                continue
+            fi
             case "$destination" in
                 /etc/nginx | /usr/local/openresty/nginx/conf)
                     source_kind="config_root"
@@ -137,34 +160,46 @@ if command -v docker >/dev/null 2>&1; then
                 for relative_directory in conf.d http.d; do
                     if [ -d "$source/$relative_directory" ]; then
                         printf '%s\n' "$source/$relative_directory" >> "$scan_roots"
-                        printf '%s\t%s\t%s\n' \
-                            "$container" "$source/$relative_directory" "$destination" \
+                        printf '%s\t%s\t%s\t%s\t%s\n' \
+                            "$container" "$source/$relative_directory" \
+                            "$destination/$relative_directory" \
+                            "$source" "$destination" \
                             >> "$container_mounts"
                     fi
                 done
                 if [ -d "$source/sites-enabled" ]; then
-                    printf '%s\t%s\n' \
-                        "$source/sites-enabled" "$source" >> "$scan_site_roots"
-                    printf '%s\t%s\t%s\n' \
-                        "$container" "$source/sites-enabled" "$destination" \
+                    printf '%s\t%s\t%s\t%s\n' \
+                        "$source/sites-enabled" "$source" "$container" \
+                        "$destination" \
+                        >> "$scan_site_roots"
+                    printf '%s\t%s\t%s\t%s\t%s\n' \
+                        "$container" "$source/sites-enabled" \
+                        "$destination/sites-enabled" "$source" "$destination" \
                         >> "$container_mounts"
                 fi
                 if [ -f "$source/nginx.conf" ]; then
                     printf '%s\n' "$source/nginx.conf" >> "$scan_files"
-                    printf '%s\t%s\t%s\n' \
-                        "$container" "$source/nginx.conf" "$destination" \
+                    printf '%s\t%s\t%s\t%s\t%s\n' \
+                        "$container" "$source/nginx.conf" \
+                        "$destination/nginx.conf" "$source" "$destination" \
                         >> "$container_mounts"
                 fi
             elif [ "$source_kind" = "config_directory" ] && [ -d "$source" ]; then
                 if [[ "$destination" == */sites-enabled ]]; then
-                    printf '%s\t%s\n' "$source" "$source" >> "$scan_site_roots"
+                    printf '%s\t%s\t%s\t%s\n' \
+                        "$source" "$source" "$container" \
+                        "$destination" >> "$scan_site_roots"
                 else
                     printf '%s\n' "$source" >> "$scan_roots"
                 fi
-                printf '%s\t%s\t%s\n' "$container" "$source" "$destination" >> "$container_mounts"
+                printf '%s\t%s\t%s\t%s\t%s\n' \
+                    "$container" "$source" "$destination" "$source" "$destination" \
+                    >> "$container_mounts"
             elif [ "$source_kind" = "config_file" ] && [ -f "$source" ]; then
                 printf '%s\n' "$source" >> "$scan_files"
-                printf '%s\t%s\t%s\n' "$container" "$source" "$destination" >> "$container_mounts"
+                printf '%s\t%s\t%s\t%s\t%s\n' \
+                    "$container" "$source" "$destination" "$source" "$destination" \
+                    >> "$container_mounts"
             else
                 inspection_failure "gateway_mount_source_unavailable"
             fi
@@ -175,6 +210,7 @@ sort -u -o "$scan_roots" "$scan_roots"
 sort -u -o "$scan_files" "$scan_files"
 sort -u -o "$scan_site_roots" "$scan_site_roots"
 sort -u -o "$container_mounts" "$container_mounts"
+sort -u -o "$all_container_mounts" "$all_container_mounts"
 
 while IFS= read -r root; do
     if [ ! -d "$root" ]; then
@@ -184,7 +220,7 @@ while IFS= read -r root; do
         inspection_failure "config_enumeration_failed"
     fi
 done < "$scan_roots"
-while IFS=$'\t' read -r root boundary; do
+while IFS=$'\t' read -r root boundary container container_boundary; do
     [ -n "$root" ] || continue
     if ! canonical_boundary="$(realpath "$boundary" 2>/dev/null)"; then
         inspection_failure "site_config_target_invalid"
@@ -194,17 +230,61 @@ while IFS=$'\t' read -r root boundary; do
         inspection_failure "config_enumeration_failed"
     fi
     while IFS= read -r -d '' config; do
-        if ! canonical_config="$(realpath "$config" 2>/dev/null)" ||
-            [ ! -f "$canonical_config" ]; then
+        container_config=""
+        container_link=""
+        if [ -L "$config" ] && [ "$container" != "-" ]; then
+            link_target="$(readlink "$config")"
+            if [[ "$link_target" == /* ]]; then
+                if [[ "$link_target" == *//* ]] ||
+                    [[ "$link_target" == */./* ]] ||
+                    [[ "$link_target" == */../* ]] ||
+                    [[ "$link_target" == */. ]] ||
+                    [[ "$link_target" == */.. ]]; then
+                    inspection_failure "site_config_target_invalid"
+                fi
+                if [ "$link_target" != "$container_boundary" ] &&
+                    [[ "$link_target" != "$container_boundary/"* ]]; then
+                    inspection_failure "site_config_target_unreachable_in_container"
+                fi
+                relative_target="${link_target#"$container_boundary"}"
+                if ! canonical_config="$(realpath "$boundary$relative_target" 2>/dev/null)"; then
+                    inspection_failure "site_config_target_invalid"
+                fi
+                container_config="$link_target"
+            else
+                if ! canonical_config="$(realpath "$config" 2>/dev/null)"; then
+                    inspection_failure "site_config_target_invalid"
+                fi
+                relative_target="${canonical_config#"$canonical_boundary"}"
+                container_config="$container_boundary$relative_target"
+            fi
+        else
+            if ! canonical_config="$(realpath "$config" 2>/dev/null)"; then
+                inspection_failure "site_config_target_invalid"
+            fi
+            if [ "$container" != "-" ]; then
+                relative_target="${canonical_config#"$canonical_boundary"}"
+                container_config="$container_boundary$relative_target"
+            fi
+        fi
+        if [ ! -f "$canonical_config" ]; then
             inspection_failure "site_config_target_invalid"
         fi
         if [ "$canonical_config" != "$canonical_boundary" ] &&
             [[ "$canonical_config" != "$canonical_boundary/"* ]]; then
             inspection_failure "site_config_target_outside_scope"
         fi
-        printf '%s\0' "$config" >> "$candidates"
+        printf '%s\0' "$canonical_config" >> "$candidates"
+        if [ "$container" != "-" ]; then
+            container_link="$container_boundary${config#"$boundary"}"
+            printf '%s\t%s\t%s\t%s\t%s\n' \
+                "$container" "$canonical_config" "$container_config" \
+                "$canonical_config" "$container_link" \
+                >> "$candidate_container_paths"
+        fi
     done < "$site_candidates"
 done < "$scan_site_roots"
+sort -u -o "$candidate_container_paths" "$candidate_container_paths"
 while IFS= read -r config; do
     [ -n "$config" ] || continue
     printf '%s\0' "$config" >> "$candidates"
@@ -349,22 +429,159 @@ elif [ "$matching_server_block_count" -eq 1 ]; then
     ')"
 fi
 
+mapping_is_effective() {
+    local requested_container="$1"
+    local host_config="$2"
+    local container_config="$3"
+    local longest_destination=-1
+    local candidate_length
+    local expected_host_config
+    local canonical_expected
+    local canonical_host_config
+    local effective_source_count
+    local container
+    local mount_source
+    local mount_destination
+    : > "$effective_sources"
+    while IFS=$'\t' read -r container mount_source mount_destination; do
+        if [ "$container" != "$requested_container" ]; then
+            continue
+        fi
+        if [ "$container_config" != "$mount_destination" ] &&
+            [[ "$container_config" != "$mount_destination/"* ]]; then
+            continue
+        fi
+        candidate_length="${#mount_destination}"
+        if [ "$candidate_length" -lt "$longest_destination" ]; then
+            continue
+        fi
+        if [ "$candidate_length" -gt "$longest_destination" ]; then
+            : > "$effective_sources"
+            longest_destination="$candidate_length"
+        fi
+        expected_host_config="$mount_source${container_config#"$mount_destination"}"
+        if [ "$mount_source" = "$unavailable_mount_source" ]; then
+            printf '%s\n' "unavailable" >> "$effective_sources"
+        elif canonical_expected="$(realpath "$expected_host_config" 2>/dev/null)"; then
+            printf '%s\n' "$canonical_expected" >> "$effective_sources"
+        else
+            printf '%s\n' "unavailable" >> "$effective_sources"
+        fi
+    done < "$all_container_mounts"
+    sort -u -o "$effective_sources" "$effective_sources"
+    effective_source_count="$(wc -l < "$effective_sources" | tr -d ' ')"
+    if [ "$effective_source_count" -ne 1 ]; then
+        return 1
+    fi
+    if ! canonical_host_config="$(realpath "$host_config" 2>/dev/null)"; then
+        return 1
+    fi
+    [ "$(sed -n '1p' "$effective_sources")" = "$canonical_host_config" ]
+}
+
+entry_mapping_is_effective() {
+    local requested_container="$1"
+    local host_target="$2"
+    local container_entry="$3"
+    local container_target="$4"
+    local longest_destination=-1
+    local candidate_length
+    local expected_host_entry
+    local effective_source_count
+    local effective_host_entry
+    local canonical_host_target
+    local canonical_effective_target
+    local link_target
+    local container
+    local mount_source
+    local mount_destination
+    : > "$effective_sources"
+    while IFS=$'\t' read -r container mount_source mount_destination; do
+        if [ "$container" != "$requested_container" ]; then
+            continue
+        fi
+        if [ "$container_entry" != "$mount_destination" ] &&
+            [[ "$container_entry" != "$mount_destination/"* ]]; then
+            continue
+        fi
+        candidate_length="${#mount_destination}"
+        if [ "$candidate_length" -lt "$longest_destination" ]; then
+            continue
+        fi
+        if [ "$candidate_length" -gt "$longest_destination" ]; then
+            : > "$effective_sources"
+            longest_destination="$candidate_length"
+        fi
+        if [ "$mount_source" = "$unavailable_mount_source" ]; then
+            printf '%s\n' "unavailable" >> "$effective_sources"
+        else
+            expected_host_entry="$mount_source${container_entry#"$mount_destination"}"
+            printf '%s\n' "$expected_host_entry" >> "$effective_sources"
+        fi
+    done < "$all_container_mounts"
+    sort -u -o "$effective_sources" "$effective_sources"
+    effective_source_count="$(wc -l < "$effective_sources" | tr -d ' ')"
+    if [ "$effective_source_count" -ne 1 ]; then
+        return 1
+    fi
+    effective_host_entry="$(sed -n '1p' "$effective_sources")"
+    if [ "$effective_host_entry" = "unavailable" ]; then
+        return 1
+    fi
+    if ! canonical_host_target="$(realpath "$host_target" 2>/dev/null)"; then
+        return 1
+    fi
+    if [ -L "$effective_host_entry" ]; then
+        link_target="$(readlink "$effective_host_entry")"
+        if [[ "$link_target" == /* ]]; then
+            [ "$link_target" = "$container_target" ]
+            return
+        fi
+        if ! canonical_effective_target="$(realpath "$effective_host_entry" 2>/dev/null)"; then
+            return 1
+        fi
+        [ "$canonical_effective_target" = "$canonical_host_target" ]
+        return
+    fi
+    if ! canonical_effective_target="$(realpath "$effective_host_entry" 2>/dev/null)"; then
+        return 1
+    fi
+    [ "$canonical_effective_target" = "$canonical_host_target" ]
+}
+
 reload_adapter="unavailable"
 if [ "$status" = "ambiguous" ]; then
     reload_adapter="ambiguous"
 elif [ "$status" = "discovered" ]; then
-    while IFS=$'\t' read -r container source _destination; do
+    while IFS=$'\t' read -r container source destination link_source link_destination; do
+        if [ "$config" = "$source" ] &&
+            mapping_is_effective "$container" "$config" "$destination" &&
+            entry_mapping_is_effective \
+                "$container" "$link_source" "$link_destination" "$destination"; then
+            printf '%s\t%s\n' \
+                "$container" "$destination" >> "$correlated_mappings"
+        fi
+    done < "$candidate_container_paths"
+    while IFS=$'\t' read -r container source destination _mount_source _mount_destination; do
         if [ "$config" = "$source" ] || [[ "$config" == "$source/"* ]]; then
-            printf '%s\n' "$container" >> "$correlated_containers"
+            relative_config_path="${config#"$source"}"
+            container_path="$destination$relative_config_path"
+            if mapping_is_effective "$container" "$config" "$container_path"; then
+                printf '%s\t%s\n' \
+                    "$container" "$container_path" >> "$correlated_mappings"
+            fi
         fi
     done < "$container_mounts"
 fi
-sort -u -o "$correlated_containers" "$correlated_containers"
-container_count="$(wc -l < "$correlated_containers" | tr -d ' ')"
+sort -u -o "$correlated_mappings" "$correlated_mappings"
+cut -f 1 "$correlated_mappings" | sort -u > "$correlated_containers"
+mapping_count="$(wc -l < "$correlated_mappings" | tr -d ' ')"
 container_names="$(jq -Rsc 'split("\n") | map(select(length > 0))' "$correlated_containers")"
-if [ "$status" = "discovered" ] && [ "$container_count" -eq 1 ]; then
+container_config_path=""
+if [ "$status" = "discovered" ] && [ "$mapping_count" -eq 1 ]; then
     reload_adapter="docker_container"
-elif [ "$status" = "discovered" ] && [ "$container_count" -gt 1 ]; then
+    container_config_path="$(cut -f 2 "$correlated_mappings")"
+elif [ "$status" = "discovered" ] && [ "$mapping_count" -gt 1 ]; then
     reload_adapter="ambiguous"
 fi
 
@@ -376,6 +593,7 @@ jq -n \
     --argjson matchingServerBlockCount "$matching_server_block_count" \
     --argjson config "$config_json" \
     --arg reloadAdapter "$reload_adapter" \
+    --arg containerConfigPath "$container_config_path" \
     --argjson containerNames "$container_names" '
     {
         schemaVersion: 1,
@@ -388,7 +606,8 @@ jq -n \
         config: $config,
         reloadAdapter: {
             kind: $reloadAdapter,
-            containerNames: $containerNames
+            containerNames: $containerNames,
+            configPath: (if $containerConfigPath == "" then null else $containerConfigPath end)
         }
     }
 '
