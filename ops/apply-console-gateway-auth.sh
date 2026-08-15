@@ -101,6 +101,7 @@ verify_response_contract() {
     local suffix="$1"
     local response_headers="$2"
     local response_body="$3"
+    local response_revision_mode="$4"
     if [ "$suffix" = "" ]; then
         awk '
             {
@@ -137,13 +138,19 @@ verify_response_contract() {
             }
             END { exit(found ? 0 : 1) }
         ' "$response_headers" &&
-            jq --exit-status '
+            jq --exit-status --arg mode "$response_revision_mode" '
                 (.totals.succeeded | type == "number") and
                 (.totals.failed | type == "number") and
-                (.byDay | type == "array") and
-                (.recentFailures | type == "array") and
                 (.concurrency.active | type == "number") and
-                (.concurrency.limit | type == "number")
+                (.concurrency.limit | type == "number") and
+                if $mode == "legacy" then
+                    (.byProcess | type == "array") and
+                    (.byErrorCode | type == "array") and
+                    (.attemptDurationMs.samples | type == "number")
+                else
+                    (.byDay | type == "array") and
+                    (.recentFailures | type == "array")
+                end
             ' "$response_body" >/dev/null
     fi
 }
@@ -466,7 +473,7 @@ for suffix in "" "/processes" "/stats?hours=1"; do
         rollback
     }
     failure_stage="local_contract_probe"
-    if ! verify_response_contract "$suffix" "$headers" "$local_body"; then
+    if ! verify_response_contract "$suffix" "$headers" "$local_body" "$local_revision_mode"; then
         echo "Local Console response contract is invalid" >&2
         rollback
     fi
@@ -525,7 +532,7 @@ for suffix in "" "/processes" "/stats?hours=1"; do
         rollback
     }
     failure_stage="public_contract_probe"
-    if ! verify_response_contract "$suffix" "$headers" "$public_body"; then
+    if ! verify_response_contract "$suffix" "$headers" "$public_body" "$public_revision_mode"; then
         echo "Public Console response contract is invalid" >&2
         rollback
     fi

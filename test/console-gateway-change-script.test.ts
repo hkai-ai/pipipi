@@ -161,6 +161,7 @@ describe("Console gateway authentication change", () => {
     it("accepts a pinned legacy revision only when the container label and response contracts agree", async () => {
         const fixture = await createFixture({
             legacyRevision: REVISION,
+            legacyStatsContract: true,
             revisionHeader: false,
         });
 
@@ -172,6 +173,34 @@ describe("Console gateway authentication change", () => {
             revisionVerification: "legacy_container_and_contract",
             localAnonymousStatus: [401, 401, 401],
             localAuthenticatedStatus: [200, 200, 200],
+        });
+    });
+
+    it("accepts the pinned legacy statistics contract without weakening the current contract", async () => {
+        const fixture = await createFixture({
+            legacyRevision: REVISION,
+            legacyStatsContract: true,
+            revisionHeader: false,
+        });
+
+        const result = runChange(fixture);
+
+        expect(result.status, result.stderr).toBe(0);
+        expect(JSON.parse(result.stdout)).toMatchObject({
+            revisionVerification: "legacy_container_and_contract",
+            authenticatedStatus: [200, 200, 200],
+        });
+    });
+
+    it("rejects the legacy statistics shape when a current revision header is present", async () => {
+        const fixture = await createFixture({ legacyStatsContract: true });
+
+        const result = runChange(fixture);
+
+        expect(result.status).not.toBe(0);
+        expect(JSON.parse(result.stdout)).toMatchObject({
+            failureStage: "local_contract_probe",
+            rollbackStatus: "succeeded",
         });
     });
 
@@ -552,6 +581,7 @@ describe("Console gateway authentication change", () => {
             failConfigRestore?: boolean;
             existingAuth?: boolean;
             legacyRevision?: string;
+            legacyStatsContract?: boolean;
             localAnonymousChallenge?: boolean;
             localAnonymousStatus?: number;
             localAnonymousTransportFailures?: number;
@@ -708,7 +738,11 @@ if [ "$authenticated" = true ]; then
       ;;
     *'/stats?hours=1'*)
       printf 'content-type: application/json\r\n' >> "$header_file"
-      printf '%s' '{"totals":{"succeeded":0,"failed":0},"byDay":[],"recentFailures":[],"concurrency":{"active":0,"limit":4},"attemptDurationMs":{"samples":0}}' > "$output_file"
+      if [ "$FAKE_LEGACY_STATS_CONTRACT" = true ]; then
+        printf '%s' '{"totals":{"succeeded":0,"failed":0},"byProcess":[],"byErrorCode":[],"concurrency":{"active":0,"limit":4},"attemptDurationMs":{"samples":0}}' > "$output_file"
+      else
+        printf '%s' '{"totals":{"succeeded":0,"failed":0},"byDay":[],"recentFailures":[],"concurrency":{"active":0,"limit":4},"attemptDurationMs":{"samples":0}}' > "$output_file"
+      fi
       ;;
     *)
       printf 'content-type: text/html\r\n' >> "$header_file"
@@ -823,6 +857,7 @@ exec /bin/sleep "$@"
             failConfigRestore: options.failConfigRestore ?? false,
             htpasswd,
             legacyRevision: options.legacyRevision ?? "none",
+            legacyStatsContract: options.legacyStatsContract ?? false,
             localAnonymousChallenge: options.localAnonymousChallenge ?? true,
             localAnonymousStatus: options.localAnonymousStatus ?? 401,
             localAnonymousTransportFailures:
@@ -868,6 +903,7 @@ type Fixture = Readonly<{
     failConfigRestore: boolean;
     htpasswd: string;
     legacyRevision: string;
+    legacyStatsContract: boolean;
     localAnonymousChallenge: boolean;
     localAnonymousStatus: number;
     localAnonymousTransportFailures: number;
@@ -919,6 +955,7 @@ function changeEnv(fixture: Fixture) {
         FAKE_ANONYMOUS_CHALLENGE: String(fixture.anonymousChallenge),
         FAKE_LOCAL_ANONYMOUS_CHALLENGE: String(fixture.localAnonymousChallenge),
         FAKE_LOCAL_ANONYMOUS_STATUS: String(fixture.localAnonymousStatus),
+        FAKE_LEGACY_STATS_CONTRACT: String(fixture.legacyStatsContract),
         FAKE_LOCAL_ANONYMOUS_TRANSPORT_FAILURES: String(
             fixture.localAnonymousTransportFailures,
         ),
