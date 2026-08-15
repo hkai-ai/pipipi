@@ -162,6 +162,7 @@ async function inspect(target) {
         client = await pool.connect();
         const result = await client.query(`
             SELECT
+              identity.identity::text AS "databaseIdentity",
               current_user AS "currentUser",
               session_user AS "sessionUser",
               role.rolsuper AS "superuser",
@@ -191,19 +192,23 @@ async function inspect(target) {
               current_setting('ssl_cert_file') <> ''
                 AS "serverCertificateConfigured",
               current_setting('ssl_key_file') <> '' AS "serverKeyConfigured",
+              inet_server_port() AS "serverPort",
               EXISTS (
                 SELECT 1
                 FROM service_instance_identity
                 WHERE singleton = true
               ) AS "databaseIdentityPresent"
             FROM pg_roles AS role
+            CROSS JOIN service_instance_identity AS identity
             LEFT JOIN pg_stat_ssl AS ssl ON ssl.pid = pg_backend_pid()
             WHERE role.rolname = session_user
+              AND identity.singleton = true
         `);
         if (result.rows.length !== 1) return undefined;
         return {
             ...result.rows[0],
             clientTls: client.connection?.stream?.encrypted === true,
+            targetPort: client.port,
         };
     } finally {
         client?.release();
@@ -219,15 +224,38 @@ try {
 }
 if (!current) process.exit(1);
 
+let pinnedResult;
 let pinnedTlsConnectionAvailable = false;
 let pinnedTlsFailureReason = "none";
 try {
-    const pinnedResult = await inspect(pinned.toString());
+    pinnedResult = await inspect(pinned.toString());
     pinnedTlsConnectionAvailable = pinnedResult?.clientTls === true;
     if (!pinnedTlsConnectionAvailable) pinnedTlsFailureReason = "session_not_tls";
 } catch (error) {
     pinnedTlsConnectionAvailable = false;
     pinnedTlsFailureReason = classifyTlsFailure(error);
+}
+
+const targetPort = Number(current.targetPort);
+const backendPort = Number(current.serverPort);
+const connectionTargetPortMatchesBackend =
+    Number.isInteger(targetPort) &&
+    Number.isInteger(backendPort) &&
+    targetPort === backendPort;
+let directBackendEndpointAvailable = false;
+try {
+    const backendUrl = new URL(pinned);
+    backendUrl.searchParams.set("port", String(backendPort));
+    const backendResult = connectionTargetPortMatchesBackend
+        ? pinnedResult
+        : await inspect(backendUrl.toString());
+    directBackendEndpointAvailable =
+        backendResult?.clientTls === true &&
+        backendResult.tls === true &&
+        typeof backendResult.databaseIdentity === "string" &&
+        backendResult.databaseIdentity === current.databaseIdentity;
+} catch {
+    directBackendEndpointAvailable = false;
 }
 
 let tlsWithoutCertificateVerificationAvailable = false;
@@ -302,6 +330,8 @@ process.stdout.write(JSON.stringify({
         otherDatabaseAccessPresent: current.otherDatabaseAccessPresent,
         roleMembershipPresent: current.roleMembershipPresent,
     },
+    connectionTargetPortMatchesBackend,
+    directBackendEndpointAvailable,
     pinnedTlsConnectionAvailable,
     pinnedTlsFailureReason,
     tlsWithoutCertificateVerificationAvailable,
@@ -341,6 +371,8 @@ if ! jq -e '
       "superuser",
       "tls"
     ] and
+    (.connectionTargetPortMatchesBackend | type == "boolean") and
+    (.directBackendEndpointAvailable | type == "boolean") and
     (.pinnedTlsConnectionAvailable | type == "boolean") and
     (.pinnedTlsFailureReason as $reason | [
       "none",
@@ -370,7 +402,9 @@ if ! jq -e '
     (.serverCertificateConfigured | type == "boolean") and
     (.serverKeyConfigured | type == "boolean") and
     (keys | sort) == [
+      "connectionTargetPortMatchesBackend",
       "currentConnection",
+      "directBackendEndpointAvailable",
       "directEffectiveRoleBoundaryVerified",
       "directEffectiveRoleLoginAvailable",
       "directEffectiveRoleLoginWithoutTlsAvailable",

@@ -183,6 +183,36 @@ describe("Production database boundary inspection", () => {
         expect(result.output.directEffectiveRoleBoundaryVerified).toBe(false);
     });
 
+    it("detects a TLS direct endpoint only when the database identity matches", async () => {
+        for (const sourcePortMode of ["authority", "environment"] as const) {
+            const result = await runEmbeddedCollector(
+                false,
+                undefined,
+                false,
+                true,
+                sourcePortMode,
+            );
+
+            expect(result.output.connectionTargetPortMatchesBackend).toBe(
+                false,
+            );
+            expect(result.output.directBackendEndpointAvailable).toBe(true);
+        }
+    });
+
+    it("rejects a TLS endpoint backed by a different database instance", async () => {
+        const result = await runEmbeddedCollector(
+            false,
+            undefined,
+            false,
+            true,
+            "authority",
+            false,
+        );
+
+        expect(result.output.directBackendEndpointAvailable).toBe(false);
+    });
+
     it("returns only redacted live-boundary facts", async () => {
         const fixture = await createFixture();
 
@@ -204,6 +234,8 @@ describe("Production database boundary inspection", () => {
                 otherDatabaseAccessPresent: true,
                 roleMembershipPresent: false,
             },
+            connectionTargetPortMatchesBackend: true,
+            directBackendEndpointAvailable: false,
             pinnedTlsConnectionAvailable: true,
             pinnedTlsFailureReason: "none",
             tlsWithoutCertificateVerificationAvailable: true,
@@ -364,9 +396,9 @@ if [ "$1" = run ]; then
     if [ "$FAKE_INVALID_RESULT" = true ]; then
         printf '%s\n' '{"databaseUrl":"postgres://fixture-secret"}'
     elif [ "$FAKE_NESTED_SECRET" = true ]; then
-        printf '%s\n' '{"schemaVersion":1,"event":"production_database_boundary_inspected","status":"succeeded","currentConnection":{"clientTls":false,"tls":false,"roleSwitchingPresent":true,"superuser":true,"administrativePrivilegesPresent":true,"otherDatabaseAccessPresent":true,"roleMembershipPresent":false,"databaseUrl":"postgres://fixture-secret"},"pinnedTlsConnectionAvailable":true,"pinnedTlsFailureReason":"none","tlsWithoutCertificateVerificationAvailable":true,"tlsWithoutCertificateVerificationFailureReason":"none","directEffectiveRoleLoginAvailable":false,"directEffectiveRoleLoginWithoutTlsAvailable":false,"directEffectiveRoleBoundaryVerified":false,"serverTlsEnabled":false,"serverCertificateConfigured":true,"serverKeyConfigured":true}'
+        printf '%s\n' '{"schemaVersion":1,"event":"production_database_boundary_inspected","status":"succeeded","currentConnection":{"clientTls":false,"tls":false,"roleSwitchingPresent":true,"superuser":true,"administrativePrivilegesPresent":true,"otherDatabaseAccessPresent":true,"roleMembershipPresent":false,"databaseUrl":"postgres://fixture-secret"},"connectionTargetPortMatchesBackend":true,"directBackendEndpointAvailable":false,"pinnedTlsConnectionAvailable":true,"pinnedTlsFailureReason":"none","tlsWithoutCertificateVerificationAvailable":true,"tlsWithoutCertificateVerificationFailureReason":"none","directEffectiveRoleLoginAvailable":false,"directEffectiveRoleLoginWithoutTlsAvailable":false,"directEffectiveRoleBoundaryVerified":false,"serverTlsEnabled":false,"serverCertificateConfigured":true,"serverKeyConfigured":true}'
     else
-        printf '%s\n' '{"schemaVersion":1,"event":"production_database_boundary_inspected","status":"succeeded","currentConnection":{"clientTls":false,"tls":false,"roleSwitchingPresent":true,"superuser":true,"administrativePrivilegesPresent":true,"otherDatabaseAccessPresent":true,"roleMembershipPresent":false},"pinnedTlsConnectionAvailable":true,"pinnedTlsFailureReason":"none","tlsWithoutCertificateVerificationAvailable":true,"tlsWithoutCertificateVerificationFailureReason":"none","directEffectiveRoleLoginAvailable":false,"directEffectiveRoleLoginWithoutTlsAvailable":false,"directEffectiveRoleBoundaryVerified":false,"serverTlsEnabled":false,"serverCertificateConfigured":true,"serverKeyConfigured":true}'
+        printf '%s\n' '{"schemaVersion":1,"event":"production_database_boundary_inspected","status":"succeeded","currentConnection":{"clientTls":false,"tls":false,"roleSwitchingPresent":true,"superuser":true,"administrativePrivilegesPresent":true,"otherDatabaseAccessPresent":true,"roleMembershipPresent":false},"connectionTargetPortMatchesBackend":true,"directBackendEndpointAvailable":false,"pinnedTlsConnectionAvailable":true,"pinnedTlsFailureReason":"none","tlsWithoutCertificateVerificationAvailable":true,"tlsWithoutCertificateVerificationFailureReason":"none","directEffectiveRoleLoginAvailable":false,"directEffectiveRoleLoginWithoutTlsAvailable":false,"directEffectiveRoleBoundaryVerified":false,"serverTlsEnabled":false,"serverCertificateConfigured":true,"serverKeyConfigured":true}'
     fi
     exit 0
 fi
@@ -447,6 +479,9 @@ async function runEmbeddedCollector(
         | "server_tls_unavailable"
         | undefined = undefined,
     backendReturnsTls = true,
+    directBackendAvailable = false,
+    sourcePortMode: "authority" | "environment" = "authority",
+    directIdentityMatches = true,
 ) {
     const root = await mkdtemp(path.join(tmpdir(), "pipipi-db-collector-"));
     const moduleDirectory = path.join(root, "node_modules", "pg");
@@ -470,11 +505,20 @@ async function runEmbeddedCollector(
             path.join(moduleDirectory, "index.js"),
             `import { appendFileSync } from "node:fs";
 export class Pool {
-    constructor(options) { this.connectionString = options.connectionString; }
+    constructor(options) {
+        this.connectionString = options.connectionString;
+        const url = new URL(this.connectionString);
+        const configuredPort = url.searchParams.getAll("port").at(-1);
+        this.port = Number.parseInt(
+            configuredPort || url.port || process.env.PGPORT || "5432",
+            10,
+        );
+    }
     async connect() {
         const url = new URL(this.connectionString);
         const disabled = url.searchParams.get("sslmode") === "disable";
         return {
+            port: this.port,
             connection: {
                 stream: {
                     encrypted: disabled ? process.env.FAKE_DISABLE_RETURNS_TLS === "true" : true,
@@ -489,6 +533,7 @@ export class Pool {
         const url = new URL(this.connectionString);
         const switching = url.searchParams.has("options");
         const disabled = url.searchParams.get("sslmode") === "disable";
+        const directBackend = this.port === 5432;
         if (url.searchParams.get("sslmode") === "require" && process.env.FAKE_TLS_REQUIRED_FAILURE === "server_tls_unavailable") {
             throw new Error("server does not support SSL");
         }
@@ -504,10 +549,16 @@ export class Pool {
             administrativePrivilegesPresent: url.username === "postgres",
             otherDatabaseAccessPresent: url.username === "postgres",
             roleMembershipPresent: false,
-            tls: process.env.FAKE_BACKEND_RETURNS_TLS === "true",
+            tls: directBackend
+                ? process.env.FAKE_DIRECT_BACKEND_AVAILABLE === "true"
+                : process.env.FAKE_BACKEND_RETURNS_TLS === "true",
             serverTlsEnabled: true,
             serverCertificateConfigured: true,
             serverKeyConfigured: true,
+            serverPort: 5432,
+            databaseIdentity: directBackend && process.env.FAKE_DIRECT_IDENTITY_MATCHES !== "true"
+                ? "00000000-0000-4000-8000-000000000002"
+                : "00000000-0000-4000-8000-000000000001",
             databaseIdentityPresent: true,
         }] };
     }
@@ -520,18 +571,22 @@ export class Pool {
         encoding: "utf8",
         env: {
             ...process.env,
-            DATABASE_URL:
-                "postgres://postgres:fixture-secret@127.0.0.1/pipipi?options=-c%20role%3Dapp_role&uselibpqcompat=true&sslmode=verify-ca&ssl=true&sslcert=%2Ffixture-client.crt&sslkey=%2Ffixture-client.key&sslrootcert=%2Fwrong-ca.pem",
+            DATABASE_URL: `postgres://postgres:fixture-secret@127.0.0.1${sourcePortMode === "authority" ? ":6543" : ""}/pipipi?options=-c%20role%3Dapp_role&uselibpqcompat=true&sslmode=verify-ca&ssl=true&sslcert=%2Ffixture-client.crt&sslkey=%2Ffixture-client.key&sslrootcert=%2Fwrong-ca.pem&port=`,
             FAKE_BACKEND_RETURNS_TLS: String(backendReturnsTls),
             FAKE_DISABLE_RETURNS_TLS: String(disableReturnsTls),
+            FAKE_DIRECT_BACKEND_AVAILABLE: String(directBackendAvailable),
+            FAKE_DIRECT_IDENTITY_MATCHES: String(directIdentityMatches),
             FAKE_POOL_LOG: poolLog,
             FAKE_TLS_REQUIRED_FAILURE: tlsRequiredFailure ?? "",
+            PGPORT: sourcePortMode === "environment" ? "6543" : "",
         },
     });
     try {
         expect(run.status, run.stderr).toBe(0);
         return {
             output: JSON.parse(run.stdout) as {
+                connectionTargetPortMatchesBackend: boolean;
+                directBackendEndpointAvailable: boolean;
                 directEffectiveRoleBoundaryVerified: boolean;
                 directEffectiveRoleLoginWithoutTlsAvailable: boolean;
                 pinnedTlsConnectionAvailable: boolean;
