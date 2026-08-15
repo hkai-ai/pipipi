@@ -39,7 +39,7 @@ describe("Console effective gateway evidence", () => {
 pi.ganjiuwanshi.com; auth_basic \${realm}; include proxy/site.conf; }
 `;
         const proxyConfig = `location / { auth_basic
-"off"; proxy_pass http://secret-upstream; }
+"off"; satisfy any; allow 127.0.0.1; allow all; deny all; proxy_pass http://secret-upstream; }
 `;
         const nginxConfig = `http { include
 /etc/nginx/site.conf; }`;
@@ -136,6 +136,10 @@ fi
                 containerPath: "/etc/nginx/proxy/site.conf",
                 hostPath: canonicalProxyMount,
                 authBasicOffCount: 1,
+                satisfyAnyCount: 1,
+                allowAllCount: 1,
+                allowOtherCount: 1,
+                denyAllCount: 1,
                 locationDirectiveCount: 1,
                 proxyPassDirectiveCount: 1,
             }),
@@ -155,6 +159,7 @@ fi
         ]);
         expect(result.stdout).not.toContain("secret-upstream");
         expect(result.stdout).not.toContain("proxy_pass http");
+        expect(result.stdout).not.toContain("127.0.0.1");
         expect(await readFile(docker, "utf8")).toContain("configuration file");
     });
 

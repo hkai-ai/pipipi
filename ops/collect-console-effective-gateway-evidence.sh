@@ -196,6 +196,18 @@ if ! awk -v domain="$domain" -v section_directory="$sections" '
             proxy_passes++
         } else if (words[1] == "include") {
             includes++
+        } else if (words[1] == "satisfy") {
+            value = unquote(words[2])
+            if (value == "any") satisfy_any++
+            else satisfy_other++
+        } else if (words[1] == "allow") {
+            value = unquote(words[2])
+            if (value == "all") allow_all++
+            else allow_other++
+        } else if (words[1] == "deny") {
+            value = unquote(words[2])
+            if (value == "all") deny_all++
+            else deny_other++
         }
     }
     function process_line(line,    character, field_index) {
@@ -242,9 +254,12 @@ if ! awk -v domain="$domain" -v section_directory="$sections" '
             print pending_section_line >> section_file
         }
         close(section_file)
-        printf "%06d\t%s\t%d\t%d\t%d\t%d\t%d\t%d\t%d\n", \
-            source_count, source, server_name_matches, locations, auth_off, \
-            auth_variable, auth_other, proxy_passes, includes
+        printf "%06d\t%s", source_count, source
+        printf "\t%d\t%d\t%d\t%d\t%d\t%d\t%d", \
+            server_name_matches, locations, auth_off, auth_variable, auth_other, \
+            proxy_passes, includes
+        printf "\t%d\t%d\t%d\t%d\t%d\t%d\n", \
+            satisfy_any, satisfy_other, allow_all, allow_other, deny_all, deny_other
     }
     function begin_source(path) {
         source_count++
@@ -265,6 +280,12 @@ if ! awk -v domain="$domain" -v section_directory="$sections" '
         auth_other = 0
         proxy_passes = 0
         includes = 0
+        satisfy_any = 0
+        satisfy_other = 0
+        allow_all = 0
+        allow_other = 0
+        deny_all = 0
+        deny_other = 0
     }
     /^# configuration file / && /:$/ {
         finish_source()
@@ -289,7 +310,7 @@ if cut -f2 "$manifest" | sort | uniq -d | grep -q .; then
     inspection_failure "effective_configuration_source_marker_invalid"
 fi
 
-while IFS=$'\t' read -r section_id declared_path server_names locations auth_off auth_variable auth_other proxy_passes includes; do
+while IFS=$'\t' read -r section_id declared_path server_names locations auth_off auth_variable auth_other proxy_passes includes satisfy_any satisfy_other allow_all allow_other deny_all deny_other; do
     if ! is_canonical_absolute_path "$declared_path"; then
         inspection_failure "unsupported_effective_configuration_path"
     fi
@@ -310,17 +331,18 @@ while IFS=$'\t' read -r section_id declared_path server_names locations auth_off
             inspection_failure "effective_configuration_source_marker_invalid"
         fi
     fi
-    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
         "$canonical_path" "$container_sha" "$server_names" "$locations" \
         "$auth_off" "$auth_variable" "$auth_other" "$proxy_passes" "$includes" \
+        "$satisfy_any" "$satisfy_other" "$allow_all" "$allow_other" "$deny_all" "$deny_other" \
         >> "$verified"
 done < "$manifest"
 if cut -f1 "$verified" | sort | uniq -d | grep -q .; then
     inspection_failure "effective_configuration_source_marker_invalid"
 fi
 
-while IFS=$'\t' read -r container_path container_sha server_names locations auth_off auth_variable auth_other proxy_passes includes; do
-    if [ "$((server_names + locations + auth_off + auth_variable + auth_other + proxy_passes + includes))" -eq 0 ]; then
+while IFS=$'\t' read -r container_path container_sha server_names locations auth_off auth_variable auth_other proxy_passes includes satisfy_any satisfy_other allow_all allow_other deny_all deny_other; do
+    if [ "$((server_names + locations + auth_off + auth_variable + auth_other + proxy_passes + includes + satisfy_any + satisfy_other + allow_all + allow_other + deny_all + deny_other))" -eq 0 ]; then
         continue
     fi
     mapping="$(awk -F '\t' -v path="$container_path" '
@@ -376,7 +398,13 @@ while IFS=$'\t' read -r container_path container_sha server_names locations auth
         --argjson authBasicVariableCount "$auth_variable" \
         --argjson authBasicOtherCount "$auth_other" \
         --argjson proxyPassDirectiveCount "$proxy_passes" \
-        --argjson includeDirectiveCount "$includes" '
+        --argjson includeDirectiveCount "$includes" \
+        --argjson satisfyAnyCount "$satisfy_any" \
+        --argjson satisfyOtherCount "$satisfy_other" \
+        --argjson allowAllCount "$allow_all" \
+        --argjson allowOtherCount "$allow_other" \
+        --argjson denyAllCount "$deny_all" \
+        --argjson denyOtherCount "$deny_other" '
         {
             containerPath: $containerPath,
             hostPath: (if $hostPath == "" then null else $hostPath end),
@@ -387,7 +415,13 @@ while IFS=$'\t' read -r container_path container_sha server_names locations auth
             authBasicVariableCount: $authBasicVariableCount,
             authBasicOtherCount: $authBasicOtherCount,
             proxyPassDirectiveCount: $proxyPassDirectiveCount,
-            includeDirectiveCount: $includeDirectiveCount
+            includeDirectiveCount: $includeDirectiveCount,
+            satisfyAnyCount: $satisfyAnyCount,
+            satisfyOtherCount: $satisfyOtherCount,
+            allowAllCount: $allowAllCount,
+            allowOtherCount: $allowOtherCount,
+            denyAllCount: $denyAllCount,
+            denyOtherCount: $denyOtherCount
         }
     ' >> "$sources"
 done < "$verified"

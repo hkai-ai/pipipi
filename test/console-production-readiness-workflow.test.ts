@@ -120,6 +120,9 @@ describe("Console production readiness workflow", () => {
         expect(effectiveGatewayAudit).toContain("openresty -T");
         expect(effectiveGatewayAudit).toContain("authBasicOffCount");
         expect(effectiveGatewayAudit).toContain("proxyPassDirectiveCount");
+        expect(effectiveGatewayAudit).toContain("satisfyAnyCount");
+        expect(effectiveGatewayAudit).toContain("allowAllCount");
+        expect(effectiveGatewayAudit).toContain("allowOtherCount");
         expect(effectiveGatewayAudit).toContain(
             "effective_configuration_source_marker_invalid",
         );
