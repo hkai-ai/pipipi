@@ -357,7 +357,7 @@ Availability Monitor 是独立的一次性 Job。它检查公网网关 `/healthz
 npm run observe:availability
 ```
 
-运行环境必须提供完整 `PIPIPI_REVISION`、公网 HTTPS `AVAILABILITY_PUBLIC_BASE_URL` 和通用接收端 `AVAILABILITY_WEBHOOK_URL`；Redis 已配置时再提供 `REDIS_URL`。异步后台角色已经部署时设置 `AVAILABILITY_ASYNC_ROLES_ENABLED=true`，否则保持 `false`。`AVAILABILITY_PROBE_TIMEOUT_MS` 默认 5 秒，`AVAILABILITY_WEBHOOK_TIMEOUT_MS` 默认 10 秒。全部检查可用时命令退出 0 且不通知；`degraded`、`unavailable` 或通知失败时退出 1。Webhook Adapter 发送完整的规范 JSON 报告；飞书、企业微信、钉钉或 Slack 等平台格式必须由对应 Adapter 转换，不能假定通用 JSON 可直接被平台机器人接受。调度器必须禁止重叠运行，并把非零退出视为告警信号；若监控 Job 与目标同宿主，仍需另有外部探针覆盖整机失联。
+运行环境必须提供完整 `PIPIPI_REVISION`、公网 HTTPS `AVAILABILITY_PUBLIC_BASE_URL` 和飞书 V2 自定义机器人 `AVAILABILITY_WEBHOOK_URL`；该 URL 是可直接发消息的 Secret，只能写入服务器受保护的 `shared/.env` 或等价 Secret Store，禁止写入仓库、镜像、命令行、日志或 artifact。Redis 已配置时再提供 `REDIS_URL`。异步后台角色已经部署时设置 `AVAILABILITY_ASYNC_ROLES_ENABLED=true`，否则保持 `false`。`AVAILABILITY_PROBE_TIMEOUT_MS` 默认 5 秒，`AVAILABILITY_WEBHOOK_TIMEOUT_MS` 默认 10 秒。全部检查可用时命令退出 0 且不通知；`degraded`、`unavailable`、非 HTTP 200、飞书响应 `code != 0` 或通知失败时退出 1。Adapter 发送官方 V2 `text` 消息，正文只包含总体状态、时间、revision 与异常检查；请求和响应均限制为 20 KiB，远端响应正文不进入日志或报告。飞书机器人配置关键词安全校验时必须包含 `PiPiPi 服务可用性告警`。格式与安全设置以[飞书自定义机器人使用指南](https://open.feishu.cn/document/ukTMukTMukTM/ucTM5YjL3ETO24yNxkjN?lang=zh-CN)为准。调度器必须禁止重叠运行，并把非零退出视为告警信号；若监控 Job 与目标同宿主，仍需另有外部探针覆盖整机失联。
 
 Dashboard 与告警的 vendor-neutral 规范位于 [`ops/async-observability.json`](../ops/async-observability.json)，必须至少展示：
 

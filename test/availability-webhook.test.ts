@@ -1,44 +1,76 @@
 import { describe, expect, it, vi } from "vitest";
 import type { AvailabilityReport } from "../src/availability/monitor.js";
-import { createGenericAvailabilityWebhookNotifier } from "../src/availability/webhook.js";
-import type { WebhookHttpClient } from "../src/webhooks/delivery/target-policy.js";
+import { createFeishuAvailabilityWebhookNotifier } from "../src/availability/webhook.js";
+import type { PublicHttpTransport } from "../src/network/public-http.js";
 
-describe("Generic Availability Webhook Adapter", () => {
-    it("sends the canonical report and accepts a 2xx response", async () => {
-        const requests: Parameters<WebhookHttpClient["post"]>[0][] = [];
-        const post = vi.fn(
-            async (request: Parameters<WebhookHttpClient["post"]>[0]) => {
-                requests.push(request);
-                return { status: 204, retryAfter: null };
+describe("Feishu Availability Webhook Adapter", () => {
+    it("sends a V2 text message and requires a successful Feishu code", async () => {
+        const requests: Parameters<PublicHttpTransport["request"]>[0][] = [];
+        const request = vi.fn(
+            async (input: Parameters<PublicHttpTransport["request"]>[0]) => {
+                requests.push(input);
+                return {
+                    status: 200,
+                    retryAfter: null,
+                    body: JSON.stringify({ code: 0, msg: "success", data: {} }),
+                };
             },
         );
-        const notifier = createGenericAvailabilityWebhookNotifier({
-            url: "https://hooks.example.invalid/robot/secret-token",
-            httpClient: { post },
+        const notifier = createFeishuAvailabilityWebhookNotifier({
+            url: "https://open.feishu.cn/open-apis/bot/v2/hook/00000000-0000-4000-8000-000000000000",
+            transport: { request },
         });
 
         await expect(notifier.notify(report)).resolves.toBe("succeeded");
-        expect(post).toHaveBeenCalledOnce();
-        const request = requests[0];
-        expect(request?.headers).toMatchObject({
-            "content-type": "application/json",
+        expect(request).toHaveBeenCalledOnce();
+        const sent = requests[0];
+        expect(sent).toMatchObject({
+            method: "POST",
+            maxResponseBytes: 20_480,
+            headers: { "content-type": "application/json" },
         });
-        expect(JSON.parse(request?.body ?? "null")).toEqual(report);
+        const payload = JSON.parse(sent?.body ?? "null") as {
+            msg_type: string;
+            content: { text: string };
+        };
+        expect(payload.msg_type).toBe("text");
+        expect(payload.content.text).toContain("PiPiPi 服务可用性告警");
+        expect(payload.content.text).toContain("redis: unavailable");
+        expect(payload.content.text).not.toContain("https://");
     });
 
-    it("returns a stable failure without exposing the webhook URL", async () => {
-        const post = vi.fn(async () => {
-            throw new Error("secret-token failed");
-        });
-        const notifier = createGenericAvailabilityWebhookNotifier({
-            url: "https://hooks.example.invalid/robot/secret-token",
-            httpClient: { post },
+    it("fails when Feishu rejects a valid HTTP response", async () => {
+        const notifier = createFeishuAvailabilityWebhookNotifier({
+            url: "https://open.feishu.cn/open-apis/bot/v2/hook/00000000-0000-4000-8000-000000000000",
+            transport: {
+                request: async () => ({
+                    status: 200,
+                    retryAfter: null,
+                    body: JSON.stringify({
+                        code: 19024,
+                        msg: "Key Words Not Found secret-token",
+                    }),
+                }),
+            },
         });
 
         const result = await notifier.notify(report);
 
         expect(result).toBe("failed");
         expect(JSON.stringify(result)).not.toContain("secret-token");
+    });
+
+    it("rejects non-Feishu and query-bearing webhook URLs", () => {
+        expect(() =>
+            createFeishuAvailabilityWebhookNotifier({
+                url: "https://hooks.example.invalid/robot/token",
+            }),
+        ).toThrow("Availability Webhook URL must be a Feishu V2 bot hook");
+        expect(() =>
+            createFeishuAvailabilityWebhookNotifier({
+                url: "https://open.feishu.cn/open-apis/bot/v2/hook/00000000-0000-4000-8000-000000000000?token=override",
+            }),
+        ).toThrow("Availability Webhook URL must be a Feishu V2 bot hook");
     });
 });
 
@@ -48,5 +80,14 @@ const report: AvailabilityReport = Object.freeze({
     revision: "a".repeat(40),
     measuredAt: "2026-08-15T15:00:00.000Z",
     status: "unavailable",
-    checks: Object.freeze([]),
+    checks: Object.freeze([
+        Object.freeze({
+            name: "redis",
+            kind: "redis",
+            status: "unavailable",
+            latencyMs: 12,
+            attributes: Object.freeze({ configurationPresent: false }),
+            errorCode: "REDIS_CONFIGURATION_MISSING",
+        }),
+    ]),
 });

@@ -12,8 +12,8 @@ import {
     createRedisAvailabilityProbe,
     type RedisAvailabilityClient,
 } from "../availability/redis.js";
-import { createGenericAvailabilityWebhookNotifier } from "../availability/webhook.js";
-import type { WebhookHttpClient } from "../webhooks/delivery/target-policy.js";
+import { createFeishuAvailabilityWebhookNotifier } from "../availability/webhook.js";
+import type { PublicHttpTransport } from "../network/public-http.js";
 import {
     parseBoolean,
     parsePositiveInteger,
@@ -27,7 +27,7 @@ export function constructAvailabilityMonitor(
         request?: (input: string, init: RequestInit) => Promise<Response>;
         publicHttpClient?: PublicHttpAvailabilityClient;
         redisClient?: RedisAvailabilityClient;
-        webhookHttpClient?: WebhookHttpClient;
+        webhookTransport?: PublicHttpTransport;
         clock?: () => string;
         monotonicClock?: () => number;
     } = {},
@@ -89,14 +89,14 @@ export function constructAvailabilityMonitor(
     return createAvailabilityMonitor({
         revision,
         probes,
-        notifier: createGenericAvailabilityWebhookNotifier({
+        notifier: createFeishuAvailabilityWebhookNotifier({
             url: webhookUrl,
             timeoutMs: parsePositiveInteger(
                 environment.AVAILABILITY_WEBHOOK_TIMEOUT_MS,
                 10_000,
                 "AVAILABILITY_WEBHOOK_TIMEOUT_MS",
             ),
-            httpClient: dependencies.webhookHttpClient,
+            transport: dependencies.webhookTransport,
         }),
         clock: dependencies.clock,
     });

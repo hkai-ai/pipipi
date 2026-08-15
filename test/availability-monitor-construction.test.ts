@@ -5,7 +5,11 @@ const REVISION = "b".repeat(40);
 
 describe("Availability Monitor construction", () => {
     it("checks the gateway, internal roles and Redis through one Interface", async () => {
-        const post = vi.fn(async () => ({ status: 204, retryAfter: null }));
+        const webhookRequest = vi.fn(async () => ({
+            status: 200,
+            retryAfter: null,
+            body: JSON.stringify({ code: 0, msg: "success" }),
+        }));
         const get = vi.fn(async (request: { url: string }) => ({
             status: 200,
             body: JSON.stringify({
@@ -36,7 +40,7 @@ describe("Availability Monitor construction", () => {
                 PIPIPI_REVISION: REVISION,
                 AVAILABILITY_PUBLIC_BASE_URL: "https://pi.example.invalid",
                 AVAILABILITY_WEBHOOK_URL:
-                    "https://hooks.example.invalid/robot/secret-token",
+                    "https://open.feishu.cn/open-apis/bot/v2/hook/00000000-0000-4000-8000-000000000000",
                 AVAILABILITY_ASYNC_ROLES_ENABLED: "true",
                 REDIS_URL:
                     "rediss://default:redis-secret@redis.internal:6379/0",
@@ -53,7 +57,7 @@ describe("Availability Monitor construction", () => {
                             : "",
                     disconnect: () => undefined,
                 },
-                webhookHttpClient: { post },
+                webhookTransport: { request: webhookRequest },
                 clock: () => "2026-08-15T15:00:00.000Z",
             },
         );
@@ -72,14 +76,16 @@ describe("Availability Monitor construction", () => {
             "redis",
         ]);
         expect(result.notification).toBe("succeeded");
-        expect(post).toHaveBeenCalledOnce();
+        expect(webhookRequest).toHaveBeenCalledOnce();
         expect(get).toHaveBeenCalledTimes(2);
         expect(request).toHaveBeenCalledWith(
             "http://127.0.0.1:4400/readyz",
             expect.objectContaining({ method: "GET" }),
         );
         expect(JSON.stringify(result)).not.toContain("redis-secret");
-        expect(JSON.stringify(result)).not.toContain("secret-token");
+        expect(JSON.stringify(result)).not.toContain(
+            "00000000-0000-4000-8000-000000000000",
+        );
     });
 
     it("rejects missing production inputs before creating adapters", () => {
@@ -95,19 +101,23 @@ describe("Availability Monitor construction", () => {
                 AVAILABILITY_PUBLIC_BASE_URL:
                     "https://pi.example.invalid/nested",
                 AVAILABILITY_WEBHOOK_URL:
-                    "https://hooks.example.invalid/robot/secret-token",
+                    "https://open.feishu.cn/open-apis/bot/v2/hook/00000000-0000-4000-8000-000000000000",
             }),
         ).toThrow("AVAILABILITY_PUBLIC_BASE_URL must use public HTTPS");
     });
 
     it("notifies when Redis has not been configured yet", async () => {
-        const post = vi.fn(async () => ({ status: 204, retryAfter: null }));
+        const webhookRequest = vi.fn(async () => ({
+            status: 200,
+            retryAfter: null,
+            body: JSON.stringify({ code: 0, msg: "success" }),
+        }));
         const monitor = constructAvailabilityMonitor(
             {
                 PIPIPI_REVISION: REVISION,
                 AVAILABILITY_PUBLIC_BASE_URL: "https://pi.example.invalid",
                 AVAILABILITY_WEBHOOK_URL:
-                    "https://hooks.example.invalid/robot/secret-token",
+                    "https://open.feishu.cn/open-apis/bot/v2/hook/00000000-0000-4000-8000-000000000000",
             },
             {
                 request: async (input) => {
@@ -130,7 +140,7 @@ describe("Availability Monitor construction", () => {
                         }),
                     }),
                 },
-                webhookHttpClient: { post },
+                webhookTransport: { request: webhookRequest },
                 clock: () => "2026-08-15T15:00:00.000Z",
             },
         );

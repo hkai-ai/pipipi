@@ -239,7 +239,7 @@ npm run test:drill:webhook-observability:local
 
 各长运行角色都提供 `GET /healthz` 和 `GET /readyz`。liveness 只确认进程工作；异步角色的 readiness 检查实际使用的 migration、PostgreSQL 和 Redis。CRT Business API 的启动校验负责检查配置形状，readiness 不产生 FAL 或 OSS 请求。默认同步 API 保持原样，启用异步路由也不会删除 `POST /execute`。
 
-`npm run observe:availability` 是一次性 Availability Monitor Job。它从服务器侧检查公网网关、回环 Business API、可选的四个异步角色和 Redis；Module Interface 只返回脱敏的固定报告，机器人 Adapter 只在 `degraded` 或 `unavailable` 时发送。开发测试通过注入内存 HTTP、Redis 与 Webhook Adapter 验证同一个 Interface，不访问真实服务。生产应从已构建镜像运行 `node dist/bin/availability-monitor.js`，调度周期由外部受信 timer/Job 拥有。
+`npm run observe:availability` 是一次性 Availability Monitor Job。它从服务器侧检查公网网关、回环 Business API、可选的四个异步角色和 Redis；Module Interface 只返回脱敏的固定报告，飞书 V2 自定义机器人 Adapter 只在 `degraded` 或 `unavailable` 时发送文本告警，并要求 HTTP 200 与响应 `code=0` 同时成立。开发测试通过注入内存 HTTP、Redis 与 Webhook Adapter 验证同一个 Interface，不访问真实服务。生产应从已构建镜像运行 `node dist/bin/availability-monitor.js`，调度周期由外部受信 timer/Job 拥有。
 
 ### Queue 对账与重建
 
