@@ -390,6 +390,8 @@ docker run --rm --env-file "$worker_env" \
     --env CRT_BUSINESS_API_BASE_URL=http://127.0.0.1:4400 \
     --env PROCESS_QUEUE_NAME="$process_queue_name" \
     --env PROCESS_QUEUE_PREFIX="$process_queue_prefix" \
+    --env PROCESS_RUN_RECORD_STORE=postgres \
+    --env PROCESS_RUN_RECORD_CONTENT=accepted-input-and-output \
     --entrypoint node "$image_id" \
     dist/bin/check-deployment-environment.js process-worker >> "$precheck_log"
 docker run --rm --env-file "$webhook_env" \

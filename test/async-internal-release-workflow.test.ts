@@ -127,4 +127,18 @@ describe("Async internal release workflow", () => {
             "Runtime role stage or Queue configuration mismatch",
         );
     });
+
+    it("prechecks the worker with the same observation settings as Compose", async () => {
+        const script = await readFile("ops/deploy-async-internal.sh", "utf8");
+        const workerPrecheck = script.match(
+            /docker run --rm --env-file "\$worker_env"[\s\S]*?check-deployment-environment\.js process-worker/,
+        )?.[0];
+
+        expect(workerPrecheck).toContain(
+            "--env PROCESS_RUN_RECORD_STORE=postgres",
+        );
+        expect(workerPrecheck).toContain(
+            "--env PROCESS_RUN_RECORD_CONTENT=accepted-input-and-output",
+        );
+    });
 });
