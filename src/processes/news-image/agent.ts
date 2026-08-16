@@ -4,6 +4,11 @@ export type NewsImageAgentRequest = Readonly<{
     signal: AbortSignal;
 }>;
 
+export type NewsImageCompilation = Readonly<{
+    output: unknown;
+    promptModel: string;
+}>;
+
 export type NewsImageAgent = Readonly<{
-    compile: (request: NewsImageAgentRequest) => Promise<unknown>;
+    compile: (request: NewsImageAgentRequest) => Promise<NewsImageCompilation>;
 }>;

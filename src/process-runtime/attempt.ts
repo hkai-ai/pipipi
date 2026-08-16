@@ -5,6 +5,7 @@ import {
 } from "./logging.js";
 import type {
     AcceptedProcessInput,
+    JsonValue,
     ProcessRegistration,
 } from "./registration.js";
 import { type ProcessRunResult, processFailure } from "./result.js";
@@ -15,6 +16,7 @@ export type ProcessAttemptRequest = Readonly<{
     acceptedInput: AcceptedProcessInput;
     attemptNumber?: number;
     signal?: AbortSignal;
+    captureEvaluation?: (value: JsonValue) => void;
 }>;
 
 export type ProcessAttemptRunner = Readonly<{
@@ -86,6 +88,11 @@ export function createProcessAttemptRunner(
                         runId: attempt.runId,
                         signal: controller.signal,
                         runActivity: log.runActivity,
+                        ...(attempt.captureEvaluation
+                            ? {
+                                  captureEvaluation: attempt.captureEvaluation,
+                              }
+                            : {}),
                     }),
                     timeoutFailure,
                     cancellationFailure,

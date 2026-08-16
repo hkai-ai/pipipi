@@ -36,6 +36,8 @@
 
 三个新闻图片 Process 都接收标题和摘要，并分别固定人物叙事碑式封面、淡彩绘本和原质人文主义 Runtime Skill。Registration 校验后调用同一个受控图片 Capability，生成并持久化 1600×1200 PNG。调用方不能选择 Skill、模型或图片供应商。
 
+受控测试环境可显式启用 `POST /internal/eval/execute`，以相同请求和同一次执行返回实际 Prompt、文本模型及非敏感图片参数。该入口默认关闭，生产 Compose 固定关闭，正式 `POST /execute` 的契约不变。
+
 ## 按 Business Process 查看
 
 每个 production Process 都有独立文档目录。先从对应目录确认产品契约、执行顺序、依赖、错误和验证入口，再进入 Implementation：

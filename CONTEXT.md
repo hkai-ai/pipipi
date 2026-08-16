@@ -50,7 +50,7 @@ Business Processing Service 让产品调用方通过一个稳定的 HTTP Interfa
 
 `crt-interface-image/v1` 也已进入 `/execute` catalog。调用方提交可由 FAL 读取的公网 HTTPS `sourceImageUrl`、固定调色板名和画幅；请求不接收图片字节、Prompt 或实现配置。Registration 在 Agent 编译结果通过校验后调用一次 CRT Rendering Capability，并只公开画幅和 PNG 引用。仓库内的生产 CRT Business API 把 URL 原样放入 FAL `image_urls`、执行确定性 finalizer，并把最终 PNG 保存到阿里云 OSS；单服务器 Compose 只在宿主机回环地址暴露该内部服务。验收按服务端策略选择不保留证据、只保留脱敏 metadata，或按 `runId` 保留模型原始图、最终图和 manifest；生产部署固定关闭证据。生产必须限制调用权限、URL 长度和协议，并明确外部图片托管方与 FAL 的访问、过期和隐私约束。上游 Runtime Skill 未声明许可证，正式发布前必须确认权利。开发边界见 [`docs/processes/crt-interface-image/`](docs/processes/crt-interface-image/)。
 
-三个新闻图片 Process 已进入 `/execute` catalog。调用方只提交新闻标题和摘要；每个语义风格拥有独立 Registration、Runtime Skill 和 OSS 前缀，并复用同一个内部图片 Capability。调用方不能在一个请求中切换风格。来源目录未声明许可证，因此正式发布前必须确认生产使用和再分发权利。
+三个新闻图片 Process 已进入 `/execute` catalog。调用方只提交新闻标题和摘要；每个语义风格拥有独立 Registration、Runtime Skill 和 OSS 前缀，并复用同一个内部图片 Capability。调用方不能在一个请求中切换风格。默认关闭的内部评测入口复用同一次执行，只为受控测试返回实际 Prompt、文本模型和非敏感图片参数；生产 Compose 显式关闭该入口。来源目录未声明许可证，因此正式发布前必须确认生产使用和再分发权利。
 
 ## 运行与信任模型
 

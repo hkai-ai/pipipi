@@ -83,6 +83,7 @@ describe("Production CI/CD workflow", () => {
         );
         expect(ci).toContain(`pipipi-${workflowSha}.compose.async.yaml`);
         expect(defaultCompose).toContain('ASYNC_PROCESS_RUNS_ENABLED: "false"');
+        expect(defaultCompose).toContain('INTERNAL_EVAL_ENABLED: "false"');
         for (const role of [
             "process-dispatcher",
             "process-worker",
@@ -133,6 +134,7 @@ describe("Production CI/CD workflow", () => {
 });
 
 function step(jobSource: string, name: string): string {
+    jobSource = jobSource.replaceAll("\r\n", "\n");
     const marker = `\n      - name: ${name}\n`;
     const start = jobSource.indexOf(marker);
     if (start < 0) throw new Error(`Missing ${name} step`);
@@ -141,6 +143,7 @@ function step(jobSource: string, name: string): string {
 }
 
 function job(workflow: string, name: string, next?: string): string {
+    workflow = workflow.replaceAll("\r\n", "\n");
     const startMarker = `\n  ${name}:\n`;
     const start = workflow.indexOf(startMarker);
     if (start < 0) throw new Error(`Missing ${name} job`);
@@ -151,6 +154,7 @@ function job(workflow: string, name: string, next?: string): string {
 }
 
 function composeService(compose: string, name: string): string {
+    compose = compose.replaceAll("\r\n", "\n");
     const startMarker = `\n  ${name}:\n`;
     const start = compose.indexOf(startMarker);
     if (start < 0) throw new Error(`Missing ${name} service`);

@@ -1,8 +1,8 @@
 import {
-    type NewsImage,
     type NewsImageRenderingCapability,
+    type NewsImageRenderingResult,
     NewsImageRenderingUnavailable,
-    parseNewsImage,
+    parseNewsImageRenderingResult,
 } from "./capability.js";
 
 export class HttpNewsImageRenderingCapability
@@ -34,7 +34,7 @@ export class HttpNewsImageRenderingCapability
             style: "narrative-monument" | "pale-watercolor" | "raw-humanism";
         },
         options: { signal: AbortSignal; idempotencyKey: string },
-    ): Promise<NewsImage> {
+    ): Promise<NewsImageRenderingResult> {
         try {
             const response = await this.#fetch(this.#endpoint, {
                 method: "POST",
@@ -51,7 +51,7 @@ export class HttpNewsImageRenderingCapability
             if (!response.ok) {
                 throw new Error("News image API returned an error");
             }
-            return parseNewsImage(await response.json());
+            return parseNewsImageRenderingResult(await response.json());
         } catch (error) {
             throw new NewsImageRenderingUnavailable({ cause: error });
         }

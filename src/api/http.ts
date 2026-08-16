@@ -10,6 +10,7 @@ import type {
 } from "../process-runs/index.js";
 import type {
     ProcessErrorCode,
+    ProcessEvaluationResult,
     ProcessExecutor,
     ProcessRunLogRecord,
     ProcessRunResult,
@@ -35,6 +36,7 @@ const safeCallerRequestId = /^[A-Za-z0-9_.:-]+$/;
 export type ProcessingHttpOptions = {
     maxRequestBodyBytes?: number;
     maxConcurrentExecutions?: number;
+    internalEvaluationEnabled?: boolean;
     logSink?: ProcessingLogSink;
     clock?: ProcessingClock;
     asyncProcessRuns?: AsyncProcessRunsHttpOptions;
@@ -239,6 +241,7 @@ type RequestHandlingContext = {
     maxRequestBodyBytes: number;
     admission: ExecutionAdmissionController;
     logging: RequestLoggingContext;
+    internalEvaluationEnabled: boolean;
     asyncProcessRuns?: AsyncProcessRunsHttpOptions;
     console?: ConsoleHttpOptions;
 };
@@ -277,6 +280,11 @@ export function createProcessingRequestListener(
         options.maxConcurrentExecutions ?? defaultMaxConcurrentExecutions;
     const logSink = options.logSink ?? writeStdoutLog;
     const clock = options.clock ?? systemClock;
+    const internalEvaluationEnabled =
+        options.internalEvaluationEnabled ?? false;
+    if (internalEvaluationEnabled && !executor.evaluate) {
+        throw new Error("Process evaluation is unavailable");
+    }
     const admission = createExecutionAdmissionController(
         maxConcurrentExecutions,
     );
@@ -288,6 +296,7 @@ export function createProcessingRequestListener(
             executor,
             maxRequestBodyBytes,
             admission,
+            internalEvaluationEnabled,
             logging: {
                 logSink,
                 clock,
@@ -376,7 +385,14 @@ async function handleRequest(
         return;
     }
 
-    if (request.method !== "POST" || request.url !== "/execute") {
+    const isInternalEvaluation =
+        request.method === "POST" &&
+        request.url === "/internal/eval/execute" &&
+        context.internalEvaluationEnabled;
+    if (
+        request.method !== "POST" ||
+        (request.url !== "/execute" && !isInternalEvaluation)
+    ) {
         writeFailureJson(response, 404, "ROUTE_NOT_FOUND", "Route not found");
         return;
     }
@@ -394,6 +410,18 @@ async function handleRequest(
         rejectRequest(response, requestTooLargeFailure, context.logging);
         return;
     }
+    if (
+        isInternalEvaluation &&
+        !isNewsImageEvaluationRequest(requestBody.value)
+    ) {
+        writeFailureJson(
+            response,
+            400,
+            "INVALID_INPUT",
+            "Only news image processes support evaluation",
+        );
+        return;
+    }
 
     const releaseExecution = context.admission.tryAcquire();
     if (!releaseExecution) {
@@ -403,7 +431,15 @@ async function handleRequest(
     }
 
     try {
-        const result = await context.executor.execute(requestBody.value);
+        let evaluated: ProcessEvaluationResult | undefined;
+        if (isInternalEvaluation) {
+            const evaluate = context.executor.evaluate;
+            if (!evaluate) throw new Error("Process evaluation is unavailable");
+            evaluated = await evaluate(requestBody.value);
+        }
+        const result = evaluated
+            ? evaluationResponse(evaluated.result, evaluated.evaluation)
+            : await context.executor.execute(requestBody.value);
         emitLog(context.logging, {
             event: "process_run_completed",
             timestamp: context.logging.clock.timestamp(),
@@ -419,10 +455,58 @@ async function handleRequest(
                 ? { errorCode: result.error.code }
                 : {}),
         });
+        if (isInternalEvaluation)
+            response.setHeader("cache-control", "no-store");
         writeJson(response, statusFor(result), result);
     } finally {
         releaseExecution();
     }
+}
+
+const newsImageEvaluationProcesses = new Set([
+    "news-image-narrative-monument",
+    "news-image-pale-watercolor",
+    "news-image-raw-humanism",
+]);
+
+function isNewsImageEvaluationRequest(value: unknown): boolean {
+    return (
+        typeof value === "object" &&
+        value !== null &&
+        "process" in value &&
+        typeof value.process === "string" &&
+        newsImageEvaluationProcesses.has(value.process)
+    );
+}
+
+function evaluationResponse(
+    result: ProcessRunResult,
+    evaluation: unknown,
+): ProcessRunResult {
+    if (result.status === "failed") return result;
+    if (
+        typeof result.output !== "object" ||
+        result.output === null ||
+        Array.isArray(result.output) ||
+        typeof evaluation !== "object" ||
+        evaluation === null ||
+        Array.isArray(evaluation)
+    ) {
+        return {
+            runId: result.runId,
+            process: result.process,
+            version: result.version,
+            status: "failed",
+            error: {
+                code: "INVALID_OUTPUT",
+                message: "The process produced no evaluation metadata",
+            },
+        };
+    }
+    return {
+        ...result,
+        output: { ...result.output, ...evaluation },
+    };
 }
 
 /**

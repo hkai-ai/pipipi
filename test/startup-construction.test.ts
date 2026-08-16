@@ -738,6 +738,18 @@ describe("Startup Construction", () => {
         },
     );
 
+    it.each(["", "TRUE", "yes", "0"])(
+        "rejects unknown internal evaluation flag %j",
+        (value) => {
+            expect(() =>
+                constructProcessingService({
+                    BUSINESS_API_BASE_URL: "https://business.example",
+                    INTERNAL_EVAL_ENABLED: value,
+                }),
+            ).toThrow("INTERNAL_EVAL_ENABLED must be true or false");
+        },
+    );
+
     it.each([
         ["DATABASE_URL", "DATABASE_URL"],
         ["ASYNC_GATEWAY_SHARED_SECRET", "ASYNC_GATEWAY_SHARED_SECRET"],

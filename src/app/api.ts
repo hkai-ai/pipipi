@@ -165,6 +165,8 @@ function parseConsoleBasePath(value: string | undefined): string {
         !/^(\/[A-Za-z0-9._~-]+)+$/.test(candidate) ||
         candidate.length > 200 ||
         candidate.startsWith("/execute") ||
+        candidate.startsWith("/internal/eval/execute") ||
+        "/internal/eval/execute".startsWith(`${candidate}/`) ||
         candidate.startsWith("/process-runs") ||
         candidate.startsWith("/healthz") ||
         candidate.startsWith("/readyz")
@@ -445,6 +447,10 @@ function loadHttpConfiguration(
             environment.MAX_CONCURRENT_EXECUTIONS,
             defaultMaxConcurrentExecutions,
             "MAX_CONCURRENT_EXECUTIONS",
+        ),
+        internalEvaluationEnabled: parseFeatureFlag(
+            environment.INTERNAL_EVAL_ENABLED,
+            "INTERNAL_EVAL_ENABLED",
         ),
     };
 }

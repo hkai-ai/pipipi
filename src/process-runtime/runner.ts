@@ -6,7 +6,10 @@ import {
     disabledProcessRunRecords,
     type ProcessRunRecords,
 } from "./records.js";
-import type { ProcessRegistrationAcceptance } from "./registration.js";
+import type {
+    JsonValue,
+    ProcessRegistrationAcceptance,
+} from "./registration.js";
 import { type ProcessRegistry, processRegistryBrand } from "./registry.js";
 import { type ProcessRunResult, processFailure } from "./result.js";
 
@@ -23,6 +26,12 @@ const requestIdentitySchema = z.object({
 
 export type ProcessExecutor = Readonly<{
     execute: (request: unknown) => Promise<ProcessRunResult>;
+    evaluate?: (request: unknown) => Promise<ProcessEvaluationResult>;
+}>;
+
+export type ProcessEvaluationResult = Readonly<{
+    result: ProcessRunResult;
+    evaluation?: JsonValue;
 }>;
 
 export function createProcessRunner(options: {
@@ -47,81 +56,99 @@ export function createProcessRunner(options: {
         logClock: options.runLogClock,
     });
 
+    const execute = async (
+        rawRequest: unknown,
+        captureEvaluation?: (value: JsonValue) => void,
+    ): Promise<ProcessRunResult> => {
+        const runId = randomUUID();
+        const requestResult = executeRequestSchema.safeParse(rawRequest);
+        if (!requestResult.success) {
+            const identity = requestIdentitySchema.safeParse(rawRequest);
+            return completeProcessRun(
+                runRecords,
+                processFailure(
+                    runId,
+                    "INVALID_INPUT",
+                    "The process input is invalid",
+                    {
+                        ...(identity.success ? identity.data : {}),
+                    },
+                ),
+            );
+        }
+
+        const request = requestResult.data;
+        const identity = {
+            process: request.process,
+            version: request.version,
+        };
+        const registration = registry.find({
+            id: request.process,
+            version: request.version,
+        });
+        if (!registration) {
+            return completeProcessRun(
+                runRecords,
+                processFailure(
+                    runId,
+                    "PROCESS_NOT_FOUND",
+                    "The requested process version is not registered",
+                    identity,
+                ),
+            );
+        }
+
+        let acceptance: ProcessRegistrationAcceptance;
+        try {
+            acceptance = registration.accept(request.input);
+        } catch {
+            return completeProcessRun(
+                runRecords,
+                processFailure(
+                    runId,
+                    "INTERNAL_ERROR",
+                    "The process could not be completed",
+                    identity,
+                ),
+            );
+        }
+
+        if (!acceptance.accepted) {
+            return completeProcessRun(
+                runRecords,
+                processFailure(
+                    runId,
+                    "INVALID_INPUT",
+                    "The process input is invalid",
+                    identity,
+                ),
+            );
+        }
+
+        const result = await attemptRunner.run({
+            runId,
+            registration,
+            acceptedInput: acceptance.acceptedInput,
+            ...(captureEvaluation ? { captureEvaluation } : {}),
+        });
+
+        return completeProcessRun(runRecords, result, {
+            input: request.input,
+        });
+    };
+
     return Object.freeze({
-        execute: async (rawRequest: unknown): Promise<ProcessRunResult> => {
-            const runId = randomUUID();
-            const requestResult = executeRequestSchema.safeParse(rawRequest);
-            if (!requestResult.success) {
-                const identity = requestIdentitySchema.safeParse(rawRequest);
-                return completeProcessRun(
-                    runRecords,
-                    processFailure(
-                        runId,
-                        "INVALID_INPUT",
-                        "The process input is invalid",
-                        {
-                            ...(identity.success ? identity.data : {}),
-                        },
-                    ),
-                );
-            }
-
-            const request = requestResult.data;
-            const identity = {
-                process: request.process,
-                version: request.version,
-            };
-            const registration = registry.find({
-                id: request.process,
-                version: request.version,
+        execute: (request: unknown) => execute(request),
+        evaluate: async (
+            request: unknown,
+        ): Promise<ProcessEvaluationResult> => {
+            let evaluation: JsonValue | undefined;
+            const result = await execute(request, (value) => {
+                evaluation = value;
             });
-            if (!registration) {
-                return completeProcessRun(
-                    runRecords,
-                    processFailure(
-                        runId,
-                        "PROCESS_NOT_FOUND",
-                        "The requested process version is not registered",
-                        identity,
-                    ),
-                );
-            }
-
-            let acceptance: ProcessRegistrationAcceptance;
-            try {
-                acceptance = registration.accept(request.input);
-            } catch {
-                return completeProcessRun(
-                    runRecords,
-                    processFailure(
-                        runId,
-                        "INTERNAL_ERROR",
-                        "The process could not be completed",
-                        identity,
-                    ),
-                );
-            }
-
-            if (!acceptance.accepted) {
-                return completeProcessRun(
-                    runRecords,
-                    processFailure(
-                        runId,
-                        "INVALID_INPUT",
-                        "The process input is invalid",
-                        identity,
-                    ),
-                );
-            }
-
-            const result = await attemptRunner.run({
-                runId,
-                registration,
-                acceptedInput: acceptance.acceptedInput,
-            });
-
-            return completeProcessRun(runRecords, result, {
-                input: request.input,
+            return Object.freeze({
+                result,
+                ...(evaluation === undefined ? {} : { evaluation }),
             });
         },
     });

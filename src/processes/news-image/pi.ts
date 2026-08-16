@@ -16,7 +16,11 @@ import {
     type SkillRef,
     type SkillSet,
 } from "../../agent-runtime/skills.js";
-import type { NewsImageAgent, NewsImageAgentRequest } from "./agent.js";
+import type {
+    NewsImageAgent,
+    NewsImageAgentRequest,
+    NewsImageCompilation,
+} from "./agent.js";
 
 export type PiNewsImageAgentOptions = {
     skills: readonly SkillRef[];
@@ -74,7 +78,9 @@ export class PiNewsImageAgent implements NewsImageAgent {
         this.#models = options.modelRuntime;
     }
 
-    async compile(request: NewsImageAgentRequest): Promise<unknown> {
+    async compile(
+        request: NewsImageAgentRequest,
+    ): Promise<NewsImageCompilation> {
         const loaded = this.#skills.load();
         const resourceLoader = new DefaultResourceLoader({
             cwd: this.#cwd,
@@ -128,7 +134,14 @@ export class PiNewsImageAgent implements NewsImageAgent {
                     "Return only JSON matching " +
                     '{"newsIdentity":"one sentence","coreTension":"one sentence","realityAnchor":"one sentence","factExclusions":["one to five unsupported facts to avoid"],"sceneKernel":"one to three sentences","prompt":"the complete English prompt"}.',
             );
-            return parseAgentJson(session.messages);
+            const promptModel = session.model?.id;
+            if (!promptModel) {
+                throw new Error("The Pi model used for compilation is unknown");
+            }
+            return Object.freeze({
+                output: parseAgentJson(session.messages),
+                promptModel,
+            });
         } finally {
             request.signal.removeEventListener("abort", abortSession);
             session.dispose();

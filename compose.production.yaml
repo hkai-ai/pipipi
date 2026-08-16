@@ -46,6 +46,7 @@ services:
       PORT: "4300"
       PIPIPI_REVISION: ${PIPIPI_REVISION:?PIPIPI_REVISION is required}
       ASYNC_PROCESS_RUNS_ENABLED: "false"
+      INTERNAL_EVAL_ENABLED: "false"
       CRT_BUSINESS_API_BASE_URL: http://127.0.0.1:4400
       # PostgreSQL is the production record store; DATABASE_URL comes from the
       # shared env file and must point sslrootcert at the mounted certificate.

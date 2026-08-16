@@ -17,12 +17,14 @@ export type ProcessExecutionContext = Readonly<{
     runId: string;
     signal: AbortSignal;
     runActivity: ProcessRunActivity;
+    captureEvaluation: (value: JsonValue) => void;
 }>;
 
 type ProcessRegistrationRunContext = Readonly<{
     runId: string;
     signal: AbortSignal;
     runActivity?: ProcessRunActivity;
+    captureEvaluation?: (value: JsonValue) => void;
 }>;
 
 export type ExpectedProcessErrorCode =
@@ -223,6 +225,8 @@ export function defineProcessRegistration<
                     Object.freeze({
                         runId: context.runId,
                         signal: context.signal,
+                        captureEvaluation:
+                            context.captureEvaluation ?? (() => {}),
                         runActivity: (activity, operation) => {
                             if (!activities.has(activity)) {
                                 throw new Error(

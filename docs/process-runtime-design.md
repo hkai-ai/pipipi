@@ -67,6 +67,7 @@ Process Definition、依赖、策略和输出验证都留在 Module 内。生产
 | Startup Construction | `constructProcessingService(environment)` | 按角色聚合缺失变量、配置翻译、默认值、跨字段校验、Adapter 选择、Executor 与 Application 组装 |
 | Processing Application | `createProcessingApplication({ executor, http })` | Node HTTP server 的创建、监听和关闭 |
 | Process Executor | `execute(request): Promise<ProcessRunResult>` | envelope 校验、查找、超时、取消、失败映射和记录 |
+| Internal Process Evaluation | `evaluate(request): Promise<ProcessEvaluationResult>` | 复用同步执行治理，以请求作用域回收 Registration 显式提供的非持久化诊断 |
 | Process Registration | `identity`、`accept(input)` 与 `run(acceptedInput, context)` | 单次输入解析、JSON-safe 快照、Process Definition、依赖、策略和输出验证 |
 | Process Registry | `find({ id, version })` | nominal 校验、重复检测、输入集合复制和二级 Map |
 | Process Attempt Runner | `run({ runId, registration, acceptedInput, attemptNumber? })` | 总超时、AbortSignal、公共结果、错误净化和活动日志 |
@@ -105,6 +106,8 @@ Process Definition、依赖、策略和输出验证都留在 Module 内。生产
    最大 262144 UTF-8 bytes 的 JSON-safe snapshot。无法可靠持久化或通过 HTTP 表达的值按无效输出处理。
 8. Process Attempt Runner 构造唯一的公共 `ProcessRunResult`，再输出 Attempt finish、稳定错误码和
    总耗时。Process Runner 最后执行 best-effort Run Record；记录语义仍使用原始 accepted request。
+
+内部新闻图片评测调用同一个 Process Runner；唯一差异是请求作用域提供 `captureEvaluation`。Registration 只在图片成功后捕获已校验的 `compiled.prompt`、Agent Session 实际模型和图片 Capability 返回的已解析参数。捕获值不进入 `ProcessRunResult`、Activity Log 或 Run Record，由启用的内部 HTTP Adapter 以 `no-store` 响应投影；正式 `/execute` 不提供捕获器。
 
 Registration 会捕获 Definition 的 Schema 与执行函数，Registry 会复制源数组的成员，Runner
 会捕获创建时的 Registry。调用者随后重新赋值这些源属性，不会改变已经组装的运行实例。
@@ -194,7 +197,7 @@ Production catalog 由
 - `minimal-zine-poster/v1` 捕获 Poster Agent 与 Poster Rendering Capability。Agent 只加载 `minimal-zine-poster-prompt`，不获得 Tool；Registration 要求四段 Prompt、六个固定 recipe 轴和可选原文逐字保留。验证通过后，Registration 只调用一次 Capability，并以 `runId` 作为下游幂等键。Capability 必须返回 HTTP(S) 图片 URL、受限媒体类型、尺寸和可选过期时间；原始图片字节不进入 Process output。
 - `crt-interface-image/v1` 捕获 CRT Agent 与 CRT Rendering Capability。产品只提交公网 HTTPS `sourceImageUrl`、固定调色板和画幅；Agent 只加载 `tait-crt-interface-prompt`，不获得 Tool，也看不到参考图 URL。Registration 要求四段 Prompt、十四个固定 recipe 轴、请求画幅、准确调色板和核心 CRT 约束；验证通过后只调用一次 Capability，并以 `runId` 作为下游幂等键。Capability 必须返回符合 GPT Image 2 尺寸边界和请求比例的 PNG 引用；Prompt、recipe、来源 URL 和图片字节不进入 Process output。图片 Business API 在自己的 Composition Root 固定 FAL、证据和存储策略。完整边界见 [`processes/crt-interface-image/`](processes/crt-interface-image/)。
 - 三个语义化新闻图片 Process 分别固定人物叙事碑式、淡彩绘本和原质人文主义 Runtime Skill。它们共享同一组受控 Prompt Agent、Rendering Capability 与 HTTP Adapter，但产品请求只能选择准确的 Process id/version，不能提交 Skill、模型或供应商。Registration 校验固定风格标识并只渲染一次，生产 Business API 按服务端配置选择 OSS 对象前缀。
-- Execution Context 只携带请求级的 `runId`、`AbortSignal` 与受控 `runActivity`；业务依赖和稳定策略仍由 Registration 捕获。
+- Execution Context 只携带请求级的 `runId`、`AbortSignal`、受控 `runActivity` 与默认空操作的 `captureEvaluation`；业务依赖和稳定策略仍由 Registration 捕获。只有显式启用的内部评测请求提供非空捕获器。
 
 依赖按 Seam 类型处理：
 

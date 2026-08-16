@@ -22,8 +22,10 @@ import {
     crtPaletteNames,
 } from "../processes/crt/style.js";
 import {
-    type NewsImage,
+    type NewsImageGeneration,
+    type NewsImageRenderingResult,
     parseNewsImage,
+    parseNewsImageRenderingResult,
 } from "../processes/news-image/capability.js";
 import {
     type CrtEvidencePolicy,
@@ -136,7 +138,10 @@ export async function startCrtBusinessApi(
     const rawOutputs = new Map<string, string>();
     const newsOutputs = new Map<string, string>();
     const transforms = new Map<string, PendingTransform<CrtRenderingResult>>();
-    const newsTransforms = new Map<string, PendingTransform<NewsImage>>();
+    const newsTransforms = new Map<
+        string,
+        PendingTransform<NewsImageRenderingResult>
+    >();
     let serviceUrl = "";
     let requests = 0;
     let editAttempts = 0;
@@ -397,7 +402,7 @@ export async function startCrtBusinessApi(
                 newsResultDirectory,
                 requestKey,
                 digest,
-                parseNewsImage,
+                parseStoredNewsImageResult,
                 "news image",
             );
             if (claim.kind === "conflict") {
@@ -463,7 +468,7 @@ export async function startCrtBusinessApi(
         input: NewsImageRequest,
         requestKey: string,
         signal: AbortSignal,
-    ): Promise<NewsImage> {
+    ): Promise<NewsImageRenderingResult> {
         if (!options.generationClient) {
             throw new Error("News image generation client is unavailable");
         }
@@ -501,11 +506,49 @@ export async function startCrtBusinessApi(
               )
             : undefined;
         return Object.freeze({
-            url: stored?.url ?? `${serviceUrl}/news-images/${requestKey}.png`,
-            contentType: "image/png",
-            width: 1600,
-            height: 1200,
-            ...(stored?.urlExpiresAt ? { expiresAt: stored.urlExpiresAt } : {}),
+            image: Object.freeze({
+                url:
+                    stored?.url ??
+                    `${serviceUrl}/news-images/${requestKey}.png`,
+                contentType: "image/png" as const,
+                width: 1_600 as const,
+                height: 1_200 as const,
+                ...(stored?.urlExpiresAt
+                    ? { expiresAt: stored.urlExpiresAt }
+                    : {}),
+            }),
+            generation: newsImageGeneration(),
+        });
+    }
+
+    function parseStoredNewsImageResult(
+        value: unknown,
+    ): NewsImageRenderingResult {
+        try {
+            return parseNewsImageRenderingResult(value);
+        } catch {
+            return Object.freeze({
+                image: parseNewsImage(value),
+                generation: newsImageGeneration(),
+            });
+        }
+    }
+
+    function newsImageGeneration(): NewsImageGeneration {
+        const otherParams: Record<string, string | number | boolean | null> =
+            {};
+        if (provider === "fal") otherParams.sync_mode = true;
+        return Object.freeze({
+            imageProvider: provider,
+            imageModel: model,
+            aspectRatio: "4:3",
+            width: 1_600,
+            height: 1_200,
+            quality,
+            outputFormat: "png",
+            numImages: 1,
+            seed: null,
+            otherParams: Object.freeze(otherParams),
         });
     }
 

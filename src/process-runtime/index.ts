@@ -33,4 +33,8 @@ export type {
     ProcessErrorCode,
     ProcessRunResult,
 } from "./result.js";
-export { createProcessRunner, type ProcessExecutor } from "./runner.js";
+export {
+    createProcessRunner,
+    type ProcessEvaluationResult,
+    type ProcessExecutor,
+} from "./runner.js";

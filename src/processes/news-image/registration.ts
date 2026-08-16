@@ -64,21 +64,26 @@ export function createPaleWatercolorRegistration(options: {
         activities: ["news_image_prompt_compilation", "news_image_rendering"],
         execute: async (input, context) => {
             let compiled: z.infer<typeof compiledSchema>;
+            let promptModel: string;
             try {
-                compiled = await context.runActivity(
+                const compilation = await context.runActivity(
                     "news_image_prompt_compilation",
                     async () => {
-                        const result = compiledSchema.safeParse(
-                            await agent.compile({
-                                title: normalizeWhitespace(input.title),
-                                summary: normalizeWhitespace(input.summary),
-                                signal: context.signal,
-                            }),
-                        );
-                        if (!result.success) throw new Error();
-                        return result.data;
+                        const result = await agent.compile({
+                            title: normalizeWhitespace(input.title),
+                            summary: normalizeWhitespace(input.summary),
+                            signal: context.signal,
+                        });
+                        const output = compiledSchema.safeParse(result.output);
+                        const model = result.promptModel.trim();
+                        if (!output.success || !model || model.length > 200) {
+                            throw new Error();
+                        }
+                        return { output: output.data, promptModel: model };
                     },
                 );
+                compiled = compilation.output;
+                promptModel = compilation.promptModel;
             } catch {
                 return failProcess(
                     "AGENT_FAILURE",
@@ -87,7 +92,7 @@ export function createPaleWatercolorRegistration(options: {
             }
 
             try {
-                const image = await context.runActivity(
+                const rendered = await context.runActivity(
                     "news_image_rendering",
                     async () =>
                         capability.render(
@@ -102,7 +107,17 @@ export function createPaleWatercolorRegistration(options: {
                             },
                         ),
                 );
-                return { style: "pale-watercolor" as const, image };
+                context.captureEvaluation({
+                    generation: {
+                        prompt: compiled.prompt,
+                        promptModel,
+                        ...rendered.generation,
+                    },
+                });
+                return {
+                    style: "pale-watercolor" as const,
+                    image: rendered.image,
+                };
             } catch (error) {
                 if (error instanceof NewsImageRenderingUnavailable) {
                     return failProcess(

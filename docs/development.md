@@ -49,6 +49,59 @@ curl --fail -X POST http://127.0.0.1:3000/execute \
 
 `constructProcessingService` 是生产启动的唯一 Construction Seam。它在监听端口前完成配置解析、跨字段校验、Adapter 选择和 Application 组装。启动失败时先修正配置，不要把校验移到请求路径。
 
+### 新闻图片内部评测
+
+受控测试环境设置 `INTERNAL_EVAL_ENABLED=true` 后，可向 `POST /internal/eval/execute` 提交与正式 `/execute` 相同的新闻图片请求。该调用会真实访问文本模型、图片供应商和对象存储，产生费用和外部写入：
+
+```json
+{
+  "process": "news-image-pale-watercolor",
+  "version": "v1",
+  "input": {
+    "title": "新闻标题",
+    "summary": "新闻内容"
+  }
+}
+```
+
+成功响应使用 `Cache-Control: no-store`，完整结构如下：
+
+```json
+{
+  "runId": "35833107-f4c5-4baa-aca2-c6d5e15452a5",
+  "process": "news-image-pale-watercolor",
+  "version": "v1",
+  "status": "succeeded",
+  "output": {
+    "style": "pale-watercolor",
+    "image": {
+      "url": "https://assets.example.com/news-images/35833107.png",
+      "contentType": "image/png",
+      "width": 1600,
+      "height": 1200
+    },
+    "generation": {
+      "prompt": "本次实际传入图片模型的完整 compiled.prompt",
+      "promptModel": "gpt-5.4-mini",
+      "imageProvider": "fal",
+      "imageModel": "gpt-image-2",
+      "aspectRatio": "4:3",
+      "width": 1600,
+      "height": 1200,
+      "quality": "low",
+      "outputFormat": "png",
+      "numImages": 1,
+      "seed": null,
+      "otherParams": {
+        "sync_mode": true
+      }
+    }
+  }
+}
+```
+
+`prompt` 是校验后直接传给图片 Capability 的同一份 `compiled.prompt`，不是事后重新生成；其他生成字段也来自本次 Capability 调用实际解析的值，而不是文档默认值。失败响应沿用正式 `/execute` 的失败结构，不返回 `output.generation`。入口关闭时返回 `404`；正式 `/execute` 始终不返回这些字段。
+
 ## 常用命令
 
 | 命令 | 用途 | 是否访问外部系统 |
@@ -496,6 +549,7 @@ npm run check:deployment-env -- api
 - `POSTER_API_TIMEOUT_MS` 只控制受控 `POST /posters` Adapter，默认 `90000`；Process 总超时仍由 `PROCESS_TIMEOUT_MS` 治理。
 - `CRT_API_TIMEOUT_MS` 只控制受控 `POST /crt-images` Adapter，默认 `180000`。受控发布必须让 `PROCESS_TIMEOUT_MS` 长于它，平台请求超时再长于 Process 总超时。
 - `IMAGE_PROVIDER=openai|fal` 选择真实图片集成 Adapter，默认 `openai`。OpenAI Adapter 可用 `OPENAI_IMAGE_API_KEY` 与 `OPENAI_IMAGE_BASE_URL` 脱离 Agent 网关；未设置时回退到 `OPENAI_API_KEY` 与 `OPENAI_BASE_URL`。FAL Adapter 只读取服务端 `FAL_KEY`，并固定调用 GPT Image 2 生成与编辑 endpoint。
+- `INTERNAL_EVAL_ENABLED=true` 只在受控测试或内部环境挂载 `POST /internal/eval/execute`。该入口仅接受三个新闻图片 Process，复用正式 Executor、Registration、Agent 和图片 Capability，在同一次成功执行中返回实际 Prompt、文本模型与非敏感图片参数。响应使用 `no-store`，诊断内容不进入正式输出、日志或 Run Record；生产 Compose 固定关闭。
 - `CRT_IMAGE_EVIDENCE_MODE=off|metadata|full` 控制 `crt-interface-image/v1` 的服务端证据副本。产品请求不能覆盖它；本地完整验收默认 `full`，生产 `POST /crt-images` 必须默认 `off`。
 - `CRT_IMAGE_EVIDENCE_DIRECTORY` 只在 `metadata` 或 `full` 时使用。完整字段、敏感数据边界和清理责任见 [`crt-interface-image` 的证据保留说明](processes/crt-interface-image/evidence-retention.md)。
 - `PI_SKILL_DIRECTORY`、`PI_POSTER_SKILL_DIRECTORY` 与 `PI_CRT_SKILL_DIRECTORY` 分别覆盖一个固定绑定，不改变 Skill 名称、集合或顺序。
