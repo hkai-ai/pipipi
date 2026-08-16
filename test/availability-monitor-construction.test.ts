@@ -20,7 +20,7 @@ describe("Availability Monitor construction", () => {
             const roleByPort: Readonly<Record<string, string>> = {
                 "4310": "process-dispatcher",
                 "4320": "process-worker",
-                "4330": "webhook-worker",
+                "4350": "webhook-worker",
                 "4340": "retention-cleaner",
             };
             return Response.json({

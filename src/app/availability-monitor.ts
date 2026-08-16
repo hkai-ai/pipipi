@@ -149,7 +149,7 @@ function asyncRoleProbes(options: {
     const roles = [
         ["process-dispatcher", 4310],
         ["process-worker", 4320],
-        ["webhook-worker", 4330],
+        ["webhook-worker", 4350],
         ["retention-cleaner", 4340],
     ] as const;
     return roles.map(([role, port]) =>

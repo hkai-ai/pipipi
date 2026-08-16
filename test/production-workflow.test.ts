@@ -112,6 +112,9 @@ describe("Production CI/CD workflow", () => {
         expect(processWorker).toContain(
             "PROCESS_RUN_RECORD_CONTENT: accepted-input-and-output",
         );
+        const webhookWorker = composeService(asyncCompose, "webhook-worker");
+        expect(webhookWorker).toContain('PORT: "4350"');
+        expect(webhookWorker).toContain("http://127.0.0.1:4350/readyz");
         expect(deploy).not.toContain("compose.async.yaml");
         expect(deploy).not.toContain("--remove-orphans");
         expect(deploy).toContain(

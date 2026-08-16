@@ -490,7 +490,7 @@ for role_and_port in \
     'api 4300' \
     'process-dispatcher 4310' \
     'process-worker 4320' \
-    'webhook-worker 4330' \
+    'webhook-worker 4350' \
     'retention-cleaner 4340'; do
     read -r role port <<< "$role_and_port"
     curl --fail --silent --show-error \

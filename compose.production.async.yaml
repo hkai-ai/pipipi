@@ -90,12 +90,12 @@ services:
       - node dist/bin/check-deployment-environment.js webhook-worker && exec node dist/bin/webhook-worker.js
     environment:
       NODE_ENV: production
-      PORT: "4330"
+      PORT: "4350"
       WEBHOOK_QUEUE_NAME: ${PIPIPI_WEBHOOK_QUEUE_NAME:?PIPIPI_WEBHOOK_QUEUE_NAME is required}
       WEBHOOK_QUEUE_PREFIX: ${PIPIPI_WEBHOOK_QUEUE_PREFIX:?PIPIPI_WEBHOOK_QUEUE_PREFIX is required}
     healthcheck:
       <<: *runtime-healthcheck
-      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4330/readyz').then((response) => { if (!response.ok) process.exit(1); }).catch(() => process.exit(1))"]
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4350/readyz').then((response) => { if (!response.ok) process.exit(1); }).catch(() => process.exit(1))"]
     labels:
       com.pipipi.revision: ${PIPIPI_REVISION:?PIPIPI_REVISION is required}
       com.pipipi.role: webhook-worker

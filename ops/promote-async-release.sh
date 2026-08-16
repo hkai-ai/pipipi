@@ -135,7 +135,7 @@ verify_roles() {
         'api 4300' \
         'process-dispatcher 4310' \
         'process-worker 4320' \
-        'webhook-worker 4330' \
+        'webhook-worker 4350' \
         'retention-cleaner 4340'; do
         read -r _role port <<< "$role_and_port"
         curl --fail --silent --show-error "http://127.0.0.1:$port/readyz" >/dev/null
@@ -150,7 +150,7 @@ capture_roles() {
         'api 4300' \
         'process-dispatcher 4310' \
         'process-worker 4320' \
-        'webhook-worker 4330' \
+        'webhook-worker 4350' \
         'retention-cleaner 4340'; do
         read -r role port <<< "$role_and_port"
         response="$(curl --fail --silent --show-error "http://127.0.0.1:$port/readyz")"

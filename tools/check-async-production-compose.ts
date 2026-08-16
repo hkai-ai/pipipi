@@ -38,7 +38,7 @@ const portByService = Object.freeze({
     api: "4300",
     "process-dispatcher": "4310",
     "process-worker": "4320",
-    "webhook-worker": "4330",
+    "webhook-worker": "4350",
     "retention-cleaner": "4340",
 });
 
