@@ -64,7 +64,7 @@ describe("Async production prerequisites inspection", () => {
             currentSyncShapeVerified: true,
             databaseUrlConsistent: true,
             redisUrlConsistent: true,
-            redisTlsConfigured: true,
+            redisLoopbackPasswordConfigured: true,
             gatewaySecretConfigured: true,
             webhookSecretConfigured: true,
             roles: {
@@ -102,7 +102,7 @@ describe("Async production prerequisites inspection", () => {
         });
         expect(result.stdout).not.toContain("fixture-secret");
         expect(result.stdout).not.toContain("postgres://");
-        expect(result.stdout).not.toContain("rediss://");
+        expect(result.stdout).not.toContain("redis://");
         expect(result.stderr).toBe("");
     });
 
@@ -315,7 +315,7 @@ describe("Async production prerequisites inspection", () => {
         ]);
         const databaseUrl =
             "postgres://fixture-secret@database.invalid/pipipi?sslmode=verify-ca";
-        const redisUrl = "rediss://fixture-secret@redis.invalid/0";
+        const redisUrl = "redis://:fixture-secret@127.0.0.1:6380/0";
         const workerDatabaseUrl = options.mismatchedWorkerDatabase
             ? "postgres://different-secret@database.invalid/pipipi?sslmode=verify-ca"
             : databaseUrl;
@@ -433,6 +433,7 @@ if [ "$1" = run ]; then
     if [ -n "$code" ]; then
         expected_file=""
         case "$secret_kind" in
+            "") expected_file=process-dispatcher.env ;;
             gateway) expected_file=async-api.env ;;
             webhook) expected_file=webhook-worker.env ;;
             *) exit 91 ;;
@@ -442,6 +443,7 @@ if [ "$1" = run ]; then
         # The fixture values are deliberately shell-safe. Production never sources env files.
         source "$env_file"
         set +a
+        if [ -z "$secret_kind" ]; then exec "$FAKE_NODE" -e "$code"; fi
         export SECRET_KIND="$secret_kind"
         exec "$FAKE_NODE" -e "$code"
     fi

@@ -17,7 +17,7 @@ const ACTIVE_REVISION = "7".repeat(40);
 const CANDIDATE_REVISION = "e".repeat(40);
 const DATABASE_URL =
     "postgresql://async-user:database-secret@database.invalid/pipipi?uselibpqcompat=true&sslmode=verify-ca&sslrootcert=%2Fetc%2Fpipipi%2Fpg-server.crt";
-const REDIS_URL = "rediss://async-user:redis-secret@redis.invalid/0";
+const REDIS_URL = "redis://:redis-secret@127.0.0.1:6380/0";
 const ORIGINAL_DATABASE_URL =
     "postgresql://legacy-superuser:legacy-secret@database.invalid/pipipi?sslmode=require";
 const ROLE_FILES = [
@@ -391,7 +391,7 @@ describe("Async production environment provisioning", () => {
     });
 
     it.each([
-        ["non-TLS Redis", REDIS_URL.replace("rediss:", "redis:"), ""],
+        ["remote Redis", REDIS_URL.replace("127.0.0.1", "redis.invalid"), ""],
         [
             "unverified PostgreSQL",
             DATABASE_URL.replace("verify-ca", "require"),
