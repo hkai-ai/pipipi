@@ -79,20 +79,23 @@ key_digest() {
     ' "$file" | sha256sum | awk '{ print $1 }'
 }
 
-key_uses_protocol() {
+redis_loopback_password_configured() {
     local file="$1"
-    local key="$2"
-    local protocol="$3"
-    file_present "$file" || return 1
-    awk -v key="$key" -v protocol="$protocol" '
-        index($0, key "=") == 1 {
-            count++
-            value = substr($0, length(key) + 2)
-        }
-        END {
-            if (count != 1 || index(value, protocol "//") != 1) exit 1
-        }
-    ' "$file"
+    [ "$candidate_image_verified" = true ] || return 1
+    role_environment_isolated "$file" process-dispatcher || return 1
+    docker run --rm --network none --env-file "$file" \
+        --entrypoint node "$candidate_image_id" -e '
+try {
+    const redis = new URL(process.env.REDIS_URL ?? "");
+    if (
+        redis.protocol !== "redis:" ||
+        redis.hostname !== "127.0.0.1" ||
+        !redis.password
+    ) process.exit(1);
+} catch {
+    process.exit(1);
+}
+' >/dev/null 2>&1
 }
 
 same_key_digest() {
@@ -319,7 +322,7 @@ database_url_consistent="$(boolean same_key_digest DATABASE_URL \
     "$shared_env" "$api_env" "$dispatcher_env" "$worker_env" "$webhook_env" "$retention_env")"
 redis_url_consistent="$(boolean same_key_digest REDIS_URL \
     "$dispatcher_env" "$worker_env" "$webhook_env")"
-redis_tls_configured="$(boolean key_uses_protocol "$dispatcher_env" REDIS_URL rediss:)"
+redis_loopback_password_configured="$(boolean redis_loopback_password_configured "$dispatcher_env")"
 
 api_preflight_passed="$(boolean run_preflight api "$api_env" \
     --env ASYNC_PROCESS_RUNS_ENABLED=true \
@@ -364,7 +367,7 @@ jq -n \
     --argjson dispatcherEnvironmentIsolated "$dispatcher_environment_isolated" \
     --argjson dispatcherPreflightPassed "$dispatcher_preflight_passed" \
     --argjson gatewaySecretConfigured "$gateway_secret_configured" \
-    --argjson redisTlsConfigured "$redis_tls_configured" \
+    --argjson redisLoopbackPasswordConfigured "$redis_loopback_password_configured" \
     --argjson redisUrlConsistent "$redis_url_consistent" \
     --argjson retentionFilePresent "$retention_file_present" \
     --argjson retentionFileRestricted "$retention_file_restricted" \
@@ -390,7 +393,7 @@ jq -n \
         databaseCaPresent: $databaseCaPresent,
         databaseUrlConsistent: $databaseUrlConsistent,
         redisUrlConsistent: $redisUrlConsistent,
-        redisTlsConfigured: $redisTlsConfigured,
+        redisLoopbackPasswordConfigured: $redisLoopbackPasswordConfigured,
         gatewaySecretConfigured: $gatewaySecretConfigured,
         webhookSecretConfigured: $webhookSecretConfigured,
         roles: {

@@ -80,7 +80,7 @@ cp .env.example .env
 
 构建部署产物后，可在目标角色的 Secret 注入环境中运行 `npm run check:deployment-env -- api`，一次检查全部无默认必填项。异步角色名和逐角色清单见 [同步 MVP 发布手册](docs/mvp-release-runbook.md#部署环境预检) 与 [异步发布手册](docs/async-process-runs-runbook.md#配置与分阶段启用)。实际启动会重复存在性检查，再校验格式和跨字段约束。
 
-`compose.production.yaml` 始终是关闭异步入口的默认单服务器形状。经发布门禁批准后，运维人员才可显式叠加 `compose.production.async.yaml`，用同一不可变镜像启动 API、Process Dispatcher、Process Worker、Webhook Worker 和 Retention Cleaner；PostgreSQL 与 Redis 必须由部署环境外部提供。`npm run check:deployment:async-shape` 可在不读取生产 Secret 的情况下验证合并后的形状与缺参失败行为。
+`compose.production.yaml` 始终是关闭异步入口的默认单服务器形状。经发布门禁批准后，运维人员才可显式叠加 `compose.production.async.yaml`，用同一不可变镜像启动 API、Process Dispatcher、Process Worker、Webhook Worker 和 Retention Cleaner；PostgreSQL 与 Redis 必须由部署环境外部提供。当前单服务器门禁只接受带密码、绑定 IPv4 回环地址的 `redis://127.0.0.1`，异步角色通过 host 网络访问该独立实例。`npm run check:deployment:async-shape` 可在不读取生产 Secret 的情况下验证合并后的形状与缺参失败行为。
 
 `.github/workflows/async-internal-release.yml` 是唯一自动化异步启用入口，只能手动触发并绑定受保护的 `async-internal` Environment。它只接受精确 commit 与对应 CI run，复用 CI 构建的 release artifact，固定发布为 `internal`；逐角色预检、migration 双跑、全量 Queue Recovery dry-run、后台 readiness 和 revision/Queue 核验全部通过后才启动 API。同步与异步发布共享 Actions 并发组、服务器锁和固定 SSH host key；失败或信号中断会恢复上一形状。只回传声明过的非秘密证据文件，流程不会自动提升到 canary 或 production。
 

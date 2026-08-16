@@ -49,7 +49,7 @@ docker compose -f compose.integration.yaml down
 
 发布人员还必须确认：
 
-- PostgreSQL 已完成备份与恢复验证，Redis 使用内部网络、认证、`noeviction` 和批准的高可用形状；
+- PostgreSQL 已完成备份与恢复验证；Redis 独立运行、只绑定 `127.0.0.1`、启用认证与 `noeviction`，并使用批准的持久化和高可用形状；
 - 网关删除外部同名身份头，再注入 `x-pipipi-caller-id` 与 `x-pipipi-gateway-token`；容器端口不能绕过网关访问；
 - `CONSOLE_DEVELOPMENT_GATEWAY_ENABLED` 必须在生产保持未设置或 `false`；Vite 开发 Gateway 固定测试身份且只允许 loopback upstream，不能承担生产调用方认证；
 - `WEBHOOK_SECRET_ENCRYPTION_KEY`、网关 Secret 和数据库/Redis 凭证通过 Secret 管理器注入，彼此最小授权；
@@ -70,7 +70,7 @@ Environment 只保存部署连接和非秘密 Queue identity，不保存应用�
 | Secret | `ASYNC_INTERNAL_CALLER_A_AUTHORIZATION`、`ASYNC_INTERNAL_CALLER_B_AUTHORIZATION` | 两个不同、已认证 internal 操作者的网关凭证 |
 | Secret | `ASYNC_INTERNAL_SUCCESS_REQUEST`、`ASYNC_INTERNAL_FAILURE_REQUEST` | 受控成功请求与会稳定到达公开业务失败终态的请求 JSON；workflow 不输出或保存正文 |
 | Secret | `ASYNC_DATABASE_URL` | 可选的数据库覆盖值；未配置时从服务器受保护的 `shared/.env` 复用 `DATABASE_URL`。最终连接必须带用户名、密码、`uselibpqcompat=true`、`sslmode=verify-ca` 和容器内固定 CA 路径 `/etc/pipipi/pg-server.crt`，且在写入角色文件前通过只读生产数据库边界审计 |
-| Secret | `ASYNC_REDIS_URL` | 可选的 Redis 覆盖值；未配置时从服务器受保护的 `shared/.env` 复用唯一的 `REDIS_URL`。最终连接必须使用带密码的 `rediss://`，不能指向基础 Compose 临时创建的 Redis |
+| Secret | `ASYNC_REDIS_URL` | 可选的 Redis 覆盖值；未配置时从服务器受保护的 `shared/.env` 复用唯一的 `REDIS_URL`。当前单服务器连接必须使用带密码的 `redis://127.0.0.1`，Redis 必须独立运行、只绑定 IPv4 回环地址，不能指向基础 Compose 临时创建的 Redis |
 | Variable | `REMOTE_HOST`、`REMOTE_USER`、`REMOTE_PATH` | 与同步发布相同的服务器地址、账户和绝对应用目录 |
 | Variable | `ASYNC_INTERNAL_GATEWAY_BASE_URL` | 真实可信网关的 HTTPS Base URL |
 | Variable | `PROCESS_QUEUE_NAME`、`PROCESS_QUEUE_PREFIX` | internal Process Queue identity；已有异步形状不允许发布时改变 |
@@ -96,7 +96,7 @@ Environment 只保存部署连接和非秘密 Queue identity，不保存应用�
 
 在启用任何异步容器前，可以手动运行受保护的 `.github/workflows/async-production-prerequisites-inspection.yml`。输入当前同步生产 revision 与服务器上已加载的候选 revision；入口只读取服务器现状，不执行 migration、不启动或替换生产服务容器，也不连接 PostgreSQL、Redis、模型或 Business Capability。它要求当前主 API 与内部 Business API 都正在运行且匹配指定 revision、主 API 的异步入口精确关闭、四个异步后台容器尚未存在，并用候选镜像的不可变 image ID 创建无网络且自动删除的临时容器，分别执行五个角色的环境预检。检查期间若候选 tag 被重新指向其他镜像，整个检查 fail closed。
 
-证据只包含 revision 和布尔结果：数据库 CA 是否存在、六份配置中的 `DATABASE_URL` 摘要是否一致、Dispatcher/Worker/Webhook 的 `REDIS_URL` 摘要是否一致、Redis URL 是否使用 `rediss://`、网关共享 Secret 是否至少 32 bytes、Webhook 加密 Key 是否为规范的 32-byte base64，以及各角色文件是否为非符号链接的 `root:root 0600` 文件、变量名是否全部属于该角色的显式 allowlist、预检是否通过。存在未授权或重复变量时，不会把该文件注入候选预检容器。`redisTlsConfigured` 只证明 URL scheme，不证明网络可达、服务端证书有效或 Redis 高可用；角色预检也不能替代 Construction、readiness、备份恢复、容量和真实网关 smoke。artifact 不保存 URL、Secret、摘要、预检诊断或业务内容。
+证据只包含 revision 和布尔结果：数据库 CA 是否存在、六份配置中的 `DATABASE_URL` 摘要是否一致、Dispatcher/Worker/Webhook 的 `REDIS_URL` 摘要是否一致、Redis URL 是否为带密码的 `redis://127.0.0.1`、网关共享 Secret 是否至少 32 bytes、Webhook 加密 Key 是否为规范的 32-byte base64，以及各角色文件是否为非符号链接的 `root:root 0600` 文件、变量名是否全部属于该角色的显式 allowlist、预检是否通过。存在未授权或重复变量时，不会把该文件注入候选预检容器。`redisLoopbackPasswordConfigured` 只证明 URL 契约，不证明网络可达、Redis 持久化或高可用；角色预检也不能替代 Construction、readiness、备份恢复、容量和真实网关 smoke。artifact 不保存 URL、Secret、摘要、预检诊断或业务内容。
 
 手动运行时填写四项：完整 40 位 `candidate_sha`、生成其 release artifact 的 `candidate_ci_run_id`、已复核的 PostgreSQL `backup_id` 和审计用 `recovery_actor_id`。入口核对 CI run 的 commit、workflow 路径和完成状态，并要求该 run 的 `Check and build` 与 `Async durable acceptance` 都成功；随后只下载 `pipipi-<commit>` artifact，不重新构建镜像。
 
@@ -337,7 +337,7 @@ admission 只拒绝新 durable Run，`GET /process-runs/{runId}` 不经过 backl
 
 ```bash
 DATABASE_URL='postgres://service-user:replace-me@database.internal/business_processing' \
-REDIS_URL='rediss://redis.internal:6379/0' \
+REDIS_URL='redis://:replace-with-redis-password@127.0.0.1:6380/0' \
 npm run observe:async
 ```
 

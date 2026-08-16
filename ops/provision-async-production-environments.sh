@@ -474,7 +474,11 @@ for (const key of database.searchParams.keys()) {
 if (!exactly(database, "uselibpqcompat", "true")) process.exit(1);
 if (!exactly(database, "sslmode", "verify-ca")) process.exit(1);
 if (!exactly(database, "sslrootcert", "/etc/pipipi/pg-server.crt")) process.exit(1);
-if (redis.protocol !== "rediss:" || !redis.hostname || !redis.password) process.exit(1);
+if (
+    redis.protocol !== "redis:" ||
+    redis.hostname !== "127.0.0.1" ||
+    !redis.password
+) process.exit(1);
 ' >/dev/null 2>&1; then
     provision_failure "connection_contract_invalid"
 fi
