@@ -346,6 +346,7 @@ BullMQ 和网络只能提供至少一次执行。流程若会扣费、发布、�
 - Endpoint 的创建、URL 修改、停用、Secret 轮换和目标拒绝都写 owner-scoped 审计事件。Secret 查询永不返回明文或加密信封；轮换窗口内只在 Worker 内解密 current/previous 两把签名 Secret。
 - API、Worker、Dispatcher 和 Webhook Delivery 使用无业务内容的结构化关联日志。共同关联键是 `runId`、`eventId` 和 `deliveryId`；Outbox 还记录 `messageId`。Process Worker 还输出与同步 Runtime 相同的 Attempt/activity 事件，按 `runId + attemptNumber + sequence` 还原执行时间线。
 - `observe:async` 统一读取 PostgreSQL 与两个 Queue 的运维快照；Dashboard 与告警规范覆盖 backlog、queued/Job age、queue wait、execution p95、failure rate、stuck、Outbox lag、Webhook failure、cleanup/recovery 与 storage growth。
+- Availability Monitor Module 通过一个 `run()` Interface 并发执行 HTTP 与 Redis Probe，汇总固定的 `service_availability_observed` 报告，并仅在 `degraded` 或 `unavailable` 时调用 Webhook Notifier。HTTP、Redis 和 Webhook 是 Module 的内部 Seam：生产使用真实网络 Adapter，契约测试使用内存 Adapter；调用方不接触 URL 解析、超时、Redis INFO 解析、总体状态归并或脱敏逻辑。它是一次性运维 Job，不进入产品 HTTP Interface，也不拥有调度周期。
 - 新 Run 的 caller/global backlog admission 位于 PostgreSQL acceptance 事务内。幂等重放先于容量判断；达到 caller 阈值返回 `429`，达到全局阈值返回 `503`，既有 GET 始终独立可用。
 
 ## 部署形状
@@ -359,6 +360,7 @@ BullMQ 和网络只能提供至少一次执行。流程若会扣费、发布、�
 | Webhook Dispatcher/Worker | 创建并投递 Webhook Delivery | Delivery backlog 和 endpoint latency |
 | Retention Cleaner | 分批删除已到期内容与 metadata | 到期候选量、删除量、deferred 数和 sweep 延迟 |
 | Operations Job | 一次性读取 PostgreSQL 与两个 Queue 的无内容快照 | 固定周期运行，不接产品流量 |
+| Availability Monitor Job | 检查公网网关、同宿主 Business API、可选异步角色与 Redis，并在异常时通知 Webhook 机器人 | 由受信外部调度器周期运行，不接产品流量 |
 | Migration Job | 在新代码接流量前执行数据库迁移 | 每个版本一次，不水平扩容 |
 
 当前构造把 API、Process Dispatcher、Process Worker、Webhook Worker 和 Retention Cleaner 分为独立长运行角色；Operations 是一次性 Job。API 进程不在后台消费 Job，Process 与 Webhook Queue 也不共享 concurrency。

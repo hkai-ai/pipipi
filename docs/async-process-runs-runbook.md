@@ -349,6 +349,16 @@ npm run start:operations
 
 命令只读取 PostgreSQL 与两个 BullMQ Queue，输出一行 `async_operations_snapshot` JSON 后退出。通过受信定时 Job 每 30–60 秒运行并导入指标系统；不要把它暴露成公网 HTTP 路由。`ASYNC_OPERATIONS_RECENT_WINDOW_MS` 控制 failure rate 和 p95 的统计窗口。
 
+Availability Monitor 是独立的一次性 Job。它检查公网网关 `/healthz`、`/readyz`、同宿主 Business API readiness、可选的四个异步角色 readiness，以及 Redis 的配置、PING、延迟、版本、内存/`noeviction`、eviction、拒绝连接、AOF/RDB 状态与复制属性。`REDIS_URL` 缺失或非法时仍生成 `REDIS_CONFIGURATION_MISSING` 或 `REDIS_CONFIGURATION_INVALID`，并继续尝试通知机器人；监控连接不接受 Redis URL query 或 fragment，避免连接参数覆盖受控 TLS 与超时。报告不包含 URL、host、密码、Authorization、远端正文或原始异常。
+
+> 警告：以下命令连接真实服务并向外部 Webhook 写入异常通知。只在服务器或具有同等私网访问能力的受信 Job 中运行；把 `AVAILABILITY_WEBHOOK_URL` 和 `REDIS_URL` 作为 Secret 注入，不要写入命令行、日志或 artifact。
+
+```bash
+npm run observe:availability
+```
+
+运行环境必须提供完整 `PIPIPI_REVISION`、公网 HTTPS `AVAILABILITY_PUBLIC_BASE_URL` 和通用接收端 `AVAILABILITY_WEBHOOK_URL`；Redis 已配置时再提供 `REDIS_URL`。异步后台角色已经部署时设置 `AVAILABILITY_ASYNC_ROLES_ENABLED=true`，否则保持 `false`。`AVAILABILITY_PROBE_TIMEOUT_MS` 默认 5 秒，`AVAILABILITY_WEBHOOK_TIMEOUT_MS` 默认 10 秒。全部检查可用时命令退出 0 且不通知；`degraded`、`unavailable` 或通知失败时退出 1。Webhook Adapter 发送完整的规范 JSON 报告；飞书、企业微信、钉钉或 Slack 等平台格式必须由对应 Adapter 转换，不能假定通用 JSON 可直接被平台机器人接受。调度器必须禁止重叠运行，并把非零退出视为告警信号；若监控 Job 与目标同宿主，仍需另有外部探针覆盖整机失联。
+
 Dashboard 与告警的 vendor-neutral 规范位于 [`ops/async-observability.json`](../ops/async-observability.json)，必须至少展示：
 
 | 信号 | 字段或日志 | 解释 |

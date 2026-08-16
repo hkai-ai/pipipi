@@ -9,6 +9,7 @@ export const deploymentRoles = Object.freeze([
     "retention-cleaner",
     "async-operations",
     "process-recovery",
+    "availability-monitor",
 ] as const);
 
 export type DeploymentRole = (typeof deploymentRoles)[number];
@@ -54,6 +55,11 @@ const variablesByRole: Readonly<Record<DeploymentRole, readonly string[]>> =
         "retention-cleaner": Object.freeze(["DATABASE_URL"]),
         "async-operations": Object.freeze(["DATABASE_URL", "REDIS_URL"]),
         "process-recovery": Object.freeze(["DATABASE_URL", "REDIS_URL"]),
+        "availability-monitor": Object.freeze([
+            "PIPIPI_REVISION",
+            "AVAILABILITY_PUBLIC_BASE_URL",
+            "AVAILABILITY_WEBHOOK_URL",
+        ]),
     });
 
 const asyncApiVariables = Object.freeze([

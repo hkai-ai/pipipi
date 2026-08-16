@@ -288,6 +288,8 @@ npm run test:drill:webhook-observability:local
 
 各长运行角色都提供 `GET /healthz` 和 `GET /readyz`。liveness 只确认进程工作；异步角色的 readiness 检查实际使用的 migration、PostgreSQL 和 Redis。CRT Business API 的启动校验负责检查配置形状，readiness 不产生 FAL 或 OSS 请求。默认同步 API 保持原样，启用异步路由也不会删除 `POST /execute`。
 
+`npm run observe:availability` 是一次性 Availability Monitor Job。它从服务器侧检查公网网关、回环 Business API、可选的四个异步角色和 Redis；Module Interface 只返回脱敏的固定报告，机器人 Adapter 只在 `degraded` 或 `unavailable` 时发送。开发测试通过注入内存 HTTP、Redis 与 Webhook Adapter 验证同一个 Interface，不访问真实服务。生产应从已构建镜像运行 `node dist/bin/availability-monitor.js`，调度周期由外部受信 timer/Job 拥有。
+
 ### Queue 对账与重建
 
 Dispatcher 的周期 `reconcileOnce()` 与人工 `recover:queue` 共用同一个 Process Recovery Module。`stale` 模式只检查超过 `PROCESS_RUN_RECONCILE_QUEUED_AGE_MS` 的 queued Run 和租约过期的 running Run；`all` 模式扫描所有非终态 Run，适合 Redis 数据丢失后的完整重建。终态 Run 从 PostgreSQL 候选 SQL 中排除，即使 Redis 残留旧 Job，Worker 的数据库 claim 也会将其短路为 ignored。活跃 running 租约在 `all` 报告中标为 `active_lease/deferred`，不提前抢占；到期后的下一次恢复会重新入队，旧 Worker 仍受 claim token fencing 约束。
@@ -337,7 +339,7 @@ Webhook 重试状态以 PostgreSQL 为准，不依赖 BullMQ 的 Job attempts。
 
 | 目录 | Module 职责 |
 | --- | --- |
-| `src/bin/` | API、CRT Business API、Dispatcher、Worker、Cleaner、Operations 和 Recovery 的可执行入口；不放业务规则 |
+| `src/bin/` | API、CRT Business API、Dispatcher、Worker、Cleaner、Operations、Recovery 和 Availability Monitor 的可执行入口；不放业务规则 |
 | `src/app/` | 各可执行角色的 Composition Root、启动配置和后台角色生命周期 |
 | `src/api/` | HTTP Application、路由和 caller identity；不组装业务与基础设施 |
 | `src/process-runtime/` | 跨 Business Process 复用的 Registration、Registry、Runner、Attempt、结果和观测治理 |
@@ -345,6 +347,8 @@ Webhook 重试状态以 PostgreSQL 为准，不依赖 BullMQ 的 Job attempts。
 | `src/processes/` | production catalog，以及按 `content/`、`titled-content/`、`poster/`、`crt/`、`news-image/` 分组的具体 Business Process；不放通用 Runtime |
 | `src/process-runs/` | Async Process Runs，以及按 `store/`、`queue/`、`outbox/`、`worker/`、`recovery/`、`retention/` 和 `ops/` 分组的内部 Module |
 | `src/webhooks/` | Webhook Delivery，以及按 `delivery/`、`store/`、`queue/`、`outbox/` 分组的内部 Module |
+| `src/availability/` | 一次性 Availability Monitor、HTTP/Redis Probe 和异常 Webhook Notifier |
+| `src/network/` | 跨 Adapter 复用的公网地址校验、DNS 解析与 IP-pinned HTTP transport；不拥有业务重试或 payload 语义 |
 | `src/business-api/` | CRT Business API、FAL、finalizer、证据和对象存储 Adapter |
 | `migrations/` | 受版本和 advisory lock 管理的 PostgreSQL schema 变化 |
 | `test/` | 跨公开 Seam 的确定性行为验证 |
@@ -359,6 +363,8 @@ Webhook 重试状态以 PostgreSQL 为准，不依赖 BullMQ 的 Job attempts。
 | `src/app/process-dispatcher.ts`、`process-worker.ts`、`retention-cleaner.ts` | 各后台角色独立的配置和 Adapter 组装 |
 | `src/app/process-recovery.ts`、`async-operations.ts` | 一次性运维命令的资源组装 |
 | `src/app/webhook-worker.ts` | Webhook Worker 的 Delivery、Outbox、Queue 和 HTTP Sender 组装 |
+| `src/app/availability-monitor.ts` | Availability Monitor 的 Probe、Notifier 与部署配置组装 |
+| `src/network/public-http.ts` | 公网目标校验、全部 DNS 地址检查、固定 IP 连接和有界响应读取 |
 | `src/process-runtime/` | Registration、Registry、同步 Runner、Attempt Runner、运行活动日志、Run Record、公共结果和错误治理 |
 | `src/agent-runtime/pi.ts`、`skills.ts` | 多个流程共用的 Pi provider 配置、Agent JSON 解析和 Runtime Skill 精确加载 |
 | `src/processes/catalog.ts` | 显式 production catalog 和 Process Runtime 组装 |
