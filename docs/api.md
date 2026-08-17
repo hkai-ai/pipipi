@@ -1,6 +1,6 @@
 # 业务接口文档
 
-本文面向产品调用方，记录当前生产可用的业务接口及七个 Business Process 的请求和响应契约。
+本文面向业务调用方，记录七个 Business Process 的请求和响应契约，以及临时开放的内部评测接口。
 
 ## 接入信息
 
@@ -8,6 +8,7 @@
 | --- | --- |
 | Base URL | `https://pi.ganjiuwanshi.com` |
 | 业务入口 | `POST /execute` |
+| 内部评测入口 | `POST /internal/eval/execute`；仅在部署方显式启用时可用 |
 | Content-Type | `application/json` |
 | 鉴权 | 应用不校验鉴权请求头；网关启用鉴权时，按网关要求携带凭证 |
 | 字符编码 | UTF-8 |
@@ -55,6 +56,73 @@ Content-Type: application/json
 | `news-image-raw-humanism` | 生成原质人文主义新闻图片 |
 
 调用方不能提交 Skill、Prompt、模型、Tool、图片供应商或存储配置。新闻图片风格由 `process` 固定，接口不接收 `style` 字段。
+
+## 内部新闻图片评测
+
+`POST /internal/eval/execute` 临时向受控测试调用方开放。该接口只接受三个新闻图片 Process，并复用正式 `/execute` 的 Executor、Registration、Agent 和图片 Capability。一次请求只执行一次 Process。
+
+部署方必须设置 `INTERNAL_EVAL_ENABLED=true` 才会挂载该路由。入口关闭时返回 HTTP `404` 和 `ROUTE_NOT_FOUND`。生产 Compose 固定关闭该入口。
+
+该调用会访问文本模型、图片供应商和对象存储，产生费用和外部写入。应用目前不单独鉴权；部署方必须通过可信网关限制调用方。
+
+请求结构与正式 `/execute` 相同：
+
+```http
+POST /internal/eval/execute HTTP/1.1
+Host: pi.ganjiuwanshi.com
+Content-Type: application/json
+```
+
+```json
+{
+  "process": "news-image-pale-watercolor",
+  "version": "v1",
+  "input": {
+    "title": "城市开始使用无人机巡检老旧桥梁",
+    "summary": "首批巡检发现需要进一步检查的安全隐患。"
+  }
+}
+```
+
+成功时返回 HTTP `200` 和 `Cache-Control: no-store`。`output.generation` 投影本次执行实际使用的 Prompt、文本模型和非敏感图片参数：
+
+```json
+{
+  "runId": "35833107-f4c5-4baa-aca2-c6d5e15452a5",
+  "process": "news-image-pale-watercolor",
+  "version": "v1",
+  "status": "succeeded",
+  "output": {
+    "style": "pale-watercolor",
+    "image": {
+      "url": "https://assets.example.com/news-images/35833107.png",
+      "contentType": "image/png",
+      "width": 1600,
+      "height": 1200
+    },
+    "generation": {
+      "prompt": "本次实际传入图片模型的完整 compiled.prompt",
+      "promptModel": "gpt-5.4-mini",
+      "imageProvider": "fal",
+      "imageModel": "gpt-image-2",
+      "aspectRatio": "4:3",
+      "width": 1600,
+      "height": 1200,
+      "quality": "low",
+      "outputFormat": "png",
+      "numImages": 1,
+      "seed": null,
+      "otherParams": {
+        "sync_mode": true
+      }
+    }
+  }
+}
+```
+
+`generation.prompt` 是校验后直接交给图片 Capability 的 `compiled.prompt`。其他字段来自本次 Capability 调用解析出的参数。诊断内容只进入该响应，不进入正式 `/execute` 输出、日志或 Run Record。
+
+非新闻图片 Process 返回 HTTP `400` 和 `INVALID_INPUT`。Process 执行失败时沿用正式 `/execute` 的错误码和公开消息，不返回 `output.generation`。
 
 ## 异步执行
 

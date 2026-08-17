@@ -51,56 +51,7 @@ curl --fail -X POST http://127.0.0.1:3000/execute \
 
 ### 新闻图片内部评测
 
-受控测试环境设置 `INTERNAL_EVAL_ENABLED=true` 后，可向 `POST /internal/eval/execute` 提交与正式 `/execute` 相同的新闻图片请求。该调用会真实访问文本模型、图片供应商和对象存储，产生费用和外部写入：
-
-```json
-{
-  "process": "news-image-pale-watercolor",
-  "version": "v1",
-  "input": {
-    "title": "新闻标题",
-    "summary": "新闻内容"
-  }
-}
-```
-
-成功响应使用 `Cache-Control: no-store`，完整结构如下：
-
-```json
-{
-  "runId": "35833107-f4c5-4baa-aca2-c6d5e15452a5",
-  "process": "news-image-pale-watercolor",
-  "version": "v1",
-  "status": "succeeded",
-  "output": {
-    "style": "pale-watercolor",
-    "image": {
-      "url": "https://assets.example.com/news-images/35833107.png",
-      "contentType": "image/png",
-      "width": 1600,
-      "height": 1200
-    },
-    "generation": {
-      "prompt": "本次实际传入图片模型的完整 compiled.prompt",
-      "promptModel": "gpt-5.4-mini",
-      "imageProvider": "fal",
-      "imageModel": "gpt-image-2",
-      "aspectRatio": "4:3",
-      "width": 1600,
-      "height": 1200,
-      "quality": "low",
-      "outputFormat": "png",
-      "numImages": 1,
-      "seed": null,
-      "otherParams": {
-        "sync_mode": true
-      }
-    }
-  }
-}
-```
-
-`prompt` 是校验后直接传给图片 Capability 的同一份 `compiled.prompt`，不是事后重新生成；其他生成字段也来自本次 Capability 调用实际解析的值，而不是文档默认值。失败响应沿用正式 `/execute` 的失败结构，不返回 `output.generation`。入口关闭时返回 `404`；正式 `/execute` 始终不返回这些字段。
+受控测试环境设置 `INTERNAL_EVAL_ENABLED=true` 后，可调用 `POST /internal/eval/execute`。该调用会访问文本模型、图片供应商和对象存储，产生费用和外部写入。部署方必须通过可信网关限制调用方。完整请求、响应和错误契约见[内部新闻图片评测接口](api.md#内部新闻图片评测)。
 
 ## 常用命令
 
