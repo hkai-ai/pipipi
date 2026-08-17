@@ -74,6 +74,7 @@ Process Definition、依赖、策略和输出验证都留在 Module 内。生产
 | Process Run Activity Logging | `runActivity(name, operation)` 与 `ProcessRunLogSink` | 活动声明检查、Attempt 关联、单调顺序、耗时、结果净化和 best-effort 输出 |
 | Process Run Log Adapter | `ProcessRunLogSink` | Pino 阈值、严重度映射、敏感字段兜底移除、静态关联字段和单行 JSON stdout |
 | Runtime Skill Set | `createSkillSet(refs, cwd)`、`load()` | 非空与重名校验、准确名称解析、顺序、首次读取、缓存和 Prompt 编译 |
+| Structured Agent Session | `run({ prompt, signal })` | 无 Tool Pi Session、固定 Skill 注入、模型选择、请求隔离、取消、资源释放和 JSON 解析 |
 | Content Processing Capability | `process(input, { signal })` | 远程协议、超时、响应校验和依赖错误转换 |
 | Poster Rendering Capability | `render({ prompt, aspectRatio: "3:5" }, { signal, idempotencyKey })` | 图片生成、持久化、URL 生命周期、远程协议和依赖错误转换 |
 | CRT Rendering Capability | `transform({ sourceImageUrl, prompt, palette, aspectRatio }, { signal, idempotencyKey })` | FAL 公网 URL 参考图编辑、确定性后处理、服务端证据策略、持久化、URL 生命周期和依赖错误转换 |
@@ -165,7 +166,7 @@ Activity Log 只允许 `runId`、Process identity、Attempt、固定 activity、
 
 [`constructProcessingService`](../src/app/api.ts) 拥有 API 的生产 Composition Root。
 它先校验通用配置，创建 Pino Process Run Log Adapter，再组装七个精确 Registration。`CONTENT_PROCESSING_MODE` 只在文本流程中
-选择 `direct` 或 `agent`；海报与 CRT 流程始终构造无 Tool Agent。共享的 provider/model 与 OpenAI API
+选择 `direct` 或 `agent`；海报与 CRT 流程始终构造无 Tool Agent，并复用 Structured Agent Session Module。共享的 provider/model 与 OpenAI API
 mode 在启动时成组校验，Skill 文件和外部依赖保持惰性，不影响 liveness。配置错误会在
 Application 监听端口前抛出。
 
@@ -207,7 +208,7 @@ Production catalog 由
 | --- | --- | --- |
 | Zod Schema、Registry Map、结果映射 | in-process | 留在深 Module 内，不增加 Adapter |
 | 受控 Business API | remote but owned | `ContentProcessingCapability`、`PosterRenderingCapability` 与 `CrtRenderingCapability` port；生产使用 HTTP Adapter，测试使用内存 Adapter |
-| Pi Agent Runtime | true external | `agent.ts` 定义窄 Interface；生产使用 `pi.ts` Adapter，测试使用 mock Adapter |
+| Pi Agent Runtime | true external | `agent.ts` 定义流程专属窄 Interface；海报与 CRT 的 `pi.ts` Adapter 复用无 Tool Structured Agent Session，测试使用注入的 Session factory 或 mock Agent Adapter |
 | Runtime Skill 快照 | bundled resource | 流程拥有准确 `SkillRef[]`；`src/agent-runtime/skills.ts` 精确加载，不自动发现或扩大 Tool 权限 |
 | Run Record 存储 | 可替换存储 Seam | disabled、内存和持久化 Adapter 共用 `ProcessRunRecordAdapter` |
 
@@ -225,7 +226,7 @@ Interface 就是测试面：
   超时、活动时间线、日志故障隔离和记录语义。Pino Adapter 测试覆盖 JSON 形状、严重度、阈值和敏感字段兜底移除。
 - Application 测试注入 fake ready Process Executor，证明 Application 不依赖具体流程。
 - 远程依赖测试使用受控 Adapter 或 mock Adapter，不访问真实凭证与远端系统。
-- Runtime Skill Set 测试生产绑定、多项顺序、未绑定项隔离、重名拒绝和准确名称解析。
+- Runtime Skill Set 测试生产绑定、多项顺序、未绑定项隔离、重名拒绝和准确名称解析。Structured Agent Session 测试固定 Skill 注入、空 Tool 表面、JSON 结果、取消和资源释放。
 - Agent Registration 测试文本 Tool 的缺失、重复调用和结果来源，也测试海报与 CRT Agent 的结构、请求约束和先验证后渲染。CRT 测试还证明 Agent 看不到资产标识、Capability 只调用一次、图片为受限 PNG 且比例正确。确定性测试不调用真实模型。文本 smoke 验证真实 Tool 路径；海报业务验收从产品 `POST /execute` 经过 production catalog、真实 Agent、production HTTP Adapter、受控 `POST /posters` Capability 和真实图片 URL；CRT 的显式 smoke 当前只验证 GPT Image 2 reference-edit stage。Skill A/B 组合仍由独立命令执行。
 
 测试不读取私有 Map，不断言 key 编码，也不依赖内部 helper 的调用顺序。Implementation
@@ -250,6 +251,7 @@ Runtime registration、自动发现、动态 Process Definition 和版本回退�
   同一结果、超时、取消、错误净化和活动日志语义。
 - `createProcessRunner` 隐藏同步 envelope、查找、接受、Attempt 调用和记录顺序。
 - `createSkillSet` 隐藏多目录读取、名称去重、准确匹配、顺序和 Prompt 编译。
+- `PiStructuredAgent` 隐藏无 Tool Pi Session、模型选择、请求隔离、取消、资源释放和 JSON 解析；流程 Adapter 只保留业务指令与用户 Prompt。
 - Registration factory 把一个流程的 Schema、行为、依赖和策略放在同一文件，形成 Locality。
 
 这些 Module 为调用方提供 Leverage：调用方学习少量 Interface，便能复用完整治理行为。
@@ -265,6 +267,7 @@ Runtime registration、自动发现、动态 Process Definition 和版本回退�
 - 删除 Process Runner，HTTP Adapter 必须重新实现 envelope、查找、接受、Attempt 调用和 Run
   Records 顺序。
 - 删除 Runtime Skill Set，Agent Adapter 必须自行处理重名、准确匹配、顺序、文件读取和正文编译。
+- 删除 Structured Agent Session，海报与 CRT Agent Adapter 必须分别重建 Pi Session、模型选择、取消、释放和 JSON 解析。
 - 删除显式 production catalog，Application 将重新知道所有具体 Business Process。
 
 删除这些 Module 会让复杂度扩散到多个调用方，因此它们通过 deletion test，并为当前
