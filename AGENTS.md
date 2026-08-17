@@ -18,7 +18,7 @@
 - `.agents/skills/` 保存 Codex 在开发仓库时使用的 Development Skill；`.pi/skills/` 保存服务端受限 Agent 使用的 Runtime Skill。两者的调用方、权限和发布路径不同，不能只靠复制目录就互换角色。
 - 本地路径或远程 URL 只作为开发、安装或构建期的 Skill Source。共享或生产使用前必须检查完整目录、来源、许可证、脚本、Tool 与网络权限，固定不可变版本并保存本地快照或可复现安装记录。
 - 生产请求路径只读取随应用发布、由服务端选择的本地 Runtime Skill。禁止按请求下载、更新或执行任意远程 Skill。
-- 当前没有通用 Skill Installer。生产确实需要多个来源类型时，可在开发工具链增加 Skill Installer 和只读 Installed Skill Catalog；它们不得进入产品请求路径。
+- 当前有只读 Installed Skill Catalog，但没有通用 Skill Installer。Catalog 只校验并解析随应用发布的固定本地 Runtime Skill；生产确实需要多个来源类型时，可在开发工具链增加 Skill Installer。Catalog 和 Installer 都不得进入产品请求路径。
 - 新增图片风格时，为每个稳定风格建立精确版本的 Process Registration，并复用受控图片生成与存储 Capability。产品请求只提交业务内容，不能选择 Skill、模型或供应商。
 
 ## Git 远端与同步

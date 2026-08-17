@@ -42,6 +42,8 @@ Business Processing Service 让产品调用方通过一个稳定的 HTTP Interfa
 | `news-image-pale-watercolor/v1` | `{ title, summary }` | `{ style, image }` | 固定淡彩绘本 Runtime Skill |
 | `news-image-raw-humanism/v1` | `{ title, summary }` | `{ style, image }` | 固定原质人文主义 Runtime Skill |
 
+生产 Composition Root 还维护只读 Installed Skill Catalog。七个随应用发布的 Runtime Skill 都固定名称、版本和 `SKILL.md` SHA-256，并在监听端口前完成本地完整性校验；Process 只能绑定 Catalog 中的准确版本。Catalog 不发现、下载或更新 Skill，也不进入产品请求 Interface。
+
 默认 HTTP 入口公开 `GET /healthz`、`GET /readyz` 和 `POST /execute`。每次执行生成独立 `runId`。显式启用并完整配置 Async Process Runs 后，API 还提供 `POST /process-runs` 和 `GET /process-runs/{runId}`；该功能默认关闭，只有按异步 Runbook 通过容量、恢复、安全、观测和 staged rollout 门禁后才能向外部调用方开放。默认同步生产构造不持久化 Run Record；同步与异步 Attempt 都通过 Pino Adapter 输出结构化运行活动日志。日志只保留 `runId`、Process identity、Attempt、服务端声明的活动、顺序、结果、稳定错误码和耗时，不保存业务内容、Prompt、Tool 参数、模型消息、隐藏推理或内部异常正文。
 
 仓库已实现 Async Process Runs Module。它以 `submit/find` 固定公共状态、owner 隔离和 caller-scoped idempotency；PostgreSQL Adapter 以事务持久化 Run、初始 Event 和 Outbox。Outbox Dispatcher 通过统一的 BullMQ `process-runs` Queue 只发布 `{ schemaVersion, runId }`，Worker 再从 PostgreSQL 读取准确 Registration 与 accepted input。Store 以 claim token 隔离 Attempt；过期租约可被接管，Reconciler 会重投长期 queued 或过期 running Run，停机超时则释放当前 claim。Registration 默认单次执行，也可声明有界错误分类与指数退避；Business Capability 获得稳定 `runId` 幂等键。API、Dispatcher 和 Worker 已有独立 Construction Root、入口、配置与健康检查；真实 PostgreSQL/Redis 集成测试覆盖成功、业务失败、受控重试、Redis 断线、重复 Job、租约接管、有期限停机和 caller 隔离。

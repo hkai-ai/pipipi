@@ -30,6 +30,8 @@
 
 `content-processing/v1` 的 Agent 路径会同时加载服务端固定的 `content-optimization` 和 `content-integrity`。两项 Skill 作为一个经过评审的指令集执行，但仍只获得 `process_business_content` Tool。Registration 只接受一次 Tool 调用，并要求 Agent 最终结果与 Tool 结果一致；调用方不能提交或覆盖 Skill。
 
+生产启动会通过只读 Installed Skill Catalog 校验全部本地 Runtime Skill 的准确名称、版本和 `SKILL.md` SHA-256。Process 只绑定校验后的准确版本；运行期不发现、下载或自动更新 Skill。
+
 `minimal-zine-poster/v1` 固定加载 `minimal-zine-poster-prompt`。这个 Runtime Skill 只把 brief 编译成四段 Prompt 和六轴 recipe，不获得任何 Tool。Registration 校验 Prompt、recipe 和可选原文后，以 `runId` 为幂等键调用一次 Poster Rendering Capability。Capability 返回 HTTP(S) 图片 URL、类型和尺寸；原始图片字节不进入 `/execute` JSON。
 
 `crt-interface-image/v1` 把服务端资产标识、调色板和画幅收敛为参考图转换。无 Tool Agent 固定加载 `tait-crt-interface-prompt`，只编译内部 Prompt 和十四轴 recipe；Registration 校验后，以 `runId` 为幂等键调用一次 CRT Rendering Capability。产品输出只返回画幅和 PNG 引用，不返回 Prompt、recipe、模型、Skill 或源图片字节。完整开发契约和上线门禁见 [`docs/processes/crt-interface-image/`](docs/processes/crt-interface-image/)。

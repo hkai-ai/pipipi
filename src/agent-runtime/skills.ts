@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import {
@@ -6,10 +7,21 @@ import {
 } from "@earendil-works/pi-coding-agent";
 
 const skillNamePattern = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+const skillVersionPattern = /^v(?:0|[1-9][0-9]*)(?:\.(?:0|[1-9][0-9]*)){0,2}$/;
+const sha256Pattern = /^[a-f0-9]{64}$/;
 
 export type SkillRef = Readonly<{
     name: string;
     path: string;
+    version?: string;
+    sha256?: string;
+}>;
+
+export type InstalledSkillRef = Readonly<{
+    name: string;
+    path: string;
+    version: string;
+    sha256: string;
 }>;
 
 export type LoadedSkills = Readonly<{
@@ -44,10 +56,26 @@ export function createSkillSet(
         if (typeof ref.path !== "string" || ref.path.trim().length === 0) {
             throw new Error(`Runtime Skill "${ref.name}" path is required`);
         }
+        if ((ref.version === undefined) !== (ref.sha256 === undefined)) {
+            throw new Error(
+                `Runtime Skill "${ref.name}" version and SHA-256 must be configured together`,
+            );
+        }
+        if (
+            ref.version !== undefined &&
+            !skillVersionPattern.test(ref.version)
+        ) {
+            throw new Error(`Runtime Skill "${ref.name}" version is invalid`);
+        }
+        if (ref.sha256 !== undefined && !sha256Pattern.test(ref.sha256)) {
+            throw new Error(`Runtime Skill "${ref.name}" SHA-256 is invalid`);
+        }
         names.add(ref.name);
         return Object.freeze({
             name: ref.name,
             path: resolve(cwd, ref.path),
+            ...(ref.version ? { version: ref.version } : {}),
+            ...(ref.sha256 ? { sha256: ref.sha256 } : {}),
         });
     });
 
@@ -79,9 +107,16 @@ function loadSkillSet(refs: readonly SkillRef[]): LoadedSkills {
         }
 
         const skill = matches[0];
-        const body = stripFrontmatter(
-            readFileSync(skill.filePath, "utf8"),
-        ).trim();
+        const source = readFileSync(skill.filePath, "utf8");
+        if (
+            ref.sha256 &&
+            createHash("sha256").update(source).digest("hex") !== ref.sha256
+        ) {
+            throw new Error(
+                `Runtime Skill "${ref.name}@${ref.version}" failed its SHA-256 integrity check`,
+            );
+        }
+        const body = stripFrontmatter(source).trim();
         if (!body) {
             throw new Error(`Runtime Skill "${ref.name}" is empty`);
         }

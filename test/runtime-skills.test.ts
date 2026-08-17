@@ -4,6 +4,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { createInstalledSkillCatalog } from "../src/agent-runtime/catalog.js";
 import { createSkillSet } from "../src/agent-runtime/skills.js";
 import {
     contentToolName,
@@ -13,6 +14,11 @@ import {
     createCrtSkillRefs,
     crtSkillName,
 } from "../src/processes/crt/skills.js";
+import {
+    createNarrativeMonumentSkillRefs,
+    createPaleWatercolorSkillRefs,
+    createRawHumanismSkillRefs,
+} from "../src/processes/news-image/skills.js";
 import {
     createPosterSkillRefs,
     posterSkillName,
@@ -132,19 +138,17 @@ describe("Runtime Skill set", () => {
     });
 
     it("only lets production configuration replace the optimization path", () => {
+        const defaults = createContentSkillRefs();
         expect(
             createContentSkillRefs({
                 optimizationPath: "/reviewed/content-optimization",
             }),
         ).toEqual([
             {
-                name: "content-optimization",
+                ...defaults[0],
                 path: "/reviewed/content-optimization",
             },
-            {
-                name: "content-integrity",
-                path: ".pi/skills/content-integrity",
-            },
+            defaults[1],
         ]);
     });
 
@@ -200,11 +204,12 @@ describe("Runtime Skill set", () => {
     });
 
     it("only lets production configuration replace the poster Skill path", () => {
+        const [installed] = createPosterSkillRefs();
         expect(
             createPosterSkillRefs({ path: "/reviewed/poster-prompt" }),
         ).toEqual([
             {
-                name: posterSkillName,
+                ...installed,
                 path: "/reviewed/poster-prompt",
             },
         ]);
@@ -257,12 +262,106 @@ describe("Runtime Skill set", () => {
     });
 
     it("only lets production configuration replace the CRT Skill path", () => {
+        const [installed] = createCrtSkillRefs();
         expect(createCrtSkillRefs({ path: "/reviewed/crt-prompt" })).toEqual([
             {
-                name: crtSkillName,
+                ...installed,
                 path: "/reviewed/crt-prompt",
             },
         ]);
+    });
+});
+
+describe("Installed Runtime Skill catalog", () => {
+    it("validates all code-defined production installations", () => {
+        const catalog = createInstalledSkillCatalog(
+            [
+                ...createContentSkillRefs(),
+                ...createPosterSkillRefs(),
+                ...createCrtSkillRefs(),
+                ...createPaleWatercolorSkillRefs(),
+                ...createRawHumanismSkillRefs(),
+                ...createNarrativeMonumentSkillRefs(),
+            ],
+            process.cwd(),
+        );
+
+        expect(
+            catalog.list().map(({ name, version }) => `${name}@${version}`),
+        ).toEqual([
+            "content-integrity@v1",
+            "content-optimization@v1",
+            "minimal-zine-poster-prompt@v1",
+            "news-image-narrative-monument-prompt@v1",
+            "news-image-pale-watercolor-prompt@v1",
+            "news-image-raw-humanism-prompt@v1",
+            "tait-crt-interface-prompt@v1",
+        ]);
+    });
+
+    it("validates installations eagerly and resolves exact versions", async () => {
+        const root = await createTempRoot();
+        await Promise.all([
+            writeSkill(root, "clarity", "clarity", "Keep wording clear."),
+            writeSkill(root, "integrity", "integrity", "Preserve facts."),
+        ]);
+        const clarity = installedSkill(root, "clarity", "clarity");
+        const integrity = installedSkill(root, "integrity", "integrity");
+
+        const catalog = createInstalledSkillCatalog(
+            [integrity, clarity],
+            process.cwd(),
+        );
+
+        expect(catalog.list()).toEqual([
+            {
+                name: "clarity",
+                version: "v1",
+                sha256: clarity.sha256,
+            },
+            {
+                name: "integrity",
+                version: "v1",
+                sha256: integrity.sha256,
+            },
+        ]);
+        expect(
+            catalog.resolve([
+                { name: "integrity", version: "v1" },
+                { name: "clarity", version: "v1" },
+            ]),
+        ).toEqual([
+            { ...integrity, path: join(root, "integrity") },
+            { ...clarity, path: join(root, "clarity") },
+        ]);
+    });
+
+    it("rejects modified installed content during construction", async () => {
+        const root = await createTempRoot();
+        await writeSkill(root, "clarity", "clarity", "Keep wording clear.");
+        const installed = installedSkill(root, "clarity", "clarity");
+
+        expect(() =>
+            createInstalledSkillCatalog(
+                [{ ...installed, sha256: "0".repeat(64) }],
+                process.cwd(),
+            ),
+        ).toThrow(
+            'Runtime Skill "clarity@v1" failed its SHA-256 integrity check',
+        );
+    });
+
+    it("rejects unavailable versions without falling back", async () => {
+        const root = await createTempRoot();
+        await writeSkill(root, "clarity", "clarity", "Keep wording clear.");
+        const catalog = createInstalledSkillCatalog(
+            [installedSkill(root, "clarity", "clarity")],
+            process.cwd(),
+        );
+
+        expect(() =>
+            catalog.resolve([{ name: "clarity", version: "v2" }]),
+        ).toThrow('Installed Runtime Skill "clarity@v2" is unavailable');
     });
 });
 
@@ -284,4 +383,15 @@ async function writeSkill(
         join(path, "SKILL.md"),
         `---\nname: ${name}\ndescription: Test ${name}.\n---\n\n# ${name}\n\n${body}\n`,
     );
+}
+
+function installedSkill(root: string, directory: string, name: string) {
+    const path = join(root, directory);
+    const source = readFileSync(join(path, "SKILL.md"), "utf8");
+    return {
+        name,
+        version: "v1",
+        sha256: createHash("sha256").update(source).digest("hex"),
+        path,
+    } as const;
 }

@@ -434,9 +434,6 @@ describe("Startup Construction", () => {
             PI_PROVIDER: "openai",
             PI_MODEL: "gpt-5.6-terra",
             PI_AGENT_DIR: "/must-not-be-read/pi-agent",
-            PI_SKILL_DIRECTORY: "/must-not-be-read/content-optimization",
-            PI_POSTER_SKILL_DIRECTORY: "/must-not-be-read/poster-prompt",
-            PI_CRT_SKILL_DIRECTORY: "/must-not-be-read/crt-prompt",
             OPENAI_BASE_URL: `${externalSentinel.url}/v1`,
             OPENAI_API_MODE: "responses",
             OPENAI_API_KEY: "must-not-be-read",
@@ -493,14 +490,22 @@ describe("Startup Construction", () => {
             PI_PROVIDER: "openai",
             PI_MODEL: "gpt-5.6-terra",
             PI_AGENT_DIR: "/tmp/pi-agent",
-            PI_SKILL_DIRECTORY: "/tmp/content-optimization",
-            PI_POSTER_SKILL_DIRECTORY: "/tmp/poster-prompt",
-            PI_CRT_SKILL_DIRECTORY: "/tmp/crt-prompt",
             OPENAI_BASE_URL: "https://gateway.example/v1",
             OPENAI_API_MODE: "responses",
         });
 
         expect(constructed.port).toBe(3000);
+    });
+
+    it("rejects an unavailable installed Runtime Skill before listening", () => {
+        expect(() =>
+            constructProcessingService({
+                BUSINESS_API_BASE_URL: "https://business.example",
+                PI_POSTER_SKILL_DIRECTORY: "/missing/poster-prompt",
+            }),
+        ).toThrow(
+            'Runtime Skill "minimal-zine-poster-prompt" must resolve exactly once',
+        );
     });
 
     it("requires an OpenAI credential for a production Agent deployment", () => {
@@ -534,9 +539,6 @@ describe("Startup Construction", () => {
             PI_PROVIDER: "openai",
             PI_MODEL: "gpt-5.6-terra",
             PI_AGENT_DIR: "/must-not-be-read/pi-agent",
-            PI_SKILL_DIRECTORY: "/must-not-be-read/content-optimization",
-            PI_POSTER_SKILL_DIRECTORY: "/must-not-be-read/poster-prompt",
-            PI_CRT_SKILL_DIRECTORY: "/must-not-be-read/crt-prompt",
             OPENAI_BASE_URL: "https://gateway.example/v1",
             OPENAI_API_MODE: "responses",
         });

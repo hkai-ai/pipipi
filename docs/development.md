@@ -294,7 +294,7 @@ Webhook 重试状态以 PostgreSQL 为准，不依赖 BullMQ 的 Job attempts。
 | `src/app/` | 各可执行角色的 Composition Root、启动配置和后台角色生命周期 |
 | `src/api/` | HTTP Application、路由和 caller identity；不组装业务与基础设施 |
 | `src/process-runtime/` | 跨 Business Process 复用的 Registration、Registry、Runner、Attempt、结果和观测治理 |
-| `src/agent-runtime/` | 跨 Business Process 复用的 Pi provider 配置、无 Tool Structured Agent Session、Agent JSON 解析和 Runtime Skill 精确加载 |
+| `src/agent-runtime/` | 跨 Business Process 复用的 Pi provider 配置、无 Tool Structured Agent Session、Agent JSON 解析、Installed Skill Catalog 和 Runtime Skill 精确加载 |
 | `src/processes/` | production catalog，以及按 `content/`、`titled-content/`、`poster/`、`crt/`、`news-image/` 分组的具体 Business Process；不放通用 Runtime |
 | `src/process-runs/` | Async Process Runs，以及按 `store/`、`queue/`、`outbox/`、`worker/`、`recovery/`、`retention/` 和 `ops/` 分组的内部 Module |
 | `src/webhooks/` | Webhook Delivery，以及按 `delivery/`、`store/`、`queue/`、`outbox/` 分组的内部 Module |
@@ -317,7 +317,7 @@ Webhook 重试状态以 PostgreSQL 为准，不依赖 BullMQ 的 Job attempts。
 | `src/app/availability-monitor.ts` | Availability Monitor 的 Probe、Notifier 与部署配置组装 |
 | `src/network/public-http.ts` | 公网目标校验、全部 DNS 地址检查、固定 IP 连接和有界响应读取 |
 | `src/process-runtime/` | Registration、Registry、同步 Runner、Attempt Runner、运行活动日志、Run Record、公共结果和错误治理 |
-| `src/agent-runtime/pi.ts`、`skills.ts`、`structured.ts` | 多个流程共用的 Pi provider 配置、Runtime Skill 精确加载，以及海报与 CRT 共用的无 Tool Structured Agent Session |
+| `src/agent-runtime/catalog.ts`、`pi.ts`、`skills.ts`、`structured.ts` | 多个流程共用的启动期 Skill 完整性与版本 Catalog、Pi provider 配置、Runtime Skill 精确加载，以及海报、CRT 与新闻图片共用的无 Tool Structured Agent Session |
 | `src/processes/catalog.ts` | 显式 production catalog 和 Process Runtime 组装 |
 | `src/processes/content/registration.ts` | `content-processing/v1` 的 Schema、Direct/Agent 流程、失败和 Tool 调用 invariant |
 | `src/processes/content/skills.ts` | `content-processing/v1` 获准使用的有序 Runtime Skill 集合与 Tool 名称 |
