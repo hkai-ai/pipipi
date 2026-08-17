@@ -44,9 +44,7 @@ export function createInstalledSkillCatalog(
             );
         }
         if (paths.has(path)) {
-            throw new Error(
-                `Installed Runtime Skill path "${path}" is duplicated`,
-            );
+            throw new Error("Installed Runtime Skill path is duplicated");
         }
 
         const fixed = Object.freeze({ ...candidate, path });

@@ -18,9 +18,7 @@ import type { CrtRenderingCapability } from "./crt/capability.js";
 import { createCrtRegistration } from "./crt/registration.js";
 import type { NewsImageAgent } from "./news-image/agent.js";
 import type { NewsImageRenderingCapability } from "./news-image/capability.js";
-import { createPaleWatercolorRegistration } from "./news-image/registration.js";
-import { createNarrativeMonumentRegistration } from "./news-image/registration-narrative-monument.js";
-import { createRawHumanismRegistration } from "./news-image/registration-raw-humanism.js";
+import { createNewsImageRegistration } from "./news-image/registration.js";
 import type { PosterAgent } from "./poster/agent.js";
 import type { PosterRenderingCapability } from "./poster/capability.js";
 import { createPosterRegistration } from "./poster/registration.js";
@@ -97,15 +95,23 @@ export function createProcessRuntime(
     }
     if (options.paleWatercolor) {
         registrations.push(
-            createPaleWatercolorRegistration(options.paleWatercolor),
+            createNewsImageRegistration(
+                "pale-watercolor",
+                options.paleWatercolor,
+            ),
         );
     }
     if (options.rawHumanism) {
-        registrations.push(createRawHumanismRegistration(options.rawHumanism));
+        registrations.push(
+            createNewsImageRegistration("raw-humanism", options.rawHumanism),
+        );
     }
     if (options.narrativeMonument) {
         registrations.push(
-            createNarrativeMonumentRegistration(options.narrativeMonument),
+            createNewsImageRegistration(
+                "narrative-monument",
+                options.narrativeMonument,
+            ),
         );
     }
     const registry = createProcessRegistry(registrations);

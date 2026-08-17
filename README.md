@@ -50,9 +50,9 @@
 | `titled-content-processing/v1` | [`docs/processes/titled-content-processing/`](docs/processes/titled-content-processing/) | [`src/processes/titled-content/registration.ts`](src/processes/titled-content/registration.ts) |
 | `minimal-zine-poster/v1` | [`docs/processes/minimal-zine-poster/`](docs/processes/minimal-zine-poster/) | [`src/processes/poster/registration.ts`](src/processes/poster/registration.ts) |
 | `crt-interface-image/v1` | [`docs/processes/crt-interface-image/`](docs/processes/crt-interface-image/) | [`src/processes/crt/registration.ts`](src/processes/crt/registration.ts) |
-| `news-image-narrative-monument/v1` | [`docs/processes/news-image-narrative-monument/`](docs/processes/news-image-narrative-monument/) | [`src/processes/news-image/registration-narrative-monument.ts`](src/processes/news-image/registration-narrative-monument.ts) |
+| `news-image-narrative-monument/v1` | [`docs/processes/news-image-narrative-monument/`](docs/processes/news-image-narrative-monument/) | [`src/processes/news-image/registration.ts`](src/processes/news-image/registration.ts) |
 | `news-image-pale-watercolor/v1` | [`docs/processes/news-image-pale-watercolor/`](docs/processes/news-image-pale-watercolor/) | [`src/processes/news-image/registration.ts`](src/processes/news-image/registration.ts) |
-| `news-image-raw-humanism/v1` | [`docs/processes/news-image-raw-humanism/`](docs/processes/news-image-raw-humanism/) | [`src/processes/news-image/registration-raw-humanism.ts`](src/processes/news-image/registration-raw-humanism.ts) |
+| `news-image-raw-humanism/v1` | [`docs/processes/news-image-raw-humanism/`](docs/processes/news-image-raw-humanism/) | [`src/processes/news-image/registration.ts`](src/processes/news-image/registration.ts) |
 
 总目录和新 Process 的放置规则见 [`docs/processes/README.md`](docs/processes/README.md)。production catalog 的准确清单由 [`src/processes/catalog.ts`](src/processes/catalog.ts) 和 [`src/app/business-processes.ts`](src/app/business-processes.ts) 决定。
 

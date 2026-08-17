@@ -1,4 +1,3 @@
-import { createInstalledSkillCatalog } from "../agent-runtime/catalog.js";
 import { parseOpenAIApiMode } from "../agent-runtime/pi.js";
 import {
     combineProcessRunLogSinks,
@@ -14,22 +13,15 @@ import type { ContentAgent } from "../processes/content/agent.js";
 import { parseBusinessApiBaseUrl } from "../processes/content/config.js";
 import { HttpContentProcessingCapability } from "../processes/content/http.js";
 import { PiContentAgent } from "../processes/content/pi.js";
-import { createContentSkillRefs } from "../processes/content/skills.js";
 import { HttpCrtRenderingCapability } from "../processes/crt/http.js";
 import { PiCrtAgent } from "../processes/crt/pi.js";
-import { createCrtSkillRefs } from "../processes/crt/skills.js";
 import { HttpNewsImageRenderingCapability } from "../processes/news-image/http.js";
 import { PiNewsImageAgent } from "../processes/news-image/pi.js";
-import {
-    createNarrativeMonumentSkillRefs,
-    createPaleWatercolorSkillRefs,
-    createRawHumanismSkillRefs,
-} from "../processes/news-image/skills.js";
 import { HttpPosterRenderingCapability } from "../processes/poster/http.js";
 import { PiPosterAgent } from "../processes/poster/pi.js";
-import { createPosterSkillRefs } from "../processes/poster/skills.js";
 import type { StartupEnvironment } from "./config.js";
 import { createPinoProcessRunLogSink } from "./process-run-logging.js";
+import { createProductionSkillBindings } from "./runtime-skills.js";
 
 export function createProductionRuntime(
     environment: StartupEnvironment,
@@ -62,35 +54,7 @@ export function createProductionRuntime(
             environment.BUSINESS_API_BASE_URL,
     );
     const openAIApiMode = parseOpenAIApiMode(environment.OPENAI_API_MODE);
-    const contentSkills = createContentSkillRefs({
-        optimizationPath: environment.PI_SKILL_DIRECTORY,
-    });
-    const posterSkills = createPosterSkillRefs({
-        path: environment.PI_POSTER_SKILL_DIRECTORY,
-    });
-    const crtSkills = createCrtSkillRefs({
-        path: environment.PI_CRT_SKILL_DIRECTORY,
-    });
-    const paleWatercolorSkills = createPaleWatercolorSkillRefs({
-        path: environment.PI_PALE_WATERCOLOR_SKILL_DIRECTORY,
-    });
-    const rawHumanismSkills = createRawHumanismSkillRefs({
-        path: environment.PI_RAW_HUMANISM_SKILL_DIRECTORY,
-    });
-    const narrativeMonumentSkills = createNarrativeMonumentSkillRefs({
-        path: environment.PI_NARRATIVE_MONUMENT_SKILL_DIRECTORY,
-    });
-    const skillCatalog = createInstalledSkillCatalog(
-        [
-            ...contentSkills,
-            ...posterSkills,
-            ...crtSkills,
-            ...paleWatercolorSkills,
-            ...rawHumanismSkills,
-            ...narrativeMonumentSkills,
-        ],
-        process.cwd(),
-    );
+    const skills = createProductionSkillBindings(environment);
     const capability = new HttpContentProcessingCapability({
         baseUrl,
         timeoutMs: parsePositiveInteger(
@@ -102,7 +66,7 @@ export function createProductionRuntime(
     const agent: ContentAgent | undefined =
         mode === "agent"
             ? new PiContentAgent({
-                  skills: skillCatalog.resolve(contentSkills),
+                  skills: skills.content,
                   provider: environment.PI_PROVIDER,
                   model: environment.PI_MODEL,
                   openAIBaseUrl: environment.OPENAI_BASE_URL,
@@ -115,7 +79,7 @@ export function createProductionRuntime(
         agent,
         poster: {
             agent: new PiPosterAgent({
-                skills: skillCatalog.resolve(posterSkills),
+                skills: skills.poster,
                 provider: environment.PI_PROVIDER,
                 model: environment.PI_MODEL,
                 openAIBaseUrl: environment.OPENAI_BASE_URL,
@@ -133,7 +97,7 @@ export function createProductionRuntime(
         },
         crt: {
             agent: new PiCrtAgent({
-                skills: skillCatalog.resolve(crtSkills),
+                skills: skills.crt,
                 provider: environment.PI_PROVIDER,
                 model: environment.PI_MODEL,
                 openAIBaseUrl: environment.OPENAI_BASE_URL,
@@ -152,7 +116,7 @@ export function createProductionRuntime(
         paleWatercolor: {
             agent: new PiNewsImageAgent({
                 style: "pale-watercolor",
-                skills: skillCatalog.resolve(paleWatercolorSkills),
+                skills: skills.paleWatercolor,
                 provider: environment.PI_PROVIDER,
                 model: environment.PI_MODEL,
                 openAIBaseUrl: environment.OPENAI_BASE_URL,
@@ -171,7 +135,7 @@ export function createProductionRuntime(
         rawHumanism: {
             agent: new PiNewsImageAgent({
                 style: "raw-humanism",
-                skills: skillCatalog.resolve(rawHumanismSkills),
+                skills: skills.rawHumanism,
                 provider: environment.PI_PROVIDER,
                 model: environment.PI_MODEL,
                 openAIBaseUrl: environment.OPENAI_BASE_URL,
@@ -190,7 +154,7 @@ export function createProductionRuntime(
         narrativeMonument: {
             agent: new PiNewsImageAgent({
                 style: "narrative-monument",
-                skills: skillCatalog.resolve(narrativeMonumentSkills),
+                skills: skills.narrativeMonument,
                 provider: environment.PI_PROVIDER,
                 model: environment.PI_MODEL,
                 openAIBaseUrl: environment.OPENAI_BASE_URL,

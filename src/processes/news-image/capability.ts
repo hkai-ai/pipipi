@@ -41,6 +41,11 @@ export const newsImageGenerationSchema = z.strictObject({
 
 export type NewsImageGeneration = z.infer<typeof newsImageGenerationSchema>;
 
+export type NewsImageStyle =
+    | "narrative-monument"
+    | "pale-watercolor"
+    | "raw-humanism";
+
 export const newsImageRenderingResultSchema = z.strictObject({
     image: newsImageSchema,
     generation: newsImageGenerationSchema,
@@ -55,7 +60,7 @@ export type NewsImageRenderingCapability = Readonly<{
         input: {
             prompt: string;
             aspectRatio: "4:3";
-            style: "narrative-monument" | "pale-watercolor" | "raw-humanism";
+            style: NewsImageStyle;
         },
         options: { signal: AbortSignal; idempotencyKey: string },
     ) => Promise<NewsImageRenderingResult>;

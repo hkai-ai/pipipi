@@ -8,6 +8,7 @@ import type { NewsImageAgent } from "./agent.js";
 import {
     type NewsImageRenderingCapability,
     NewsImageRenderingUnavailable,
+    type NewsImageStyle,
     newsImageSchema,
 } from "./capability.js";
 
@@ -16,48 +17,82 @@ const inputSchema = z.strictObject({
     summary: z.string().trim().min(1).max(12_000),
 });
 
-const compiledSchema = z.strictObject({
-    newsIdentity: z.string().trim().min(1).max(500),
-    coreTension: z.string().trim().min(1).max(500),
-    realityAnchor: z.string().trim().min(1).max(500),
-    factExclusions: z.array(z.string().trim().min(1).max(300)).min(1).max(5),
-    sceneKernel: z.string().trim().min(1).max(1_000),
-    prompt: z
-        .string()
-        .trim()
-        .min(300)
-        .max(8_000)
-        .refine(hasPromptContract, "News image prompt contract is invalid"),
-});
-
-const outputSchema = z.strictObject({
-    style: z.literal("pale-watercolor"),
-    image: newsImageSchema,
-});
-
-export function createPaleWatercolorRegistration(options: {
+type NewsImageRegistrationOptions = Readonly<{
     agent: NewsImageAgent;
     capability: NewsImageRenderingCapability;
-}): ProcessRegistration {
+}>;
+
+type NewsImagePolicy = Readonly<{
+    id: `news-image-${NewsImageStyle}`;
+    agentRequiredMessage: string;
+    capabilityRequiredMessage: string;
+    agentFailureMessage: string;
+    promptErrorMessage: string;
+    hasPromptContract: (prompt: string) => boolean;
+}>;
+
+const policies = {
+    "narrative-monument": {
+        id: "news-image-narrative-monument",
+        agentRequiredMessage: "Narrative Monument Agent is required",
+        capabilityRequiredMessage:
+            "Narrative Monument Rendering Capability is required",
+        agentFailureMessage:
+            "The narrative monument prompt agent could not complete the request",
+        promptErrorMessage: "Narrative monument prompt is invalid",
+        hasPromptContract: hasNarrativeMonumentPromptContract,
+    },
+    "pale-watercolor": {
+        id: "news-image-pale-watercolor",
+        agentRequiredMessage: "News Image Agent is required",
+        capabilityRequiredMessage:
+            "News Image Rendering Capability is required",
+        agentFailureMessage:
+            "The news image prompt agent could not complete the request",
+        promptErrorMessage: "News image prompt contract is invalid",
+        hasPromptContract: hasPaleWatercolorPromptContract,
+    },
+    "raw-humanism": {
+        id: "news-image-raw-humanism",
+        agentRequiredMessage: "Raw Humanism News Image Agent is required",
+        capabilityRequiredMessage:
+            "Raw Humanism Rendering Capability is required",
+        agentFailureMessage:
+            "The raw humanism prompt agent could not complete the request",
+        promptErrorMessage: "Raw humanism prompt contract is invalid",
+        hasPromptContract: hasRawHumanismPromptContract,
+    },
+} satisfies Record<NewsImageStyle, NewsImagePolicy>;
+
+export function createNewsImageRegistration(
+    style: NewsImageStyle,
+    options: NewsImageRegistrationOptions,
+): ProcessRegistration {
+    const policy: NewsImagePolicy = policies[style];
     if (
         typeof options.agent !== "object" ||
         options.agent === null ||
         typeof options.agent.compile !== "function"
     ) {
-        throw new Error("News Image Agent is required");
+        throw new Error(policy.agentRequiredMessage);
     }
     if (
         typeof options.capability !== "object" ||
         options.capability === null ||
         typeof options.capability.render !== "function"
     ) {
-        throw new Error("News Image Rendering Capability is required");
+        throw new Error(policy.capabilityRequiredMessage);
     }
     const agent = options.agent;
     const capability = options.capability;
+    const compiledSchema = createCompiledSchema(policy);
+    const outputSchema = z.strictObject({
+        style: z.literal(style),
+        image: newsImageSchema,
+    });
 
     return defineProcessRegistration({
-        id: "news-image-pale-watercolor",
+        id: policy.id,
         version: "v1",
         inputSchema,
         outputSchema,
@@ -85,10 +120,7 @@ export function createPaleWatercolorRegistration(options: {
                 compiled = compilation.output;
                 promptModel = compilation.promptModel;
             } catch {
-                return failProcess(
-                    "AGENT_FAILURE",
-                    "The news image prompt agent could not complete the request",
-                );
+                return failProcess("AGENT_FAILURE", policy.agentFailureMessage);
             }
 
             try {
@@ -99,7 +131,7 @@ export function createPaleWatercolorRegistration(options: {
                             {
                                 prompt: compiled.prompt,
                                 aspectRatio: "4:3",
-                                style: "pale-watercolor",
+                                style,
                             },
                             {
                                 signal: context.signal,
@@ -115,7 +147,7 @@ export function createPaleWatercolorRegistration(options: {
                     },
                 });
                 return {
-                    style: "pale-watercolor" as const,
+                    style,
                     image: rendered.image,
                 };
             } catch (error) {
@@ -131,11 +163,30 @@ export function createPaleWatercolorRegistration(options: {
     });
 }
 
+function createCompiledSchema(policy: NewsImagePolicy) {
+    return z.strictObject({
+        newsIdentity: z.string().trim().min(1).max(500),
+        coreTension: z.string().trim().min(1).max(500),
+        realityAnchor: z.string().trim().min(1).max(500),
+        factExclusions: z
+            .array(z.string().trim().min(1).max(300))
+            .min(1)
+            .max(5),
+        sceneKernel: z.string().trim().min(1).max(1_000),
+        prompt: z
+            .string()
+            .trim()
+            .min(300)
+            .max(8_000)
+            .refine(policy.hasPromptContract, policy.promptErrorMessage),
+    });
+}
+
 function normalizeWhitespace(value: string): string {
     return value.replace(/\s+/gu, " ");
 }
 
-function hasPromptContract(prompt: string): boolean {
+function findPromptContractEnd(prompt: string): number | undefined {
     const headings = [
         "Use case: stylized-concept",
         "Asset type: horizontal editorial main visual, composed safely for a 4:3 crop",
@@ -149,9 +200,26 @@ function hasPromptContract(prompt: string): boolean {
     let cursor = -1;
     for (const heading of headings) {
         const next = prompt.indexOf(heading, cursor + 1);
-        if (next <= cursor) return false;
+        if (next <= cursor) return undefined;
         cursor = next;
     }
+    return cursor + "NEGATIVE CONSTRAINTS:".length;
+}
+
+function hasNarrativeMonumentPromptContract(prompt: string): boolean {
+    if (findPromptContractEnd(prompt) === undefined) return false;
+    return (
+        /cobalt-blue/iu.test(prompt) &&
+        /warm ivory/iu.test(prompt) &&
+        /charcoal/iu.test(prompt) &&
+        /old-gold ring/iu.test(prompt) &&
+        /exact Chinese title/iu.test(prompt) &&
+        /No other words or pseudo-text\./u.test(prompt)
+    );
+}
+
+function hasPaleWatercolorPromptContract(prompt: string): boolean {
+    if (findPromptContractEnd(prompt) === undefined) return false;
     return (
         prompt.includes(
             "No text, letters, numbers, logos or pseudo-text anywhere in the image.",
@@ -162,5 +230,22 @@ function hasPromptContract(prompt: string): boolean {
         /one third/iu.test(prompt) &&
         /cinematic lighting/iu.test(prompt) &&
         /second metaphor/iu.test(prompt)
+    );
+}
+
+function hasRawHumanismPromptContract(prompt: string): boolean {
+    const negativeConstraintsStart = findPromptContractEnd(prompt);
+    if (negativeConstraintsStart === undefined) return false;
+    const negativeConstraints = prompt.slice(negativeConstraintsStart);
+    return (
+        prompt.includes(
+            "No text, letters, numbers, logos or pseudo-text anywhere in the image.",
+        ) &&
+        /#141413/iu.test(prompt) &&
+        /#FAF9F5/iu.test(prompt) &&
+        /60%/u.test(prompt) &&
+        /flat/iu.test(prompt) &&
+        /\btextures?\b/iu.test(negativeConstraints) &&
+        /\bgradients?\b/iu.test(negativeConstraints)
     );
 }

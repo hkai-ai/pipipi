@@ -171,6 +171,8 @@ Activity Log 只允许 `runId`、Process identity、Attempt、固定 activity、
 mode 在启动时成组校验；Installed Skill Catalog 在监听端口前读取本地 `SKILL.md`，校验准确名称、版本和 SHA-256。模型与远程 Business Capability 仍保持惰性，不影响 liveness。配置或本地 Skill 错误会在
 Application 监听端口前抛出。
 
+[`createProductionSkillBindings`](../src/app/runtime-skills.ts) 是生产安装集合的单一 Composition Module。API、Process Worker 与发布前环境检查复用它；因此路径覆盖、版本、SHA-256 或快照内容错误会在数据库 migration 和容器切换前终止发布。非 Agent 角色不读取 Runtime Skill。
+
 Async Process Runs 默认关闭。显式启用时，Construction Root 复用同一个 production Registry，
 组装 PostgreSQL Store、`submit/find` Module、可信 caller identity Resolver 和 readiness，并由
 Application 在关闭 HTTP server 后释放 Pool。数据库 migration 由部署步骤完成，启动过程不会
@@ -228,6 +230,8 @@ Interface 就是测试面：
 - Application 测试注入 fake ready Process Executor，证明 Application 不依赖具体流程。
 - 远程依赖测试使用受控 Adapter 或 mock Adapter，不访问真实凭证与远端系统。
 - Installed Skill Catalog 测试启动期完整性校验、稳定清单、准确版本解析和禁止回退。Runtime Skill Set 测试生产绑定、多项顺序、未绑定项隔离、重名拒绝和准确名称解析。Structured Agent Session 测试固定 Skill 注入、空 Tool 表面、JSON 结果、取消和资源释放。
+- 新闻图片 Process 测试三个固定风格的输入归一化、单次渲染、`runId` 幂等键、实现结果隐藏、Agent 输出拒绝和 Rendering Capability 稳定失败。
+- 三个新闻图片 Registration 复用参数化的 `createNewsImageRegistration` Module；私有风格策略固定 Process identity、输出 style、Prompt 契约和公开 Agent 错误，调用方只提供固定 style、Agent 与 Rendering Capability。
 - Agent Registration 测试文本 Tool 的缺失、重复调用和结果来源，也测试海报与 CRT Agent 的结构、请求约束和先验证后渲染。CRT 测试还证明 Agent 看不到资产标识、Capability 只调用一次、图片为受限 PNG 且比例正确。确定性测试不调用真实模型。文本 smoke 验证真实 Tool 路径；海报业务验收从产品 `POST /execute` 经过 production catalog、真实 Agent、production HTTP Adapter、受控 `POST /posters` Capability 和真实图片 URL；CRT 的显式 smoke 当前只验证 GPT Image 2 reference-edit stage。Skill A/B 组合仍由独立命令执行。
 
 测试不读取私有 Map，不断言 key 编码，也不依赖内部 helper 的调用顺序。Implementation
