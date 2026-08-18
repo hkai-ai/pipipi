@@ -40,6 +40,7 @@
         "test:gpt-image-2": "npm run accept:poster-business",
         "smoke:crt-gpt-image": "node --env-file-if-exists=.env --import tsx examples/crt-gpt-image-smoke.ts",
         "accept:crt-business": "node --env-file-if-exists=.env --import tsx examples/crt-business-acceptance.ts",
+        "accept:news-image-business": "node --env-file-if-exists=.env --import tsx examples/news-image-business-acceptance.ts",
         "check": "biome check .",
         "check:fix": "biome check --write .",
         "lint": "biome lint .",

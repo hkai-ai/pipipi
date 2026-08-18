@@ -97,6 +97,7 @@ curl --fail -X POST http://127.0.0.1:3000/execute \
 | `npm run accept:poster-business`（`smoke:poster-process`、`test:gpt-image-2` 别名） | 从产品 `POST /execute` 验收 `minimal-zine-poster/v1`、真实图片与可选上传 | 是，可能产生模型和存储费用 |
 | `npm run smoke:crt-gpt-image` | 验证一张本地参考图可通过 GPT Image 2 edit stage 生成 PNG；不运行 finalizer 或完整 Process | 是，读取本地图片、产生模型费用并写 `artifacts/` |
 | `npm run accept:crt-business` | 用公网图片 URL 从产品 `POST /execute` 验收 `crt-interface-image/v1`、FAL、finalizer、可选 OSS 与证据策略 | 是，联网读取图片、产生模型/存储费用并写 `artifacts/` |
+| `npm run accept:news-image-business` | 从产品 `POST /execute` 验收三个固定新闻图片 Process、真实 Agent、FAL、OSS 对象位置和最终 1600×1200 PNG | 是，固定产生三次 Agent、至多三次图片生成与三次 OSS PUT；要求显式费用批准 |
 | `npm run smoke:oss` | 上传已有文件并读取首字节 | 是，会写对象存储 |
 
 真实集成命令的配置、判据和产物见 [`experiments.md`](experiments.md)。默认测试套件不调用模型、OSS 或外部业务系统。
@@ -151,6 +152,8 @@ npm run test:acceptance:console:local
 命令自动选择常见位置的 Chrome；其他 Chromium-compatible 安装通过 `CHROME_PATH=/absolute/path` 指定。该验收有意不进入默认 `npm test` 的外部依赖路径，也不对组件私有状态或大面积快照做断言。
 
 Pull Request 和 `main` 的 `Production CI/CD` 另设稳定检查名 `Async durable acceptance`，与快速的 `Check and build` 分开运行。该 Job 在同一个隔离 Compose project 内依次执行 PostgreSQL Store contract、完整 BullMQ/跨 Seam suite 和浏览器验收；三层全部成功才允许生产 Job 继续。runner 在正常结束、失败和首次中断信号时清理，workflow 还用 `always()` 按本次 Actions run 的固定 project name 再执行幂等清理。Job 只使用仓库测试凭证和免费本地 Capability，不读取生产 Secret，也不上传失败产物。
+
+同一 workflow 的新闻图片付费验收默认关闭，不阻塞非 Pull Request 候选。显式把 Repository Variable `NEWS_IMAGE_ACCEPTANCE_ENABLED` 设为 `true` 后，只有 Runtime Skill、共享 Agent Runtime、新闻图片 Process、图片 Business API、模型/OSS 依赖或相关部署资源发生变化时，`Paid news image Business Process acceptance` 才进入 required-reviewer 管理的 `news-image-acceptance` Environment。批准后它为准确 `github.sha` 执行三个固定 Process Run，验证每个输出的 style、单次 FAL 生成、OSS 路径、无重定向下载和 1600×1200 PNG；同 revision 脱敏证据成功后 `Deploy production` 才能继续。其他改动明确跳过该付费 Job，PR 始终只运行免费确定性测试。
 
 `Async internal release` 与上述 CI 分开，只支持 `workflow_dispatch`，并绑定 `async-internal` Environment。它不重新构建候选，而是验证操作者给出的 Production CI/CD run 中 `Check and build` 与 `Async durable acceptance` 都成功，再下载该 run 的精确 commit artifact。它与默认发布共享 Actions 并发组和服务器发布锁，并使用 Environment 固定的 SSH host key。发布脚本是 [`../ops/deploy-async-internal.sh`](../ops/deploy-async-internal.sh)；workflow 只负责候选验证、受保护授权、传输和声明过的证据文件回收，远端脚本拥有门禁顺序、角色切换、信号中断恢复和候选文件清理。
 
@@ -312,6 +315,7 @@ Webhook 重试状态以 PostgreSQL 为准，不依赖 BullMQ 的 Job attempts。
 | `src/app/api.ts` | API 配置翻译、校验、Adapter 选择和完整生产组装 |
 | `src/app/business-processes.ts` | production Business Process Runtime 与 catalog 依赖组装 |
 | `src/app/runtime-skills.ts` | 七个 Runtime Skill 的生产安装集合、启动完整性校验和精确 Process 绑定 |
+| `src/app/news-image-acceptance.ts` | 三个新闻图片 Process 的真实 HTTP/OSS 验收、下载限制、PNG 检查和无 URL 证据投影 |
 | `src/app/process-dispatcher.ts`、`process-worker.ts`、`retention-cleaner.ts` | 各后台角色独立的配置和 Adapter 组装 |
 | `src/app/process-recovery.ts`、`async-operations.ts` | 一次性运维命令的资源组装 |
 | `src/app/webhook-worker.ts` | Webhook Worker 的 Delivery、Outbox、Queue 和 HTTP Sender 组装 |
@@ -332,6 +336,7 @@ Webhook 重试状态以 PostgreSQL 为准，不依赖 BullMQ 的 Job attempts。
 | `src/processes/crt/capability.ts`、`http.ts` | CRT Rendering Capability、PNG 引用契约与 `POST /crt-images` Adapter |
 | `src/processes/crt/style.ts`、`skills.ts` | 固定调色板、画幅和准确 Runtime Skill 绑定 |
 | `test/news-image-process.test.ts` | 三个新闻图片 Process 的输入归一化、固定风格、单次渲染、输出隐藏和稳定失败回归 |
+| `test/news-image-business-acceptance.test.ts` | 三个固定 Process 的单次验收、OSS 位置、重定向拒绝和证据净化 |
 | `src/process-runs/index.ts` | 异步提交、owner 隔离、caller-scoped idempotency 和公共状态投影 |
 | `src/process-runs/store/index.ts`、`src/process-runs/store/postgres.ts` | 权威状态转换，以及内存和 PostgreSQL Adapter |
 | `src/process-runs/queue/index.ts`、`src/process-runs/queue/bullmq.ts` | 最小 Job Interface，以及内存和 BullMQ Adapter |

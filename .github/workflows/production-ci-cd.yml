@@ -102,12 +102,203 @@ jobs:
           --file compose.integration.yaml
           down --volumes --remove-orphans
 
-  deploy:
-    name: Deploy production
+  news-image-change-check:
+    name: Detect optional news image acceptance scope
     if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      required: ${{ steps.changes.outputs.required }}
+
+    steps:
+      - name: Checkout candidate history
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Detect paid acceptance changes
+        id: changes
+        env:
+          ACCEPTANCE_ENABLED: ${{ vars.NEWS_IMAGE_ACCEPTANCE_ENABLED }}
+          BEFORE_SHA: ${{ github.event.before }}
+        run: |
+          set -Eeuo pipefail
+          required=false
+          if [[ "$ACCEPTANCE_ENABLED" == "true" ]]; then
+            required=true
+            if [[ "$GITHUB_EVENT_NAME" == "push" &&
+                  "$BEFORE_SHA" =~ ^[0-9a-f]{40}$ &&
+                  ! "$BEFORE_SHA" =~ ^0{40}$ ]] &&
+               git cat-file -e "$BEFORE_SHA^{commit}"; then
+              if git diff --quiet "$BEFORE_SHA" "$GITHUB_SHA" -- \
+                .pi/skills/news-image-narrative-monument-prompt \
+                .pi/skills/news-image-pale-watercolor-prompt \
+                .pi/skills/news-image-raw-humanism-prompt \
+                .github/workflows/production-ci-cd.yml \
+                Dockerfile \
+                compose.production.yaml \
+                examples/news-image-business-acceptance.ts \
+                package.json \
+                package-lock.json \
+                src/agent-runtime \
+                src/app/api.ts \
+                src/app/business-processes.ts \
+                src/app/config.ts \
+                src/app/news-image-acceptance.ts \
+                src/app/runtime-skills.ts \
+                src/bin/api.ts \
+                src/bin/crt-business-api.ts \
+                src/business-api \
+                src/processes/catalog.ts \
+                src/processes/news-image; then
+                required=false
+              fi
+            fi
+          fi
+          echo "required=$required" >> "$GITHUB_OUTPUT"
+
+  news-image-acceptance:
+    name: Paid news image Business Process acceptance
+    if: needs.news-image-change-check.outputs.required == 'true'
     needs:
       - ci
       - async-acceptance
+      - news-image-change-check
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment:
+      name: news-image-acceptance
+    concurrency:
+      group: pipipi-production-release
+      cancel-in-progress: false
+
+    steps:
+      - name: Checkout immutable candidate
+        uses: actions/checkout@v6
+
+      - name: Verify candidate revision
+        run: test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          cache: npm
+
+      - name: Install candidate dependencies
+        run: npm ci
+
+      - name: Run three approved news image Process journeys
+        env:
+          CRT_IMAGE_MODEL: gpt-image-2
+          FAL_KEY: ${{ secrets.FAL_KEY }}
+          IMAGE_PROVIDER: fal
+          NEWS_IMAGE_ACCEPTANCE_COST_APPROVAL_REFERENCE: github-run-${{ github.run_id }}-${{ github.run_attempt }}
+          NEWS_IMAGE_ACCEPTANCE_COST_CONFIRMATION: APPROVE_THREE_NEWS_IMAGE_PROCESS_RUNS
+          NEWS_IMAGE_ACCEPTANCE_COST_LIMIT_USD: ${{ vars.NEWS_IMAGE_ACCEPTANCE_COST_LIMIT_USD }}
+          NEWS_IMAGE_ACCEPTANCE_EVIDENCE_FILE: artifacts/news-image-acceptance/evidence.json
+          NEWS_IMAGE_ACCEPTANCE_EXPECTED_OSS_HOST: ${{ vars.NEWS_IMAGE_ACCEPTANCE_EXPECTED_OSS_HOST }}
+          NEWS_IMAGE_ACCEPTANCE_EXPECTED_OSS_PATH_PREFIX: ${{ vars.NEWS_IMAGE_ACCEPTANCE_EXPECTED_OSS_PATH_PREFIX }}
+          NEWS_IMAGE_ACCEPTANCE_REVISION: ${{ github.sha }}
+          OBJECT_STORAGE_PROVIDER: aliyun-oss
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENAI_API_MODE: ${{ vars.OPENAI_API_MODE || 'chat-completions' }}
+          OPENAI_BASE_URL: ${{ vars.OPENAI_BASE_URL }}
+          OSS_ACCESS_KEY_ID: ${{ secrets.OSS_ACCESS_KEY_ID }}
+          OSS_ACCESS_KEY_SECRET: ${{ secrets.OSS_ACCESS_KEY_SECRET }}
+          OSS_BUCKET: ${{ vars.OSS_BUCKET }}
+          OSS_CNAME: ${{ vars.OSS_CNAME || 'false' }}
+          OSS_ENDPOINT: ${{ vars.OSS_ENDPOINT }}
+          OSS_REGION: ${{ vars.OSS_REGION }}
+          OSS_SIGNED_URL_TTL_SECONDS: "3600"
+          OSS_STS_TOKEN: ${{ secrets.OSS_STS_TOKEN }}
+          OSS_URL_ACCESS: signed
+          PI_MODEL: ${{ vars.PI_MODEL }}
+          PI_PROVIDER: openai
+        run: npm run accept:news-image-business
+
+      - name: Verify safe same-revision evidence
+        if: ${{ always() }}
+        env:
+          FAL_KEY: ${{ secrets.FAL_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OSS_ACCESS_KEY_ID: ${{ secrets.OSS_ACCESS_KEY_ID }}
+          OSS_ACCESS_KEY_SECRET: ${{ secrets.OSS_ACCESS_KEY_SECRET }}
+          OSS_STS_TOKEN: ${{ secrets.OSS_STS_TOKEN }}
+        run: |
+          set -Eeuo pipefail
+          evidence=artifacts/news-image-acceptance/evidence.json
+          test -f "$evidence"
+          jq --exit-status --arg revision "$GITHUB_SHA" '
+            .schemaVersion == 1 and
+            .event == "news_image_business_acceptance_completed" and
+            .revision == $revision and .status == "succeeded" and
+            .providers.image == "fal" and
+            .providers.storage == "aliyun-oss" and
+            .totals == {processRuns:3, imageGenerationAttempts:3} and
+            (.processRuns | length) == 3 and
+            ([.processRuns[].process.id] == [
+              "news-image-narrative-monument",
+              "news-image-pale-watercolor",
+              "news-image-raw-humanism"
+            ]) and
+            ([.processRuns[].style] == [
+              "narrative-monument",
+              "pale-watercolor",
+              "raw-humanism"
+            ]) and
+            ([.processRuns[]] | all(
+              .process.version == "v1" and
+              .processRunStatus == "succeeded" and
+              (.runId | test("^[0-9a-f-]{36}$")) and
+              .object.contentType == "image/png" and
+              .object.width == 1600 and .object.height == 1200 and
+              .object.bytes > 0 and
+              (.object.contentSha256 | test("^[0-9a-f]{64}$")) and
+              .object.expectedOssLocationVerified == true and
+              .object.accessible == true
+            ))
+          ' "$evidence" >/dev/null
+          for value in \
+            "$FAL_KEY" "$OPENAI_API_KEY" "$OSS_ACCESS_KEY_ID" \
+            "$OSS_ACCESS_KEY_SECRET" "$OSS_STS_TOKEN"; do
+            if [[ -n "$value" ]]; then
+              jq --exit-status --arg value "$value" \
+                '(tostring | contains($value) | not)' "$evidence" >/dev/null
+            fi
+          done
+          if jq -r '.. | objects | keys[]' "$evidence" | \
+              grep -Eiq '(^|_)(url|prompt|secret|credential|authorization|payload|input|output|fal.?key|oss.?access)($|_)'; then
+            echo "Forbidden news image acceptance evidence field detected" >&2
+            exit 1
+          fi
+
+      - name: Upload news image acceptance evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v6
+        with:
+          name: pipipi-news-image-acceptance-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/news-image-acceptance/evidence.json
+          if-no-files-found: error
+          retention-days: 90
+
+  deploy:
+    name: Deploy production
+    if: >-
+      always() &&
+      github.event_name != 'pull_request' &&
+      needs.ci.result == 'success' &&
+      needs.async-acceptance.result == 'success' &&
+      needs.news-image-change-check.result == 'success' &&
+      ((needs.news-image-change-check.outputs.required == 'true' &&
+        needs.news-image-acceptance.result == 'success') ||
+       (needs.news-image-change-check.outputs.required != 'true' &&
+        needs.news-image-acceptance.result == 'skipped'))
+    needs:
+      - ci
+      - async-acceptance
+      - news-image-change-check
+      - news-image-acceptance
     runs-on: ubuntu-latest
     timeout-minutes: 20
     environment: production

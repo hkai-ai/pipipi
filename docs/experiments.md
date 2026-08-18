@@ -22,6 +22,7 @@
 | `npm run accept:poster-business`（兼容别名：`smoke:poster-process`、`test:gpt-image-2`） | 从产品 HTTP Interface 验收 `minimal-zine-poster/v1` | Agent、OpenAI Images 或 FAL 请求，可选 OSS PUT | `artifacts/gpt-image-2/latest.*` |
 | `npm run smoke:crt-gpt-image` | 用一张本地参考图验证 GPT Image 2 edit stage | 读取本地图片、OpenAI Images 或 FAL 请求、本地写入 | `artifacts/crt-interface-image/latest.*` |
 | `npm run accept:crt-business` | 从公网图片 URL 与产品 HTTP Interface 验收 `crt-interface-image/v1` | Agent、FAL、可选 OSS 与本地产物写入 | `artifacts/crt-interface-image/acceptance/latest.*` |
+| `npm run accept:news-image-business` | 从产品 HTTP Interface 验收三个新闻图片 Process、FAL 与 OSS | 三次 Agent、三次 FAL 图片生成与三次 OSS PUT | `artifacts/news-image-acceptance/evidence.json` |
 | `npm run smoke:oss` | 已有文件的上传、URL 生成和首字节读取 | OSS PUT 与 GET | `artifacts/object-storage/latest.json` |
 | `npm run smoke:staging` | 已部署环境的健康、成功与拒绝契约 | 受控环境请求 | 终端判据 |
 
@@ -184,6 +185,30 @@ FAL_KEY=replace-with-fal-key
 ```
 
 FAL Adapter 固定调用 `openai/gpt-image-2` 与 `openai/gpt-image-2/edit`，把本地参考图编码为 Data URI，并设置 `sync_mode=true` 直接取回结果。供应商返回的 request ID 会进入本地报告；凭证、Prompt 正文、参考图像素和远端错误正文不会进入报告。生产采用 FAL 前必须评审图片数据保留、区域、费用、队列超时和删除要求。
+
+## 新闻图片业务验收
+
+`accept:news-image-business` 检出并运行当前代码的 production Composition，临时启动回环图片 Business API，再从正式 `POST /execute` 依次执行人物叙事碑式、淡彩绘本和原质人文主义三个准确版本。每个 Process 只允许一次图片生成；命令总计最多发起三次 Agent 调用、三次 FAL 图片生成和三次 OSS PUT。它固定使用 `gpt-image-2`、`low` 质量与服务端测试新闻，不接受调用方 Prompt、Skill、风格或图片配置。
+
+该命令会产生费用和远端写入，运行前必须明确批准三次 Process Run、USD 上限、当前完整 commit SHA，以及允许读取的 OSS host/path prefix：
+
+```bash
+NEWS_IMAGE_ACCEPTANCE_COST_CONFIRMATION=APPROVE_THREE_NEWS_IMAGE_PROCESS_RUNS \
+NEWS_IMAGE_ACCEPTANCE_COST_LIMIT_USD=1.00 \
+NEWS_IMAGE_ACCEPTANCE_COST_APPROVAL_REFERENCE=release-ticket-123 \
+NEWS_IMAGE_ACCEPTANCE_REVISION="$(git rev-parse HEAD)" \
+NEWS_IMAGE_ACCEPTANCE_EXPECTED_OSS_HOST=assets.example.com \
+NEWS_IMAGE_ACCEPTANCE_EXPECTED_OSS_PATH_PREFIX=/news-image/ \
+PI_PROVIDER=openai \
+PI_MODEL=gpt-5.6-terra \
+IMAGE_PROVIDER=fal \
+OBJECT_STORAGE_PROVIDER=aliyun-oss \
+npm run accept:news-image-business
+```
+
+模型、FAL 与 OSS 凭证仍由本地 `.env` 或受保护 Environment 注入。成功证据只保存 revision、三个 Process identity、Run ID、固定 style、图片内容哈希、字节数、尺寸、访问结果、供应商类别和费用批准摘要；不保存固定测试新闻、Prompt、图片 URL、签名参数、模型响应或凭证。下载只允许配置的 HTTPS OSS host 和准确的 `news-image/<style>/<runId>.png` 路径，不跟随重定向。
+
+`Production CI/CD` 的 Pull Request Job 不运行该付费验收，默认生产发布也直接跳过。显式把 Repository Variable `NEWS_IMAGE_ACCEPTANCE_ENABLED` 设为 `true` 后，`main` 候选只有修改新闻图片 Runtime Skill、共享 Agent Runtime、新闻图片 Process、图片 Business API、OSS/模型依赖或相关部署资源时，才进入 required-reviewer 管理的 `news-image-acceptance` Environment；批准后对同一 `github.sha` 运行验收，成功才允许生产部署。其他改动跳过该 Job。
 
 ## 阿里云 OSS 上传
 

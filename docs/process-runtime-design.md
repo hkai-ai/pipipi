@@ -232,6 +232,7 @@ Interface 就是测试面：
 - Installed Skill Catalog 测试启动期完整性校验、稳定清单、准确版本解析和禁止回退。Runtime Skill Set 测试生产绑定、多项顺序、未绑定项隔离、重名拒绝和准确名称解析。Structured Agent Session 测试固定 Skill 注入、空 Tool 表面、JSON 结果、取消和资源释放。
 - 新闻图片 Process 测试三个固定风格的输入归一化、单次渲染、`runId` 幂等键、实现结果隐藏、Agent 输出拒绝和 Rendering Capability 稳定失败。
 - 三个新闻图片 Registration 复用参数化的 `createNewsImageRegistration` Module；私有风格策略固定 Process identity、输出 style、Prompt 契约和公开 Agent 错误，调用方只提供固定 style、Agent 与 Rendering Capability。
+- `createNewsImageAcceptance` 是发布期验收 Module：它固定三个准确 Process 和非敏感测试输入，经产品 `POST /execute` 逐一执行，只从批准的 HTTPS OSS host 与准确对象路径下载且不跟随重定向，并把 URL、签名参数和业务内容移除后返回图片哈希、尺寸、字节数与 Run metadata。测试通过注入的 HTTP Adapter 验证三次执行、风格隔离、对象位置和证据净化；真实命令使用当前 commit 的 production Composition、FAL 与 OSS Adapter。
 - Agent Registration 测试文本 Tool 的缺失、重复调用和结果来源，也测试海报与 CRT Agent 的结构、请求约束和先验证后渲染。CRT 测试还证明 Agent 看不到资产标识、Capability 只调用一次、图片为受限 PNG 且比例正确。确定性测试不调用真实模型。文本 smoke 验证真实 Tool 路径；海报业务验收从产品 `POST /execute` 经过 production catalog、真实 Agent、production HTTP Adapter、受控 `POST /posters` Capability 和真实图片 URL；CRT 的显式 smoke 当前只验证 GPT Image 2 reference-edit stage。Skill A/B 组合仍由独立命令执行。
 
 测试不读取私有 Map，不断言 key 编码，也不依赖内部 helper 的调用顺序。Implementation

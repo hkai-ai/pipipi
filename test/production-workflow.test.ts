@@ -10,7 +10,11 @@ describe("Production CI/CD workflow", () => {
         const manifest = JSON.parse(manifestSource) as {
             scripts: Record<string, string>;
         };
-        const acceptance = job(workflow, "async-acceptance", "deploy");
+        const acceptance = job(
+            workflow,
+            "async-acceptance",
+            "news-image-change-check",
+        );
         const cleanup = step(acceptance, "Clean isolated dependencies");
         const deploy = job(workflow, "deploy");
         const gateway = step(deploy, "Verify console gateway precondition");

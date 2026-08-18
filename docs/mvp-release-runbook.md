@@ -90,7 +90,7 @@ Vercel Functions、Netlify Functions 和 Cloudflare Workers 不能直接运行�
 
 ## 单服务器 GitHub Actions 发布
 
-仓库通过 [production CI/CD](../.github/workflows/production-ci-cd.yml) 把同步 API 发布到一台 Linux Docker 服务器。Pull Request 并行执行确定性的 `Check and build` 与真实依赖的 `Async durable acceptance`；后者在隔离 PostgreSQL/Redis 中按固定顺序验证 Store、BullMQ/跨 Seam 和构建控制台的浏览器旅程，并始终执行 Compose 清理。`main` 推送和手动触发只有在两项检查都成功后，才把镜像归档与生产 Compose 上传服务器并激活。生产 Job 使用 GitHub `production` Environment，并与异步 internal 发布共享 `pipipi-production-release` 并发组；服务器的 `shared/deployment.lock` 还会拒绝 Actions 之外的并发发布。
+仓库通过 [production CI/CD](../.github/workflows/production-ci-cd.yml) 把同步 API 发布到一台 Linux Docker 服务器。Pull Request 并行执行确定性的 `Check and build` 与真实依赖的 `Async durable acceptance`；后者在隔离 PostgreSQL/Redis 中按固定顺序验证 Store、BullMQ/跨 Seam 和构建控制台的浏览器旅程，并始终执行 Compose 清理。新闻图片付费验收默认关闭，不影响非 Pull Request 候选；启用后，相关路径命中时必须先由 required reviewer 批准 `news-image-acceptance` Environment，并让准确 `github.sha` 完成三个真实 Process Run。`main` 推送和手动触发只有免费检查与已启用且需要的付费验收都成功后，才把镜像归档与生产 Compose 上传服务器并激活。生产 Job 使用 GitHub `production` Environment，并与新闻图片验收及异步 internal 发布共享 `pipipi-production-release` 并发组；服务器的 `shared/deployment.lock` 还会拒绝 Actions 之外的并发发布。
 
 生产镜像固定 Node.js 24、编译产物、生产依赖和七个 Runtime Skill，不包含源码、`.env` 或凭证。服务器加载 `pipipi:<commit>` 镜像，再通过 [`compose.production.yaml`](../compose.production.yaml) 以同一镜像重建 `pipipi` 和 `pipipi-business-api` 两个容器。部署脚本校验两个容器的 image tag、revision label、liveness 和 readiness；失败时恢复部署前的镜像与 Compose 形状。release artifact 同时携带 `pipipi-<commit>.compose.async.yaml`，但自动部署不上传或激活它；该文件只供通过异步 Runbook 门禁后的显式叠加部署使用。若服务器存在任一异步角色容器，默认同步流水线会拒绝继续；发布人员必须先按异步手册停流、处理已接受 Run，并执行显式回退，不能借普通发布隐式删除 Worker。
 
@@ -115,8 +115,11 @@ Repository variables：
 | `REMOTE_USER` | 部署账户，当前服务器填写 `root` |
 | `REMOTE_PATH` | 绝对部署目录，例如 `/opt/pipipi` |
 | `CONSOLE_PUBLIC_URL` | 已由入口网关保护的完整 HTTPS 控制台路径；生产发布会在替换容器前验证匿名请求均被拒绝 |
+| `NEWS_IMAGE_ACCEPTANCE_ENABLED` | 可选；精确设为 `true` 才启用新闻图片付费验收，缺省或其他值均跳过且不阻塞发布 |
 
 workflow 的生产 Job仍使用 GitHub `production` Environment 记录部署并执行并发控制。应在 Settings → Environments 创建 `production`，配置 required reviewer 和 `main` 分支限制，并把已核对的 `SSH_KNOWN_HOSTS` 保存为该 Environment 的 Secret；`async-internal` Environment 同样保存该值。其他连接 Secret 和 Variable 可使用 Repository scope。
+
+当前无需创建 `news-image-acceptance` Environment；保持 `NEWS_IMAGE_ACCEPTANCE_ENABLED` 未设置即可默认跳过。需要启用时，先创建 required-reviewer 管理并限制为 `main` 的 `news-image-acceptance` Environment，再把 Repository Variable `NEWS_IMAGE_ACCEPTANCE_ENABLED` 设为 `true`。该 Environment 的 Secrets 是 `OPENAI_API_KEY`、`FAL_KEY`、`OSS_ACCESS_KEY_ID`、`OSS_ACCESS_KEY_SECRET` 和可选 `OSS_STS_TOKEN`；Variables 是 `PI_MODEL`、`OPENAI_API_MODE`、可选 `OPENAI_BASE_URL`、`OSS_REGION`、`OSS_BUCKET`、可选 `OSS_ENDPOINT` 与 `OSS_CNAME`、`NEWS_IMAGE_ACCEPTANCE_EXPECTED_OSS_HOST`、`NEWS_IMAGE_ACCEPTANCE_EXPECTED_OSS_PATH_PREFIX` 和两位小数的正数 `NEWS_IMAGE_ACCEPTANCE_COST_LIMIT_USD`。使用最小权限、短期凭证和验收专用对象前缀；reviewer 在批准前确认三次 Agent、三次 FAL 图片生成和三次 OSS PUT 的预算。workflow 不把这些值写入 artifact。
 
 Actions 私钥只用于连接服务器。服务器不需要读取 Git 仓库或访问镜像仓库，因为流水线直接上传 CI 生成的镜像归档和 Compose 文件。
 
@@ -472,7 +475,8 @@ docker build -t pi-business-processing-service:rc .
 6. `BUSINESS_API_BASE_URL` 必须连接真实 Business Capability。
 7. `POST /posters` 必须按 `runId` 去重，并验证图片 URL 的访问控制、有效期、媒体类型和尺寸。
 8. `POST /crt-images` 必须按 `runId` 去重，并验证资产权限、GPT Image 2 编辑、finalizer、PNG 引用、费用和删除生命周期；生产证据模式必须为 `off`，或有单独批准的数据保留策略。
-9. 若候选版本注入了 Run Record Adapter，必须验证成功和失败记录可按 `runId` 查询，并验证存储故障不影响 `/execute` 结果。
+9. 新闻图片相关候选必须让同一 commit 的三个固定 Process 经真实 Agent、FAL 和 OSS 各成功一次，并验证准确 style、单次图片生成、批准的 OSS 路径和 1600×1200 PNG。
+10. 若候选版本注入了 Run Record Adapter，必须验证成功和失败记录可按 `runId` 查询，并验证存储故障不影响 `/execute` 结果。
 
 Agent 模式启用后，先在受控发布 runner 中连接真实模型和 Business Capability。该命令强制使用 Agent 模式；若 Agent 未恰好调用一次 Business Capability、最终输出并非来自 Tool 结果，或默认受保护内容在 Tool 输入中发生变化，命令会失败。它可能产生模型费用：
 
@@ -516,6 +520,8 @@ npm run accept:crt-business
 ```
 
 该命令进入产品 `POST /execute`，验证真实 Agent、单次 `POST /crt-images`、`runId` 幂等、FAL GPT Image 2 URL 编辑、确定性 finalizer、目标尺寸与调色板及结果下载。默认 `full` 证据模式按 `runId` 保存模型原始图、最终图和脱敏 manifest；配置 `OBJECT_STORAGE_PROVIDER=aliyun-oss` 后还验证 OSS 输出。
+
+新闻图片候选不需要发布人员在普通提交上手工运行付费命令。默认未设置 `NEWS_IMAGE_ACCEPTANCE_ENABLED` 时，`Production CI/CD` 跳过该 Job 且不阻塞部署。显式设为 `true` 后，workflow 只在相关路径变化时进入受保护的 `news-image-acceptance` Environment；reviewer 确认准确 revision、费用上限、最小权限凭证、bucket 和批准的 host/path prefix 后放行。Job 临时启动当前 commit 的 production Composition 与图片 Business API，从产品 `POST /execute` 依次运行三个准确 Process，并要求三次 FAL 生成、三次 OSS PUT、三个不同 `runId`、固定 style 和可下载的 1600×1200 PNG。证据保留 90 天，只含 revision、Process identity、Run ID、图片摘要/尺寸/字节数、访问判据和费用批准摘要，不含测试新闻、Prompt、图片 URL、签名参数或凭证。启用后失败或未批准时，生产部署保持阻塞。
 
 本地通过仍不满足生产发布门禁。发布前必须按 [`processes/crt-interface-image/`](processes/crt-interface-image/) 完成来源授权、生产上传的身份与资产安全、生产 `POST /crt-images`、持久化 URL、删除生命周期、九种调色板、四种画幅和人工视觉验收，并按 [CRT 图片证据保留](processes/crt-interface-image/evidence-retention.md) 确认生产模式与清理责任。
 
