@@ -168,6 +168,9 @@ function parseConsoleBasePath(value: string | undefined): string {
         candidate.startsWith("/internal/eval/execute") ||
         "/internal/eval/execute".startsWith(`${candidate}/`) ||
         candidate.startsWith("/process-runs") ||
+        candidate === "/llms.txt" ||
+        candidate === "/llm.txt" ||
+        candidate === "/docs/api.md" ||
         candidate.startsWith("/healthz") ||
         candidate.startsWith("/readyz")
     ) {

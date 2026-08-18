@@ -53,6 +53,8 @@ Memebuy 已建立独立文档边界，但当前没有明确归属的 production 
 
 成功输出中的 `recipe` 固定包含 `layout`、`anchor`、`typography`、`accent`、`texture` 和 `mood`；`image` 包含 `url`、`contentType`、`width`、`height`，短期 URL 还包含 `expiresAt`。
 
+Agent 可以直接读取生产入口 [`https://pi.ganjiuwanshi.com/llms.txt`](https://pi.ganjiuwanshi.com/llms.txt)，并从中进入完整 Markdown 调用契约 [`https://pi.ganjiuwanshi.com/docs/api.md`](https://pi.ganjiuwanshi.com/docs/api.md)。仓库内的规范性来源仍是 [`llms.txt`](llms.txt) 与 [`docs/api.md`](docs/api.md)。
+
 ## 快速开始
 
 需要 Node.js 24 或更高版本。
@@ -83,7 +85,7 @@ npm run dev
 执行 `content-processing/v1`：
 
 ```bash
-curl -X POST http://127.0.0.1:3000/execute \
+curl -X POST http://127.0.0.1:4300/execute \
   -H 'content-type: application/json' \
   -d '{
     "process": "content-processing",
@@ -107,7 +109,7 @@ curl -X POST http://127.0.0.1:3000/execute \
 健康检查：
 
 ```bash
-curl http://127.0.0.1:3000/healthz
+curl http://127.0.0.1:4300/healthz
 ```
 
 `GET /healthz` 只确认进程完成初始化，不访问模型或 Business Capability。
@@ -145,7 +147,8 @@ curl http://127.0.0.1:3000/healthz
 | --- | --- | --- |
 | [`CONTEXT.md`](CONTEXT.md) | 产品与开发者 | 项目目的、范围、信任模型和共同语言 |
 | [`docs/README.md`](docs/README.md) | 所有维护者 | 文档索引、分类和维护规范 |
-| [`docs/api.md`](docs/api.md) | 产品调用方 | 全部业务调用路由、Process 入参、响应和错误 |
+| [`llms.txt`](llms.txt) | 调用 Agent | 生产 API 的 Agent 导航、执行选择和安全边界 |
+| [`docs/api.md`](docs/api.md) | 产品调用方与 Agent | 全部业务调用路由、Process 入参、响应、重试和 Webhook 契约 |
 | [`docs/development.md`](docs/development.md) | 开发者 | 本地开发、代码地图、改动路径和验证要求 |
 | [`docs/authoring-business-processes.md`](docs/authoring-business-processes.md) | 产品与开发者 | 如何把自然语言流程描述封装为版本化 Business Process |
 | [`docs/processes/README.md`](docs/processes/README.md) | 产品与开发者 | 每个 production Business Process 的独立文档入口 |

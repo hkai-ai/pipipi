@@ -430,14 +430,14 @@ docker image inspect pi-business-processing-service:rc --format '{{.Id}}'
 ```bash
 docker run --rm --entrypoint id pi-business-processing-service:rc -u
 docker run --rm --entrypoint sh pi-business-processing-service:rc -c \
-  'test -f .pi/skills/content-optimization/SKILL.md && test -f .pi/skills/content-integrity/SKILL.md && test -f .pi/skills/minimal-zine-poster-prompt/SKILL.md && test -f .pi/skills/tait-crt-interface-prompt/SKILL.md && test -f .pi/skills/news-image-narrative-monument-prompt/SKILL.md && test -f .pi/skills/news-image-pale-watercolor-prompt/SKILL.md && test -f .pi/skills/news-image-raw-humanism-prompt/SKILL.md && test ! -d node_modules/typescript && test ! -d node_modules/vitest'
+  'test -f llms.txt && test -f docs/api.md && test -f .pi/skills/content-optimization/SKILL.md && test -f .pi/skills/content-integrity/SKILL.md && test -f .pi/skills/minimal-zine-poster-prompt/SKILL.md && test -f .pi/skills/tait-crt-interface-prompt/SKILL.md && test -f .pi/skills/news-image-narrative-monument-prompt/SKILL.md && test -f .pi/skills/news-image-pale-watercolor-prompt/SKILL.md && test -f .pi/skills/news-image-raw-humanism-prompt/SKILL.md && test ! -d node_modules/typescript && test ! -d node_modules/vitest'
 ```
 
 用生产形状的非秘密配置启动候选镜像。健康检查不得访问模型或 Business Capability：
 
 ```bash
 docker run --rm -d --name pi-business-processing-rc \
-  -p 127.0.0.1:3000:3000 \
+  -p 127.0.0.1:4300:4300 \
   -e BUSINESS_API_BASE_URL=http://business-capability.internal \
   -e BUSINESS_API_TIMEOUT_MS=10000 \
   -e POSTER_API_TIMEOUT_MS=90000 \
@@ -448,7 +448,9 @@ docker run --rm -d --name pi-business-processing-rc \
   -e ASYNC_PROCESS_RUNS_ENABLED=false \
   pi-business-processing-service:rc
 
-curl --fail --silent http://127.0.0.1:3000/healthz
+curl --fail --silent http://127.0.0.1:4300/healthz
+curl --fail --silent http://127.0.0.1:4300/llms.txt | grep -Fq '# Pipipi Business Process API'
+curl --fail --silent http://127.0.0.1:4300/docs/api.md | grep -Fq '# 业务接口文档'
 docker stop pi-business-processing-rc
 ```
 
@@ -468,7 +470,7 @@ docker build -t pi-business-processing-service:rc .
 随后完成环境验收：
 
 1. 从公网直接访问容器地址必须失败。
-2. 授权调用方必须能通过 TLS 网关访问 `/healthz` 和 `/execute`。
+2. 授权调用方必须能通过 TLS 网关访问 `/healthz` 和 `/execute`；公开 Agent 必须能读取 `/llms.txt` 和 `/docs/api.md`，且两个文档来自同一候选镜像。
 3. 网关请求超时必须长于 `PROCESS_TIMEOUT_MS`。
 4. 平台实例并发不得高于应用并发闸门；平台必须设置最大实例数。
 5. 日志系统必须收到 Pino 单行 JSON，识别数值 `level`，能按 `runId`、`process`、`status|outcome` 和 `errorCode` 检索，并能按 `attemptNumber + sequence` 还原固定活动时间线；日志中不得出现业务内容、Prompt、Tool 参数、模型消息或内部异常正文。

@@ -18,6 +18,7 @@ import type {
 import type { ProcessRunRecord } from "../process-runtime/records.js";
 import { createConsoleAssets } from "./console-assets.js";
 import type { CallerIdentityResolver } from "./identity.js";
+import { createPublicDocumentation } from "./public-documents.js";
 
 export const defaultHttpMaxRequestBodyBytes = 262_144;
 export const defaultMaxConcurrentExecutions = 4;
@@ -32,6 +33,7 @@ export const callerRequestIdHeader = "x-request-id";
 
 const maxCallerRequestIdLength = 200;
 const safeCallerRequestId = /^[A-Za-z0-9_.:-]+$/;
+const handlePublicDocumentation = createPublicDocumentation();
 
 export type ProcessingHttpOptions = {
     maxRequestBodyBytes?: number;
@@ -350,6 +352,8 @@ async function handleRequest(
         await handleReadiness(response, context.asyncProcessRuns);
         return;
     }
+
+    if (await handlePublicDocumentation(request, response)) return;
 
     if (context.console && request.method === "GET") {
         const handled = await handleConsole(

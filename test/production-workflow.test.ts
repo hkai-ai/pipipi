@@ -45,6 +45,8 @@ describe("Production CI/CD workflow", () => {
         expect(deploy.indexOf(gateway)).toBeLessThan(
             deploy.indexOf(activation),
         );
+        expect(activation).toContain("http://127.0.0.1:4300/llms.txt");
+        expect(activation).toContain("http://127.0.0.1:4300/docs/api.md");
         expect(deploy).toContain("run audit:production-database");
         expect(deploy).toContain("pg-server.crt:/etc/pipipi/pg-server.crt:ro");
         expect(deploy).not.toContain("StrictHostKeyChecking=no");

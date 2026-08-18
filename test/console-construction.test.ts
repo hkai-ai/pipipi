@@ -174,18 +174,21 @@ describe("operator console construction", () => {
         });
     });
 
-    it("refuses a base path that would shadow a service route", async () => {
-        const directory = await mkdtemp(join(tmpdir(), "pipipi-console-"));
+    it.each(["/execute", "/llms.txt", "/llm.txt", "/docs/api.md"])(
+        "refuses base path %s because it shadows a service route",
+        async (basePath) => {
+            const directory = await mkdtemp(join(tmpdir(), "pipipi-console-"));
 
-        expect(() =>
-            constructProcessingService({
-                BUSINESS_API_BASE_URL: "https://business.example",
-                PROCESS_RUN_RECORD_DIRECTORY: directory,
-                CONSOLE_ENABLED: "true",
-                CONSOLE_BASE_PATH: "/execute",
-            }),
-        ).toThrow(/CONSOLE_BASE_PATH/);
-    });
+            expect(() =>
+                constructProcessingService({
+                    BUSINESS_API_BASE_URL: "https://business.example",
+                    PROCESS_RUN_RECORD_DIRECTORY: directory,
+                    CONSOLE_ENABLED: "true",
+                    CONSOLE_BASE_PATH: basePath,
+                }),
+            ).toThrow(/CONSOLE_BASE_PATH/);
+        },
+    );
 });
 
 async function startService(

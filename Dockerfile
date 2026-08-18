@@ -24,6 +24,8 @@ WORKDIR /app
 COPY --from=production-dependencies --chown=node:node /app/node_modules ./node_modules
 COPY --from=build --chown=node:node /app/dist ./dist
 COPY --chown=node:node package.json package-lock.json ./
+COPY --chown=node:node llms.txt ./llms.txt
+COPY --chown=node:node docs/api.md ./docs/api.md
 # Shipped so a release can apply its own schema before the new container serves.
 COPY --chown=node:node migrations ./migrations
 COPY --chown=node:node .pi/skills/content-optimization ./.pi/skills/content-optimization

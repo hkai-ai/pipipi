@@ -1,0 +1,25 @@
+# Pipipi Business Process API
+
+> Versioned Business Process execution API for Memene, Memebuy, and shared product capabilities. Read the complete contract before sending a request.
+
+Base URL: `https://pi.ganjiuwanshi.com`
+
+## Agent instructions
+
+1. Read [the complete API contract](https://pi.ganjiuwanshi.com/docs/api.md).
+2. Select an exact `process` and `version` from its Process list.
+3. Use `POST /execute` only when the caller accepts synchronous, non-idempotent execution. Use `POST /process-runs` with a stable `Idempotency-Key` when the async interface is available and the operation may be retried.
+4. Treat `X-Request-Id` as tracing metadata, never as an idempotency key.
+5. For paid image Processes, do not automatically retry an ambiguous synchronous timeout or dependency failure. Follow the retry table in the API contract.
+6. A call is complete only after the response matches the documented success or stable error shape. Never infer success from HTTP acceptance alone.
+
+## Documentation
+
+- [Complete API contract](https://pi.ganjiuwanshi.com/docs/api.md): Routes, Process inputs and outputs, asynchronous polling, retry safety, errors, Webhooks, and examples.
+- [Human-facing repository documentation](https://github.com/hkai-ai/pipipi/tree/main/docs): Design, development, Process, and operations documentation.
+
+## Boundaries
+
+- Product requests contain business input only. The server selects Skills, models, Tools, providers, storage, retries, and execution configuration.
+- Use only the exact Process versions documented in the production catalog. There is no `latest` alias or version fallback.
+- `/internal/eval/execute` is a gated internal evaluation interface, not a general product endpoint.

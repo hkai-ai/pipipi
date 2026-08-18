@@ -4,6 +4,9 @@
 !package-lock.json
 !tsconfig.json
 !tsconfig.build.json
+!llms.txt
+!docs/
+!docs/api.md
 !src/
 !src/**
 !migrations/

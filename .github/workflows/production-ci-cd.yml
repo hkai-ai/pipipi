@@ -505,7 +505,11 @@ jobs:
               curl --fail --silent --show-error \
                   http://127.0.0.1:4300/healthz >/dev/null && \
               curl --fail --silent --show-error \
-                  http://127.0.0.1:4300/readyz >/dev/null
+                  http://127.0.0.1:4300/readyz >/dev/null && \
+              curl --fail --silent --show-error \
+                  http://127.0.0.1:4300/llms.txt | grep -Fq '# Pipipi Business Process API' && \
+              curl --fail --silent --show-error \
+                  http://127.0.0.1:4300/docs/api.md | grep -Fq '# 业务接口文档'
           }
 
           healthy() {

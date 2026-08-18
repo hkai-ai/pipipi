@@ -177,14 +177,16 @@ queued -> running -> succeeded
 
 ```json
 {
-  "id": "evt_019c...",
+  "schemaVersion": 1,
+  "eventId": "evt_019c...",
   "type": "process_run.succeeded",
   "createdAt": "2026-08-09T10:00:08.000Z",
   "data": {
     "runId": "019c...",
     "process": "content-processing",
     "version": "v1",
-    "status": "succeeded"
+    "status": "succeeded",
+    "resultLocation": "/process-runs/019c..."
   }
 }
 ```

@@ -33,12 +33,12 @@ npm run dev:business-api
 npm run dev
 ```
 
-复制 `.env.example` 后，Direct 模式默认连接 `http://127.0.0.1:4000`，服务监听 `3000` 端口。用以下命令确认进程和一次完整执行：
+复制 `.env.example` 后，Direct 模式默认连接 `http://127.0.0.1:4000`，服务监听 `4300` 端口。用以下命令确认进程和一次完整执行：
 
 ```bash
-curl --fail http://127.0.0.1:3000/healthz
+curl --fail http://127.0.0.1:4300/healthz
 
-curl --fail -X POST http://127.0.0.1:3000/execute \
+curl --fail -X POST http://127.0.0.1:4300/execute \
   -H 'content-type: application/json' \
   -d '{
     "process": "content-processing",
