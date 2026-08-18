@@ -475,7 +475,7 @@ docker build -t pi-business-processing-service:rc .
 6. `BUSINESS_API_BASE_URL` 必须连接真实 Business Capability。
 7. `POST /posters` 必须按 `runId` 去重，并验证图片 URL 的访问控制、有效期、媒体类型和尺寸。
 8. `POST /crt-images` 必须按 `runId` 去重，并验证资产权限、GPT Image 2 编辑、finalizer、PNG 引用、费用和删除生命周期；生产证据模式必须为 `off`，或有单独批准的数据保留策略。
-9. 新闻图片相关候选必须让同一 commit 的三个固定 Process 经真实 Agent、FAL 和 OSS 各成功一次，并验证准确 style、单次图片生成、批准的 OSS 路径和 1600×1200 PNG。
+9. 启用 `NEWS_IMAGE_ACCEPTANCE_ENABLED=true` 后，新闻图片相关候选必须让同一 commit 的三个固定 Process 经真实 Agent、FAL 和 OSS 各成功一次，并验证准确 style、单次图片生成、批准的 OSS 路径和 1600×1200 PNG；未启用时跳过该付费门禁。
 10. 若候选版本注入了 Run Record Adapter，必须验证成功和失败记录可按 `runId` 查询，并验证存储故障不影响 `/execute` 结果。
 
 Agent 模式启用后，先在受控发布 runner 中连接真实模型和 Business Capability。该命令强制使用 Agent 模式；若 Agent 未恰好调用一次 Business Capability、最终输出并非来自 Tool 结果，或默认受保护内容在 Tool 输入中发生变化，命令会失败。它可能产生模型费用：
