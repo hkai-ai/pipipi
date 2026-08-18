@@ -8,16 +8,17 @@
 
 | 改动目标 | 先读 | 主要 Implementation | 主要验证入口 |
 | --- | --- | --- | --- |
+| 确定或调整产品场景 | [`processes/README.md`](processes/README.md) 与目标场景 README | 文档归属；公开行为不变时不移动 Implementation | 场景入口、Process 文档和 production catalog 一致 |
 | 新增 Business Process | [`authoring-business-processes.md`](authoring-business-processes.md) 与 [`processes/README.md`](processes/README.md) | [`src/processes/<module>/registration.ts`](../src/processes)、[`src/processes/catalog.ts`](../src/processes/catalog.ts)、[`src/app/business-processes.ts`](../src/app/business-processes.ts) | 对应 Process 测试、[`test/execute-process.test.ts`](../test/execute-process.test.ts)、[`test/startup-construction.test.ts`](../test/startup-construction.test.ts) |
-| 修改文本处理流程或 Agent | [`processes/content-processing/`](processes/content-processing/) | [`src/processes/content/`](../src/processes/content)、[`content-optimization`](../.pi/skills/content-optimization/SKILL.md)、[`content-integrity`](../.pi/skills/content-integrity/SKILL.md) | [`test/execute-process.test.ts`](../test/execute-process.test.ts)、[`test/agent-runtime.test.ts`](../test/agent-runtime.test.ts)、[`test/runtime-skills.test.ts`](../test/runtime-skills.test.ts) |
-| 修改带标题文本流程 | [`processes/titled-content-processing/`](processes/titled-content-processing/) | [`src/processes/titled-content/`](../src/processes/titled-content)、[`content/capability.ts`](../src/processes/content/capability.ts) | [`test/execute-process.test.ts`](../test/execute-process.test.ts) |
-| 修改极简 zine 海报流程 | [`processes/minimal-zine-poster/`](processes/minimal-zine-poster/) | [`src/processes/poster/`](../src/processes/poster)、[海报 Runtime Skill](../.pi/skills/minimal-zine-poster-prompt) | [`test/poster-process.test.ts`](../test/poster-process.test.ts)、[`test/poster-http.test.ts`](../test/poster-http.test.ts)、[`test/runtime-skills.test.ts`](../test/runtime-skills.test.ts) |
-| 修改 CRT 参考图流程 | [`processes/crt-interface-image/`](processes/crt-interface-image/) | [`src/processes/crt/`](../src/processes/crt)、[CRT Runtime Skill](../.pi/skills/tait-crt-interface-prompt) | [`test/crt-process.test.ts`](../test/crt-process.test.ts)、[`test/crt-http.test.ts`](../test/crt-http.test.ts)、[`test/openai-image-generation.test.ts`](../test/openai-image-generation.test.ts)、[`test/fal-image-generation.test.ts`](../test/fal-image-generation.test.ts) |
-| 修改新闻图片风格流程 | [`api.md`](api.md) 与对应 [`processes/`](processes/) 目录 | [`src/processes/news-image/`](../src/processes/news-image)、[新闻图片 Runtime Skills](../.pi/skills) | [`test/news-image-process.test.ts`](../test/news-image-process.test.ts)、[`test/news-image-business-acceptance.test.ts`](../test/news-image-business-acceptance.test.ts)、[`test/runtime-skills.test.ts`](../test/runtime-skills.test.ts) |
+| 修改文本处理流程或 Agent | [`processes/common/content-processing/`](processes/common/content-processing/) | [`src/processes/content/`](../src/processes/content)、[`content-optimization`](../.pi/skills/content-optimization/SKILL.md)、[`content-integrity`](../.pi/skills/content-integrity/SKILL.md) | [`test/execute-process.test.ts`](../test/execute-process.test.ts)、[`test/agent-runtime.test.ts`](../test/agent-runtime.test.ts)、[`test/runtime-skills.test.ts`](../test/runtime-skills.test.ts) |
+| 修改带标题文本流程 | [`processes/common/titled-content-processing/`](processes/common/titled-content-processing/) | [`src/processes/titled-content/`](../src/processes/titled-content)、[`content/capability.ts`](../src/processes/content/capability.ts) | [`test/execute-process.test.ts`](../test/execute-process.test.ts) |
+| 修改极简 zine 海报流程 | [`processes/common/minimal-zine-poster/`](processes/common/minimal-zine-poster/) | [`src/processes/poster/`](../src/processes/poster)、[海报 Runtime Skill](../.pi/skills/minimal-zine-poster-prompt) | [`test/poster-process.test.ts`](../test/poster-process.test.ts)、[`test/poster-http.test.ts`](../test/poster-http.test.ts)、[`test/runtime-skills.test.ts`](../test/runtime-skills.test.ts) |
+| 修改 CRT 参考图流程 | [`processes/common/crt-interface-image/`](processes/common/crt-interface-image/) | [`src/processes/crt/`](../src/processes/crt)、[CRT Runtime Skill](../.pi/skills/tait-crt-interface-prompt) | [`test/crt-process.test.ts`](../test/crt-process.test.ts)、[`test/crt-http.test.ts`](../test/crt-http.test.ts)、[`test/openai-image-generation.test.ts`](../test/openai-image-generation.test.ts)、[`test/fal-image-generation.test.ts`](../test/fal-image-generation.test.ts) |
+| 修改 Memene 新闻图片流程 | [`processes/memene/`](processes/memene/) 与 [`api.md`](api.md) | [`src/processes/news-image/`](../src/processes/news-image)、[新闻图片 Runtime Skills](../.pi/skills) | [`test/news-image-process.test.ts`](../test/news-image-process.test.ts)、[`test/news-image-business-acceptance.test.ts`](../test/news-image-business-acceptance.test.ts)、[`test/runtime-skills.test.ts`](../test/runtime-skills.test.ts) |
 | 修改跨 Process Agent Runtime | [`integrating-runtime-skills.md`](integrating-runtime-skills.md#项目级-agent-与-skill) | [`src/agent-runtime/`](../src/agent-runtime) | [`test/agent-runtime.test.ts`](../test/agent-runtime.test.ts)、[`test/runtime-skills.test.ts`](../test/runtime-skills.test.ts) |
 | 新增或修改 Codex Development Skill | [`integrating-runtime-skills.md`](integrating-runtime-skills.md#安装-development-skill) | [`.agents/skills/`](../.agents/skills)、[`AGENTS.md`](../AGENTS.md)、[`skills-lock.json`](../skills-lock.json) | Skill 结构校验、一个真实的显式调用和一个真实的隐式调用 |
 | 修改通用 Process Runtime 或 Seam | [`process-runtime-design.md`](process-runtime-design.md) | [`src/process-runtime/`](../src/process-runtime)、[`src/processes/catalog.ts`](../src/processes/catalog.ts) | [`test/process-runtime.test.ts`](../test/process-runtime.test.ts)、[`test/process-run-logging.test.ts`](../test/process-run-logging.test.ts)、[`test/execute-process.test.ts`](../test/execute-process.test.ts) |
-| 修改异步执行、Queue、Webhook 或恢复 | [`async-process-runs-design.md`](async-process-runs-design.md) | [`src/process-runs/`](../src/process-runs)、[`src/webhooks/`](../src/webhooks)、对应 `src/app/` Composition Root | 对应单元或集成测试、[`async-process-runs-runbook.md`](async-process-runs-runbook.md) 的发布门禁 |
+| 修改异步执行、Queue、Webhook 或恢复 | [`async-process-runs-development.md`](async-process-runs-development.md) 与 [`async-process-runs-design.md`](async-process-runs-design.md) | [`src/process-runs/`](../src/process-runs)、[`src/webhooks/`](../src/webhooks)、对应 `src/app/` Composition Root | 对应单元或集成测试；发布时再读 [`async-process-runs-runbook.md`](async-process-runs-runbook.md) |
 
 真实模型、远程 Business Capability、图片生成、对象存储或已部署环境验证统一从 [`experiments.md`](experiments.md) 进入。这些命令可能联网、产生费用或写入外部系统，不属于默认确定性验证。
 
@@ -37,16 +38,12 @@
 
 | 文档 | 职责 | 变更触发条件 |
 | --- | --- | --- |
-| [`processes/README.md`](processes/README.md) | 列出 production Process，并规定独立目录结构 | production catalog 或 Process 文档放置规则变化 |
-| [`processes/content-processing/`](processes/content-processing/) | 说明 `content-processing/v1` 的契约、Direct/Agent 路径和验证 | 文本处理契约、模式、Skill、Capability 或错误变化 |
-| [`processes/titled-content-processing/`](processes/titled-content-processing/) | 说明 `titled-content-processing/v1` 的契约、组合规则和验证 | 标题文本契约、分隔符、Capability 或错误变化 |
-| [`processes/minimal-zine-poster/`](processes/minimal-zine-poster/) | 说明 `minimal-zine-poster/v1` 的契约、Prompt 编译、图片能力和验收 | 海报契约、Skill、图片服务或验收变化 |
-| [`processes/crt-interface-image/`](processes/crt-interface-image/) | 说明 `crt-interface-image/v1` 的上传边界、GPT Image 2 编辑、后处理、证据保留、验收、外部接入契约、接入对齐开发计划和同类流程开发模板 | CRT 契约、Skill、图片服务、证据策略、接入方对齐、实施顺序、开发模板或发布门禁变化 |
-| [`processes/news-image-narrative-monument/`](processes/news-image-narrative-monument/) | 人物叙事碑式新闻封面契约 | 对应 Process、Skill 或存储变化 |
-| [`processes/news-image-pale-watercolor/`](processes/news-image-pale-watercolor/) | 淡彩绘本新闻图片契约 | 对应 Process、Skill 或存储变化 |
-| [`processes/news-image-raw-humanism/`](processes/news-image-raw-humanism/) | 原质人文主义新闻图片契约 | 对应 Process、Skill 或存储变化 |
+| [`processes/README.md`](processes/README.md) | 按 `memene`、`memebuy` 和 `common` 路由 Process 文档 | 产品场景、production catalog 或放置规则变化 |
+| [`processes/memene/`](processes/memene/) | 路由 Memene 独有的新闻图片 Process | Memene 采用、增加或移除 Process |
+| [`processes/memebuy/`](processes/memebuy/) | 路由 Memebuy 独有的 Business Process | Memebuy 采用、增加或移除 Process |
+| [`processes/common/`](processes/common/) | 路由跨产品复用或契约与产品无关的 Process | 通用 Process 的采用范围或契约变化 |
 
-全部业务调用 Interface 统一维护在 [`api.md`](api.md)。健康检查等运维 Interface 留在 Runbook。每个 production Process 只在自己的目录维护业务行为与实现知识，不另建面向调用方的接口文档。精确运行行为仍以 Registration 和测试为准；通用 Runtime、Skill 接入和发布规则不复制进 Process 目录。
+场景 README 只维护归属和入口，具体业务知识继续由 `docs/processes/<scenario>/<process-id>/` 拥有。全部业务调用 Interface 统一维护在 [`api.md`](api.md)；健康检查等运维 Interface 留在 Runbook。精确运行行为仍以 Registration 和测试为准。
 
 ### 开发文档
 
@@ -57,7 +54,7 @@
 | [`integrating-runtime-skills.md`](integrating-runtime-skills.md) | 说明如何从本地或远程来源审查、固定并接入 Skill | Skill 来源、权限、安装、更新或 Runtime 边界变化 |
 | [`process-runtime-design.md`](process-runtime-design.md) | 记录 Process Runtime 的 Module、Interface、invariant 和测试面 | Seam、Interface、执行顺序或错误归属变化 |
 | [`async-process-runs-design.md`](async-process-runs-design.md) | 设计异步提交、持久化查询、BullMQ Worker 和 Webhook Delivery | 异步 Interface、状态机、持久化、队列或 Webhook 设计变化 |
-| [`async-process-runs-development-plan.md`](async-process-runs-development-plan.md) | 把异步设计拆成可独立合并、验证和发布的开发批次 | 实施顺序、批次状态、测试门槛或发布依赖变化 |
+| [`async-process-runs-development.md`](async-process-runs-development.md) | 说明异步角色、本地依赖、集成测试和故障演练 | 异步开发入口、测试命令或本地安全边界变化 |
 | [`experiments.md`](experiments.md) | 说明真实 Agent、Skill、图片和存储集成如何验证 | 实验命令、判据、成本或产物位置变化 |
 
 开发文档面向修改 Implementation 的人。它应解释为什么 Seam 放在这里、调用方必须遵守什么，以及如何通过 Interface 验证行为。
@@ -81,13 +78,15 @@ Runbook 必须可按顺序执行。每一步都应说明前置条件、成功信
 
 `research/` 保存基于外部一手资料的带来源调研，不直接定义项目行为。当前调研包括 [`research/skill-source-patterns.md`](research/skill-source-patterns.md)、[`research/async-process-execution.md`](research/async-process-execution.md) 和 [`research/pi-agent-plugin-ecosystem.md`](research/pi-agent-plugin-ecosystem.md)；项目采用的规则以对应设计或集成文档为准。
 
+`history/` 保存已经完成、仍值得保留结论的实施记录，不进入日常开发路径。当前异步实现记录见 [`history/async-process-runs-implementation.md`](history/async-process-runs-implementation.md)。
+
 ## 分类与放置
 
 新增文档前先确定读者要完成的任务：
 
 - 想理解项目：更新根目录 `README.md` 或 `CONTEXT.md`。
 - 想调用业务 HTTP Interface：阅读或更新 `docs/api.md`。
-- 想理解或修改某个现有 Process：阅读或更新 `docs/processes/<process-id>/README.md`。
+- 想理解或修改某个现有 Process：先从 `docs/processes/README.md` 选择场景，再阅读 `docs/processes/<scenario>/<process-id>/README.md`。
 - 想修改代码：更新 `docs/development.md` 或对应 `*-design.md`。
 - 想把自然语言流程封装为产品能力：阅读或更新 `docs/authoring-business-processes.md`。
 - 想安装或接入 Skill：阅读或更新 `docs/integrating-runtime-skills.md`。
@@ -97,7 +96,7 @@ Runbook 必须可按顺序执行。每一步都应说明前置条件、成功信
 
 不要为一次小改动新建独立文档。能在现有文档的明确职责内回答的问题，直接更新该文档。
 
-文件名使用小写 kebab-case。根目录只保留仓库级入口、许可证和工具要求的标准文件。Process 专属文档放在 `docs/processes/<process-id>/`；跨 Process 的开发、设计、实验和运维文档放在 `docs/`。
+文件名使用小写 kebab-case。根目录只保留仓库级入口、许可证和工具要求的标准文件。Process 专属文档放在 `docs/processes/<scenario>/<process-id>/`；跨 Process 的开发、设计、实验和运维文档放在 `docs/`。
 
 ## 规范性来源
 
@@ -106,7 +105,7 @@ Runbook 必须可按顺序执行。每一步都应说明前置条件、成功信
 - 目的、范围和术语以 [`../CONTEXT.md`](../CONTEXT.md) 为准。
 - 业务 HTTP 路由、请求、响应和错误以 [`api.md`](api.md) 为统一入口。
 - 精确行为、默认值和错误映射以 `src/` 与 `test/` 为准。
-- Process 专属说明和代码入口以对应的 `docs/processes/<process-id>/README.md` 为入口。
+- 产品场景归属以 `docs/processes/<scenario>/README.md` 为准；Process 专属说明和代码入口以对应的 `<process-id>/README.md` 为准。
 - 环境变量清单以 [`.env.example`](../.env.example) 和配置解析测试为准。
 - Module 设计以对应 `*-design.md` 为准。
 - 发布步骤以对应 `*-runbook.md` 为准。
@@ -169,7 +168,7 @@ README 不复制完整配置表、实验手册或发布步骤。设计文档不�
 
 | 代码变化 | 同一改动中检查的文档 |
 | --- | --- |
-| 新增或修改 Business Process | 对应 `processes/<process-id>/README.md`、`README.md`、`CONTEXT.md`、`development.md`、Process Runtime 设计 |
+| 新增或修改 Business Process | 所属场景 README、对应 `processes/<scenario>/<process-id>/README.md`、`README.md`、`CONTEXT.md`、`development.md`、Process Runtime 设计 |
 | 新增或更新 Development Skill | `integrating-runtime-skills.md`、`AGENTS.md`、`skills-lock.json`（外部来源） |
 | 新增或更新 Runtime Skill | `integrating-runtime-skills.md`、`experiments.md`、对应 Process 文档和发布清单 |
 | 修改公开请求、响应或错误 | `README.md`、`CONTEXT.md`、Process Runtime 设计、相关 Runbook |

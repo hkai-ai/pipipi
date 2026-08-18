@@ -56,12 +56,12 @@ Agent 没有 Tool，也不能使用 Shell、文件系统、代码编辑或任意
 
 | 目标 | 文件 |
 | --- | --- |
-| 产品 Schema、Prompt 校验和执行顺序 | [`src/processes/poster/registration.ts`](../../../src/processes/poster/registration.ts) |
-| Agent 与 Pi Adapter | [`src/processes/poster/agent.ts`](../../../src/processes/poster/agent.ts)、[`src/processes/poster/pi.ts`](../../../src/processes/poster/pi.ts) |
-| Capability 与 HTTP Adapter | [`src/processes/poster/capability.ts`](../../../src/processes/poster/capability.ts)、[`src/processes/poster/http.ts`](../../../src/processes/poster/http.ts) |
-| Skill 绑定、规则与来源 | [`src/processes/poster/skills.ts`](../../../src/processes/poster/skills.ts)、[`minimal-zine-poster-prompt`](../../../.pi/skills/minimal-zine-poster-prompt/) |
-| 确定性 Process 与 Adapter 测试 | [`test/poster-process.test.ts`](../../../test/poster-process.test.ts)、[`test/poster-http.test.ts`](../../../test/poster-http.test.ts)、[`test/runtime-skills.test.ts`](../../../test/runtime-skills.test.ts) |
-| 显式真实业务验收 | [`examples/poster-business-acceptance.ts`](../../../examples/poster-business-acceptance.ts) |
+| 产品 Schema、Prompt 校验和执行顺序 | [`src/processes/poster/registration.ts`](../../../../src/processes/poster/registration.ts) |
+| Agent 与 Pi Adapter | [`src/processes/poster/agent.ts`](../../../../src/processes/poster/agent.ts)、[`src/processes/poster/pi.ts`](../../../../src/processes/poster/pi.ts) |
+| Capability 与 HTTP Adapter | [`src/processes/poster/capability.ts`](../../../../src/processes/poster/capability.ts)、[`src/processes/poster/http.ts`](../../../../src/processes/poster/http.ts) |
+| Skill 绑定、规则与来源 | [`src/processes/poster/skills.ts`](../../../../src/processes/poster/skills.ts)、[`minimal-zine-poster-prompt`](../../../../.pi/skills/minimal-zine-poster-prompt/) |
+| 确定性 Process 与 Adapter 测试 | [`test/poster-process.test.ts`](../../../../test/poster-process.test.ts)、[`test/poster-http.test.ts`](../../../../test/poster-http.test.ts)、[`test/runtime-skills.test.ts`](../../../../test/runtime-skills.test.ts) |
+| 显式真实业务验收 | [`examples/poster-business-acceptance.ts`](../../../../examples/poster-business-acceptance.ts) |
 
 不联网、不产生模型费用的聚焦验证：
 
@@ -75,4 +75,4 @@ npm test -- test/poster-process.test.ts test/poster-http.test.ts test/runtime-sk
 npm run accept:poster-business
 ```
 
-运行前必须确认凭证、费用和测试内容。环境变量、判据和 `artifacts/` 报告位置见 [`experiments.md`](../../experiments.md)。当前版本不做自动看图质检、自动重绘或参考图转换。
+运行前必须确认凭证、费用和测试内容。环境变量、判据和 `artifacts/` 报告位置见 [`experiments.md`](../../../experiments.md)。当前版本不做自动看图质检、自动重绘或参考图转换。

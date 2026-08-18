@@ -123,11 +123,11 @@ npm run accept:crt-business
 
 | 目标 | 文件 |
 | --- | --- |
-| 配置解析、manifest 和文件写入 | [`../../../src/business-api/crt-evidence.ts`](../../../src/business-api/crt-evidence.ts) |
-| `POST /crt-images` 集成 | [`../../../src/business-api/crt-server.ts`](../../../src/business-api/crt-server.ts) |
-| 验收报告与每次 Run 关联 | [`../../../examples/crt-business-acceptance.ts`](../../../examples/crt-business-acceptance.ts) |
-| 策略和文件级测试 | [`../../../test/crt-evidence.test.ts`](../../../test/crt-evidence.test.ts) |
-| Business API 跨 Interface 测试 | [`../../../test/crt-local-business-api.test.ts`](../../../test/crt-local-business-api.test.ts) |
+| 配置解析、manifest 和文件写入 | [`../../../src/business-api/crt-evidence.ts`](../../../../src/business-api/crt-evidence.ts) |
+| `POST /crt-images` 集成 | [`../../../src/business-api/crt-server.ts`](../../../../src/business-api/crt-server.ts) |
+| 验收报告与每次 Run 关联 | [`../../../examples/crt-business-acceptance.ts`](../../../../examples/crt-business-acceptance.ts) |
+| 策略和文件级测试 | [`../../../test/crt-evidence.test.ts`](../../../../test/crt-evidence.test.ts) |
+| Business API 跨 Interface 测试 | [`../../../test/crt-local-business-api.test.ts`](../../../../test/crt-local-business-api.test.ts) |
 
 确定性验证不访问模型或网络：
 

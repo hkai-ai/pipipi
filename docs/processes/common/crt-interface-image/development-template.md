@@ -24,6 +24,7 @@
 ```markdown
 # <process-id>/<version>
 
+- 产品场景：`memene` | `memebuy` | `common`
 - 业务目标：
 - 受控调用方：
 - 上传资产类型和大小上限：
@@ -48,7 +49,7 @@
 每个 Business Process 使用自己的代码 Module 和文档目录。下面是参考图转换流程的推荐形状；只创建新流程实际需要的文件。
 
 ```text
-docs/processes/<process-id>/
+docs/processes/<scenario>/<process-id>/
 ├── README.md                    # 稳定入口：契约、顺序、错误、边界
 ├── development-template.md     # 可选：该类流程的开发样板
 └── evidence-retention.md       # 可选：敏感证据策略

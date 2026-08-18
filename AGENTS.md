@@ -3,6 +3,7 @@
 ## 开始工作
 
 - 修改代码前先读 `CONTEXT.md`，再从 `docs/README.md` 找到对应专题文档。
+- 修改或新增 Business Process 时，先从 [`docs/processes/README.md`](docs/processes/README.md) 选择 `memene`、`memebuy` 或 `common` 场景，再读取该场景入口。产品专属契约进入对应产品目录；多个产品原样复用的契约进入 `common`。
 - 项目用 Business Process、Process Definition、Process Registration、Business Capability、Module、Interface、Implementation、Seam 和 Adapter 表达设计。用户口中的“工作流”在产品层映射为 Business Process；不要引入第二套 Workflow 领域模型。
 - 保持 production catalog 显式、版本精确、服务端拥有。产品请求不能携带流程步骤、Skill、脚本、模型、Tool、来源地址或运行配置。
 - 命名遵循 [`docs/development.md`](docs/development.md#命名规则)：使用能在当前作用域区分角色的最短名称，不重复目录上下文，也不使用自造缩写。
@@ -29,7 +30,7 @@
 
 ## 完成与验证
 
-- 新增 Business Process、接入 Runtime Skill 或改变公开行为时，同步更新测试、`README.md`、`CONTEXT.md` 和受影响的 `docs/` 页面。
+- 新增 Business Process、接入 Runtime Skill 或改变公开行为时，同步更新测试、`README.md`、`CONTEXT.md`、所属场景入口和受影响的 `docs/` 页面。
 - `POST /internal/eval/execute` 只用于受控内部新闻图片评测，默认关闭。它必须复用同一次 Process 执行，只在响应中投影实际 Prompt、模型和非敏感图片参数；不得把这些内容写入正式输出、日志或 Run Record。
 - 面向产品调用方的全部业务 HTTP Interface 统一维护在 `docs/api.md`；健康检查等运维 Interface 留在 Runbook，Process 专题文档只保留业务行为与实现说明。
 - 默认运行 `npm run check`、`npm run typecheck`、`npm test` 和 `npm run build`。需要网络、凭证、费用或外部写入的 smoke 必须单独说明，不把它混入确定性验证。

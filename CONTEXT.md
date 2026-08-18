@@ -8,6 +8,12 @@ Business Processing Service 让产品调用方通过一个稳定的 HTTP Interfa
 
 项目要解决的核心问题是：让实现方式可以演进，同时让产品契约保持明确。服务端集中拥有 Process Definition、输入输出 Schema、获准依赖和运行策略，避免这些知识散落到每个调用方。
 
+## 产品场景
+
+仓库服务多个产品场景。Memene 当前拥有三个新闻图片 Business Process；Memebuy 是独立产品边界，当前尚无明确归属的 production Process；跨产品原样复用或契约本身与产品无关的 Process 归入 `common`。场景归属组织代码阅读与文档，不改变 Process identity、版本或统一 HTTP Interface。
+
+新增 Process 时先确认调用产品。产品专属契约进入 `docs/processes/<product>/`；多个产品共享同一准确契约时进入 `docs/processes/common/`。当前归属以 [`docs/processes/README.md`](docs/processes/README.md) 为入口。
+
 ## 产品契约
 
 调用方必须知道：
@@ -32,47 +38,33 @@ Business Processing Service 让产品调用方通过一个稳定的 HTTP Interfa
 
 生产 catalog 当前注册七个精确版本：
 
-| Business Process | 输入 | 输出 | 实现选择 |
-| --- | --- | --- | --- |
-| `content-processing/v1` | `{ content: string }` | `{ content: string }` | 服务端可选择 Direct 或绑定多个 Runtime Skill 的 Agent 路径 |
-| `titled-content-processing/v1` | `{ title: string, body: string }` | `{ title: string, content: string }` | 复用 Content Processing Capability |
-| `minimal-zine-poster/v1` | `{ brief: string, text?: string }` | `{ prompt, recipe, interpretation, image }` | 无 Tool Agent 编译固定 Runtime Skill；Poster Rendering Capability 生成并持久化图片 |
-| `crt-interface-image/v1` | `{ sourceImageUrl, palette, aspectRatio }` | `{ aspectRatio, image }` | 无 Tool Agent 编译固定 Runtime Skill；CRT Rendering Capability 用公网 HTTPS 参考图执行 FAL GPT Image 2 编辑、后处理并持久化 PNG |
-| `news-image-narrative-monument/v1` | `{ title, summary }` | `{ style, image }` | 固定人物叙事碑式封面 Runtime Skill |
-| `news-image-pale-watercolor/v1` | `{ title, summary }` | `{ style, image }` | 固定淡彩绘本 Runtime Skill |
-| `news-image-raw-humanism/v1` | `{ title, summary }` | `{ style, image }` | 固定原质人文主义 Runtime Skill |
+| 场景 | Business Process | 输入 | 输出 | 实现选择 |
+| --- | --- | --- | --- | --- |
+| `common` | `content-processing/v1` | `{ content: string }` | `{ content: string }` | 服务端可选择 Direct 或绑定多个 Runtime Skill 的 Agent 路径 |
+| `common` | `titled-content-processing/v1` | `{ title: string, body: string }` | `{ title: string, content: string }` | 复用 Content Processing Capability |
+| `common` | `minimal-zine-poster/v1` | `{ brief: string, text?: string }` | `{ prompt, recipe, interpretation, image }` | 无 Tool Agent 编译固定 Runtime Skill；Poster Rendering Capability 生成并持久化图片 |
+| `common` | `crt-interface-image/v1` | `{ sourceImageUrl, palette, aspectRatio }` | `{ aspectRatio, image }` | 无 Tool Agent 编译固定 Runtime Skill；CRT Rendering Capability 用公网 HTTPS 参考图执行 FAL GPT Image 2 编辑、后处理并持久化 PNG |
+| `memene` | `news-image-narrative-monument/v1` | `{ title, summary }` | `{ style, image }` | 固定人物叙事碑式封面 Runtime Skill |
+| `memene` | `news-image-pale-watercolor/v1` | `{ title, summary }` | `{ style, image }` | 固定淡彩绘本 Runtime Skill |
+| `memene` | `news-image-raw-humanism/v1` | `{ title, summary }` | `{ style, image }` | 固定原质人文主义 Runtime Skill |
 
-生产 Composition Root 还维护只读 Installed Skill Catalog。七个随应用发布的 Runtime Skill 都固定名称、版本和 `SKILL.md` SHA-256，并在监听端口前完成本地完整性校验；Process 只能绑定 Catalog 中的准确版本。Catalog 不发现、下载或更新 Skill，也不进入产品请求 Interface。
+生产 Composition Root 通过 Installed Skill Catalog 校验七个 Runtime Skill 的准确名称、版本和 SHA-256。Process 只绑定通过校验的准确版本；Catalog 不发现、下载或更新 Skill。
 
-默认 HTTP 入口公开 `GET /healthz`、`GET /readyz` 和 `POST /execute`。每次执行生成独立 `runId`。显式启用并完整配置 Async Process Runs 后，API 还提供 `POST /process-runs` 和 `GET /process-runs/{runId}`；该功能默认关闭，只有按异步 Runbook 通过容量、恢复、安全、观测和 staged rollout 门禁后才能向外部调用方开放。默认同步生产构造不持久化 Run Record；同步与异步 Attempt 都通过 Pino Adapter 输出结构化运行活动日志。日志只保留 `runId`、Process identity、Attempt、服务端声明的活动、顺序、结果、稳定错误码和耗时，不保存业务内容、Prompt、Tool 参数、模型消息、隐藏推理或内部异常正文。
+默认 HTTP Interface 提供健康检查和同步 `POST /execute`。异步提交、owner 查询、PostgreSQL Store、BullMQ Worker、Webhook、恢复和保留已经实现，但入口默认关闭。精确行为见 [异步设计](docs/async-process-runs-design.md)。
 
-仓库已实现 Async Process Runs Module。它以 `submit/find` 固定公共状态、owner 隔离和 caller-scoped idempotency；PostgreSQL Adapter 以事务持久化 Run、初始 Event 和 Outbox。Outbox Dispatcher 通过统一的 BullMQ `process-runs` Queue 只发布 `{ schemaVersion, runId }`，Worker 再从 PostgreSQL 读取准确 Registration 与 accepted input。Store 以 claim token 隔离 Attempt；过期租约可被接管，Reconciler 会重投长期 queued 或过期 running Run，停机超时则释放当前 claim。Registration 默认单次执行，也可声明有界错误分类与指数退避；Business Capability 获得稳定 `runId` 幂等键。API、Dispatcher 和 Worker 已有独立 Construction Root、入口、配置与健康检查；真实 PostgreSQL/Redis 集成测试覆盖成功、业务失败、受控重试、Redis 断线、重复 Job、租约接管、有期限停机和 caller 隔离。
-
-`minimal-zine-poster/v1` 已进入 `/execute` catalog。它返回图片 HTTP(S) URL、媒体类型、尺寸和可选过期时间，不把大体积图片字节写入 Process output。调用方不能选择 Skill、模型、图片供应商或存储。OpenAI Images、FAL 与阿里云 OSS 只用于显式真实集成和海报业务验收；Skill A/B 仍是独立实验。
-
-`crt-interface-image/v1` 也已进入 `/execute` catalog。调用方提交可由 FAL 读取的公网 HTTPS `sourceImageUrl`、固定调色板名和画幅；请求不接收图片字节、Prompt 或实现配置。Registration 在 Agent 编译结果通过校验后调用一次 CRT Rendering Capability，并只公开画幅和 PNG 引用。仓库内的生产 CRT Business API 把 URL 原样放入 FAL `image_urls`、执行确定性 finalizer，并把最终 PNG 保存到阿里云 OSS；单服务器 Compose 只在宿主机回环地址暴露该内部服务。验收按服务端策略选择不保留证据、只保留脱敏 metadata，或按 `runId` 保留模型原始图、最终图和 manifest；生产部署固定关闭证据。生产必须限制调用权限、URL 长度和协议，并明确外部图片托管方与 FAL 的访问、过期和隐私约束。上游 Runtime Skill 未声明许可证，正式发布前必须确认权利。开发边界见 [`docs/processes/crt-interface-image/`](docs/processes/crt-interface-image/)。
-
-三个新闻图片 Process 已进入 `/execute` catalog。调用方只提交新闻标题和摘要；每个语义风格拥有独立 Registration、Runtime Skill 和 OSS 前缀，并复用同一个内部图片 Capability。调用方不能在一个请求中切换风格。默认关闭的内部评测入口复用同一次执行，只为受控测试返回实际 Prompt、文本模型和非敏感图片参数；生产 Compose 显式关闭该入口。来源目录未声明许可证，因此正式发布前必须确认生产使用和再分发权利。
-
-新闻图片付费验收默认关闭，不影响生产发布。显式把 Repository Variable `NEWS_IMAGE_ACCEPTANCE_ENABLED` 设为 `true` 后，主分支候选修改新闻图片 Runtime Skill、共享 Agent Runtime、新闻图片 Process、图片 Business API、模型/OSS 依赖或相关部署资源时，生产 workflow 才会在部署前进入受保护的 `news-image-acceptance` Environment。人工批准后，同一 commit 通过正式 `/execute` 各执行一次三个固定 Process，真实连接 Agent、FAL 与 OSS；脱敏证据验证三个独立 Run、准确 style、单次图片生成、批准的 OSS 位置和最终 1600×1200 PNG。Pull Request 与无关发布不运行该付费验收。
+海报、CRT 和 Memene 新闻图片 Process 会调用模型并持久化图片。产品只接收图片引用；真实验收、证据与费用必须显式启用。CRT 和新闻图片上游来源的许可证仍是发布门禁。
 
 ## 运行与信任模型
 
-当前默认发布形状是受控、同步的 Node.js HTTP 服务。`compose.production.yaml` 显式保持 `ASYNC_PROCESS_RUNS_ENABLED=false`，不包含 PostgreSQL、Redis 或异步角色。经异步发布门禁批准后，运维人员可叠加 `compose.production.async.yaml`，用同一不可变镜像和 revision 启动已开启异步入口的 API、Process Dispatcher、Process Worker、Webhook Worker 与 Retention Cleaner；外部 PostgreSQL、Redis、Secret、Queue 名称与 prefix 仍由部署环境拥有，该叠加层不会被默认发布自动激活。唯一的自动化异步启用入口是受保护、手动触发的 `Async internal release`：它复用指定 commit 已通过 CI 的不可变 artifact，固定 `ASYNC_RELEASE_STAGE=internal`，并在 API 激活前执行逐角色预检、migration 双跑、完整 Queue Recovery dry-run 与后台 readiness。同步与异步发布共享 Actions 并发组、服务器发布锁和固定 SSH host key；失败或信号中断时保留 additive schema 和 PostgreSQL 状态，并在已经切换角色后恢复上一镜像/形状。只回收声明过的非秘密证据文件，且不会自动提升阶段。发布后的独立受保护 smoke 通过真实网关验证两个操作者的成功、稳定业务失败与 owner 隔离；服务端 intake marker 只关闭新异步 POST，既有 owner GET 和同步 `/execute` 保持可用，最长十分钟自动恢复。smoke 证据只含 revision、Run ID、公开状态、角色/运维快照、保留布尔值和脱敏关联日志，不含操作者凭证、幂等键或业务内容。受保护的 `async-staging` 故障演练在一次性 PostgreSQL/Redis 上固定候选 revision，重复制造 Dispatcher 发布未确认、过期 claim/旧 token、终态重复 Job 和 ready-first Worker 滚动停机；每个 Run 只能有一条权威记录和一个公开终态，下游只承诺以 `runId` 幂等，不把 Queue 至少一次误写成 exactly-once。受保护的 staged promotion 把上述证据与 Redis 重建、Webhook 隔离和同 revision internal release/smoke 汇总为一次发布决策；一次调用只修改 API stage 或可信网关流量，按 `internal/0 → canary/0/1/5/25 → production/25/50/100` 相邻推进，production 还要求已批准观测窗口、容量/费用预算和回滚负责人。服务器拥有固定流量与 critical-alert Adapter；产品 Interface 不暴露发布配置。变更前后五角色 readiness 或 critical gate 失败会恢复原变量和 promotion state，不删除 PostgreSQL，也不重建兼容 Worker。执行本身不依赖实例状态；唯一的持久化是可选的 Run 观测归档，它把每次终态执行与其 Attempt 活动时间线写入 PostgreSQL（生产）或宿主机卷上的按日 JSONL 文件（本地开发与测试），供运维控制台回看。两个实现通过同一套契约测试，由 `PROCESS_RUN_RECORD_STORE` 选择。生产发布还会经 live session 拒绝非 TLS、维护库、超级用户或 `SET ROLE` 身份切换；独立的受保护控制台就绪检查再把同 revision 容器、在线数据库身份、同库备份与恢复证据，以及公网网关匿名拒绝/授权放行绑定成无内容证据。Run Record 是观测记录，不是异步 Run Store：没有代码读它来决定业务状态、重试或投递，写入失败被吞掉，关闭它不改变任何执行行为。它与 `ASYNC_PROCESS_RUNS_ENABLED` 独立，只共用 `DATABASE_URL`。控制台的提交表单只通过 Console Process Run Client Interface 创建和查询 durable Process Run；该 Module 隐藏 HTTP、轮询、响应解析和浏览器恢复状态，只把结构化进度、终态、公开错误、结果过期、查询超时、客户端取消、未确定接受、可重试 admission、恢复冲突、恢复存储不可用与协议错误交给页面。每次明确操作在首次 POST 前持久化请求摘要、幂等键和恢复分类；响应丢失或刷新后复用同一 key，未确定或可重试操作只有在明确新提交时才会被替换。浏览器状态不保存业务输入或输出。accepted Run 默认查询 300 秒；有效 `Retry-After` 限制在 1–30 秒，缺失或无效时使用有界指数退避，瞬时 GET 故障在期限内恢复。超时、Abort 或页面离开只停止客户端 transport、timer 与 polling，不取消服务端 Run。实例之间不共享 Agent 会话；每个 Agent 请求创建独立的内存会话。异步入口以 PostgreSQL 共享 Process Run，并要求可信网关删除客户端伪造的身份头、注入稳定 caller subject 和网关共享凭证。部署平台负责 TLS、私有入口、调用方认证、实例上限和 Secret 注入。
+默认发布是受控、同步的 Node.js HTTP 服务；异步入口默认关闭。部署平台负责 TLS、私有入口、调用方认证、实例上限和 Secret 注入。生产形状、门禁与回滚由 [同步 Runbook](docs/mvp-release-runbook.md) 和 [异步 Runbook](docs/async-process-runs-runbook.md) 拥有。
 
-同步 API 和异步 Worker 共用 Run Observation Module。Worker 只在 Process Run Store 接受权威终态后记录 Run Record，并把 Attempt Activity 写入同一归档；因此异步成功与失败可进入控制台历史、统计和活动时间线，而观测失败不能反向改变权威 Run 状态。生产 Worker 的部署预检要求显式选择观测存储和内容策略。
+显式启用异步入口后，PostgreSQL 保存权威 Process Run，Redis/BullMQ 只负责调度。API、Dispatcher、Process Worker、Webhook Worker 和 Retention Cleaner 是独立角色。Queue 只承诺至少一次投递；Business Capability 使用稳定 `runId` 控制重复副作用。网关删除调用方伪造的身份头，并注入稳定 caller subject；查询、幂等和 Webhook 按 owner 隔离。
 
-数据库 live audit 还拒绝具备建库、建角色、复制或绕过 RLS 等管理权限的登录角色、任何其他角色成员关系，以及能连接同一集群其他非模板数据库的角色；“不是超级用户”或“当前没有 SET ROLE”本身不足以证明最小权限。数据库首次 migration 生成随备份保留的随机实例身份；备份平台从隔离恢复读取该身份，并用受保护 HMAC 签署证据，避免同名库或手写 JSON 通过门禁。控制台的 Console Read Port 支持 Process、状态、错误码、闭开时间范围和不透明稳定游标的组合查询；统计同时提供按 Process、UTC 日和错误码的窗口聚合与最近失败，Run 详情对照 Registration 声明活动与每个 Attempt 的实际顺序。
+Run Observation Module 同时服务同步 API 和异步 Worker。Run Record 与活动日志只用于观测，不决定业务状态、重试或投递；写入失败不能改变 Process Result。异步调用方始终通过 owner-scoped Process Run Store 查询权威状态。
 
-进入至少 `canary/1%` 后，独立受保护的付费 smoke 固定执行 `crt-interface-image/v1`、`经典`、`4:3`、`normal`，主动丢弃首次 durable acceptance body，再以同一 idempotency key 和 owner GET 恢复同一 Run；成功还必须从批准 OSS host/prefix 下载且不跟随重定向的最终 PNG，验证尺寸、不透明度和固定调色板。该发布 Adapter 不接收 Skill、模型、供应商或运行配置，不保存 source/object URL、凭证、Prompt 或业务内容，也不改变流量。
+Agent 只获得 Registration 固定绑定的 Runtime Skill 与窄 Tool。文本 Agent 只能调用 Content Processing Capability；海报、CRT 和新闻图片 Agent 没有 Tool，只编译待校验计划。Agent 不获得 Shell、文件读写、代码编辑或任意远程工具。Runtime Skill 随应用发布，调用方不能选择、增加或排序。
 
-恢复记录使用 tab-scoped `sessionStorage`，防止多个标签页覆盖同一个恢复槽。accepted 映射不能由新提交直接替换；必须先查询到终态或明确移除。Storage 不可用时禁止发出无法恢复的 POST。可信网关还必须保持单个控制台标签页内 caller session 稳定；身份切换前先处理或移除恢复记录。仓库提供的固定 `console:development` Gateway Adapter 只属于显式 Vite development serve：它只接受 loopback upstream，删除浏览器身份头并在服务端注入共享凭证；build 和生产配置拒绝启用。最小浏览器验收从构建产物进入真实 headless Chrome，经该 Gateway 和全部异步角色验证防重、刷新恢复与终态投影；测试 Capability 不访问付费外部服务。
-
-Agent 只获得 Process Registration 明确绑定的 Runtime Skill 集合与窄 Tool。生产内容处理 Agent 同时加载 `content-optimization` 和 `content-integrity`，只能调用 `process_business_content`。海报 Agent 只加载 `minimal-zine-poster-prompt`，没有 Tool；CRT Agent 只加载 `tait-crt-interface-prompt`，没有 Tool，也看不到参考图或资产标识。新闻图片 Agent 分别加载人物叙事碑式、淡彩绘本和原质人文主义固定 Runtime Skill，同样没有 Tool。各图片 Agent 只返回待校验的 Prompt 计划；Registration 校验后自行调用一次对应 Rendering Capability。所有 Agent 都不能使用 Shell、文件读写、代码编辑或任意远程工具。Skill 集合随应用发布；调用方不能选择、增加或排序 Skill。
-
-独立 Redis 重建演练证明 Queue 不可用不影响 PostgreSQL durable acceptance 与 owner GET；Queue 全丢后，只有通过完整 dry-run 链门禁的受审计 apply 才重建非终态工作，active lease 延后而终态 Run 永不重建。
-
-独立 Webhook 隔离演练证明 Endpoint 故障和 Delivery backlog 不支配 Process Queue latency 或业务终态；稳定 `eventId` 贯穿 PostgreSQL retry。无内容运维快照、critical alerts 与 canary/production readiness 共同检查 backlog、stuck、已到期 Outbox lag、Delivery、storage、cleanup 和完整人工 Recovery 新鲜度。
+图片 Process 的模型、FAL、OSS、证据和保留策略由服务端 Adapter 与部署环境拥有。产品只提交业务字段并接收图片引用。真实模型、存储和付费验收必须显式运行，凭证与敏感内容不进入日志、正式输出或证据。
 
 ## 当前不做
 
@@ -87,7 +79,7 @@ Agent 只获得 Process Registration 明确绑定的 Runtime Skill 集合与窄 
 
 `minimal-zine-poster/v1` 与 `crt-interface-image/v1` 会产生模型费用和图片持久化副作用。海报 Registration 不重试 Agent；CRT Registration 可以在任何图片调用前重试一次无副作用的 Agent 编译。两个 Registration 都只调用一次图片 Capability，并把稳定 `runId` 作为下游幂等键；部署方仍须限制调用权限、并发、超时和费用。CRT 流程还处理用户上传资产，必须在产品图片服务中明确所有权、保留、删除和敏感内容策略。新增发布、扣费、发送等副作用前，必须先明确幂等、审计和补偿策略。
 
-异步 Process Run 的持久化提交、owner 查询、HTTP Interface、Outbox 调度、BullMQ Worker、受控 Process 重试和故障恢复已完成。终态事务会为已注册 Endpoint 创建精简 Webhook Delivery；独立 Webhook Worker 使用 Standard Webhooks HMAC 签名，并以 PostgreSQL 管理有界重试、逐次 Attempt 审计、稳定 event ID 和受控人工重放。Endpoint Secret 使用 AES-256-GCM 信封加密；注册和每次投递都重新解析目标、拒绝非公网地址并把连接固定到已检查的 IP，且不跟随重定向。独立 Retention Cleaner 已按 accepted input、公开结果、Run metadata 和 Delivery Attempt 历史的期限分批清理；结果到期不改变终态，metadata 到期删除前还会保护未完成或仍在保留期内的 Delivery 引用。Process Recovery 以 PostgreSQL Run/Outbox 为事实来源，检查 BullMQ 中稳定 `runId` Job 是否仍存在，分批恢复 queued 和租约过期 running Run；全量模式会明确报告仍有活跃租约的 Run，但在租约到期前不抢占。PostgreSQL acceptance 事务还执行 caller/global backlog admission，运维快照和结构化日志覆盖 Run、Outbox、Queue、Worker、Webhook、清理、恢复与存储，API 的 canary/production readiness 固定发布门槛。功能仍默认关闭；启用必须遵循 [`docs/async-process-runs-runbook.md`](docs/async-process-runs-runbook.md)。该设计保留现有 Business Process 模型：外部调用方仍只选择准确 Process 和版本；Queue Job、Endpoint、重试与 Worker 配置由服务端拥有。
+异步执行能力已经实现但默认关闭。开放任何外部异步流量前，部署方必须完成身份、容量、恢复、安全、观测和 staged rollout 门禁。
 
 ## Module 模型
 
@@ -149,7 +141,7 @@ Startup Construction 是生产组装 Seam；Process Executor 是同步传输与 
 | 精确运行行为和公开错误 | `src/` 与 `test/` |
 | Module、Interface、invariant 和测试面 | [`docs/process-runtime-design.md`](docs/process-runtime-design.md) |
 | 异步提交、查询、Queue 与 Webhook 设计 | [`docs/async-process-runs-design.md`](docs/async-process-runs-design.md) |
-| 异步能力的开发顺序与门禁 | [`docs/async-process-runs-development-plan.md`](docs/async-process-runs-development-plan.md) |
+| 异步本地开发与验证 | [`docs/async-process-runs-development.md`](docs/async-process-runs-development.md) |
 | 异步部署、观测、故障演练与回滚 | [`docs/async-process-runs-runbook.md`](docs/async-process-runs-runbook.md) |
 | 本地开发与改动流程 | [`docs/development.md`](docs/development.md) |
 | 从自然语言封装 Business Process | [`docs/authoring-business-processes.md`](docs/authoring-business-processes.md) |

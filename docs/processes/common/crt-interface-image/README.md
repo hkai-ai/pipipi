@@ -4,7 +4,7 @@
 
 要开发同类“上传参考图 → 模型编辑 → 确定性后处理 → 图片引用”流程，先阅读 [参考图转换 Business Process 开发模板](development-template.md)。它把本流程已验证的 Module 边界、配置归属、证据策略、测试分层和完成标准整理成可复制步骤。
 
-上游 `TaiT-tt/tait-crt-interface-skill` 没有声明许可证。固定版本、审查结果和适配差异记录在 [Runtime Skill 来源记录](../../../.pi/skills/tait-crt-interface-prompt/SOURCE.md)；发布负责人确认再分发和生产使用权之前，不得把该快照发布到未获授权的环境。
+上游 `TaiT-tt/tait-crt-interface-skill` 没有声明许可证。固定版本、审查结果和适配差异记录在 [Runtime Skill 来源记录](../../../../.pi/skills/tait-crt-interface-prompt/SOURCE.md)；发布负责人确认再分发和生产使用权之前，不得把该快照发布到未获授权的环境。
 
 ## 当前产品契约
 
@@ -151,7 +151,7 @@ GPT Image 2 负责识别参考图、保留主体关系和重绘整体构图，�
 - 以同一 bitmap grid 锁定右上标题栏中的 `tait-crt-interface-skill` 签名。
 - 输出不含 alpha 的 PNG，并重新验证尺寸、比例、调色板和解码完整性。
 
-[`src/business-api/crt-finalizer.ts`](../../../src/business-api/crt-finalizer.ts) 根据上述公开输出约束独立实现 finalizer，没有复制上游 Python 源码。它用 Sharp 完成目标尺寸、调色板量化、共享格、扫描线、边缘扰动、桶形外缘和固定签名。上游 Python 脚本只作为已审查的行为参考，没有随 Runtime Skill 安装。Agent 不能运行 finalizer，也不能获得文件系统、Shell 或通用网络权限。
+[`src/business-api/crt-finalizer.ts`](../../../../src/business-api/crt-finalizer.ts) 根据上述公开输出约束独立实现 finalizer，没有复制上游 Python 源码。它用 Sharp 完成目标尺寸、调色板量化、共享格、扫描线、边缘扰动、桶形外缘和固定签名。上游 Python 脚本只作为已审查的行为参考，没有随 Runtime Skill 安装。Agent 不能运行 finalizer，也不能获得文件系统、Shell 或通用网络权限。
 
 后处理无法修复主体遗漏、重复、手部关系错误或构图偏差。上线前需要人工或受控视觉验收；若以后加入自动质检与重绘，应发布新版本，明确最大尝试次数、费用、幂等和失败语义。
 
@@ -225,7 +225,7 @@ npm run accept:crt-business
 
 这条命令证明 Process 组装、FAL URL 编辑、finalizer 和可选 OSS 可以协同运行，但不证明来源 URL 长期可用、生产身份隔离、容量或视觉质量。发布验收必须改用目标环境的生产 `POST /crt-images` 和正式 OSS 凭证，再复查同一组判据。
 
-异步发布进入至少 `canary/1%` 后，使用受保护的 `.github/workflows/async-paid-image-smoke.yml` 完成目标环境验收。它固定本 Registration 和服务端风格参数，通过真实网关丢弃首次 durable acceptance body，并证明同 key replay 与 owner 查询恢复不会创建第二个 Run；随后不跟随重定向地读取获准 OSS 位置，验证最终 PNG 的尺寸、不透明度与固定调色板。运行前必须逐次批准费用。配置与证据边界见 [`../../async-process-runs-runbook.md`](../../async-process-runs-runbook.md#受控-faloss-付费异步-smoke)。
+异步发布进入至少 `canary/1%` 后，使用受保护的 `.github/workflows/async-paid-image-smoke.yml` 完成目标环境验收。它固定本 Registration 和服务端风格参数，通过真实网关丢弃首次 durable acceptance body，并证明同 key replay 与 owner 查询恢复不会创建第二个 Run；随后不跟随重定向地读取获准 OSS 位置，验证最终 PNG 的尺寸、不透明度与固定调色板。运行前必须逐次批准费用。配置与证据边界见 [`../../async-process-runs-runbook.md`](../../../async-process-runs-runbook.md#受控-faloss-付费异步-smoke)。
 
 ## 发布与回滚
 
@@ -247,17 +247,17 @@ npm run accept:crt-business
 
 | 目标 | 文件 |
 | --- | --- |
-| 产品契约、顺序与错误 | [`src/processes/crt/registration.ts`](../../../src/processes/crt/registration.ts) |
-| Agent Interface 与 Pi Adapter | [`src/processes/crt/agent.ts`](../../../src/processes/crt/agent.ts)、[`src/processes/crt/pi.ts`](../../../src/processes/crt/pi.ts) |
-| 调色板和画幅 | [`src/processes/crt/style.ts`](../../../src/processes/crt/style.ts) |
-| Capability 与 HTTP 协议 | [`src/processes/crt/capability.ts`](../../../src/processes/crt/capability.ts)、[`src/processes/crt/http.ts`](../../../src/processes/crt/http.ts) |
-| Skill 绑定与来源 | [`src/processes/crt/skills.ts`](../../../src/processes/crt/skills.ts)、[Runtime Skill](../../../.pi/skills/tait-crt-interface-prompt) |
-| GPT Image edit Adapter 与配置 | [`src/business-api/openai-image-generation.ts`](../../../src/business-api/openai-image-generation.ts)、[`src/business-api/fal-image-generation.ts`](../../../src/business-api/fal-image-generation.ts)、[`src/business-api/image-generation-config.ts`](../../../src/business-api/image-generation-config.ts) |
-| 生产 Business API、finalizer 与 OSS | [`src/bin/crt-business-api.ts`](../../../src/bin/crt-business-api.ts)、[`src/business-api/crt-server.ts`](../../../src/business-api/crt-server.ts)、[`src/business-api/crt-finalizer.ts`](../../../src/business-api/crt-finalizer.ts)、[`src/business-api/object-storage-config.ts`](../../../src/business-api/object-storage-config.ts) |
-| 公网 URL 业务验收 | [`examples/crt-business-acceptance.ts`](../../../examples/crt-business-acceptance.ts) |
-| 证据策略与开发说明 | [`src/business-api/crt-evidence.ts`](../../../src/business-api/crt-evidence.ts)、[CRT 图片证据保留](evidence-retention.md) |
+| 产品契约、顺序与错误 | [`src/processes/crt/registration.ts`](../../../../src/processes/crt/registration.ts) |
+| Agent Interface 与 Pi Adapter | [`src/processes/crt/agent.ts`](../../../../src/processes/crt/agent.ts)、[`src/processes/crt/pi.ts`](../../../../src/processes/crt/pi.ts) |
+| 调色板和画幅 | [`src/processes/crt/style.ts`](../../../../src/processes/crt/style.ts) |
+| Capability 与 HTTP 协议 | [`src/processes/crt/capability.ts`](../../../../src/processes/crt/capability.ts)、[`src/processes/crt/http.ts`](../../../../src/processes/crt/http.ts) |
+| Skill 绑定与来源 | [`src/processes/crt/skills.ts`](../../../../src/processes/crt/skills.ts)、[Runtime Skill](../../../../.pi/skills/tait-crt-interface-prompt) |
+| GPT Image edit Adapter 与配置 | [`src/business-api/openai-image-generation.ts`](../../../../src/business-api/openai-image-generation.ts)、[`src/business-api/fal-image-generation.ts`](../../../../src/business-api/fal-image-generation.ts)、[`src/business-api/image-generation-config.ts`](../../../../src/business-api/image-generation-config.ts) |
+| 生产 Business API、finalizer 与 OSS | [`src/bin/crt-business-api.ts`](../../../../src/bin/crt-business-api.ts)、[`src/business-api/crt-server.ts`](../../../../src/business-api/crt-server.ts)、[`src/business-api/crt-finalizer.ts`](../../../../src/business-api/crt-finalizer.ts)、[`src/business-api/object-storage-config.ts`](../../../../src/business-api/object-storage-config.ts) |
+| 公网 URL 业务验收 | [`examples/crt-business-acceptance.ts`](../../../../examples/crt-business-acceptance.ts) |
+| 证据策略与开发说明 | [`src/business-api/crt-evidence.ts`](../../../../src/business-api/crt-evidence.ts)、[CRT 图片证据保留](evidence-retention.md) |
 | 外部接入契约与对齐结论 | [`crt-interface-image/v1` 接入契约](integration-contract.md) |
 | 接入对齐的实施顺序与门槛 | [CRT 接入对齐开发计划](development-plan.md) |
 | 同类流程开发模板 | [参考图转换 Business Process 开发模板](development-template.md) |
-| 编辑 smoke | [`examples/crt-gpt-image-smoke.ts`](../../../examples/crt-gpt-image-smoke.ts) |
-| 确定性测试 | [`test/crt-process.test.ts`](../../../test/crt-process.test.ts)、[`test/crt-http.test.ts`](../../../test/crt-http.test.ts)、[`test/openai-image-generation.test.ts`](../../../test/openai-image-generation.test.ts)、[`test/fal-image-generation.test.ts`](../../../test/fal-image-generation.test.ts)、[`test/image-generation-config.test.ts`](../../../test/image-generation-config.test.ts)、[`test/crt-local-business-api.test.ts`](../../../test/crt-local-business-api.test.ts)、[`test/crt-evidence.test.ts`](../../../test/crt-evidence.test.ts) |
+| 编辑 smoke | [`examples/crt-gpt-image-smoke.ts`](../../../../examples/crt-gpt-image-smoke.ts) |
+| 确定性测试 | [`test/crt-process.test.ts`](../../../../test/crt-process.test.ts)、[`test/crt-http.test.ts`](../../../../test/crt-http.test.ts)、[`test/openai-image-generation.test.ts`](../../../../test/openai-image-generation.test.ts)、[`test/fal-image-generation.test.ts`](../../../../test/fal-image-generation.test.ts)、[`test/image-generation-config.test.ts`](../../../../test/image-generation-config.test.ts)、[`test/crt-local-business-api.test.ts`](../../../../test/crt-local-business-api.test.ts)、[`test/crt-evidence.test.ts`](../../../../test/crt-evidence.test.ts) |

@@ -523,7 +523,7 @@ npm run accept:crt-business
 
 新闻图片候选不需要发布人员在普通提交上手工运行付费命令。默认未设置 `NEWS_IMAGE_ACCEPTANCE_ENABLED` 时，`Production CI/CD` 跳过该 Job 且不阻塞部署。显式设为 `true` 后，workflow 只在相关路径变化时进入受保护的 `news-image-acceptance` Environment；reviewer 确认准确 revision、费用上限、最小权限凭证、bucket 和批准的 host/path prefix 后放行。Job 临时启动当前 commit 的 production Composition 与图片 Business API，从产品 `POST /execute` 依次运行三个准确 Process，并要求三次 FAL 生成、三次 OSS PUT、三个不同 `runId`、固定 style 和可下载的 1600×1200 PNG。证据保留 90 天，只含 revision、Process identity、Run ID、图片摘要/尺寸/字节数、访问判据和费用批准摘要，不含测试新闻、Prompt、图片 URL、签名参数或凭证。启用后失败或未批准时，生产部署保持阻塞。
 
-本地通过仍不满足生产发布门禁。发布前必须按 [`processes/crt-interface-image/`](processes/crt-interface-image/) 完成来源授权、生产上传的身份与资产安全、生产 `POST /crt-images`、持久化 URL、删除生命周期、九种调色板、四种画幅和人工视觉验收，并按 [CRT 图片证据保留](processes/crt-interface-image/evidence-retention.md) 确认生产模式与清理责任。
+本地通过仍不满足生产发布门禁。发布前必须按 [`processes/common/crt-interface-image/`](processes/common/crt-interface-image/) 完成来源授权、生产上传的身份与资产安全、生产 `POST /crt-images`、持久化 URL、删除生命周期、九种调色板、四种画幅和人工视觉验收，并按 [CRT 图片证据保留](processes/common/crt-interface-image/evidence-retention.md) 确认生产模式与清理责任。
 
 ## 发布与回滚
 

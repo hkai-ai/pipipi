@@ -108,7 +108,7 @@
 - 没有 QPS 或日配额。
 - 调用方断开连接会取消下游渲染，但供应商侧可能已经产生费用。
 
-超时以 [`mvp-release-runbook.md`](../../mvp-release-runbook.md#初始容量与超时) 的发布配置为准：
+超时以 [`mvp-release-runbook.md`](../../../mvp-release-runbook.md#初始容量与超时) 的发布配置为准：
 
 | 层级 | 发布值 |
 | --- | ---: |
@@ -130,7 +130,7 @@
 
 ### 鉴权
 
-`/execute` 不读取任何认证头。生产依赖发布门禁「容器不暴露公网、只经 TLS 网关」，这是运维配置约束，不是代码保证。[`src/api/identity.ts`](../../../src/api/identity.ts) 的网关身份校验当前只挂在异步入口上。
+`/execute` 不读取任何认证头。生产依赖发布门禁「容器不暴露公网、只经 TLS 网关」，这是运维配置约束，不是代码保证。[`src/api/identity.ts`](../../../../src/api/identity.ts) 的网关身份校验当前只挂在异步入口上。
 
 ### 异步入口（已实现，默认关闭）
 
@@ -146,7 +146,7 @@
 - 提交路径与 `/execute` 的并发闸门无关；执行在独立的 Process Worker 角色中，并发由 `PROCESS_WORKER_CONCURRENCY` 控制。
 - 幂等键寿命等于 Run 行的寿命，由 `PROCESS_RUN_METADATA_RETENTION_MS` 控制；输入与结果按 `PROCESS_RUN_ACCEPTED_INPUT_RETENTION_MS` 和 `PROCESS_RUN_RESULT_RETENTION_MS` 独立过期。三者都必填、无默认值。
 
-启用需要 PostgreSQL、Redis 与五个独立角色进程，并按 [`async-process-runs-runbook.md`](../../async-process-runs-runbook.md) 的阶段门禁推进。
+启用需要 PostgreSQL、Redis 与五个独立角色进程，并按 [`async-process-runs-runbook.md`](../../../async-process-runs-runbook.md) 的阶段门禁推进。
 
 ## 计划
 
@@ -168,7 +168,7 @@
 
 实现必须校验回传 URL 确实指向已配置的 bucket 与 prefix，不能因为 URL 形状合法就信任它。现有的 `isPublicSourceImageUrl` 只做形状校验，挡不住指向其他主机的地址。
 
-> 与现有规则的冲突：[`AGENTS.md`](../../../AGENTS.md) 的「CRT 图片输入」写明「服务端不下载参考图」。再出档 Process 会打破这条规则。实现该计划时必须同步修订 `AGENTS.md`，不能静默偏离。
+> 与现有规则的冲突：[`AGENTS.md`](../../../../AGENTS.md) 的「CRT 图片输入」写明「服务端不下载参考图」。再出档 Process 会打破这条规则。实现该计划时必须同步修订 `AGENTS.md`，不能静默偏离。
 
 ## 决策记录
 
@@ -197,5 +197,5 @@
 
 - Process 实现、后处理算法、证据策略与验收：[`README.md`](README.md)
 - 证据目录结构与保留配置：[`evidence-retention.md`](evidence-retention.md)
-- 异步入口的设计与发布门禁：[`async-process-runs-design.md`](../../async-process-runs-design.md)、[`async-process-runs-runbook.md`](../../async-process-runs-runbook.md)
-- 同步入口的部署与环境验收：[`mvp-release-runbook.md`](../../mvp-release-runbook.md)
+- 异步入口的设计与发布门禁：[`async-process-runs-design.md`](../../../async-process-runs-design.md)、[`async-process-runs-runbook.md`](../../../async-process-runs-runbook.md)
+- 同步入口的部署与环境验收：[`mvp-release-runbook.md`](../../../mvp-release-runbook.md)

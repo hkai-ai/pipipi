@@ -4,55 +4,37 @@
 
 ## 当前能力
 
-生产 catalog 包含七个 Business Process：
+生产 catalog 包含七个 Business Process。文档先按产品场景分组，运行时仍通过统一的 Process identity 和 HTTP Interface 执行：
 
-| Process | 输入 | 输出 |
-| --- | --- | --- |
-| `content-processing/v1` | `{ "content": string }` | `{ "content": string }` |
-| `titled-content-processing/v1` | `{ "title": string, "body": string }` | `{ "title": string, "content": string }` |
-| `minimal-zine-poster/v1` | `{ "brief": string, "text"?: string }` | `{ "prompt", "recipe", "interpretation", "image" }` |
-| `crt-interface-image/v1` | `{ "sourceImageUrl", "palette", "aspectRatio" }` | `{ "aspectRatio", "image" }` |
-| `news-image-narrative-monument/v1` | `{ "title", "summary" }` | `{ "style", "image" }` |
-| `news-image-pale-watercolor/v1` | `{ "title", "summary" }` | `{ "style", "image" }` |
-| `news-image-raw-humanism/v1` | `{ "title", "summary" }` | `{ "style", "image" }` |
+| 场景 | Process | 输入 | 输出 |
+| --- | --- | --- | --- |
+| `common` | `content-processing/v1` | `{ "content": string }` | `{ "content": string }` |
+| `common` | `titled-content-processing/v1` | `{ "title": string, "body": string }` | `{ "title": string, "content": string }` |
+| `common` | `minimal-zine-poster/v1` | `{ "brief": string, "text"?: string }` | `{ "prompt", "recipe", "interpretation", "image" }` |
+| `common` | `crt-interface-image/v1` | `{ "sourceImageUrl", "palette", "aspectRatio" }` | `{ "aspectRatio", "image" }` |
+| `memene` | `news-image-narrative-monument/v1` | `{ "title", "summary" }` | `{ "style", "image" }` |
+| `memene` | `news-image-pale-watercolor/v1` | `{ "title", "summary" }` | `{ "style", "image" }` |
+| `memene` | `news-image-raw-humanism/v1` | `{ "title", "summary" }` | `{ "style", "image" }` |
+
+Memebuy 已建立独立文档边界，但当前没有明确归属的 production Process。场景入口和归属规则见 [`docs/processes/README.md`](docs/processes/README.md)。
 
 七个流程共享同一个 `POST /execute` Interface。每个明确版本由 Process Registration 绑定业务定义、Schema、依赖、运行活动和策略，再进入不可变 Process Registry。Process Runner 统一处理 `runId`、精确版本查找、超时、取消、错误净化和可选 Run Record。
 
-每个实际开始的 Process Attempt 都通过 Pino 输出无业务内容的单行 JSON 活动日志。运维系统可按 `runId`、`attemptNumber` 和 `sequence` 还原 Attempt 开始、固定活动开始/结束和 Attempt 结果；活动结束记录包含结果与耗时。日志不保存 input、output、Prompt、Tool 参数、模型消息或内部异常正文。
+每次 Process Attempt 都输出不含业务内容的结构化活动日志。可选 Run Record 保存终态与活动归档，但只用于观测，不决定业务状态。运维控制台提供检索、统计和异步提交；它没有应用内鉴权，生产访问控制由部署平台负责。详细语义见 [Process Runtime 设计](docs/process-runtime-design.md)。
 
-启用记录后，每次终态执行还会作为 Run Record 持久化，同一存储里还保存 Attempt 活动归档。stdout 的 Pino 活动日志随容器重建消失，这份归档不会，因此可以按 `runId` 还原完整的 Attempt 与活动时间线——每步活动、结果和耗时。`PROCESS_RUN_RECORD_STORE` 选择存储：生产要求使用有备份的 `postgres`（聚合是查询），本地开发用 `file`（按 UTC 日期分文件的 JSONL，不依赖数据库）。两个实现通过同一套契约测试；生产发布还会实连审计 TLS、专用库、非超级用户、无其他角色成员关系及不存在 `SET ROLE` 身份切换。生产 Run Record 随数据库备份跨发布保留；本地文件实现才写宿主机卷。`PROCESS_RUN_RECORD_CONTENT=accepted-input-and-output` 时记录附带已校验输入与成功输出，`crt-interface-image` 的 `sourceImageUrl` 始终只保存 SHA-256 摘要。`CONSOLE_ENABLED=true` 时，API 在 `CONSOLE_BASE_PATH`（默认 `/console`）挂载运维控制台：按 `runId` 检索并回看输入、产出图片与完整活动时间线；按 Process 和状态筛选历史；查看窗口内的执行计数、失败分布、Attempt 耗时分位数与实时并发占用；查看由 Registration Schema 推导的 Process 目录；以及异步提交任务并查询结果。控制台通过独立的 Process Run Client Interface 校验提交和查询响应，只向页面公开结构化进度、终态、公开错误、结果过期、查询超时、客户端取消、未确定接受、可重试 admission、恢复冲突、恢复存储不可用和协议错误；跨源或错误形状的结果地址不会被查询。Client 在首次 POST 前持久化请求摘要、幂等键和恢复分类，响应丢失、可重试 admission 或刷新恢复时复用同一 key；未确定或可重试操作只有在明确的新提交时才生成新 key。浏览器恢复状态不保存业务输入或输出。accepted Run 默认等待 300 秒；有效 `Retry-After` 限制在 1–30 秒，缺失或无效时使用有界指数退避。瞬时 GET 故障在期限内恢复；等待超时、Abort 或关闭页面只停止客户端 transport、timer 与 polling，不取消服务端 Run。页面是 Preact + Vite 构建的单页应用，与 API 同源提供，构建工具只在 devDependencies，不进入运行时容器。控制台没有自带鉴权，且表单会真实触发付费出图；上线前的访问控制要求见 [`docs/mvp-release-runbook.md`](docs/mvp-release-runbook.md#运维控制台)。
+生产启动通过 Installed Skill Catalog 校验 Runtime Skill 的准确名称、版本和 SHA-256。Process 只加载 Registration 固定绑定的 Skill 与窄 Tool；运行期不发现、下载或更新 Skill。
 
-同步 API 和异步 Worker 共用 Run Observation Module；生产 Worker 被强制写入与 Console 相同的 PostgreSQL，并只在 Store 接受权威终态后写 Run Record。它用有界等待先冲刷 Attempt 活动，因此异步成功和失败都能进入控制台历史、统计与活动时间线，而观测卡顿或失败不改变权威状态，也不能无限阻塞 Queue 确认。
-
-历史列表还支持 Process、状态、错误码与起止时间组合筛选，并用“记录时间 + runId”的稳定游标避免同一毫秒内的记录被跳过；压力页按 UTC 日展示吞吐和错误码变化，并把最近失败链接到详情。Run 详情把 Registration 声明的活动顺序与每个 Attempt 的实际顺序同屏对照。
-
-恢复记录使用 tab-scoped `sessionStorage`，只跨同一标签页刷新保留，不在标签页之间共享。accepted 映射不能被新提交覆盖；操作者必须先继续查询到终态，或明确移除恢复记录。Storage 不可用时页面禁止提交。可信网关还必须保证一个控制台标签页内 caller session 稳定；切换 caller 前先处理或移除恢复记录。
-
-`content-processing/v1` 的 Agent 路径会同时加载服务端固定的 `content-optimization` 和 `content-integrity`。两项 Skill 作为一个经过评审的指令集执行，但仍只获得 `process_business_content` Tool。Registration 只接受一次 Tool 调用，并要求 Agent 最终结果与 Tool 结果一致；调用方不能提交或覆盖 Skill。
-
-生产启动会通过只读 Installed Skill Catalog 校验全部本地 Runtime Skill 的准确名称、版本和 `SKILL.md` SHA-256。Process 只绑定校验后的准确版本；运行期不发现、下载或自动更新 Skill。
-
-`minimal-zine-poster/v1` 固定加载 `minimal-zine-poster-prompt`。这个 Runtime Skill 只把 brief 编译成四段 Prompt 和六轴 recipe，不获得任何 Tool。Registration 校验 Prompt、recipe 和可选原文后，以 `runId` 为幂等键调用一次 Poster Rendering Capability。Capability 返回 HTTP(S) 图片 URL、类型和尺寸；原始图片字节不进入 `/execute` JSON。
-
-`crt-interface-image/v1` 把服务端资产标识、调色板和画幅收敛为参考图转换。无 Tool Agent 固定加载 `tait-crt-interface-prompt`，只编译内部 Prompt 和十四轴 recipe；Registration 校验后，以 `runId` 为幂等键调用一次 CRT Rendering Capability。产品输出只返回画幅和 PNG 引用，不返回 Prompt、recipe、模型、Skill 或源图片字节。完整开发契约和上线门禁见 [`docs/processes/crt-interface-image/`](docs/processes/crt-interface-image/)。
-
-三个新闻图片 Process 都接收标题和摘要，并分别固定人物叙事碑式封面、淡彩绘本和原质人文主义 Runtime Skill。Registration 校验后调用同一个受控图片 Capability，生成并持久化 1600×1200 PNG。调用方不能选择 Skill、模型或图片供应商。
-
-受控测试环境可显式启用 `POST /internal/eval/execute`，以相同请求和同一次执行返回实际 Prompt、文本模型及非敏感图片参数。该入口默认关闭，生产 Compose 固定关闭，正式 `POST /execute` 的契约不变。
+图片 Process 只公开业务输入和图片引用。Prompt、模型、供应商、Skill 和存储配置留在服务端。内部新闻图片评测默认关闭，只在受控环境复用同一次正式 Process 执行。
 
 ## 按 Business Process 查看
 
 每个 production Process 都有独立文档目录。先从对应目录确认产品契约、执行顺序、依赖、错误和验证入口，再进入 Implementation：
 
-| Process | 独立文档 | 主要 Registration |
+| 场景 | Process 文档 | 主要 Registration |
 | --- | --- | --- |
-| `content-processing/v1` | [`docs/processes/content-processing/`](docs/processes/content-processing/) | [`src/processes/content/registration.ts`](src/processes/content/registration.ts) |
-| `titled-content-processing/v1` | [`docs/processes/titled-content-processing/`](docs/processes/titled-content-processing/) | [`src/processes/titled-content/registration.ts`](src/processes/titled-content/registration.ts) |
-| `minimal-zine-poster/v1` | [`docs/processes/minimal-zine-poster/`](docs/processes/minimal-zine-poster/) | [`src/processes/poster/registration.ts`](src/processes/poster/registration.ts) |
-| `crt-interface-image/v1` | [`docs/processes/crt-interface-image/`](docs/processes/crt-interface-image/) | [`src/processes/crt/registration.ts`](src/processes/crt/registration.ts) |
-| `news-image-narrative-monument/v1` | [`docs/processes/news-image-narrative-monument/`](docs/processes/news-image-narrative-monument/) | [`src/processes/news-image/registration.ts`](src/processes/news-image/registration.ts) |
-| `news-image-pale-watercolor/v1` | [`docs/processes/news-image-pale-watercolor/`](docs/processes/news-image-pale-watercolor/) | [`src/processes/news-image/registration.ts`](src/processes/news-image/registration.ts) |
-| `news-image-raw-humanism/v1` | [`docs/processes/news-image-raw-humanism/`](docs/processes/news-image-raw-humanism/) | [`src/processes/news-image/registration.ts`](src/processes/news-image/registration.ts) |
+| [`common`](docs/processes/common/) | 文本处理、海报与 CRT 图片 | [`src/processes/`](src/processes) |
+| [`memene`](docs/processes/memene/) | 三个新闻图片 Process | [`src/processes/news-image/registration.ts`](src/processes/news-image/registration.ts) |
+| [`memebuy`](docs/processes/memebuy/) | 暂无已登记 Process | — |
 
 总目录和新 Process 的放置规则见 [`docs/processes/README.md`](docs/processes/README.md)。production catalog 的准确清单由 [`src/processes/catalog.ts`](src/processes/catalog.ts) 和 [`src/app/business-processes.ts`](src/app/business-processes.ts) 决定。
 
@@ -82,17 +64,7 @@ cp .env.example .env
 
 `.env` 已被 Git 忽略。文本 Direct 路径不调用模型；执行海报业务验收、文本 Agent 路径或真实模型 smoke 时需要模型凭证。不要把真实凭证提交到仓库。
 
-构建部署产物后，可在目标角色的 Secret 注入环境中运行 `npm run check:deployment-env -- api`，一次检查全部无默认必填项。异步角色名和逐角色清单见 [同步 MVP 发布手册](docs/mvp-release-runbook.md#部署环境预检) 与 [异步发布手册](docs/async-process-runs-runbook.md#配置与分阶段启用)。实际启动会重复存在性检查，再校验格式和跨字段约束。
-
-`compose.production.yaml` 始终是关闭异步入口的默认单服务器形状。经发布门禁批准后，运维人员才可显式叠加 `compose.production.async.yaml`，用同一不可变镜像启动 API、Process Dispatcher、Process Worker、Webhook Worker 和 Retention Cleaner；PostgreSQL 与 Redis 必须由部署环境外部提供。当前单服务器门禁只接受带密码、绑定 IPv4 回环地址的 `redis://127.0.0.1`，异步角色通过 host 网络访问该独立实例。`npm run check:deployment:async-shape` 可在不读取生产 Secret 的情况下验证合并后的形状与缺参失败行为。
-
-`.github/workflows/async-internal-release.yml` 是唯一自动化异步启用入口，只能手动触发并绑定受保护的 `async-internal` Environment。它只接受精确 commit 与对应 CI run，复用 CI 构建的 release artifact，固定发布为 `internal`；逐角色预检、migration 双跑、全量 Queue Recovery dry-run、后台 readiness 和 revision/Queue 核验全部通过后才启动 API。同步与异步发布共享 Actions 并发组、服务器锁和固定 SSH host key；失败或信号中断会恢复上一形状。只回传声明过的非秘密证据文件，流程不会自动提升到 canary 或 production。
-
-internal 发布后可手动运行受保护的 `.github/workflows/async-internal-smoke.yml`。它通过真实 HTTPS 网关验证成功、稳定业务失败和双 caller owner 隔离，收集角色状态、Async Operations、数据库保留信号与按 Run 关联的脱敏日志；随后用服务端 marker 只关闭新异步 intake，证明既有 owner GET 和同步 `/execute` 仍可用，再自动恢复 intake。请求正文、操作者凭证和幂等键不进入证据；该 workflow 同样不会自动提升流量。
-
-同一候选的 internal release/smoke、Dispatcher/Worker、Redis 重建和 Webhook/观测证据全部成功后，受保护的 `.github/workflows/async-promote-release.yml` 才允许逐次执行 `internal/0% → canary/0% → 1% → 5% → 25% → production/25% → 50% → 100%`。每次人工批准只改变 stage 或可信网关流量中的一个变量；五个角色 readiness、容量/费用和 critical alert 在变更前后任一失败都会恢复原值。应用不拥有网关路由，服务器上的固定 Adapter 只向该 workflow 提供当前比例、设定比例和无内容 critical snapshot。
-
-至少进入 `canary/1%` 后，受保护的 `.github/workflows/async-paid-image-smoke.yml` 可在单独费用批准下执行一个固定的 `crt-interface-image/v1` 付费异步旅程。它通过真实网关丢弃首次 acceptance body，再使用同一 idempotency key 恢复同一个 Run；owner-query 期限从恢复 durable acceptance 后开始。随后验证 FAL URL edit、固定 CRT finalizer 和批准 OSS 路径中的最终 PNG，且不跟随对象重定向。source URL、调用凭证、对象 URL、Prompt 和 FAL/OSS Secret 不进入 artifact；该入口默认不运行，也不改变流量。
+生产预检、Compose 形状、异步发布和付费 smoke 不属于快速开始。部署前分别阅读 [同步发布手册](docs/mvp-release-runbook.md) 与 [异步发布手册](docs/async-process-runs-runbook.md)。
 
 在第一个终端启动演示 Business Capability：
 
@@ -140,7 +112,7 @@ curl http://127.0.0.1:3000/healthz
 
 `GET /healthz` 只确认进程完成初始化，不访问模型或 Business Capability。
 
-`GET /readyz` 表达当前角色所需依赖是否就绪；默认同步形状不访问外部依赖。启用异步入口后会检查包括 backlog admission 索引在内的 PostgreSQL migration，`canary` 与 `production` 阶段还检查容量、stuck Run、已到期 Outbox 延迟和最近一次完整成功的人工全量恢复批次链。
+`GET /readyz` 表达当前角色所需依赖是否就绪；默认同步形状不访问外部依赖。异步阶段的 readiness 门槛见 [异步发布手册](docs/async-process-runs-runbook.md)。
 
 ## 异步开发 Interface
 
@@ -148,7 +120,7 @@ curl http://127.0.0.1:3000/healthz
 
 运维可通过服务端只读 marker 暂停新异步提交；此时 POST 返回 `503 ASYNC_INTAKE_CLOSED`，但既有 owner 查询和同步 `/execute` 保持可用。完整产品契约见 [`docs/api.md`](docs/api.md#异步执行)，操作步骤见[异步发布手册](docs/async-process-runs-runbook.md#真实网关-smoke-与安全回滚)。
 
-本地开发可显式启用 Vite-only Gateway：它只代理到 loopback API，删除浏览器伪造的身份头，再注入固定 `console:development` 身份和服务端持有的共享凭证。build 与生产 mode 无法启用该 Adapter。`npm run test:integration:async:local` 会启动隔离 PostgreSQL/Redis，运行 Console Client → Gateway → API → Dispatcher → Worker 的真实成功链；`npm run test:acceptance:console:local` 进一步从 `dist/console` 启动 headless Chrome，覆盖提交防重、accepted 进度、刷新恢复和结构化终态。三个专项入口分别验证 Dispatcher/Worker 竞态、Redis/Queue 全丢重建，以及 Webhook 503 不影响 Process 终态与 Queue latency；Webhook 演练还校验 staged readiness、critical 观测信号和脱敏关联证据。所有本地入口都在成功或失败后删除容器和临时数据，且不调用付费 Capability；配置与判据见[开发指南](docs/development.md#postgresql-与-redis-异步集成测试)。
+本地异步开发通过 Vite-only Gateway 注入测试身份，并用隔离 PostgreSQL、Redis 和受控 Capability 验证提交、刷新恢复与终态。命令、安全边界和故障演练见 [异步 Process Run 开发指南](docs/async-process-runs-development.md)。
 
 该 Interface 由 `ASYNC_PROCESS_RUNS_ENABLED=true` 显式启用，默认关闭，并要求明确的 `internal`、`canary` 或 `production` 阶段。仓库已经实现 transactional Outbox、相互隔离的 Process/Webhook BullMQ Queue、租约恢复、Queue 重建、容量门禁、运维快照和有期限停机。新提交在 durable backlog 达到 caller 上限时返回 `429`，达到全局上限时返回 `503`，两者都带 `Retry-After`；既有 Run 查询不受 admission 影响。完整契约见 [`docs/async-process-runs-design.md`](docs/async-process-runs-design.md)，受控发布步骤见 [`docs/async-process-runs-runbook.md`](docs/async-process-runs-runbook.md)。
 
@@ -163,13 +135,9 @@ curl http://127.0.0.1:3000/healthz
 
 ## 当前边界
 
-默认发布仍是受控、同步、无状态的 MVP。部署平台必须提供 TLS、私有入口、调用方认证、Secret 注入和实例上限。异步实现具备独立的受控 `internal` 发布与 staged promotion 入口，但普通主分支发布不会启用或提升异步流量；发布人员必须按异步 Runbook 完成 migration、身份、容量、恢复、安全、观测和逐级人工授权。当前发布不提供应用用户系统、RBAC、多租户、CORS、通用幂等或动态流程注册。
+默认发布是受控、同步的服务；异步 Interface 已实现但默认关闭。部署平台必须提供 TLS、私有入口、调用方认证、Secret 注入和实例上限。开放异步流量前必须完成 migration、身份、容量、恢复、安全、观测和 staged rollout 门禁。
 
-仓库内已有 Async Process Runs Module、事务化 PostgreSQL Store、Process/Webhook Outbox，以及相互隔离的 BullMQ Process Queue 和 Webhook Queue。`npm run start:api`、`npm run start:dispatcher`、`npm run start:worker`、`npm run start:webhook-worker` 和 `npm run start:retention-cleaner` 从同一构建产物启动独立角色；显式异步生产叠加层为每个角色执行环境预检并用独立 readiness 端口探测。Process 默认只执行一次，只有服务端 Registration 明确声明安全错误、次数和退避时才会重试；Webhook 已支持精简终态事件、Standard Webhooks 签名、PostgreSQL 权威的有界重试、Attempt 审计、受控人工重放、加密 Secret 和防 SSRF 的固定目标连接。Retention Cleaner 按固定 cutoff 分批删除到期内容，批次审计和返回游标允许安全续跑。Redis Queue 丢失时，`npm run recover:queue` 默认先做 PostgreSQL 权威的 dry-run，再由运维人员显式 `--apply` 重建所有仍需执行的 Job；终态 Run 永不进入恢复候选。`npm run observe:async` 从 PostgreSQL 和两个 Queue 读取不含业务内容的运维快照，Dashboard/alert 字段固定在 `ops/async-observability.json`。
-
-`minimal-zine-poster/v1` 和 `crt-interface-image/v1` 已进入 production catalog，但生产 Adapter 只依赖受控 Business API 的 `POST /posters` 与 `POST /crt-images`，不把 FAL、OSS 或模型参数暴露给产品调用方。生产 Compose 已包含内部 CRT Business API；海报 Business API 仍由部署方提供。付费图片与 OSS 验收默认关闭，不影响发布。显式把 Repository Variable `NEWS_IMAGE_ACCEPTANCE_ENABLED` 设为 `true` 后，新闻图片相关代码、Skill、图片 Business API 或部署资源变化时，主分支发布才会在部署前进入受保护的 `news-image-acceptance` Environment，对准确 commit 执行三个固定 Process Run；其他改动跳过该付费 Job。当前海报版本不接收参考图片；CRT 版本接收公网 HTTPS `sourceImageUrl`。两者都不执行自动看图质检或重绘。
-
-CRT 流程的 Registration、Runtime Skill、HTTP Adapter、内部 Business API、FAL URL 编辑、独立 finalizer 和 OSS 输出已经完成。正式发布仍需确认：内部 `POST /crt-images` 不向公网暴露，来源 URL 可由 FAL 读取，目标环境完成存储验收，生产证据保留关闭，并确认上游 Skill 的再分发和生产使用权。
+图片 Process 隐藏模型、供应商和存储配置。真实图片与 OSS 验收默认关闭；生产发布仍需确认内部 Business API 隔离、来源 URL 策略、存储生命周期、证据关闭和上游 Skill 使用权。
 
 ## 文档导航
 
@@ -184,7 +152,7 @@ CRT 流程的 Registration、Runtime Skill、HTTP Adapter、内部 Business API�
 | [`docs/integrating-runtime-skills.md`](docs/integrating-runtime-skills.md) | 开发者 | 如何从本地路径或远程来源审查、固定并接入 Skill |
 | [`docs/process-runtime-design.md`](docs/process-runtime-design.md) | 开发者 | Module、Interface、执行 invariant 和错误归属 |
 | [`docs/async-process-runs-design.md`](docs/async-process-runs-design.md) | 开发者 | 异步提交、持久化查询、BullMQ Worker 和 Webhook 设计 |
-| [`docs/async-process-runs-development-plan.md`](docs/async-process-runs-development-plan.md) | 开发者 | 异步能力的开发批次、测试门槛和发布顺序 |
+| [`docs/async-process-runs-development.md`](docs/async-process-runs-development.md) | 开发者 | 异步角色、本地依赖、集成测试和故障演练 |
 | [`docs/async-process-runs-runbook.md`](docs/async-process-runs-runbook.md) | 发布与运维人员 | 异步 migration、容量、观测、故障演练、灰度与回滚 |
 | [`docs/experiments.md`](docs/experiments.md) | 开发者 | Agent、Skill、图片与对象存储的真实集成验证 |
 | [`docs/mvp-release-runbook.md`](docs/mvp-release-runbook.md) | 发布与运维人员 | 受控 Business Process MVP 的部署门禁、验收和回滚 |

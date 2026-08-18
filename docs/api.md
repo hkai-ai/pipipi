@@ -1,6 +1,6 @@
 # 业务接口文档
 
-本文面向业务调用方，记录七个 Business Process 的请求和响应契约，以及临时开放的内部评测接口。
+本文面向业务调用方，记录七个 Business Process 的请求和响应契约，以及临时开放的内部评测接口。场景列帮助产品找到契约；请求仍只提交准确 Process 和版本。
 
 ## 接入信息
 
@@ -45,15 +45,17 @@ Content-Type: application/json
 
 ### Process 清单
 
-| process | 用途 |
-| --- | --- |
-| `content-processing` | 处理一段业务文本 |
-| `titled-content-processing` | 处理标题和正文 |
-| `minimal-zine-poster` | 生成极简 Zine 海报 |
-| `crt-interface-image` | 根据公网参考图生成 CRT 风格图片 |
-| `news-image-narrative-monument` | 生成人物叙事碑式新闻图片 |
-| `news-image-pale-watercolor` | 生成淡彩绘本新闻图片 |
-| `news-image-raw-humanism` | 生成原质人文主义新闻图片 |
+| 场景 | process | 用途 |
+| --- | --- | --- |
+| `common` | `content-processing` | 处理一段业务文本 |
+| `common` | `titled-content-processing` | 处理标题和正文 |
+| `common` | `minimal-zine-poster` | 生成极简 Zine 海报 |
+| `common` | `crt-interface-image` | 根据公网参考图生成 CRT 风格图片 |
+| `memene` | `news-image-narrative-monument` | 生成人物叙事碑式新闻图片 |
+| `memene` | `news-image-pale-watercolor` | 生成淡彩绘本新闻图片 |
+| `memene` | `news-image-raw-humanism` | 生成原质人文主义新闻图片 |
+
+Memebuy 当前没有已登记 Process。完整场景归属见 [Business Process 场景目录](processes/README.md)。
 
 调用方不能提交 Skill、Prompt、模型、Tool、图片供应商或存储配置。新闻图片风格由 `process` 固定，接口不接收 `style` 字段。
 

@@ -59,7 +59,7 @@ flowchart LR
 - **安全评审**：再出档需要服务端下载调用方回传的 URL，这是本服务首次产生此类出站请求。评审范围是出站主机白名单、重定向处理、响应大小与超时上限，以及 URL 归属校验的实现位置。
 - **数据评审**：生产启用 `metadata` 证据模式的授权、隔离、期限与删除责任。范围不含图片字节与 Prompt。
 - **接入方交付**：对象存储的 bucket、region、prefix、访问方式（公开读或签名）与写入凭证。最小权限是指定 prefix 下的 `PutObject` 与 `GetObject`。
-- **核实生产配置**：确认部署的 `PROCESS_TIMEOUT_MS`、`CRT_API_TIMEOUT_MS`、`OSS_URL_ACCESS` 与签名有效期与 [`mvp-release-runbook.md`](../../mvp-release-runbook.md#初始容量与超时) 的发布值一致。发布值已要求 `PROCESS_TIMEOUT_MS=240000`，顺序正确；待修正的是代码默认值 30000 短于 `CRT_API_TIMEOUT_MS` 默认 180000 这一防呆问题，不是生产风险。
+- **核实生产配置**：确认部署的 `PROCESS_TIMEOUT_MS`、`CRT_API_TIMEOUT_MS`、`OSS_URL_ACCESS` 与签名有效期与 [`mvp-release-runbook.md`](../../../mvp-release-runbook.md#初始容量与超时) 的发布值一致。发布值已要求 `PROCESS_TIMEOUT_MS=240000`，顺序正确；待修正的是代码默认值 30000 短于 `CRT_API_TIMEOUT_MS` 默认 180000 这一防呆问题，不是生产风险。
 
 ### 完成门槛
 
@@ -210,7 +210,7 @@ flowchart LR
 - 把生产 Compose 从当前两个容器扩展为 API、Process Dispatcher、Process Worker、Webhook Worker 与 Retention Cleaner 五个角色。
 - 网关剥离外部同名身份头并注入调用方身份与网关令牌，确认容器端口不可绕过网关访问。
 - 配置三项保留期、两项 backlog 上限与发布阶段，按接入方要求把元数据保留期设为 90 天。
-- 按 [`async-process-runs-runbook.md`](../../async-process-runs-runbook.md) 通过 `internal` 阶段门禁。
+- 按 [`async-process-runs-runbook.md`](../../../async-process-runs-runbook.md) 通过 `internal` 阶段门禁。
 
 ### 测试
 
@@ -252,7 +252,7 @@ flowchart LR
 - ~~修复异步入口幂等重放返回的状态恒为排队中的问题，使其反映真实状态。~~ 已交付。
 - 修订 `AGENTS.md` 的「CRT 图片输入」：服务端在再出档路径下会下载调用方 URL，须写明适用范围与出站约束。
 - 把 [`integration-contract.md`](integration-contract.md) 中已交付的「计划」项迁入「当前行为」，并更新决策记录的落地状态。
-- 同步 [`README.md`](README.md)、[`../../development.md`](../../development.md) 与 [`../../experiments.md`](../../experiments.md) 中受影响的段落。
+- 同步 [`README.md`](README.md)、[`../../development.md`](../../../development.md) 与 [`../../experiments.md`](../../../experiments.md) 中受影响的段落。
 
 ### 完成门槛
 

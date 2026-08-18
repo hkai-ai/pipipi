@@ -55,237 +55,34 @@ curl --fail -X POST http://127.0.0.1:3000/execute \
 
 ## 常用命令
 
-| 命令 | 用途 | 是否访问外部系统 |
+日常开发只需要以下入口：
+
+| 命令 | 用途 | 外部影响 |
 | --- | --- | --- |
-| `npm run dev` | 监听源码并启动服务 | 运行请求时访问配置的 Business Capability |
-| `npm run dev:api` | 与 `dev` 相同，显式启动 API 角色 | 运行请求时访问配置的 Business Capability |
-| `npm run dev:dispatcher` | 启动 Outbox Dispatcher 与 Reconciler 角色 | 是，访问 PostgreSQL 与 Redis |
-| `npm run dev:worker` | 启动 Process Worker 角色 | 是，访问 PostgreSQL、Redis 与业务依赖 |
-| `npm run dev:webhook-worker` | 启动 Webhook Outbox 与 Delivery Worker 角色 | 是，访问 PostgreSQL、Redis 与已注册 Endpoint |
-| `npm run dev:retention-cleaner` | 启动分批内容清理角色 | 是，会删除 PostgreSQL 中已到期内容 |
-| `npm run dev:business-api` | 启动本地演示 Business Capability | 否 |
-| `npm run dev:console` | 启动控制台的 Vite 开发服务器，接口代理到本地 `:4300` | 否；需要另开一个 `npm run dev` |
-| `npm run check` | 只读运行 Biome 格式、lint 和 import 排序检查 | 否 |
-| `npm run check:fix` | 写入 Biome 格式和安全修复 | 否；会修改工作区文件 |
-| `npm run lint` | 只读运行 Biome lint | 否 |
-| `npm run format` | 用 Biome 格式化受管文件 | 否；会修改工作区文件 |
-| `npm run typecheck` | 严格 TypeScript 检查，覆盖服务端与控制台两个 project | 否 |
-| `npm test` | 运行确定性测试 | 否 |
-| `npm run test:watch` | 监听并运行 Vitest | 否 |
-| `npm run build` | 编译 `src/` 到 `dist/`，并把控制台构建到 `dist/console` | 否 |
-| `npm run build:console` | 只构建控制台 | 否 |
-| `npm run test:integration:observation` | Run 观测的 PostgreSQL 契约测试 | 是，需要名称以 `_test` 结尾的库 |
-| `npm run check:deployment-env -- <role>` | 从已编译产物聚合检查一个部署角色的必填环境变量 | 否 |
-| `npm run audit:production-database` | 经 `DATABASE_URL` 实连并验证生产会话 TLS、专用库、无管理权限、无其他业务库访问且没有 `SET ROLE` 身份切换 | 是，只读访问 PostgreSQL |
-| `npm run db:migrate` | 对 `DATABASE_URL` 执行受锁保护的 PostgreSQL migration | 是，会修改指定数据库 |
-| `npm run db:migrate:verify` | 在编译产物中连续执行两次受锁 migration，并要求第二次没有任何待执行项 | 是；第一次可能修改指定数据库，第二次只验证幂等结果 |
-| `npm run recover:queue -- ...` | dry-run 或修复 PostgreSQL 与 Process Queue 的差异 | 是；`--apply` 会写 Queue、Outbox 与审计表 |
-| `npm run observe:async` | 读取 PostgreSQL 与两个 BullMQ Queue，输出一次无内容运维快照 | 是，只读访问 PostgreSQL 与 Redis |
-| `npm run test:integration:postgres` | 运行真实 PostgreSQL migration 与 Store contract tests | 是，会重建明确的 `_test` 数据库 schema |
-| `npm run test:integration:async` | 运行真实 PostgreSQL、Redis、Outbox Dispatcher 与 BullMQ Worker 测试 | 是，会重建 `_test` schema 并清空指定 Redis 测试 DB |
-| `npm run test:integration:async:local` | 启动隔离 Compose、运行完整异步集成测试并在成功或失败后清理 | 是，会启动并删除本地测试容器与临时数据 |
-| `npm run test:drill:dispatcher-worker:local` | 启动隔离 Compose，注入 Dispatcher 重启、Worker claim 失效、重复 Job 和滚动停机故障并输出可选证据 | 是，会重建 `_test` schema、清空测试 Redis，并删除本地测试容器与临时数据 |
-| `npm run test:drill:redis-rebuild:local` | 启动隔离 Compose，验证 Redis 不可用 durable acceptance、普通 relay、Queue 全丢与受审计全量重建 | 是，会重建 `_test` schema、多次清空测试 Redis，并删除本地测试容器与临时数据 |
-| `npm run test:drill:webhook-observability:local` | 启动隔离 Compose，让测试 Endpoint 返回 503，验证 Process/Webhook 隔离、稳定 Event、运维快照与 staged readiness | 是，会启动本地 HTTP Endpoint、重建 `_test` schema、清空测试 Redis，并删除本地测试容器与临时数据 |
-| `npm run test:acceptance:console:local` | 构建控制台并用 headless Chrome 验收浏览器异步提交、刷新恢复和终态投影 | 是，会启动并删除本地测试容器与临时数据；需要 Chrome 或 `CHROME_PATH` |
-| `npm run test:acceptance:async:local` | 按 CI 顺序运行 PostgreSQL、BullMQ/跨 Seam 和浏览器三层异步验收 | 是，会启动一组隔离依赖并在结尾删除容器、网络和临时数据 |
-| `npm run check:deployment:async-shape` | 用安全占位值渲染默认 Compose 与显式异步叠加层，验证角色、镜像、revision、命令、readiness、Queue 配置及缺参失败 | 否；需要 Docker Compose，不读取生产 Secret，也不启动容器 |
-| `npm run smoke:agent` | 验证真实 Agent 与 Business Capability | 是，可能产生模型费用 |
-| `npm run smoke:staging` | 验证已部署的受控环境 | 是 |
-| `npm run smoke:async-paid-image` | 经真实网关提交固定 `crt-interface-image/v1`，验证同 key 恢复、owner GET、FAL/finalizer 与 OSS PNG | 是，产生一次图片费用并读取对象；只能由受保护 workflow 注入配置 |
-| `npm run test:skill-ab` | 运行三组 Skill 对比 | 是，可能产生模型费用 |
-| `npm run accept:poster-business`（`smoke:poster-process`、`test:gpt-image-2` 别名） | 从产品 `POST /execute` 验收 `minimal-zine-poster/v1`、真实图片与可选上传 | 是，可能产生模型和存储费用 |
-| `npm run smoke:crt-gpt-image` | 验证一张本地参考图可通过 GPT Image 2 edit stage 生成 PNG；不运行 finalizer 或完整 Process | 是，读取本地图片、产生模型费用并写 `artifacts/` |
-| `npm run accept:crt-business` | 用公网图片 URL 从产品 `POST /execute` 验收 `crt-interface-image/v1`、FAL、finalizer、可选 OSS 与证据策略 | 是，联网读取图片、产生模型/存储费用并写 `artifacts/` |
-| `npm run accept:news-image-business` | 从产品 `POST /execute` 验收三个固定新闻图片 Process、真实 Agent、FAL、OSS 对象位置和最终 1600×1200 PNG | 是，固定产生三次 Agent、至多三次图片生成与三次 OSS PUT；要求显式费用批准 |
-| `npm run smoke:oss` | 上传已有文件并读取首字节 | 是，会写对象存储 |
-
-真实集成命令的配置、判据和产物见 [`experiments.md`](experiments.md)。默认测试套件不调用模型、OSS 或外部业务系统。
-
-### PostgreSQL 集成测试
-
-仓库提供只用于本地和 CI 的临时 PostgreSQL 17 配置。数据目录使用 `tmpfs`，测试会拒绝重建名称不以 `_test` 结尾的数据库：
-
-```bash
-docker compose -f compose.integration.yaml up -d --wait postgres
-export POSTGRES_TEST_DATABASE_URL=postgres://pipipi:pipipi-test-only@127.0.0.1:55432/pipipi_test
-npm run test:integration:postgres
-docker compose -f compose.integration.yaml down
-```
-
-这两个 integration script 都会重建同一个 `_test` schema，Async suite 还会 `FLUSHDB`。使用同一组 URL 时必须串行运行；需要并行时为每个 suite 分配独立 PostgreSQL database 和非零 Redis database。
-
-手动验证 migration 时显式把测试 URL 传给 `DATABASE_URL`：
-
-```bash
-DATABASE_URL="$POSTGRES_TEST_DATABASE_URL" npm run db:migrate
-```
-
-默认 `npm test` 不连接数据库；PostgreSQL 集成文件在缺少测试 URL 时跳过。生产 migration 必须由部署步骤使用最小权限凭证显式执行，应用启动不隐式修改 schema。
-
-### PostgreSQL 与 Redis 异步集成测试
-
-异步集成测试复用同一 Compose 文件，并只允许清空本机 Redis 的非零 database。首选入口为每次运行生成独立 Compose project，由 Docker 分配随机宿主端口，再把实际 PostgreSQL/Redis URL 注入 suite；它在 `finally` 中执行 `down --volumes --remove-orphans`，测试成功、失败或收到首次中断信号都会尝试清理容器与临时数据。若 Compose 清理本身失败，命令聚合主错误与清理错误，明确提示可能残留的 Docker 资源：
-
-```bash
-npm run test:integration:async:local
-```
-
-需要复用已启动的隔离依赖调试时，才分步执行：
-
-```bash
-docker compose -f compose.integration.yaml up -d --wait
-export POSTGRES_TEST_DATABASE_URL=postgres://pipipi:pipipi-test-only@127.0.0.1:55432/pipipi_test
-export REDIS_TEST_URL=redis://127.0.0.1:56379/15
-npm run test:integration:async
-docker compose -f compose.integration.yaml down
-```
-
-测试证明真实 Console Process Run Client 可经可信开发 Gateway、HTTP API、PostgreSQL Outbox、Redis、独立 Dispatcher 和 Worker 到达 `succeeded`。跨 Seam 场景会在 durable acceptance 后丢弃首次 `202`，证明 Client 用同一个幂等键获得原 `runId`、权威 Run 与受控 Capability 副作用都只有一次；它还覆盖瞬时 GET 恢复、稳定业务失败、owner/未知 Run 不可区分的 `404`，以及客户端超时后服务端继续执行并由同一 owner 恢复结果。断言只使用 Client outcome、HTTP response 和公共 Process Run 状态，不读取 SQL 布局或 BullMQ 内部字段。
-
-最小浏览器验收从 `dist/console` 构建产物进入，使用本机 headless Chrome 和同一套隔离依赖。它延迟启动 Worker，检查页面显示 accepted `runId` 与 queued 进度、活动提交按钮被禁用、刷新后恢复同一 Run，再启动 Worker 并继续查询到结构化 `succeeded` 结果。验收记录浏览器发出的提交正文和 header，确认准确的 Process/版本/输入只提交一次，caller identity 与共享凭证只在可信测试 Gateway 内注入。受控 Content Business Capability 只返回本地确定性结果，不调用 FAL、OSS、模型或其他付费服务：
-
-```bash
-npm run test:acceptance:console:local
-```
-
-命令自动选择常见位置的 Chrome；其他 Chromium-compatible 安装通过 `CHROME_PATH=/absolute/path` 指定。该验收有意不进入默认 `npm test` 的外部依赖路径，也不对组件私有状态或大面积快照做断言。
-
-Pull Request 和 `main` 的 `Production CI/CD` 另设稳定检查名 `Async durable acceptance`，与快速的 `Check and build` 分开运行。该 Job 在同一个隔离 Compose project 内依次执行 PostgreSQL Store contract、完整 BullMQ/跨 Seam suite 和浏览器验收；三层全部成功才允许生产 Job 继续。runner 在正常结束、失败和首次中断信号时清理，workflow 还用 `always()` 按本次 Actions run 的固定 project name 再执行幂等清理。Job 只使用仓库测试凭证和免费本地 Capability，不读取生产 Secret，也不上传失败产物。
-
-同一 workflow 的新闻图片付费验收默认关闭，不阻塞非 Pull Request 候选。显式把 Repository Variable `NEWS_IMAGE_ACCEPTANCE_ENABLED` 设为 `true` 后，只有 Runtime Skill、共享 Agent Runtime、新闻图片 Process、图片 Business API、模型/OSS 依赖或相关部署资源发生变化时，`Paid news image Business Process acceptance` 才进入 required-reviewer 管理的 `news-image-acceptance` Environment。批准后它为准确 `github.sha` 执行三个固定 Process Run，验证每个输出的 style、单次 FAL 生成、OSS 路径、无重定向下载和 1600×1200 PNG；同 revision 脱敏证据成功后 `Deploy production` 才能继续。其他改动明确跳过该付费 Job，PR 始终只运行免费确定性测试。
-
-`Async internal release` 与上述 CI 分开，只支持 `workflow_dispatch`，并绑定 `async-internal` Environment。它不重新构建候选，而是验证操作者给出的 Production CI/CD run 中 `Check and build` 与 `Async durable acceptance` 都成功，再下载该 run 的精确 commit artifact。它与默认发布共享 Actions 并发组和服务器发布锁，并使用 Environment 固定的 SSH host key。发布脚本是 [`../ops/deploy-async-internal.sh`](../ops/deploy-async-internal.sh)；workflow 只负责候选验证、受保护授权、传输和声明过的证据文件回收，远端脚本拥有门禁顺序、角色切换、信号中断恢复和候选文件清理。
-
-`Async staged promotion` 也是独立的 `workflow_dispatch`。它下载同一 revision 的 internal release/smoke 和三项故障演练 artifact，先在 runner 上校验并汇总，再把只含非秘密门禁的单个 JSON 交给 [`../ops/promote-async-release.sh`](../ops/promote-async-release.sh)。远端脚本锁定同一发布并发域，一次只接受 `stage` 或 `traffic`，校验相邻状态、五角色 readiness、最近 critical snapshot、预算和观测窗口。stage 变化只重建 API；traffic 变化只调用服务器固定的可信网关 Adapter，四个后台角色的容器 ID 必须保持不变。失败时恢复原变量与原 promotion state。该编排是发布 Adapter，不进入 Async Process Runs 产品 Module，也不增加产品 HTTP Interface。
-
-`Async paid image smoke` 只支持 `workflow_dispatch` 并绑定 required-reviewer 管理的 `async-paid-smoke` Environment。它要求同 revision promotion 已在 canary/production 放入至少 1% 流量、所有聚合/critical/readiness 门禁仍通过，并要求操作者输入 `APPROVE_ONE_PAID_CRT_OPERATION`、两位小数的 USD 上限和非秘密批准编号。Environment Secret 提供 caller Authorization、公网 source URL 和生产 SSH 凭证；Environment Variable 提供真实网关、批准的 OSS host/path prefix 与远端位置。它和部署/提升共用并发组，并在付费请求前核对五角色 revision、API stage 与网关实际比例。FAL 与 OSS 凭证仍只在目标 CRT Business API 的 Secret 注入中，Actions 不读取它们。
-
-命令固定提交 `crt-interface-image/v1`、`经典`、`4:3` 和 `normal`。它以一个随机 caller-scoped idempotency key 连续发送两次完全相同的 acceptance 请求，模拟第一次响应丢失，要求两次都映射到同一 `runId`；随后结束一次查询会话，再只用相同 owner GET 恢复到终态。成功时下载最终对象并验证批准 OSS 位置、PNG、Process metadata、无 alpha 和固定调色板。artifact 只保存 revision、固定 Process identity、Run ID、终态、恢复布尔值、对象 identity/content SHA-256、尺寸/字节数和费用批准摘要，保留 90 天；不保存 source/object URL、Authorization、idempotency key、raw image、Prompt、业务 input/output、FAL/OSS Secret 或内部错误。该入口不属于 PR CI，不重试 workflow，也不提升 production 流量。
-
-同一 suite 还证明 Outbox 在 PostgreSQL commit 后才进入统一 `process-runs` Queue，Job 只含 `schemaVersion` 和 `runId`，Worker 仍能从数据库选择准确 Registration。故障用例覆盖 Dispatcher claim 过期、Redis 断线、重复 completed Job、Worker claim 过期接管、旧 token fencing 和停机超时 release。Compose Redis 使用 `noeviction` 和临时数据目录；它只用于测试，不代表生产高可用配置。
-
-Dispatcher/Worker 专项演练使用同一套真实依赖，但把三个跨 Seam 竞态串成一次可复现运行：Queue Job 已发布而 Outbox 未确认后的 Dispatcher 重启、过期 claim 与晚到旧 token/终态重复 Job、以及新 Worker ready 后旧 Worker grace 超时、释放 claim、Queue Recovery 重投和新 Worker 接管。它要求每个 Run 只有一条权威记录和一个公开终态 Event；受控 Capability 可以被调用多次，但以 `runId` 计的副作用只能出现一次，因此结论是“Queue 至少一次 + 下游幂等”，不是 exactly-once：
-
-```bash
-ASYNC_DISPATCHER_WORKER_DRILL_REVISION="$(git rev-parse HEAD)" \
-ASYNC_DISPATCHER_WORKER_DRILL_EVIDENCE_FILE=artifacts/dispatcher-worker-drill.json \
-npm run test:drill:dispatcher-worker:local
-```
-
-证据文件只含 revision、Run ID、Attempt 结果、时间线和非秘密布尔/计数观测，不含 claim token、幂等键、业务输入输出或连接地址。`.github/workflows/async-dispatcher-worker-drill.yml` 提供受保护的手动 `async-staging` 入口，固定候选 commit，在一次性 Compose project 中运行并保留证据 30 天；它不读取生产 Secret、不接生产流量，也不能提升 release stage。
-
-Redis/Queue 重建专项演练以 PostgreSQL 为唯一事实来源：先让不可用 Queue 的普通 Dispatcher 失败，证明 Run 仍 durable queued、owner 可读且 Outbox pending；恢复普通 relay 后到达终态；再清空 Redis，制造 missing、terminal、invalid、active lease 和 pending Outbox 候选，从空 cursor 分批完成 dry-run。只有最终 cursor 为空且累计 `failed=0` 才执行 apply，最后一次 dry-run 必须得到 missing/invalid/failed 全零：
-
-```bash
-ASYNC_REDIS_REBUILD_DRILL_REVISION="$(git rev-parse HEAD)" \
-ASYNC_REDIS_REBUILD_DRILL_EVIDENCE_FILE=artifacts/redis-rebuild-drill.json \
-npm run test:drill:redis-rebuild:local
-```
-
-受保护入口为 `.github/workflows/async-redis-rebuild-drill.yml`，与 Dispatcher/Worker 演练共享 `async-staging` Environment 和串行并发组。
-
-Webhook/观测专项演练在 Webhook Endpoint 持续返回 `503` 时执行两个 Process Run，要求它们在 Webhook retry window 前到达业务终态且 Process Queue 无等待；随后保存包含 Run、Outbox、两个 Queue、Delivery、storage、cleanup 和 recovery 的无内容快照。未来才到 `availableAt` 的重试必须显示为 Delivery pending，但当前 Webhook Outbox pending/lag 仍为零。Endpoint 恢复后，每条 Delivery 以同一 `eventId` 从失败 Attempt 收敛到成功 Attempt：
-
-```bash
-ASYNC_WEBHOOK_DRILL_REVISION="$(git rev-parse HEAD)" \
-ASYNC_WEBHOOK_DRILL_EVIDENCE_FILE=artifacts/webhook-observability-drill.json \
-npm run test:drill:webhook-observability:local
-```
-
-`.github/workflows/async-webhook-observability-drill.yml` 是受保护的手动 `async-staging` 入口；证据只保存 revision、Run/Delivery/Event ID、非秘密快照和脱敏时间线。
-
-### 异步 HTTP 开发入口
-
-异步路由默认关闭。启用时以下配置必须作为一个完整配置组提供：
-
-- `ASYNC_PROCESS_RUNS_ENABLED=true` 与已完成 migration 的 `DATABASE_URL`；
-- `ASYNC_RELEASE_STAGE=internal|canary|production`；
-- 至少 32 bytes 的 `ASYNC_GATEWAY_SHARED_SECRET`；
-- `PROCESS_RUN_ACCEPTED_INPUT_RETENTION_MS`、`PROCESS_RUN_RESULT_RETENTION_MS` 和 `PROCESS_RUN_METADATA_RETENTION_MS`；
-- `ASYNC_GLOBAL_BACKLOG_LIMIT`、不高于它的 `ASYNC_CALLER_BACKLOG_LIMIT` 和 `ASYNC_BACKLOG_RETRY_AFTER_SECONDS`；
-- 可选的 PostgreSQL Pool、连接超时、claim lease、轮询 `Retry-After` 与 staged readiness 阈值。
-
-可信网关必须先验证 service principal，删除外部请求中的 `x-pipipi-caller-id` 和 `x-pipipi-gateway-token`，再分别注入稳定 subject 与共享凭证。应用不接受请求 body 中的 owner，也不把身份头、共享凭证或数据库错误写入响应。`GET /healthz` 始终只做 liveness；`GET /readyz` 在异步功能启用时检查包括 backlog admission 索引在内的数据库 migration，`canary` 与 `production` 还检查 backlog、stuck Run、已到期 Outbox lag 和最近一次从空 cursor 到最终空 `nextCursor` 的完整成功人工全量恢复链。
-
-`ASYNC_PROCESS_RUN_INTAKE_DISABLED_FILE` 是服务端运维 Seam：marker 不存在时接受新 Run，存在时只有 `POST /process-runs` 返回 `503 ASYNC_INTAKE_CLOSED`；owner GET 和同步 `/execute` 继续工作。生产 Compose 把它固定到只读挂载的 `/var/lib/pipipi-async-control/intake-disabled`，调用方不能通过请求改变。`npm run smoke:async-internal` 由受保护 workflow 分 baseline/rollback 两阶段调用，外部请求正文和操作者凭证只从 Environment Secret 读取，不进入日志或证据。
-
-本地浏览器只能通过 Vite 的开发 Gateway 调用异步路由。显式设置 `CONSOLE_DEVELOPMENT_GATEWAY_ENABLED=true`、本机 HTTP `CONSOLE_DEVELOPMENT_GATEWAY_TARGET` 和与 API 相同的 `ASYNC_GATEWAY_SHARED_SECRET` 后，`npm run dev:console` 才挂载 `/process-runs` 代理。Adapter 删除浏览器提供的两个身份头，再注入固定的 `console:development` 和共享凭证；凭证不使用 `VITE_` 前缀，不进入 bundle、storage、响应或日志。该入口拒绝 build、非 `development` mode、`NODE_ENV=production` 和非 loopback target，不能替代生产认证网关。
-
-当前已验证提交、查询、Outbox 调度、BullMQ Worker、故障恢复、容量门禁、独立角色、结构化关联日志和运维快照。配置齐全不等于可以直接开放；外部生产流量必须按 [`async-process-runs-runbook.md`](async-process-runs-runbook.md) 完成安全审查、故障演练和 staged rollout。
-
-### 异步运行角色
-
-同一构建产物还提供 `npm run start:business-api`，负责内部 `POST /crt-images`、FAL、finalizer 和 OSS。它与 API 作为独立进程或工作负载运行；单服务器 Compose 只把它绑定到宿主机回环地址。`compose.production.async.yaml` 是必须与 `compose.production.yaml` 一起使用的显式叠加层：它启用 API，并以同一镜像分别启动 Dispatcher、Worker、Webhook Worker 和 Retention Cleaner。每个角色先运行自己的环境预检，再启动自己的入口，并用独立端口的 `/readyz` 作为容器健康检查。该文件不包含 PostgreSQL 或 Redis，也不改变默认同步形状。`npm run start:operations` 是一次性运维 Job；`ASYNC_PROCESS_RUNS_ENABLED` 只控制 API 是否公开异步路由。
-
-| 配置 | API | Dispatcher | Process Worker | Webhook Worker | Retention Cleaner |
-| --- | --- | --- | --- | --- | --- |
-| `BUSINESS_API_BASE_URL` 与 Process 配置 | 必需 | 不读取 | 必需 | 不读取 | 不读取 |
-| `ASYNC_PROCESS_RUNS_ENABLED` | 控制异步路由 | 不读取 | 不读取 | 不读取 | 不读取 |
-| `ASYNC_RELEASE_STAGE`、`ASYNC_*_BACKLOG_*` 与 release thresholds | 异步路由启用时必需或采用安全默认值 | 不读取 | 不读取 | 不读取 | 不读取 |
-| `ASYNC_GATEWAY_SHARED_SECRET` | 异步路由启用时必需 | 不读取 | 不读取 | 不读取 | 不读取 |
-| `DATABASE_URL`、PostgreSQL Pool 配置 | 异步路由启用时必需 | 必需 | 必需 | 必需 | 必需 |
-| 三个 `PROCESS_RUN_*_RETENTION_MS` | 异步路由启用时必需 | 不读取 | 必需 | 不读取 | 不读取；读取已持久化到期时间 |
-| `REDIS_URL` | 不读取 | 必需 | 必需 | 必需 | 不读取 |
-| `PROCESS_QUEUE_*` | 不读取 | 必需 | 必须与 Dispatcher 相同 | 不读取 | 不读取 |
-| `WEBHOOK_QUEUE_*` | 不读取 | 不读取 | 不读取 | 可选覆盖 | 不读取 |
-| `OUTBOX_*`、`PROCESS_RUN_RECONCILE_*` | 不读取 | 可选覆盖 | 不读取 | 不读取 | 不读取 |
-| `PROCESS_WORKER_*` | 不读取 | 不读取 | 可选覆盖 | 不读取 | 不读取 |
-| `WEBHOOK_SECRET_ENCRYPTION_KEY` | 不读取 | 不读取 | 不读取 | 必需，32-byte base64 key | 不读取 |
-| Delivery retry 的 `WEBHOOK_*` | 不读取 | 不读取 | 不读取 | 可选覆盖 | 不读取 |
-| `WEBHOOK_DELIVERY_HISTORY_RETENTION_MS`、`RETENTION_CLEANUP_*` | 不读取 | 不读取 | 不读取 | 不读取 | 可选覆盖 |
-| `PORT`、`RUNTIME_ROLE_READINESS_TIMEOUT_MS` | `PORT` | 两者 | 两者 | 两者 | 两者 |
-
-部署前先执行 migration。`PROCESS_RUN_CLAIM_LEASE_MS` 必须大于 `PROCESS_TIMEOUT_MS`，避免正常 Attempt 在超时治理结束前被接管。每个环境使用独立 `PROCESS_QUEUE_PREFIX`；调用方不能提交 queue name、concurrency、retry 或 Redis 配置。
-
-`content-processing/v1` 默认 `CONTENT_PROCESSING_RETRY_MAX_ATTEMPTS=1`。只有确认下游按 `Idempotency-Key: <runId>` 去重后，才可把该值提高到 `2`–`5`；当前只把稳定的 `DEPENDENCY_FAILURE` 分类为可重试。`CONTENT_PROCESSING_RETRY_INITIAL_DELAY_MS` 和 `CONTENT_PROCESSING_RETRY_MAX_DELAY_MS` 控制指数退避，最大延迟不超过 300 秒。等待重试时公开状态仍是 `queued`，请求 body 不能覆盖这些策略。
-
-各长运行角色都提供 `GET /healthz` 和 `GET /readyz`。liveness 只确认进程工作；异步角色的 readiness 检查实际使用的 migration、PostgreSQL 和 Redis。CRT Business API 的启动校验负责检查配置形状，readiness 不产生 FAL 或 OSS 请求。默认同步 API 保持原样，启用异步路由也不会删除 `POST /execute`。
-
-`npm run observe:availability` 是一次性 Availability Monitor Job。它从服务器侧检查公网网关、回环 Business API、可选的四个异步角色和 Redis；Module Interface 只返回脱敏的固定报告，飞书 V2 自定义机器人 Adapter 只在 `degraded` 或 `unavailable` 时发送文本告警，并要求 HTTP 200 与响应 `code=0` 同时成立。开发测试通过注入内存 HTTP、Redis 与 Webhook Adapter 验证同一个 Interface，不访问真实服务。生产应从已构建镜像运行 `node dist/bin/availability-monitor.js`，调度周期由外部受信 timer/Job 拥有。
-
-### Queue 对账与重建
-
-Dispatcher 的周期 `reconcileOnce()` 与人工 `recover:queue` 共用同一个 Process Recovery Module。`stale` 模式只检查超过 `PROCESS_RUN_RECONCILE_QUEUED_AGE_MS` 的 queued Run 和租约过期的 running Run；`all` 模式扫描所有非终态 Run，适合 Redis 数据丢失后的完整重建。终态 Run 从 PostgreSQL 候选 SQL 中排除，即使 Redis 残留旧 Job，Worker 的数据库 claim 也会将其短路为 ignored。活跃 running 租约在 `all` 报告中标为 `active_lease/deferred`，不提前抢占；到期后的下一次恢复会重新入队，旧 Worker 仍受 claim token fencing 约束。
-
-人工命令默认 dry-run，必须提供可审计 operator 身份：
-
-> 警告：dry-run 会写恢复审计；`--apply` 还会写 BullMQ 并确认 Process Outbox。只对逐字核对过的测试、staging 或事故目标执行，生产操作以 [`async-process-runs-runbook.md`](async-process-runs-runbook.md) 的授权和安全动作要求为准。
-
-```bash
-PROCESS_RECOVERY_ACTOR_ID=operator:alice npm run recover:queue -- --mode=all
-PROCESS_RECOVERY_ACTOR_ID=operator:alice npm run recover:queue -- --apply --mode=all
-```
-
-dry-run 只检查 PostgreSQL 与 Redis 并写恢复审计，不写 Queue 或 Outbox。`--apply` 对 `missing` 或只有 terminal BullMQ Job 的非终态 Run，以稳定 `runId` 重新 `queue.add()`；并发恢复最多得到 `duplicate`，不会产生第二个有效 Job。只有确认 Job 已存在或成功入队后，才把对应 pending Process Outbox 标记为已对账。每批最多使用 `PROCESS_RUN_RECONCILE_BATCH_SIZE`，固定同一个 `asOf` 并自动沿 `nextCursor` 继续；`--single-batch` 可停在一个批次，随后用日志或 `queue_recovery_runs.next_cursor_run_id` 配合原 `--as-of`、`--cursor` 续跑。
-
-每次有候选的 periodic 恢复和每次 manual dry-run/apply 都写 `queue_recovery_runs`，每个候选再写不含业务内容的 `queue_recovery_items`；无候选 periodic 只返回零计数，避免审计表按轮询频率无界增长。完成记录包含 missing/existing/terminal/invalid Job、active lease、pending Outbox、enqueue、duplicate、ack 和 failure 计数。中途崩溃会留下 `running` 审计行；重跑是幂等的，并会把已成功入队的 Job 识别为 existing。若某一候选 Redis 操作失败，同批其他候选继续，命令以非零状态结束。不要直接从 Queue 反推产品状态，也不要用 `FLUSHDB` 作为常规运维手段。
-
-### 运维快照与容量门禁
-
-`npm run observe:async` 一次性读取 PostgreSQL 权威状态与两个 BullMQ Queue，输出 `async_operations_snapshot` JSON。它覆盖 queued/running、近期 queue wait/execution p95、failure rate、stuck、已到期 Process/Webhook Outbox lag、Delivery failure、cleanup/recovery 和完整异步表 storage，并给出两个 Queue 的 waiting/active/delayed/failed 与跨状态最老 runnable age。生产镜像使用 `npm run start:operations`；由受信定时 Job 采集，不增加产品 HTTP 路由。Dashboard 与告警字段以 [`../ops/async-observability.json`](../ops/async-observability.json) 为准。
-
-PostgreSQL Store 在 acceptance 事务内先检查 caller-scoped idempotency，再使用事务级 advisory lock 串行统计非终态 backlog。caller 达到阈值抛出稳定 `429 CALLER_BACKLOG_LIMIT_REACHED`，全局达到阈值抛出 `503 ASYNC_SERVICE_CAPACITY_REACHED`，都返回配置的 `Retry-After`；相同请求的幂等重放和既有 Run GET 不受门禁影响。`007_process_run_admission` 的 caller/status 部分索引保持检查可预测。
-
-成功日志只保留关联元数据：API/Worker 用 `runId`，Process Attempt/activity 另有 `attemptNumber + sequence`，Outbox 用 `messageId + eventId + runId|deliveryId`，Webhook Attempt 用 `deliveryId + eventId`。日志不得包含 idempotency key、accepted input、output、Prompt、Tool 参数、模型消息、Webhook URL/payload、Secret 或内部异常正文。精确部署、告警处置和 fault drill 见 [`async-process-runs-runbook.md`](async-process-runs-runbook.md)。
-
-### 内容保留与清理
-
-模板采用以下安全起点：accepted input 1 天、成功 output 或稳定 error 7 天、Run metadata 30 天、已完成 Webhook Delivery Attempt 历史 30 天。前三项通过 `PROCESS_RUN_ACCEPTED_INPUT_RETENTION_MS`、`PROCESS_RUN_RESULT_RETENTION_MS` 和 `PROCESS_RUN_METADATA_RETENTION_MS` 显式配置，并在接受或完成 Run 时写成绝对到期时间；Delivery 历史通过 `WEBHOOK_DELIVERY_HISTORY_RETENTION_MS` 配置，未填写时 Retention Cleaner 使用 30 天。缩短内容期限可降低隐私暴露和数据库体积，但必须覆盖调用方正常轮询、故障恢复和争议处理窗口；延长期限前应完成数据授权、容量与删除 SLA 评审。
-
-`npm run start:retention-cleaner` 每小时默认启动一次 sweep，每批最多 25 个 Run、每个 sweep 最多 100 批；分别用 `RETENTION_CLEANUP_INTERVAL_MS`、`RETENTION_CLEANUP_BATCH_SIZE` 和 `RETENTION_CLEANUP_MAX_BATCHES_PER_SWEEP` 调整。每个 sweep 固定一个 `asOf`，每批独立事务并写 `retention_cleanup_batches` 计数、输入游标和下一游标。收到关闭信号时，角色等待当前批次提交或回滚，再停止下一批；人工调用 `RetentionCleaner.runSweep({ asOf, cursor, signal })` 可用返回的 `nextCursor` 继续同一 cutoff。失败批次整体回滚，重复同一范围是幂等的。
-
-清理器绝不删除 queued/running Run 的 accepted input。终态 input 到期后只移除输入；结果到期后保留 `status`、`startedAt` 和 `finishedAt`，查询返回 `resultAvailability: "expired"` 与 `resultExpiredAt`。Run metadata 只有在 input/result 均到期、Webhook outbox 不再待发布，而且关联 Delivery 已终态并超过 Delivery 历史期限后才删除；删除 Run 时由外键一起删除 Attempt、Event、已发布 Outbox、Delivery 和 caller-scoped 幂等记录，不留下悬空引用。因此 metadata 的实际保留时间可能长于配置下限。`005_retention_cleanup` 的回滚会在已经清除内容时拒绝执行；此时应从备份恢复内容或继续使用新 schema，不能把缺失内容伪装成旧版非空字段。
-
-Webhook Endpoint 由运维侧预注册并绑定 caller；Process 提交不能携带 callback URL。Webhook Worker 只发送包含 `eventId`、`runId`、准确 Process/version、终态、完成时间和相对查询位置的 payload，不复制输入、输出或内部错误。Endpoint 注册、URL 修改、Secret 轮换、停用和审计目前是受信运维代码调用的内部 Store Interface，不是产品请求路由；调用方身份必须先由控制面认证，再作为 `ownerId` 与 `actorId` 传入。
-
-`WEBHOOK_SECRET_ENCRYPTION_KEY` 是每环境独立的 32-byte base64 key，只注入 Webhook Worker。签名 Secret 以绑定 Endpoint ID 的 AES-256-GCM 信封保存；查询不会返回明文或信封。`rotateEndpointSecret` 将旧 Secret 保留在最长 7 天的明确 overlap 窗口内，Worker 在窗口内生成两个签名，窗口外只解密 current Secret。migration `004_webhook_endpoint_security` 为避免把历史明文误标成密文，只允许在尚未配置 Endpoint 时迁移或回滚；已有测试 Endpoint 必须先清空并在迁移后重新配置。
-
-正常环境只接受 HTTPS。注册和每次投递都解析全部目标地址，拒绝 loopback、link-local、RFC1918、云 metadata、保留、转换和其他非公网范围；投递连接通过自定义 DNS lookup 固定到本次已验证 IP，Node HTTP client 不跟随重定向。DNS 解析失败按瞬时网络错误重试；解析到不安全地址则以稳定原因失败、停用该 Endpoint 并写审计。`WEBHOOK_ALLOW_INSECURE_HTTP=true` 与 `WEBHOOK_TEST_ALLOW_UNSAFE_TARGETS=true` 都只能在 `NODE_ENV=test` 的隔离测试进程使用。
-
-Webhook 重试状态以 PostgreSQL 为准，不依赖 BullMQ 的 Job attempts。网络错误、`429` 和 `5xx` 在 `WEBHOOK_DELIVERY_HORIZON_MS` 内按有界指数退避重试；`WEBHOOK_DELIVERY_MAX_RETRY_AFTER_MS` 限制远端 `Retry-After`，`WEBHOOK_DELIVERY_JITTER_PERCENT` 防止同步重试。默认最多 8 次 Attempt、初始等待 5 秒、单次最长等待 1 天、总投递期限 3 天。永久 `4xx` 直接失败，`410` 只停用返回该状态的 Endpoint。
-
-每次 claim 会先创建 `started` Attempt，完成后只保存响应分类、HTTP 状态、延迟和稳定错误码，不读取或保存远端正文。运维查询必须携带 owner，并可从 run、event 或 endpoint 找到 Delivery，再查询其 Attempt。只有 `failed` 或 `exhausted` Delivery 可通过 `PostgresWebhookDeliveryStore.replay` 人工重放；调用方传入经过认证的 owner 与 operator actor。重放创建新 Delivery 和独立 Attempt 链，保留原记录与审计事件，并复用原 `eventId` 供接收方去重。
+| `npm run dev` | 监听源码并启动同步 API | 请求时访问配置的 Business Capability |
+| `npm run dev:business-api` | 启动确定性的本地演示 Capability | 无 |
+| `npm run dev:console` | 启动 Vite 控制台 | 需要另行启动 API |
+| `npm run check` | 只读检查格式、lint 和 import 顺序 | 无 |
+| `npm run check:fix` | 应用 Biome 格式和安全修复 | 修改工作区 |
+| `npm run typecheck` | 检查服务端与控制台 TypeScript | 无 |
+| `npm test` | 运行确定性测试 | 无 |
+| `npm run test:watch` | 监听并运行 Vitest | 无 |
+| `npm run build` | 构建服务端与控制台 | 重建 `dist/` |
+
+修改异步执行、PostgreSQL、Redis、Queue、Webhook、恢复或控制台异步提交时，转到 [异步 Process Run 开发指南](async-process-runs-development.md)。真实 Agent、图片、模型、OSS 和已部署环境验证转到 [实验与真实集成](experiments.md)。生产配置检查、migration、恢复和发布操作按对应 Runbook 执行。
+
+`package.json` 是脚本名称的事实来源。开发文档只保留选择依据、危险边界和环境无法表达的约束，不复制完整脚本清单。
+
+## 常见问题
+
+| 现象 | 先检查 | 下一步 |
+| --- | --- | --- |
+| `npm run dev` 启动失败 | Node.js 版本、`.env` 和启动错误中的配置名 | 对照 [配置规则](#配置规则) 与 `.env.example` |
+| `/healthz` 可用但执行失败 | `npm run dev:business-api` 是否运行、`BUSINESS_API_BASE_URL` 是否指向本地服务 | 用本页的 Direct 请求复现 |
+| PostgreSQL 或 Redis 测试跳过 | 对应测试 URL 是否设置 | 阅读 [异步开发指南](async-process-runs-development.md) |
+| 浏览器验收找不到 Chrome | 本机 Chrome 路径 | 设置 `CHROME_PATH=/absolute/path` |
+| 图片或 Agent 验收失败 | 是否明确提供凭证并批准费用和外部写入 | 阅读 [实验与真实集成](experiments.md) |
+| 构建通过但部署预检失败 | 是否已构建、目标角色是否完整注入 Secret | 阅读对应发布 Runbook |
 
 ## 代码地图
 
@@ -350,7 +147,7 @@ Webhook 重试状态以 PostgreSQL 为准，不依赖 BullMQ 的 Job attempts。
 
 顶层目录使用明确的领域名，子目录对应实际 Module。父目录已经提供的上下文不在文件名中重复，例如使用 `src/process-runs/store/postgres.ts`，不用 `src/process-runs/store/postgres-process-run-store.ts`；Adapter 文件只保留 `postgres.ts`、`bullmq.ts`、`http.ts` 等技术名称。不要新增 `common/`、`shared/`、`utils/` 或横向的 `controllers/services/repositories` 目录。无法明确归属的代码应先重新检查 Module 和 Seam。
 
-完整 Module 关系见 [`process-runtime-design.md`](process-runtime-design.md)。海报与 CRT Business Process 及其受控 HTTP Adapter 已进入 production catalog；供应商专用的 OpenAI Images 与阿里云 OSS Adapter 仍只由 `examples/` 中的显式集成和业务验收使用。各 Process 的独立入口见 [`processes/`](processes/)；CRT 的上传、后处理和完整发布门禁见 [`processes/crt-interface-image/`](processes/crt-interface-image/)。
+完整 Module 关系见 [`process-runtime-design.md`](process-runtime-design.md)。海报与 CRT Business Process 及其受控 HTTP Adapter 已进入 production catalog；供应商专用的 OpenAI Images 与阿里云 OSS Adapter 仍只由 `examples/` 中的显式集成和业务验收使用。各 Process 的独立入口见 [`processes/`](processes/)；CRT 的上传、后处理和完整发布门禁见 [`processes/common/crt-interface-image/`](processes/common/crt-interface-image/)。
 
 ## 命名规则
 
@@ -419,12 +216,13 @@ JSON-safe snapshot。业务 input payload 默认上限为 262144 UTF-8 bytes，�
 
 流程拓扑和业务语义保留在 TypeScript 中，不使用 JSON 工作流语言。维护者可以把自然语言需求直接交给 Codex；需求输入、判断规则和完整完成标准见 [`authoring-business-processes.md`](authoring-business-processes.md)。
 
-1. 新建 `create…Registration` factory，通过 `defineProcessRegistration` 声明固定 `id`、`version`、输入 Schema、输出 Schema、运行活动和 Process Definition。
-2. 把该流程获准使用的窄 Business Capability 和稳定策略传给 factory，并由闭包捕获。流程使用 Agent 时，在流程 Module 内定义准确、有序的 Skill 与 Tool 集合；Composition Root 只提供 Adapter 和部署配置。Execution Context 只携带 `runId`、`AbortSignal` 和受控 `runActivity` 等请求级信息。
-3. 用 `failProcess` 返回预期的 `AGENT_FAILURE` 或 `DEPENDENCY_FAILURE`。让意外异常继续抛出，由 Process Runner 转换为安全的 `INTERNAL_ERROR`。
-4. 在 `createProcessExecutor` 的显式 production catalog 中加入 Registration。每项只代表一个准确 `(id, version)`。
-5. 通过 Registration Seam 测试接受、JSON 往返、单次解析、策略和输出。Agent 流程还要验证 Tool 调用次数、下游幂等键和最终结果来源；通过 Process Attempt Runner 测试预分配 `runId`、超时、活动时间线、日志故障隔离与错误净化；通过真实本地 `/execute` 测试产品行为和 HTTP 映射。
-6. 创建或更新 `docs/processes/<process-id>/README.md`，再更新 README 的当前能力、`CONTEXT.md` 的产品契约，以及受影响的设计或发布文档。目录和内容规则见 [Business Process 文档目录](processes/README.md)。
+1. 从 [Business Process 场景目录](processes/README.md) 确认 `memene`、`memebuy` 或 `common`，并读取目标场景 README。
+2. 新建 `create…Registration` factory，通过 `defineProcessRegistration` 声明固定 `id`、`version`、输入 Schema、输出 Schema、运行活动和 Process Definition。
+3. 把该流程获准使用的窄 Business Capability 和稳定策略传给 factory，并由闭包捕获。流程使用 Agent 时，在流程 Module 内定义准确、有序的 Skill 与 Tool 集合；Composition Root 只提供 Adapter 和部署配置。Execution Context 只携带 `runId`、`AbortSignal` 和受控 `runActivity` 等请求级信息。
+4. 用 `failProcess` 返回预期的 `AGENT_FAILURE` 或 `DEPENDENCY_FAILURE`。让意外异常继续抛出，由 Process Runner 转换为安全的 `INTERNAL_ERROR`。
+5. 在 `createProcessExecutor` 的显式 production catalog 中加入 Registration。每项只代表一个准确 `(id, version)`。
+6. 通过 Registration Seam 测试接受、JSON 往返、单次解析、策略和输出。Agent 流程还要验证 Tool 调用次数、下游幂等键和最终结果来源；通过 Process Attempt Runner 测试预分配 `runId`、超时、活动时间线、日志故障隔离与错误净化；通过真实本地 `/execute` 测试产品行为和 HTTP 映射。
+7. 创建或更新 `docs/processes/<scenario>/<process-id>/README.md` 和所属场景 README，再更新 README 的当前能力、`CONTEXT.md` 的产品契约，以及受影响的设计或发布文档。
 
 [`src/processes/titled-content/registration.ts`](../src/processes/titled-content/registration.ts) 是最小示例；[`src/processes/poster/registration.ts`](../src/processes/poster/registration.ts) 展示 Agent 编译后再调用 Business Capability 的两阶段流程；[`src/processes/crt/registration.ts`](../src/processes/crt/registration.ts) 展示如何把预上传资产保持为不透明业务字段。新版本必须新建 Registration 并显式加入 catalog；不要加入 `latest`、默认版本、自动发现或回退。
 
@@ -515,7 +313,7 @@ npm run check:deployment-env -- api
 - `IMAGE_PROVIDER=openai|fal` 选择真实图片集成 Adapter，默认 `openai`。OpenAI Adapter 可用 `OPENAI_IMAGE_API_KEY` 与 `OPENAI_IMAGE_BASE_URL` 脱离 Agent 网关；未设置时回退到 `OPENAI_API_KEY` 与 `OPENAI_BASE_URL`。FAL Adapter 只读取服务端 `FAL_KEY`，并固定调用 GPT Image 2 生成与编辑 endpoint。
 - `INTERNAL_EVAL_ENABLED=true` 只在受控测试或内部环境挂载 `POST /internal/eval/execute`。该入口仅接受三个新闻图片 Process，复用正式 Executor、Registration、Agent 和图片 Capability，在同一次成功执行中返回实际 Prompt、文本模型与非敏感图片参数。响应使用 `no-store`，诊断内容不进入正式输出、日志或 Run Record；生产 Compose 固定关闭。
 - `CRT_IMAGE_EVIDENCE_MODE=off|metadata|full` 控制 `crt-interface-image/v1` 的服务端证据副本。产品请求不能覆盖它；本地完整验收默认 `full`，生产 `POST /crt-images` 必须默认 `off`。
-- `CRT_IMAGE_EVIDENCE_DIRECTORY` 只在 `metadata` 或 `full` 时使用。完整字段、敏感数据边界和清理责任见 [`crt-interface-image` 的证据保留说明](processes/crt-interface-image/evidence-retention.md)。
+- `CRT_IMAGE_EVIDENCE_DIRECTORY` 只在 `metadata` 或 `full` 时使用。完整字段、敏感数据边界和清理责任见 [`crt-interface-image` 的证据保留说明](processes/common/crt-interface-image/evidence-retention.md)。
 - `PI_SKILL_DIRECTORY`、`PI_POSTER_SKILL_DIRECTORY` 与 `PI_CRT_SKILL_DIRECTORY` 分别覆盖一个固定绑定，不改变 Skill 名称、集合或顺序。
 - `.env.example` 把 `PROCESS_TIMEOUT_MS` 设为 `240000`，用于同时容纳 CRT edit 和 finalizer 的受控发布形状；未设置变量时，代码默认值仍为 `30000`。
 - Secret 只由本地 `.env` 或部署平台注入。日志和错误响应不得包含凭证、Base URL、远端正文或模型错误。

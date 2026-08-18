@@ -53,12 +53,12 @@ Process 本身不持久化内容。远程 Capability 是否产生其他副作用
 
 | 目标 | 文件 |
 | --- | --- |
-| 产品 Schema、模式和执行 invariant | [`src/processes/content/registration.ts`](../../../src/processes/content/registration.ts) |
-| Agent 与 Pi Adapter | [`src/processes/content/agent.ts`](../../../src/processes/content/agent.ts)、[`src/processes/content/pi.ts`](../../../src/processes/content/pi.ts) |
-| Capability 与 HTTP Adapter | [`src/processes/content/capability.ts`](../../../src/processes/content/capability.ts)、[`src/processes/content/http.ts`](../../../src/processes/content/http.ts) |
-| 固定 Skill 集合 | [`src/processes/content/skills.ts`](../../../src/processes/content/skills.ts)、[`content-optimization`](../../../.pi/skills/content-optimization/)、[`content-integrity`](../../../.pi/skills/content-integrity/) |
-| Process 与 Agent 确定性测试 | [`test/execute-process.test.ts`](../../../test/execute-process.test.ts)、[`test/agent-runtime.test.ts`](../../../test/agent-runtime.test.ts)、[`test/runtime-skills.test.ts`](../../../test/runtime-skills.test.ts) |
-| 显式真实 Agent smoke | [`examples/agent-smoke.ts`](../../../examples/agent-smoke.ts) |
+| 产品 Schema、模式和执行 invariant | [`src/processes/content/registration.ts`](../../../../src/processes/content/registration.ts) |
+| Agent 与 Pi Adapter | [`src/processes/content/agent.ts`](../../../../src/processes/content/agent.ts)、[`src/processes/content/pi.ts`](../../../../src/processes/content/pi.ts) |
+| Capability 与 HTTP Adapter | [`src/processes/content/capability.ts`](../../../../src/processes/content/capability.ts)、[`src/processes/content/http.ts`](../../../../src/processes/content/http.ts) |
+| 固定 Skill 集合 | [`src/processes/content/skills.ts`](../../../../src/processes/content/skills.ts)、[`content-optimization`](../../../../.pi/skills/content-optimization/)、[`content-integrity`](../../../../.pi/skills/content-integrity/) |
+| Process 与 Agent 确定性测试 | [`test/execute-process.test.ts`](../../../../test/execute-process.test.ts)、[`test/agent-runtime.test.ts`](../../../../test/agent-runtime.test.ts)、[`test/runtime-skills.test.ts`](../../../../test/runtime-skills.test.ts) |
+| 显式真实 Agent smoke | [`examples/agent-smoke.ts`](../../../../examples/agent-smoke.ts) |
 
 不联网的聚焦验证从仓库根目录运行：
 
@@ -66,4 +66,4 @@ Process 本身不持久化内容。远程 Capability 是否产生其他副作用
 npm test -- test/execute-process.test.ts test/agent-runtime.test.ts test/runtime-skills.test.ts
 ```
 
-真实 Agent smoke 会联网并可能产生模型费用。凭证、判据和产物规则见 [`experiments.md`](../../experiments.md)。
+真实 Agent smoke 会联网并可能产生模型费用。凭证、判据和产物规则见 [`experiments.md`](../../../experiments.md)。

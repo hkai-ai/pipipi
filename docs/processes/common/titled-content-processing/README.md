@@ -54,9 +54,9 @@ Process 本身不持久化内容，也不调用 Agent。远程 Capability 的副
 
 | 目标 | 文件 |
 | --- | --- |
-| 产品 Schema、分隔符和执行顺序 | [`src/processes/titled-content/registration.ts`](../../../src/processes/titled-content/registration.ts) |
-| 共享 Capability Interface | [`src/processes/content/capability.ts`](../../../src/processes/content/capability.ts) |
-| 独立 Schema、配置隔离与版本测试 | [`test/execute-process.test.ts`](../../../test/execute-process.test.ts) |
+| 产品 Schema、分隔符和执行顺序 | [`src/processes/titled-content/registration.ts`](../../../../src/processes/titled-content/registration.ts) |
+| 共享 Capability Interface | [`src/processes/content/capability.ts`](../../../../src/processes/content/capability.ts) |
+| 独立 Schema、配置隔离与版本测试 | [`test/execute-process.test.ts`](../../../../test/execute-process.test.ts) |
 
 不联网的聚焦验证从仓库根目录运行：
 

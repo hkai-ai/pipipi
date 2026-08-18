@@ -2,7 +2,7 @@
 
 状态：已实现；默认关闭，按发布与运维手册分阶段启用。
 
-本文面向维护异步执行、任务查询和 Webhook 的开发者。它定义当前 Interface、Module 边界和可靠性约束；完成的实施批次见 [`async-process-runs-development-plan.md`](async-process-runs-development-plan.md)，部署与故障处理见 [`async-process-runs-runbook.md`](async-process-runs-runbook.md)。精确行为仍以代码和测试为准。BullMQ、Redis 与 Webhook 的外部事实见 [`research/async-process-execution.md`](research/async-process-execution.md)。
+本文面向维护异步执行、任务查询和 Webhook 的开发者。它定义当前 Interface、Module 边界和可靠性约束；本地验证见 [`async-process-runs-development.md`](async-process-runs-development.md)，部署与故障处理见 [`async-process-runs-runbook.md`](async-process-runs-runbook.md)。精确行为仍以代码和测试为准。BullMQ、Redis 与 Webhook 的外部事实见 [`research/async-process-execution.md`](research/async-process-execution.md)。
 
 ## 结论
 
@@ -383,9 +383,9 @@ BullMQ 和网络只能提供至少一次执行。流程若会扣费、发布、�
 
 所有现有同步测试必须继续通过。真实 Redis/PostgreSQL 集成测试可放入独立命令和 CI job，但状态机与 HTTP contract 的确定性测试不能依赖外部服务。
 
-## 开发计划
+## 实施状态
 
-开发批次、状态、代码落点、测试矩阵、迁移顺序和发布门槛统一维护在 [`async-process-runs-development-plan.md`](async-process-runs-development-plan.md)。本设计文档只维护目标结构和 invariant，避免计划状态与架构事实形成两个来源。
+异步 Module、持久化、Queue、Webhook、恢复、保留和发布门禁已经实现。当前设计由本文维护，本地验证进入 [`async-process-runs-development.md`](async-process-runs-development.md)，完成的里程碑见 [实施记录](history/async-process-runs-implementation.md)。
 
 ## 已采用的关键决策
 
