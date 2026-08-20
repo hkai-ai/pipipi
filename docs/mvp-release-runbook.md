@@ -470,7 +470,7 @@ docker build -t pi-business-processing-service:rc .
 随后完成环境验收：
 
 1. 从公网直接访问容器地址必须失败。
-2. 授权调用方必须能通过 TLS 网关访问 `/healthz` 和 `/execute`；公开 Agent 必须能读取 `/llms.txt` 和 `/docs/api.md`，且两个文档来自同一候选镜像。
+2. 授权调用方必须能通过 TLS 网关访问 `/healthz`、`/execute` 和 `/internal/eval/execute`；公开 Agent 必须能读取 `/llms.txt` 和 `/docs/api.md`，且两个文档来自同一候选镜像。网关未放行 `/internal/eval/execute` 时会先返回 `401`，请求不会到达应用。
 3. 网关请求超时必须长于 `PROCESS_TIMEOUT_MS`。
 4. 平台实例并发不得高于应用并发闸门；平台必须设置最大实例数。
 5. 日志系统必须收到 Pino 单行 JSON，识别数值 `level`，能按 `runId`、`process`、`status|outcome` 和 `errorCode` 检索，并能按 `attemptNumber + sequence` 还原固定活动时间线；日志中不得出现业务内容、Prompt、Tool 参数、模型消息或内部异常正文。

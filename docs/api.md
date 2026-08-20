@@ -16,7 +16,7 @@ Agent 先读取 [`https://pi.ganjiuwanshi.com/llms.txt`](https://pi.ganjiuwanshi
 | Agent 入口 | `GET /llms.txt`；兼容 `GET /llm.txt` |
 | 完整 Markdown | `GET /docs/api.md` |
 | 业务入口 | `POST /execute` |
-| 内部评测入口 | `POST /internal/eval/execute`；仅在部署方显式启用时可用 |
+| 内部评测入口 | `POST /internal/eval/execute`；当前生产已开启 |
 | Content-Type | `application/json` |
 | 鉴权 | 应用不校验鉴权请求头；网关启用鉴权时，按网关要求携带凭证 |
 | 字符编码 | UTF-8 |
@@ -82,9 +82,9 @@ Memebuy 当前没有已登记 Process。完整场景归属见 [Business Process 
 
 `POST /internal/eval/execute` 临时向受控测试调用方开放。该接口只接受三个新闻图片 Process，并复用正式 `/execute` 的 Executor、Registration、Agent 和图片 Capability。一次请求只执行一次 Process。
 
-部署方必须设置 `INTERNAL_EVAL_ENABLED=true` 才会挂载该路由。入口关闭时返回 HTTP `404` 和 `ROUTE_NOT_FOUND`。生产 Compose 固定关闭该入口。
+部署方必须设置 `INTERNAL_EVAL_ENABLED=true` 才会挂载该路由。入口关闭时返回 HTTP `404` 和 `ROUTE_NOT_FOUND`。生产 Compose 目前开启该入口，供受控评测调用方直接访问。
 
-该调用会访问文本模型、图片供应商和对象存储，产生费用和外部写入。应用目前不单独鉴权；部署方必须通过可信网关限制调用方。
+该调用会访问文本模型、图片供应商和对象存储，产生费用和外部写入。该入口不做独立鉴权实现，与 `/execute` 保持同一鉴权姿态，鉴权后续与 `/execute` 一并统一处理。响应会投影本次执行实际使用的 Prompt 与文本模型。
 
 请求结构与正式 `/execute` 相同：
 

@@ -89,7 +89,7 @@ describe("Production CI/CD workflow", () => {
         );
         expect(ci).toContain(`pipipi-${workflowSha}.compose.async.yaml`);
         expect(defaultCompose).toContain('ASYNC_PROCESS_RUNS_ENABLED: "false"');
-        expect(defaultCompose).toContain('INTERNAL_EVAL_ENABLED: "false"');
+        expect(defaultCompose).toContain('INTERNAL_EVAL_ENABLED: "true"');
         for (const role of [
             "process-dispatcher",
             "process-worker",

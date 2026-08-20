@@ -46,7 +46,9 @@ services:
       PORT: "4300"
       PIPIPI_REVISION: ${PIPIPI_REVISION:?PIPIPI_REVISION is required}
       ASYNC_PROCESS_RUNS_ENABLED: "false"
-      INTERNAL_EVAL_ENABLED: "false"
+      # 仅开放内部评测调用者使用。该入口与 /execute 保持同一网关鉴权策略，
+      # 直至未来两条入口统一鉴权为止。
+      INTERNAL_EVAL_ENABLED: "true"
       CRT_BUSINESS_API_BASE_URL: http://127.0.0.1:4400
       # PostgreSQL is the production record store; DATABASE_URL comes from the
       # shared env file and must point sslrootcert at the mounted certificate.
