@@ -508,6 +508,59 @@ describe("Startup Construction", () => {
         );
     });
 
+    it("ships composed-task/v1 switched off and only registers it when enabled", () => {
+        const off = createProductionRuntime({
+            BUSINESS_API_BASE_URL: "https://business.example",
+        });
+        const on = createProductionRuntime({
+            BUSINESS_API_BASE_URL: "https://business.example",
+            COMPOSED_TASK_ENABLED: "true",
+        });
+        const identity = { id: "composed-task", version: "v1" };
+
+        expect(off.registry.find(identity)).toBeUndefined();
+        expect(off.registry.list()).toHaveLength(7);
+        const registration = on.registry.find(identity);
+        expect(registration?.identity).toEqual(identity);
+        expect(registration?.timeoutMs).toBe(600_000);
+        expect(
+            registration?.accept({
+                goal: "Refine the copy and make a poster",
+                material: { copy: "Quiet rain over the bookstore" },
+            }),
+        ).toMatchObject({ accepted: true });
+        expect(
+            registration?.accept({
+                goal: "Refine",
+                skills: ["anything"],
+            }),
+        ).toEqual({ accepted: false });
+        expect(on.registry.list()).toHaveLength(8);
+    });
+
+    it("validates the Planner Skill only when composed-task/v1 is enabled", () => {
+        const environment = {
+            BUSINESS_API_BASE_URL: "https://business.example",
+            PI_COMPOSED_SKILL_DIRECTORY: "/missing/composed-planner",
+        };
+
+        expect(() => constructProcessingService(environment)).not.toThrow();
+        expect(() =>
+            constructProcessingService({
+                ...environment,
+                COMPOSED_TASK_ENABLED: "true",
+            }),
+        ).toThrow(
+            'Runtime Skill "composed-task-planner" must resolve exactly once',
+        );
+        expect(() =>
+            constructProcessingService({
+                ...environment,
+                COMPOSED_TASK_ENABLED: "yes",
+            }),
+        ).toThrow("COMPOSED_TASK_ENABLED must be true or false");
+    });
+
     it("requires an OpenAI credential for a production Agent deployment", () => {
         const environment = {
             NODE_ENV: "production",

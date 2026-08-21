@@ -9,6 +9,7 @@ import {
     type ProcessRunLogSink,
 } from "../process-runtime/index.js";
 import type { ProcessRunRecords } from "../process-runtime/records.js";
+import { composedProduction } from "./composed/production.js";
 import { contentProduction } from "./content/production.js";
 import { crtProduction } from "./crt/production.js";
 import {
@@ -24,6 +25,7 @@ import { titledContentProduction } from "./titled-content/production.js";
  * The explicit production catalog: one entry per exact `(id, version)`, each
  * owning how it is built from the startup environment. Nothing is discovered,
  * defaulted, or fallen back to; a Process ships only when it is listed here.
+ * `composed-task` composes the others and ships switched off by default.
  */
 export const productionCatalog: readonly ProductionProcess[] = Object.freeze([
     contentProduction,
@@ -33,6 +35,7 @@ export const productionCatalog: readonly ProductionProcess[] = Object.freeze([
     paleWatercolorProduction,
     rawHumanismProduction,
     narrativeMonumentProduction,
+    composedProduction,
 ]);
 
 export type ProcessRuntimeOptions = {

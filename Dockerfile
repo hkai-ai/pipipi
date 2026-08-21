@@ -35,6 +35,7 @@ COPY --chown=node:node .pi/skills/tait-crt-interface-prompt ./.pi/skills/tait-cr
 COPY --chown=node:node .pi/skills/news-image-narrative-monument-prompt ./.pi/skills/news-image-narrative-monument-prompt
 COPY --chown=node:node .pi/skills/news-image-pale-watercolor-prompt ./.pi/skills/news-image-pale-watercolor-prompt
 COPY --chown=node:node .pi/skills/news-image-raw-humanism-prompt ./.pi/skills/news-image-raw-humanism-prompt
+COPY --chown=node:node .pi/skills/composed-task-planner ./.pi/skills/composed-task-planner
 
 USER node
 EXPOSE 4300
