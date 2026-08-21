@@ -1,18 +1,12 @@
 ﻿import { describe, expect, it } from "vitest";
 import { createProcessingApplication } from "../src/api/application.js";
 import { createProcessExecutor } from "../src/processes/catalog.js";
-import type { ContentProcessingCapability } from "../src/processes/content/capability.js";
 import type { CrtAgent, CrtAgentRequest } from "../src/processes/crt/agent.js";
 import {
     type CrtRenderingCapability,
     CrtRenderingUnavailable,
 } from "../src/processes/crt/capability.js";
-
-const unusedContent: ContentProcessingCapability = {
-    process: async () => {
-        throw new Error("Content processing should not run");
-    },
-};
+import { createCrtRegistration } from "../src/processes/crt/registration.js";
 
 const recipe = {
     wallpaperPlacement: "diagonal-left" as const,
@@ -695,8 +689,7 @@ function createCrtExecutor(
     processTimeoutMs = 1_000,
 ) {
     return createProcessExecutor({
-        contentProcessing: unusedContent,
-        crt: { agent, capability },
+        registrations: [createCrtRegistration({ agent, capability })],
         processTimeoutMs,
     });
 }

@@ -5,6 +5,7 @@ import { PiContentAgent } from "../src/processes/content/agent.pi.js";
 import { HttpContentProcessingCapability } from "../src/processes/content/capability.http.js";
 import type { ContentProcessingCapability } from "../src/processes/content/capability.js";
 import { parseBusinessApiBaseUrl } from "../src/processes/content/config.js";
+import { createContentRegistration } from "../src/processes/content/registration.js";
 import { createContentSkillRefs } from "../src/processes/content/skills.js";
 
 const businessApiBaseUrl = parseBusinessApiBaseUrl(
@@ -23,19 +24,23 @@ const trackedContentProcessing: ContentProcessingCapability = {
 };
 
 const executor = createProcessExecutor({
-    contentProcessing: trackedContentProcessing,
-    agent: new PiContentAgent({
-        skills: createContentSkillRefs({
-            optimizationPath: process.env.PI_SKILL_DIRECTORY,
+    registrations: [
+        createContentRegistration({
+            capability: trackedContentProcessing,
+            agent: new PiContentAgent({
+                skills: createContentSkillRefs({
+                    optimizationPath: process.env.PI_SKILL_DIRECTORY,
+                }),
+                provider: process.env.PI_PROVIDER,
+                model: process.env.PI_MODEL,
+                openAIBaseUrl: process.env.OPENAI_BASE_URL,
+                openAIApiMode: parseOpenAIApiMode(process.env.OPENAI_API_MODE),
+                agentDir: process.env.PI_AGENT_DIR,
+            }),
+            mode: "agent",
         }),
-        provider: process.env.PI_PROVIDER,
-        model: process.env.PI_MODEL,
-        openAIBaseUrl: process.env.OPENAI_BASE_URL,
-        openAIApiMode: parseOpenAIApiMode(process.env.OPENAI_API_MODE),
-        agentDir: process.env.PI_AGENT_DIR,
-    }),
+    ],
     processTimeoutMs: 120_000,
-    processes: { contentProcessing: { mode: "agent" } },
 });
 const application = createProcessingApplication({ executor });
 const configuredContent = process.env.AGENT_SMOKE_CONTENT;

@@ -66,7 +66,7 @@ Codex 先把需求归入一种变化：
 
 ### 实现和注册
 
-实施遵循 [`development.md` 的“新增 Business Process”步骤](development.md#新增-business-process)。当前稳定形状是：一个 Registration factory 聚合版本契约与获准依赖，`createProcessExecutor` 的显式 catalog 决定它是否进入生产。每个 production Process 还必须创建与 Process ID 同名的 `docs/processes/<scenario>/<process-id>/` 目录，并在场景 README 登记；目录规则和最低内容见 [Business Process 场景目录](processes/README.md)。本文不重复代码步骤。
+实施遵循 [`development.md` 的“新增 Business Process”步骤](development.md#新增-business-process)。当前稳定形状是：一个 Registration factory 聚合版本契约与获准依赖，同 Module 的 `production.ts` 声明它如何从启动环境装配，[`src/processes/catalog.ts`](../src/processes/catalog.ts) 的显式 `productionCatalog` 数组决定它是否进入生产。每个 production Process 还必须创建与 Process ID 同名的 `docs/processes/<scenario>/<process-id>/` 目录，并在场景 README 登记；目录规则和最低内容见 [Business Process 场景目录](processes/README.md)。本文不重复代码步骤。
 
 ### 跨 Interface 验证
 

@@ -118,8 +118,8 @@ curl --fail -X POST http://127.0.0.1:4300/execute \
 | `src/bin/audit-production-database.ts`、`audit-async-smoke-state.ts` | 连接生产数据库分别采集审计证据、审计异步冒烟测试状态（支持等待投递覆盖完成） |
 | `src/bin/crt-business-api.ts` | 校验部署环境后装配 CRT 图像生成、对象存储与证据策略，启动 CRT Business API |
 | `src/app/api.ts` | API 配置翻译、校验、Adapter 选择和完整生产组装 |
-| `src/app/business-processes.ts` | production Business Process Runtime 与 catalog 依赖组装 |
-| `src/app/runtime-skills.ts` | 七个 Runtime Skill 的生产安装集合、启动完整性校验和精确 Process 绑定 |
+| `src/app/business-processes.ts` | production Business Process Runtime：向 catalog 中每个 Process 提供共享配置并组装 Runner |
+| `src/app/runtime-skills.ts` | 由 production catalog 派生的 Runtime Skill 安装集合、启动完整性校验和精确 Process 绑定 |
 | `src/app/run-observation.ts`、`postgres-pool.ts` | 按环境选择 JSONL 或 PostgreSQL 观测 Adapter；从启动环境构造各角色共用的 pg Pool |
 | `src/app/process-dispatcher.ts`、`process-worker.ts`、`retention-cleaner.ts` | 各后台角色独立的配置和 Adapter 组装 |
 | `src/app/process-recovery.ts`、`async-operations.ts` | 一次性运维命令的资源组装 |
@@ -150,7 +150,9 @@ curl --fail -X POST http://127.0.0.1:4300/execute \
 | `src/process-runtime/result.ts` | 定义 Process Run 的成功/失败结果类型（`ProcessRunResult`）与公开错误码，提供失败结果构造函数 |
 | `src/process-runtime/index.ts` | process-runtime 模块的公开导出入口，收拢 Attempt/Registry/Registration/Runner/Records/日志/结果类型 |
 | `src/agent-runtime/catalog.ts`、`pi.ts`、`skills.ts`、`structured.ts` | 多个流程共用的启动期 Skill 完整性与版本 Catalog、Pi provider 配置、Runtime Skill 精确加载，以及海报、CRT 与新闻图片共用的无 Tool Structured Agent Session |
-| `src/processes/catalog.ts` | 显式 production catalog 和 Process Runtime 组装 |
+| `src/processes/catalog.ts` | 显式 production catalog（`productionCatalog` 数组）和通用 Process Runtime 组装 |
+| `src/processes/production.ts` | Process 模块自带的生产装配契约：声明安装的 Runtime Skill，并从启动环境构造自己的 Registration |
+| `src/processes/<module>/production.ts` | 各 Process 的生产装配：绑定自己的 Skill、Pi Agent 与 HTTP Capability Adapter 并读取专属环境变量；新闻图片模块按三个固定风格各导出一项 |
 | `src/processes/content/registration.ts` | `content-processing/v1` 的 Schema、Direct/Agent 流程、失败和 Tool 调用 invariant |
 | `src/processes/content/skills.ts` | `content-processing/v1` 获准使用的有序 Runtime Skill 集合与 Tool 名称 |
 | `src/processes/content/agent.ts`、`agent.pi.ts` | 窄 Content Agent Port，以及它的生产 Pi 实现 |
@@ -284,7 +286,7 @@ JSON-safe snapshot。业务 input payload 默认上限为 262144 UTF-8 bytes，�
 2. 新建 `create…Registration` factory，通过 `defineProcessRegistration` 声明固定 `id`、`version`、输入 Schema、输出 Schema、运行活动和 Process Definition。
 3. 把该流程获准使用的窄 Business Capability 和稳定策略传给 factory，并由闭包捕获。流程使用 Agent 时，在流程 Module 内定义准确、有序的 Skill 与 Tool 集合；Composition Root 只提供 Adapter 和部署配置。Execution Context 只携带 `runId`、`AbortSignal` 和受控 `runActivity` 等请求级信息。
 4. 用 `failProcess` 返回预期的 `AGENT_FAILURE` 或 `DEPENDENCY_FAILURE`。让意外异常继续抛出，由 Process Runner 转换为安全的 `INTERNAL_ERROR`。
-5. 在 `createProcessExecutor` 的显式 production catalog 中加入 Registration。每项只代表一个准确 `(id, version)`。
+5. 在流程 Module 内新建 `production.ts`，用 `defineProductionProcess` 声明 Process id、安装的 Runtime Skill，以及如何从启动环境和共享 Pi 配置构造 Registration；再把它加入 [`src/processes/catalog.ts`](../src/processes/catalog.ts) 的 `productionCatalog` 数组。每项只代表一个准确 `(id, version)`；Composition Root 不再为单个 Process 增加字段。
 6. 通过 Registration Seam 测试接受、JSON 往返、单次解析、策略和输出。Agent 流程还要验证 Tool 调用次数、下游幂等键和最终结果来源；通过 Process Attempt Runner 测试预分配 `runId`、超时、活动时间线、日志故障隔离与错误净化；通过真实本地 `/execute` 测试产品行为和 HTTP 映射。
 7. 创建或更新 `docs/processes/<scenario>/<process-id>/README.md` 和所属场景 README，再更新 README 的当前能力、`CONTEXT.md` 的产品契约，以及受影响的设计或发布文档。
 
@@ -337,11 +339,12 @@ return defineProcessRegistration({
 ```ts
 import { createProcessingApplication } from "./src/api/application.js";
 import { createProcessExecutor } from "./src/processes/catalog.js";
+import { createContentRegistration } from "./src/processes/content/registration.js";
 import { createInMemoryProcessRunRecords } from "./src/process-runtime/records.js";
 
 const runRecords = createInMemoryProcessRunRecords({ maxRecords: 100 });
 const executor = createProcessExecutor({
-  contentProcessing,
+  registrations: [createContentRegistration({ capability: contentProcessing })],
   runRecords,
 });
 const application = createProcessingApplication({ executor });

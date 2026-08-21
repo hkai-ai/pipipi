@@ -12,8 +12,8 @@
 | Development Skill | [`.agents/skills/<name>/`](../.agents/skills) | Codex | 编写、测试、集成、发布或维护文档的方法 |
 | 生产 Agent Interface 与 Adapter | [`src/processes/<module>/agent.ts`](../src/processes)、`agent.pi.ts`，跨流程基础设施在 [`src/agent-runtime/`](../src/agent-runtime) | Process Registration、生产 Composition Root | 模型任务、请求级 Session、JSON 解析和实际 Tool 表面；海报、CRT 与新闻图片 Adapter 复用无 Tool Structured Agent Session |
 | Runtime Skill | [`.pi/skills/<name>/`](../.pi/skills) | 服务端受限 Agent | 经过评审的任务说明；它本身不授予 Tool、文件、Shell 或网络权限 |
-| Installed Skill Catalog | [`src/agent-runtime/catalog.ts`](../src/agent-runtime/catalog.ts)、[`src/app/runtime-skills.ts`](../src/app/runtime-skills.ts) | Startup Construction、部署预检 | 已安装 Skill 的准确名称、版本和 SHA-256；启动期完整性校验、精确版本解析和 Process 绑定 |
-| 服务端绑定与流程治理 | `src/processes/<module>/skills.ts`、`registration.ts`，[`src/app/business-processes.ts`](../src/app/business-processes.ts)、[`src/processes/catalog.ts`](../src/processes/catalog.ts) | Startup Construction、Process Runner | 准确 Skill 集合、Agent 与 Capability Adapter、执行顺序、校验、错误、重试和 production catalog |
+| Installed Skill Catalog | [`src/agent-runtime/catalog.ts`](../src/agent-runtime/catalog.ts)、[`src/app/runtime-skills.ts`](../src/app/runtime-skills.ts) | Startup Construction、部署预检 | 已安装 Skill 的准确名称、版本和 SHA-256；从 production catalog 各 Process 的 `installedSkills` 声明派生安装集合，启动期完整性校验、精确版本解析和 Process 绑定 |
+| 服务端绑定与流程治理 | `src/processes/<module>/skills.ts`、`registration.ts`、`production.ts`，[`src/processes/catalog.ts`](../src/processes/catalog.ts)、[`src/app/business-processes.ts`](../src/app/business-processes.ts) | Startup Construction、Process Runner | 准确 Skill 集合、Agent 与 Capability Adapter、执行顺序、校验、错误、重试和 production catalog |
 
 部署预检和启动过程都通过 Installed Skill Catalog 校验全部本地 Runtime Skill，并按准确名称和版本向各 Agent 提供绑定。生产请求到达后，production catalog 精确找到 Process Registration；Registration 执行业务定义；需要模型任务时调用窄 Agent Interface；Pi Adapter 只加载已绑定的 Runtime Skill，并只提供代码中显式配置的 Tool；Registration 再校验结果并决定是否调用 Business Capability。Runtime Skill 影响模型如何完成任务，不拥有流程、权限或副作用。
 

@@ -1,64 +1,46 @@
-/** 显式 production catalog 和 Process Runtime 组装 */
+/** 显式 production catalog 和通用 Process Runtime 组装 */
 import {
     createProcessRegistry,
     createProcessRunner,
     type ProcessExecutor,
+    type ProcessRegistration,
     type ProcessRegistry,
     type ProcessRunLogClock,
     type ProcessRunLogSink,
 } from "../process-runtime/index.js";
 import type { ProcessRunRecords } from "../process-runtime/records.js";
-import type { ContentAgent } from "./content/agent.js";
-import type { ContentProcessingCapability } from "./content/capability.js";
+import { contentProduction } from "./content/production.js";
+import { crtProduction } from "./crt/production.js";
 import {
-    type ContentProcessConfig,
-    createContentRegistration,
-} from "./content/registration.js";
-import type { CrtAgent } from "./crt/agent.js";
-import type { CrtRenderingCapability } from "./crt/capability.js";
-import { createCrtRegistration } from "./crt/registration.js";
-import type { NewsImageAgent } from "./news-image/agent.js";
-import type { NewsImageRenderingCapability } from "./news-image/capability.js";
-import { createNewsImageRegistration } from "./news-image/registration.js";
-import type { PosterAgent } from "./poster/agent.js";
-import type { PosterRenderingCapability } from "./poster/capability.js";
-import { createPosterRegistration } from "./poster/registration.js";
-import {
-    createTitledContentRegistration,
-    type TitledContentConfig,
-} from "./titled-content/registration.js";
+    narrativeMonumentProduction,
+    paleWatercolorProduction,
+    rawHumanismProduction,
+} from "./news-image/production.js";
+import { posterProduction } from "./poster/production.js";
+import type { ProductionProcess } from "./production.js";
+import { titledContentProduction } from "./titled-content/production.js";
+
+/**
+ * The explicit production catalog: one entry per exact `(id, version)`, each
+ * owning how it is built from the startup environment. Nothing is discovered,
+ * defaulted, or fallen back to; a Process ships only when it is listed here.
+ */
+export const productionCatalog: readonly ProductionProcess[] = Object.freeze([
+    contentProduction,
+    titledContentProduction,
+    posterProduction,
+    crtProduction,
+    paleWatercolorProduction,
+    rawHumanismProduction,
+    narrativeMonumentProduction,
+]);
 
 export type ProcessRuntimeOptions = {
-    contentProcessing: ContentProcessingCapability;
-    agent?: ContentAgent;
+    registrations: readonly ProcessRegistration[];
     processTimeoutMs?: number;
     runRecords?: ProcessRunRecords;
     runLogSink?: ProcessRunLogSink;
     runLogClock?: ProcessRunLogClock;
-    processes?: {
-        contentProcessing?: ContentProcessConfig;
-        titledContentProcessing?: TitledContentConfig;
-    };
-    poster?: {
-        agent: PosterAgent;
-        capability: PosterRenderingCapability;
-    };
-    crt?: {
-        agent: CrtAgent;
-        capability: CrtRenderingCapability;
-    };
-    paleWatercolor?: {
-        agent: NewsImageAgent;
-        capability: NewsImageRenderingCapability;
-    };
-    rawHumanism?: {
-        agent: NewsImageAgent;
-        capability: NewsImageRenderingCapability;
-    };
-    narrativeMonument?: {
-        agent: NewsImageAgent;
-        capability: NewsImageRenderingCapability;
-    };
 };
 
 export type ProcessRuntime = Readonly<{
@@ -75,47 +57,13 @@ export function createProcessExecutor(
 export function createProcessRuntime(
     options: ProcessRuntimeOptions,
 ): ProcessRuntime {
-    const config = options.processes?.contentProcessing;
-    const registrations = [
-        createContentRegistration({
-            capability: options.contentProcessing,
-            agent: options.agent,
-            mode: config?.mode,
-            retryPolicy: config?.retryPolicy,
-        }),
-        createTitledContentRegistration({
-            capability: options.contentProcessing,
-            ...options.processes?.titledContentProcessing,
-        }),
-    ];
-    if (options.poster) {
-        registrations.push(createPosterRegistration(options.poster));
+    if (
+        !Array.isArray(options.registrations) ||
+        options.registrations.length === 0
+    ) {
+        throw new Error("At least one Process Registration is required");
     }
-    if (options.crt) {
-        registrations.push(createCrtRegistration(options.crt));
-    }
-    if (options.paleWatercolor) {
-        registrations.push(
-            createNewsImageRegistration(
-                "pale-watercolor",
-                options.paleWatercolor,
-            ),
-        );
-    }
-    if (options.rawHumanism) {
-        registrations.push(
-            createNewsImageRegistration("raw-humanism", options.rawHumanism),
-        );
-    }
-    if (options.narrativeMonument) {
-        registrations.push(
-            createNewsImageRegistration(
-                "narrative-monument",
-                options.narrativeMonument,
-            ),
-        );
-    }
-    const registry = createProcessRegistry(registrations);
+    const registry = createProcessRegistry(options.registrations);
 
     return Object.freeze({
         registry,

@@ -7,6 +7,7 @@ import {
 } from "node:http";
 import { afterEach, describe, expect, it } from "vitest";
 import { createProcessingApplication } from "../src/api/application.js";
+import type { ProcessRegistration } from "../src/process-runtime/index.js";
 import {
     createProcessExecutor,
     type ProcessRuntimeOptions,
@@ -17,6 +18,8 @@ import {
     type ContentProcessingCapability,
     ContentProcessingUnavailable,
 } from "../src/processes/content/capability.js";
+import { createContentRegistration } from "../src/processes/content/registration.js";
+import { createTitledContentRegistration } from "../src/processes/titled-content/registration.js";
 
 type RunningServer = {
     url: string;
@@ -37,31 +40,26 @@ afterEach(async () => {
 describe("business process execution", () => {
     it("rejects incomplete Process Registration composition at startup", () => {
         expect(() =>
-            createProcessExecutor({
-                contentProcessing:
-                    undefined as unknown as ContentProcessingCapability,
+            createContentRegistration({
+                capability: undefined as unknown as ContentProcessingCapability,
             }),
         ).toThrow("Content Processing Capability is required");
         expect(() =>
-            createProcessExecutor({
-                contentProcessing: unusedContentProcessing,
-                processes: {
-                    contentProcessing: {
-                        mode: "unsupported" as "direct",
-                    },
-                },
+            createContentRegistration({
+                capability: unusedContentProcessing,
+                mode: "unsupported" as "direct",
             }),
         ).toThrow("Content processing mode must be direct or agent");
         expect(() =>
-            createProcessExecutor({
-                contentProcessing: unusedContentProcessing,
-                processes: { contentProcessing: { mode: "agent" } },
+            createContentRegistration({
+                capability: unusedContentProcessing,
+                mode: "agent",
             }),
         ).toThrow("Agent Runtime is required when Agent mode is enabled");
         expect(() =>
-            createProcessExecutor({
-                contentProcessing: unusedContentProcessing,
-                processes: { titledContentProcessing: { separator: "" } },
+            createTitledContentRegistration({
+                capability: unusedContentProcessing,
+                separator: "",
             }),
         ).toThrow("The titled content separator cannot be empty");
     });
@@ -108,9 +106,9 @@ describe("business process execution", () => {
 
     it("maps invalid Process Definition output to a stable error", async () => {
         const processingService = await startProcessingService({
-            contentProcessing: {
+            registrations: contentRegistrations({
                 process: async () => ({ content: "   " }),
-            },
+            }),
         });
 
         const response = await executeProcess(processingService.url, {
@@ -134,7 +132,7 @@ describe("business process execution", () => {
 
     it("rejects invalid business input with a stable error", async () => {
         const processingService = await startProcessingService({
-            contentProcessing: unusedContentProcessing,
+            registrations: contentRegistrations(unusedContentProcessing),
         });
 
         const response = await executeProcess(processingService.url, {
@@ -158,7 +156,7 @@ describe("business process execution", () => {
 
     it("treats malformed JSON as invalid input", async () => {
         const processingService = await startProcessingService({
-            contentProcessing: unusedContentProcessing,
+            registrations: contentRegistrations(unusedContentProcessing),
         });
 
         const response = await postExecution(processingService.url, "{");
@@ -176,7 +174,7 @@ describe("business process execution", () => {
 
     it("rejects caller-supplied process mechanics", async () => {
         const processingService = await startProcessingService({
-            contentProcessing: unusedContentProcessing,
+            registrations: contentRegistrations(unusedContentProcessing),
         });
 
         const response = await executeProcess(processingService.url, {
@@ -201,7 +199,7 @@ describe("business process execution", () => {
 
     it("rejects an unknown process version without choosing a fallback", async () => {
         const processingService = await startProcessingService({
-            contentProcessing: unusedContentProcessing,
+            registrations: contentRegistrations(unusedContentProcessing),
         });
 
         const response = await executeProcess(processingService.url, {
@@ -314,7 +312,7 @@ describe("business process execution", () => {
             process: () => new Promise(() => {}),
         };
         const processingService = await startProcessingService({
-            contentProcessing: neverCompletes,
+            registrations: contentRegistrations(neverCompletes),
             processTimeoutMs: 20,
         });
 
@@ -368,9 +366,10 @@ describe("business process execution", () => {
             },
         };
         const processingService = await startProcessingService({
-            contentProcessing,
-            agent,
-            processes: { contentProcessing: { mode: "agent" } },
+            registrations: contentRegistrations(contentProcessing, {
+                agent,
+                mode: "agent",
+            }),
         });
 
         const response = await executeProcess(processingService.url, {
@@ -412,9 +411,10 @@ describe("business process execution", () => {
                 ),
         };
         const processingService = await startProcessingService({
-            contentProcessing,
-            agent,
-            processes: { contentProcessing: { mode: "agent" } },
+            registrations: contentRegistrations(contentProcessing, {
+                agent,
+                mode: "agent",
+            }),
         });
 
         const response = await executeProcess(processingService.url, {
@@ -437,9 +437,10 @@ describe("business process execution", () => {
             optimize: async () => ({ content: "Unverified Agent output" }),
         };
         const processingService = await startProcessingService({
-            contentProcessing: unusedContentProcessing,
-            agent,
-            processes: { contentProcessing: { mode: "agent" } },
+            registrations: contentRegistrations(unusedContentProcessing, {
+                agent,
+                mode: "agent",
+            }),
         });
 
         const response = await executeProcess(processingService.url, {
@@ -488,9 +489,10 @@ describe("business process execution", () => {
             },
         };
         const processingService = await startProcessingService({
-            contentProcessing,
-            agent,
-            processes: { contentProcessing: { mode: "agent" } },
+            registrations: contentRegistrations(contentProcessing, {
+                agent,
+                mode: "agent",
+            }),
         });
 
         const response = await executeProcess(processingService.url, {
@@ -521,9 +523,10 @@ describe("business process execution", () => {
             },
         };
         const processingService = await startProcessingService({
-            contentProcessing,
-            agent,
-            processes: { contentProcessing: { mode: "agent" } },
+            registrations: contentRegistrations(contentProcessing, {
+                agent,
+                mode: "agent",
+            }),
         });
 
         const response = await executeProcess(processingService.url, {
@@ -553,9 +556,10 @@ describe("business process execution", () => {
                 ),
         };
         const processingService = await startProcessingService({
-            contentProcessing,
-            agent,
-            processes: { contentProcessing: { mode: "agent" } },
+            registrations: contentRegistrations(contentProcessing, {
+                agent,
+                mode: "agent",
+            }),
         });
 
         const response = await executeProcess(processingService.url, {
@@ -591,9 +595,10 @@ describe("business process execution", () => {
             },
         };
         const processingService = await startProcessingService({
-            contentProcessing,
-            agent,
-            processes: { contentProcessing: { mode: "agent" } },
+            registrations: contentRegistrations(contentProcessing, {
+                agent,
+                mode: "agent",
+            }),
         });
 
         const response = await executeProcess(processingService.url, {
@@ -623,9 +628,10 @@ describe("business process execution", () => {
             },
         };
         const processingService = await startProcessingService({
-            contentProcessing: unusedContentProcessing,
-            agent,
-            processes: { contentProcessing: { mode: "agent" } },
+            registrations: contentRegistrations(unusedContentProcessing, {
+                agent,
+                mode: "agent",
+            }),
         });
 
         const response = await executeProcess(processingService.url, {
@@ -657,10 +663,9 @@ describe("business process execution", () => {
             },
         };
         const processingService = await startProcessingService({
-            contentProcessing,
-            processes: {
-                titledContentProcessing: { separator: " — " },
-            },
+            registrations: contentRegistrations(contentProcessing, {
+                separator: " — ",
+            }),
         });
 
         const response = await executeProcess(processingService.url, {
@@ -705,12 +710,11 @@ describe("business process execution", () => {
             },
         };
         const processingService = await startProcessingService({
-            contentProcessing,
-            agent,
-            processes: {
-                contentProcessing: { mode: "agent" },
-                titledContentProcessing: { separator: ": " },
-            },
+            registrations: contentRegistrations(contentProcessing, {
+                agent,
+                mode: "agent",
+                separator: ": ",
+            }),
         });
 
         const firstResponse = await executeProcess(processingService.url, {
@@ -737,7 +741,7 @@ describe("business process execution", () => {
 
     it("enforces the second process input schema independently", async () => {
         const processingService = await startProcessingService({
-            contentProcessing: unusedContentProcessing,
+            registrations: contentRegistrations(unusedContentProcessing),
         });
 
         const response = await executeProcess(processingService.url, {
@@ -755,7 +759,7 @@ describe("business process execution", () => {
 
     it("rejects an unknown second-process version without version drift", async () => {
         const processingService = await startProcessingService({
-            contentProcessing: unusedContentProcessing,
+            registrations: contentRegistrations(unusedContentProcessing),
         });
 
         const response = await executeProcess(processingService.url, {
@@ -777,12 +781,35 @@ async function startHttpBackedService(
     options: { businessApiTimeoutMs?: number; processTimeoutMs?: number } = {},
 ): Promise<RunningServer> {
     return startProcessingService({
-        contentProcessing: new HttpContentProcessingCapability({
-            baseUrl: businessApiBaseUrl,
-            timeoutMs: options.businessApiTimeoutMs,
-        }),
+        registrations: contentRegistrations(
+            new HttpContentProcessingCapability({
+                baseUrl: businessApiBaseUrl,
+                timeoutMs: options.businessApiTimeoutMs,
+            }),
+        ),
         processTimeoutMs: options.processTimeoutMs,
     });
+}
+
+function contentRegistrations(
+    capability: ContentProcessingCapability,
+    options: {
+        agent?: ContentAgent;
+        mode?: "direct" | "agent";
+        separator?: string;
+    } = {},
+): ProcessRegistration[] {
+    return [
+        createContentRegistration({
+            capability,
+            agent: options.agent,
+            mode: options.mode,
+        }),
+        createTitledContentRegistration({
+            capability,
+            separator: options.separator,
+        }),
+    ];
 }
 
 async function startProcessingService(

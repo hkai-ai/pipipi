@@ -23,12 +23,19 @@ describe("production Runtime Skill bindings", () => {
                 ]),
             ),
         ).toEqual({
-            content: ["content-optimization@v1", "content-integrity@v1"],
-            poster: ["minimal-zine-poster-prompt@v1"],
-            crt: ["tait-crt-interface-prompt@v1"],
-            paleWatercolor: ["news-image-pale-watercolor-prompt@v1"],
-            rawHumanism: ["news-image-raw-humanism-prompt@v1"],
-            narrativeMonument: ["news-image-narrative-monument-prompt@v1"],
+            "content-processing": [
+                "content-optimization@v1",
+                "content-integrity@v1",
+            ],
+            "minimal-zine-poster": ["minimal-zine-poster-prompt@v1"],
+            "crt-interface-image": ["tait-crt-interface-prompt@v1"],
+            "news-image-pale-watercolor": [
+                "news-image-pale-watercolor-prompt@v1",
+            ],
+            "news-image-raw-humanism": ["news-image-raw-humanism-prompt@v1"],
+            "news-image-narrative-monument": [
+                "news-image-narrative-monument-prompt@v1",
+            ],
         });
     });
 

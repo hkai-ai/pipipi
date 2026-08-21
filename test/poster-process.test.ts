@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { createProcessingApplication } from "../src/api/application.js";
 import { createProcessExecutor } from "../src/processes/catalog.js";
-import type { ContentProcessingCapability } from "../src/processes/content/capability.js";
 import type {
     PosterAgent,
     PosterAgentRequest,
@@ -10,12 +9,7 @@ import {
     type PosterRenderingCapability,
     PosterRenderingUnavailable,
 } from "../src/processes/poster/capability.js";
-
-const unusedContent: ContentProcessingCapability = {
-    process: async () => {
-        throw new Error("Content processing should not run");
-    },
-};
+import { createPosterRegistration } from "../src/processes/poster/registration.js";
 
 const compiledPoster = {
     prompt: "Create a tall vertical 3:5 poster on warm aged paper with 82% negative space and one small lower-left cluster occupying 15% of the canvas.\n\nUse one torn-paper clipping of a rain-darkened used-bookstore window, softened with grayscale halftone wear and rough fibers.\n\nSet the exact text PIPIPI ZINE in small typewriter letters beside a fully saturated cobalt-blue risograph block covering 2% of the canvas, with ink bleed and slight misregistration.\n\nRender a flat orthographic paper scan with diffuse light and quiet archival memory; avoid full-bleed scenes, advertising, logos, CTA, glossy mockups, cinematic lighting, 3D, neon, cartoons, and dense scrapbooks.",
@@ -391,7 +385,6 @@ function createPosterExecutor(
     capability: PosterRenderingCapability,
 ) {
     return createProcessExecutor({
-        contentProcessing: unusedContent,
-        poster: { agent, capability },
+        registrations: [createPosterRegistration({ agent, capability })],
     });
 }

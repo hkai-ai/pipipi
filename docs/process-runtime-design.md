@@ -171,7 +171,7 @@ Activity Log 只允许 `runId`、Process identity、Attempt、固定 activity、
 mode 在启动时成组校验；Installed Skill Catalog 在监听端口前读取本地 `SKILL.md`，校验准确名称、版本和 SHA-256。模型与远程 Business Capability 仍保持惰性，不影响 liveness。配置或本地 Skill 错误会在
 Application 监听端口前抛出。
 
-[`createProductionSkillBindings`](../src/app/runtime-skills.ts) 是生产安装集合的单一 Composition Module。API、Process Worker 与发布前环境检查复用它；因此路径覆盖、版本、SHA-256 或快照内容错误会在数据库 migration 和容器切换前终止发布。非 Agent 角色不读取 Runtime Skill。
+[`createProductionSkillBindings`](../src/app/runtime-skills.ts) 从 `productionCatalog` 中每个 Process 声明的 `installedSkills` 派生生产安装集合，是校验它们的单一 Composition Module。API、Process Worker 与发布前环境检查复用它；因此路径覆盖、版本、SHA-256 或快照内容错误会在数据库 migration 和容器切换前终止发布。非 Agent 角色不读取 Runtime Skill。
 
 Async Process Runs 默认关闭。显式启用时，Construction Root 复用同一个 production Registry，
 组装 PostgreSQL Store、`submit/find` Module、可信 caller identity Resolver 和 readiness，并由
@@ -188,11 +188,14 @@ HTTP Sender，不加载 Business Process。四个角色的 liveness 不访问下
 `src/bin/` 中的入口只把 `process.env` 传给各自 Construction Seam，然后监听端口、写启动日志并处理
 `SIGINT` 和 `SIGTERM`。入口不翻译配置，也不直接组装 Adapter、Executor 或 Application。
 
-Production catalog 由
-[`createProcessExecutor`](../src/processes/catalog.ts)
-定义，也是唯一知道全部具体 Business Process 的位置。生产 Composition Root 向它提供七组
-流程依赖；它创建七个 Registration、不可变 Registry 和 Process Runner，再向 Application 返回 ready
-`ProcessExecutor`。测试和 smoke 可以省略图片流程依赖以构造更小的隔离 catalog，生产组装始终提供。
+Production catalog 是
+[`src/processes/catalog.ts`](../src/processes/catalog.ts) 中的 `productionCatalog` 数组，
+也是唯一知道全部具体 Business Process 的位置。每一项是流程 Module 自己的 `production.ts` 用
+`defineProductionProcess` 声明的生产装配：固定 Process id、安装的 Runtime Skill，以及如何从启动环境、
+共享 Pi 配置和已解析的 Skill 构造 Registration。生产 Composition Root 只算一次共享配置，依次调用每项的
+`build`，校验返回的 Registration id 与声明一致，再交给通用的 `createProcessRuntime` 创建不可变 Registry
+和 Process Runner，向 Application 返回 ready `ProcessExecutor`。测试和 smoke 直接向
+`createProcessExecutor({ registrations })` 传入用 fake Adapter 构造的 Registration，以得到更小的隔离 catalog。
 
 每个 Registration factory 只捕获该流程获准使用的依赖：
 

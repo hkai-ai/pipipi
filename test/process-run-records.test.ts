@@ -11,6 +11,7 @@ import {
     type ProcessRunRecords,
 } from "../src/process-runtime/records.js";
 import { createProcessExecutor } from "../src/processes/catalog.js";
+import { createContentRegistration } from "../src/processes/content/registration.js";
 
 const runningApplications: ProcessingApplication[] = [];
 
@@ -183,11 +184,15 @@ async function startApplication(
 ): Promise<{ url: string }> {
     const application = createProcessingApplication({
         executor: createProcessExecutor({
-            contentProcessing: {
-                process: async (input) => ({
-                    content: `Processed: ${input.content}`,
+            registrations: [
+                createContentRegistration({
+                    capability: {
+                        process: async (input) => ({
+                            content: `Processed: ${input.content}`,
+                        }),
+                    },
                 }),
-            },
+            ],
             runRecords,
         }),
     });

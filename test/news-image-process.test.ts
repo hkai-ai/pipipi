@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import { createProcessExecutor } from "../src/processes/catalog.js";
-import type { ContentProcessingCapability } from "../src/processes/content/capability.js";
 import type {
     NewsImageAgent,
     NewsImageAgentRequest,
@@ -9,6 +8,7 @@ import {
     type NewsImageRenderingCapability,
     NewsImageRenderingUnavailable,
 } from "../src/processes/news-image/capability.js";
+import { createNewsImageRegistration } from "../src/processes/news-image/registration.js";
 
 type Style = "narrative-monument" | "pale-watercolor" | "raw-humanism";
 
@@ -29,12 +29,6 @@ const cases = [
         process: "news-image-raw-humanism",
     },
 ] as const;
-
-const unusedContent: ContentProcessingCapability = {
-    process: async () => {
-        throw new Error("Content processing should not run");
-    },
-};
 
 const image = {
     url: "https://assets.example/news/run-1.png",
@@ -234,14 +228,10 @@ function createNewsImageExecutor(
     agent: NewsImageAgent,
     capability: NewsImageRenderingCapability,
 ) {
-    const binding = { agent, capability };
     return createProcessExecutor({
-        contentProcessing: unusedContent,
-        ...(style === "narrative-monument"
-            ? { narrativeMonument: binding }
-            : style === "pale-watercolor"
-              ? { paleWatercolor: binding }
-              : { rawHumanism: binding }),
+        registrations: [
+            createNewsImageRegistration(style, { agent, capability }),
+        ],
     });
 }
 

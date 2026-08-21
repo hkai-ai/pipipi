@@ -8,6 +8,7 @@ import {
     type ProcessRunLogRecord,
 } from "../src/process-runtime/index.js";
 import { createProcessExecutor } from "../src/processes/catalog.js";
+import { createContentRegistration } from "../src/processes/content/registration.js";
 import { createPinoProcessRunLogSink } from "../src/run-observation/pino.js";
 
 const inputSchema = z.strictObject({ value: z.string() });
@@ -17,11 +18,15 @@ describe("Process Run activity logging", () => {
     it("connects production Process activities to the shared log sink", async () => {
         const records: ProcessRunLogRecord[] = [];
         const executor = createProcessExecutor({
-            contentProcessing: {
-                process: async (input) => ({
-                    content: `processed ${input.content}`,
+            registrations: [
+                createContentRegistration({
+                    capability: {
+                        process: async (input) => ({
+                            content: `processed ${input.content}`,
+                        }),
+                    },
                 }),
-            },
+            ],
             runLogSink: (record) => records.push(record),
             runLogClock: clock([0, 10, 20, 30]),
         });

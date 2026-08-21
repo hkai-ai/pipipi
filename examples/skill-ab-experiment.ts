@@ -13,6 +13,7 @@ import { createProcessingApplication } from "../src/api/application.js";
 import { createProcessExecutor } from "../src/processes/catalog.js";
 import { PiContentAgent } from "../src/processes/content/agent.pi.js";
 import { HttpContentProcessingCapability } from "../src/processes/content/capability.http.js";
+import { createContentRegistration } from "../src/processes/content/registration.js";
 
 const sourceContent =
     process.env.SKILL_AB_CONTENT ??
@@ -239,27 +240,29 @@ async function runArm(options: {
               })
             : undefined;
     const executor = createProcessExecutor({
-        contentProcessing: new HttpContentProcessingCapability({
-            baseUrl: options.businessApi.url,
-        }),
-        ...(agent
-            ? {
-                  agent: {
-                      optimize: async (request) => {
-                          try {
-                              return await agent.optimize(request);
-                          } catch (error) {
-                              agentError = formatErrorChain(error);
-                              throw error;
-                          }
-                      },
-                  },
-              }
-            : {}),
+        registrations: [
+            createContentRegistration({
+                capability: new HttpContentProcessingCapability({
+                    baseUrl: options.businessApi.url,
+                }),
+                ...(agent
+                    ? {
+                          agent: {
+                              optimize: async (request) => {
+                                  try {
+                                      return await agent.optimize(request);
+                                  } catch (error) {
+                                      agentError = formatErrorChain(error);
+                                      throw error;
+                                  }
+                              },
+                          },
+                      }
+                    : {}),
+                mode: agentMode ? "agent" : "direct",
+            }),
+        ],
         processTimeoutMs: 120_000,
-        processes: {
-            contentProcessing: { mode: agentMode ? "agent" : "direct" },
-        },
     });
     const application = createProcessingApplication({ executor });
     const { url } = await application.listen();

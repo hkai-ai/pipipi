@@ -10,11 +10,18 @@ import {
     createProcessingRequestListener,
     type ProcessingHttpOptions,
 } from "../src/api/http.js";
+import type { ProcessRegistration } from "../src/process-runtime/index.js";
 import {
     createProcessExecutor,
     type ProcessRuntimeOptions,
 } from "../src/processes/catalog.js";
-import { ContentProcessingUnavailable } from "../src/processes/content/capability.js";
+import type { ContentAgent } from "../src/processes/content/agent.js";
+import {
+    type ContentProcessingCapability,
+    ContentProcessingUnavailable,
+} from "../src/processes/content/capability.js";
+import { createContentRegistration } from "../src/processes/content/registration.js";
+import { createTitledContentRegistration } from "../src/processes/titled-content/registration.js";
 
 type RunningService = {
     url: string;
@@ -33,12 +40,12 @@ describe("controlled MVP HTTP boundary", () => {
     it("reports health without executing a business dependency", async () => {
         let capabilityCalls = 0;
         const service = await startProcessingService({
-            contentProcessing: {
+            registrations: contentRegistrations({
                 process: async () => {
                     capabilityCalls += 1;
                     return { content: "unexpected" };
                 },
-            },
+            }),
         });
 
         const response = await fetch(`${service.url}/healthz`);
@@ -125,12 +132,12 @@ describe("controlled MVP HTTP boundary", () => {
     it("rejects a non-JSON execution request before business execution", async () => {
         let capabilityCalls = 0;
         const service = await startProcessingService({
-            contentProcessing: {
+            registrations: contentRegistrations({
                 process: async () => {
                     capabilityCalls += 1;
                     return { content: "unexpected" };
                 },
-            },
+            }),
         });
 
         const response = await fetch(`${service.url}/execute`, {
@@ -158,12 +165,12 @@ describe("controlled MVP HTTP boundary", () => {
         let capabilityCalls = 0;
         const submittedContent = "sensitive-".repeat(20);
         const service = await startProcessingService({
-            contentProcessing: {
+            registrations: contentRegistrations({
                 process: async () => {
                     capabilityCalls += 1;
                     return { content: "unexpected" };
                 },
-            },
+            }),
             http: { maxRequestBodyBytes: 64 },
         });
 
@@ -192,11 +199,11 @@ describe("controlled MVP HTTP boundary", () => {
 
     it("accepts JSON media types with charset parameters", async () => {
         const service = await startProcessingService({
-            contentProcessing: {
+            registrations: contentRegistrations({
                 process: async (input) => ({
                     content: `Processed: ${input.content}`,
                 }),
-            },
+            }),
         });
 
         const response = await fetch(`${service.url}/execute`, {
@@ -218,12 +225,12 @@ describe("controlled MVP HTTP boundary", () => {
     it("rejects a chunked request after its streamed body crosses the limit", async () => {
         let capabilityCalls = 0;
         const service = await startProcessingService({
-            contentProcessing: {
+            registrations: contentRegistrations({
                 process: async () => {
                     capabilityCalls += 1;
                     return { content: "unexpected" };
                 },
-            },
+            }),
             http: { maxRequestBodyBytes: 80 },
         });
         const requestBody = JSON.stringify({
@@ -260,12 +267,12 @@ describe("controlled MVP HTTP boundary", () => {
             maxRequestBodyBytes,
         );
         const service = await startProcessingService({
-            contentProcessing: {
+            registrations: contentRegistrations({
                 process: async () => {
                     capabilityCalls += 1;
                     return { content: "unexpected" };
                 },
-            },
+            }),
             http: { maxRequestBodyBytes },
         });
 
@@ -284,14 +291,14 @@ describe("controlled MVP HTTP boundary", () => {
         const secondGate = createDeferred<{ content: string }>();
         const started: string[] = [];
         const service = await startProcessingService({
-            contentProcessing: {
+            registrations: contentRegistrations({
                 process: async (input) => {
                     started.push(input.content);
                     if (input.content === "first") return firstGate.promise;
                     if (input.content === "second") return secondGate.promise;
                     return { content: `Processed: ${input.content}` };
                 },
-            },
+            }),
             http: { maxConcurrentExecutions: 2 },
         });
         const firstRequest = executeContent(service.url, "first");
@@ -335,9 +342,9 @@ describe("controlled MVP HTTP boundary", () => {
         const records: unknown[] = [];
         let monotonicCalls = 0;
         const service = await startProcessingService({
-            contentProcessing: {
+            registrations: contentRegistrations({
                 process: async () => ({ content: "sensitive business output" }),
-            },
+            }),
             http: {
                 logSink: (record) => records.push(record),
                 clock: {
@@ -378,9 +385,9 @@ describe("controlled MVP HTTP boundary", () => {
         const records: unknown[] = [];
         let monotonicCalls = 0;
         const service = await startProcessingService({
-            contentProcessing: {
+            registrations: contentRegistrations({
                 process: async () => ({ content: "output" }),
-            },
+            }),
             http: {
                 logSink: (record) => records.push(record),
                 clock: {
@@ -417,9 +424,9 @@ describe("controlled MVP HTTP boundary", () => {
         const records: unknown[] = [];
         let monotonicValue = 0;
         const service = await startProcessingService({
-            contentProcessing: {
+            registrations: contentRegistrations({
                 process: async () => ({ content: "unexpected" }),
-            },
+            }),
             http: {
                 logSink: (record) => records.push(record),
                 clock: {
@@ -466,9 +473,9 @@ describe("controlled MVP HTTP boundary", () => {
         ];
         const records: Array<Record<string, unknown>> = [];
         const service = await startProcessingService({
-            contentProcessing: {
+            registrations: contentRegistrations({
                 process: async () => ({ content: "output" }),
-            },
+            }),
             http: {
                 logSink: (record) =>
                     records.push(record as Record<string, unknown>),
@@ -497,12 +504,12 @@ describe("controlled MVP HTTP boundary", () => {
         let executionStarted = false;
         let monotonicValue = 0;
         const service = await startProcessingService({
-            contentProcessing: {
+            registrations: contentRegistrations({
                 process: async () => {
                     executionStarted = true;
                     return executionGate.promise;
                 },
-            },
+            }),
             http: {
                 maxRequestBodyBytes: 100,
                 maxConcurrentExecutions: 1,
@@ -574,11 +581,11 @@ describe("controlled MVP HTTP boundary", () => {
         const records: unknown[] = [];
         const sensitiveFailure = "stack and api-key-secret must stay private";
         const service = await startProcessingService({
-            contentProcessing: {
+            registrations: contentRegistrations({
                 process: async () => {
                     throw new Error(sensitiveFailure);
                 },
-            },
+            }),
             http: { logSink: (record) => records.push(record) },
         });
 
@@ -623,7 +630,7 @@ describe("controlled MVP HTTP boundary", () => {
     it("restores capacity after a process failure and a timeout", async () => {
         const records: Array<{ event: string; errorCode?: string }> = [];
         const service = await startProcessingService({
-            contentProcessing: {
+            registrations: contentRegistrations({
                 process: async (input) => {
                     if (input.content === "dependency-failure") {
                         throw new ContentProcessingUnavailable();
@@ -632,7 +639,7 @@ describe("controlled MVP HTTP boundary", () => {
                         return new Promise(() => {});
                     return { content: `Processed: ${input.content}` };
                 },
-            },
+            }),
             processTimeoutMs: 20,
             http: {
                 maxConcurrentExecutions: 1,
@@ -669,12 +676,12 @@ describe("controlled MVP HTTP boundary", () => {
     it("does not spend execution capacity on health or transport rejections", async () => {
         let capabilityCalls = 0;
         const service = await startProcessingService({
-            contentProcessing: {
+            registrations: contentRegistrations({
                 process: async (input) => {
                     capabilityCalls += 1;
                     return { content: `Processed: ${input.content}` };
                 },
-            },
+            }),
             http: {
                 maxConcurrentExecutions: 1,
                 maxRequestBodyBytes: 100,
@@ -709,31 +716,35 @@ describe("controlled MVP HTTP boundary", () => {
         const agentInputs: string[] = [];
         const capabilityInputs: string[] = [];
         const service = await startProcessingService({
-            contentProcessing: {
-                process: async (input) => {
-                    capabilityInputs.push(input.content);
-                    return { content: `Result for ${input.content}` };
+            registrations: contentRegistrations(
+                {
+                    process: async (input) => {
+                        capabilityInputs.push(input.content);
+                        return { content: `Result for ${input.content}` };
+                    },
                 },
-            },
-            agent: {
-                optimize: async (request) => {
-                    agentInputs.push(request.content);
-                    await new Promise((resolve) =>
-                        setTimeout(
-                            resolve,
-                            request.content.endsWith("alpha") ? 15 : 5,
-                        ),
-                    );
-                    return request.capability.process(
-                        { content: `Tool input ${request.content}` },
-                        {
-                            signal: request.signal,
-                            idempotencyKey: request.idempotencyKey,
+                {
+                    agent: {
+                        optimize: async (request) => {
+                            agentInputs.push(request.content);
+                            await new Promise((resolve) =>
+                                setTimeout(
+                                    resolve,
+                                    request.content.endsWith("alpha") ? 15 : 5,
+                                ),
+                            );
+                            return request.capability.process(
+                                { content: `Tool input ${request.content}` },
+                                {
+                                    signal: request.signal,
+                                    idempotencyKey: request.idempotencyKey,
+                                },
+                            );
                         },
-                    );
+                    },
+                    mode: "agent",
                 },
-            },
-            processes: { contentProcessing: { mode: "agent" } },
+            ),
             http: { maxConcurrentExecutions: 2, logSink: () => {} },
         });
 
@@ -765,9 +776,9 @@ describe("controlled MVP HTTP boundary", () => {
         const stdout = vi.spyOn(console, "log").mockImplementation(() => {});
         try {
             const service = await startProcessingService({
-                contentProcessing: {
+                registrations: contentRegistrations({
                     process: async () => ({ content: "processed" }),
-                },
+                }),
             });
 
             const response = await executeContent(service.url, "launch offer");
@@ -801,6 +812,17 @@ async function startProcessingService(
     const service = { url, close: application.close };
     runningServices.push(service);
     return service;
+}
+
+/** Registers both content Processes over one capability, as production always does */
+function contentRegistrations(
+    capability: ContentProcessingCapability,
+    options: { agent?: ContentAgent; mode?: "direct" | "agent" } = {},
+): ProcessRegistration[] {
+    return [
+        createContentRegistration({ capability, ...options }),
+        createTitledContentRegistration({ capability }),
+    ];
 }
 
 async function startRequestListener(
