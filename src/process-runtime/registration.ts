@@ -121,6 +121,13 @@ export type ProcessRegistration = Readonly<{
     identity: ProcessIdentity;
     retryPolicy: ProcessRetryPolicy;
     /**
+     * This Process's own Attempt time limit. Absent means the Attempt Runner's
+     * shared default applies; a Process whose single run legitimately outlasts
+     * that default declares its budget here so the limit ships with the
+     * Registration rather than being raised for the whole catalog.
+     */
+    timeoutMs: number | undefined;
+    /**
      * The Schemas this Registration actually validates against, kept so an
      * operations view can describe the contract without a second, hand-written
      * copy that could drift from what `accept` enforces. They are exposed for
@@ -148,6 +155,7 @@ export function defineProcessRegistration<
     outputSchema: OutputSchema;
     activities?: readonly string[];
     retryPolicy?: ProcessRetryPolicy;
+    timeoutMs?: number;
     execute: (
         input: z.output<InputSchema>,
         context: ProcessExecutionContext,
@@ -159,6 +167,7 @@ export function defineProcessRegistration<
     const execute = definition.execute;
     const retryPolicy = normalizeRetryPolicy(definition.retryPolicy);
     const activities = normalizeActivities(definition.activities);
+    const timeoutMs = normalizeTimeout(definition.timeoutMs);
 
     const identity = Object.freeze({
         id: definition.id,
@@ -274,6 +283,7 @@ export function defineProcessRegistration<
     return Object.freeze({
         identity,
         retryPolicy,
+        timeoutMs,
         inputSchema,
         outputSchema,
         activities: Object.freeze([...activities]),
@@ -307,6 +317,18 @@ function normalizeActivities(
         names.add(activity);
     }
     return names;
+}
+
+const timeoutMaxMs = 3_600_000;
+
+function normalizeTimeout(value: number | undefined): number | undefined {
+    if (value === undefined) return undefined;
+    if (!Number.isSafeInteger(value) || value < 1 || value > timeoutMaxMs) {
+        throw new Error(
+            `Process timeout must be an integer between 1 and ${timeoutMaxMs}`,
+        );
+    }
+    return value;
 }
 
 function normalizeRetryPolicy(

@@ -532,6 +532,67 @@ describe("Process Runtime", () => {
         expect(executionWasAborted).toBe(true);
     });
 
+    it("applies a Registration's own time limit ahead of the Runner default", async () => {
+        const defineSlowProcess = (timeoutMs: number) =>
+            defineProcessRegistration({
+                id: "test-processing",
+                version: "v1",
+                inputSchema: z.strictObject({ value: z.string() }),
+                outputSchema: z.strictObject({ value: z.string() }),
+                timeoutMs,
+                execute: async () =>
+                    new Promise<{ value: string }>((resolve) => {
+                        setTimeout(() => resolve({ value: "late" }), 30);
+                    }),
+            });
+        const runId = "00000000-0000-4000-8000-000000000044";
+
+        const shortProcess = defineSlowProcess(5);
+        const shortResult = await createProcessAttemptRunner({
+            processTimeoutMs: 10_000,
+        }).run({
+            runId,
+            registration: shortProcess,
+            acceptedInput: acceptOrThrow(shortProcess, { value: "request" }),
+        });
+        const longProcess = defineSlowProcess(10_000);
+        const longResult = await createProcessAttemptRunner({
+            processTimeoutMs: 5,
+        }).run({
+            runId,
+            registration: longProcess,
+            acceptedInput: acceptOrThrow(longProcess, { value: "request" }),
+        });
+
+        expect(shortProcess.timeoutMs).toBe(5);
+        expect(shortResult).toMatchObject({
+            status: "failed",
+            error: { code: "PROCESS_TIMEOUT" },
+        });
+        expect(longResult).toMatchObject({
+            status: "succeeded",
+            output: { value: "late" },
+        });
+    });
+
+    it.each([0, -1, 1.5, 3_600_001, Number.NaN])(
+        "rejects the Registration time limit %j",
+        (timeoutMs) => {
+            expect(() =>
+                defineProcessRegistration({
+                    id: "test-processing",
+                    version: "v1",
+                    inputSchema: z.strictObject({ value: z.string() }),
+                    outputSchema: z.strictObject({ value: z.string() }),
+                    timeoutMs,
+                    execute: async (input) => input,
+                }),
+            ).toThrow(
+                "Process timeout must be an integer between 1 and 3600000",
+            );
+        },
+    );
+
     it("binds a narrow dependency and stable policy in the Registration factory", async () => {
         const dependencyInputs: string[] = [];
         const textProcessing = {

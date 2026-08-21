@@ -31,8 +31,8 @@ export function createProcessAttemptRunner(
         logClock?: ProcessRunLogClock;
     } = {},
 ): ProcessAttemptRunner {
-    const processTimeoutMs = options.processTimeoutMs ?? 30_000;
-    if (!Number.isInteger(processTimeoutMs) || processTimeoutMs < 1) {
+    const defaultTimeoutMs = options.processTimeoutMs ?? 30_000;
+    if (!Number.isInteger(defaultTimeoutMs) || defaultTimeoutMs < 1) {
         throw new Error("Process timeout must be a positive integer");
     }
 
@@ -42,6 +42,8 @@ export function createProcessAttemptRunner(
                 process: attempt.registration.identity.id,
                 version: attempt.registration.identity.version,
             };
+            const processTimeoutMs =
+                attempt.registration.timeoutMs ?? defaultTimeoutMs;
             const attemptNumber = attempt.attemptNumber ?? 1;
             if (!Number.isSafeInteger(attemptNumber) || attemptNumber < 1) {
                 throw new Error("Process Attempt number must be positive");

@@ -71,7 +71,7 @@ describe("Async runtime role construction", () => {
                 PROCESS_TIMEOUT_MS: "60000",
                 PROCESS_RUN_CLAIM_LEASE_MS: "60000",
             }),
-        ).toThrow("PROCESS_RUN_CLAIM_LEASE_MS must exceed PROCESS_TIMEOUT_MS");
+        ).toThrow("PROCESS_RUN_CLAIM_LEASE_MS must exceed every Process time limit");
     });
 
     it("bounds Worker shutdown below the container stop grace", () => {

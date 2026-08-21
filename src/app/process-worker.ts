@@ -67,14 +67,23 @@ export function constructProcessWorkerService(
         "PROCESS_WORKER_SHUTDOWN_GRACE_MS",
         60_000,
     );
+    // A Registration may carry its own longer limit; the lease must outlast
+    // the longest Attempt this Worker can run, not only the shared default.
+    const longestAttemptMs = processRuntime.registry
+        .list()
+        .reduce(
+            (longest, registration) =>
+                Math.max(longest, registration.timeoutMs ?? 0),
+            processTimeoutMs,
+        );
     const claimLeaseMs = parsePositiveInteger(
         environment.PROCESS_RUN_CLAIM_LEASE_MS,
-        processTimeoutMs + 30_000,
+        longestAttemptMs + 30_000,
         "PROCESS_RUN_CLAIM_LEASE_MS",
     );
-    if (claimLeaseMs <= processTimeoutMs) {
+    if (claimLeaseMs <= longestAttemptMs) {
         throw new Error(
-            "PROCESS_RUN_CLAIM_LEASE_MS must exceed PROCESS_TIMEOUT_MS",
+            "PROCESS_RUN_CLAIM_LEASE_MS must exceed every Process time limit",
         );
     }
     const retention = {
