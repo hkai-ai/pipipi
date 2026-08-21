@@ -1,4 +1,22 @@
-/** 海报、CRT 与新闻图片共用的无 Tool Structured Agent Session */
+/**
+ * 海报、CRT 与新闻图片共用的无 Tool Structured Agent Session。
+ *
+ * 这三条评测流程都只需要「把 prompt 发给模型，拿回一段 JSON」，不需要模型读写文件、
+ * 执行命令或调用任何工具。本文件把这件事收敛成一个类 `PiStructuredAgent`：
+ *
+ * - 无 Tool：创建 Pi Session 时关掉全部工具（`noTools: "all"`，工具列表清空），
+ *   模型只能输出文本，不会产生工具调用回合，因此单轮就能结束。
+ * - Structured：约定模型的回答是 JSON，`run()` 返回前用 `parseAgentJson` 从消息里
+ *   解析出结构化结果；各调用方再按自己的 Schema 校验 `output`。
+ * - Request-local：每次 `run()` 都新建一个 in-memory Session（不落盘、不跨请求复用），
+ *   结束后 `dispose()`；传入的 `AbortSignal` 会直接中止该 Session。
+ * - 系统提示词由构造参数 `instructions` 与 `skills` 拼成，并关掉 Pi 默认的
+ *   扩展/技能/模板/上下文文件加载，保证同一份输入总是得到同一份上下文。
+ *
+ * 模型选择：`provider` 与 `model` 必须成对给出，否则走 Pi 的默认模型；配置了
+ * `openAIBaseUrl` 时按 `openAIApiMode` 接入自建 OpenAI 兼容网关。ModelRuntime 只在
+ * 首次 `run()` 时创建一次并缓存复用。
+ */
 import { resolve } from "node:path";
 import {
     type CreateAgentSessionOptions,
