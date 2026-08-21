@@ -36,7 +36,7 @@ Business Processing Service 让产品调用方通过一个稳定的 HTTP Interfa
 
 ## 当前能力
 
-生产 catalog 当前注册七个精确版本：
+生产 catalog 当前登记八个精确版本，其中 `composed-task/v1` 默认关闭：
 
 | 场景 | Business Process | 输入 | 输出 | 实现选择 |
 | --- | --- | --- | --- | --- |
@@ -47,6 +47,7 @@ Business Processing Service 让产品调用方通过一个稳定的 HTTP Interfa
 | `memene` | `news-image-narrative-monument/v1` | `{ title, summary }` | `{ style, image }` | 固定人物叙事碑式封面 Runtime Skill |
 | `memene` | `news-image-pale-watercolor/v1` | `{ title, summary }` | `{ style, image }` | 固定淡彩绘本 Runtime Skill |
 | `memene` | `news-image-raw-humanism/v1` | `{ title, summary }` | `{ style, image }` | 固定原质人文主义 Runtime Skill |
+| `common` | `composed-task/v1` | `{ goal, material?, constraints? }` | `{ summary, steps, result }` | 默认关闭；Planner Agent 只获得 allow-list 中其他 Process 的 Step Tool，在服务端预算内组合它们 |
 
 生产 Composition Root 通过 Installed Skill Catalog 校验七个 Runtime Skill 的准确名称、版本和 SHA-256。Process 只绑定通过校验的准确版本；Catalog 不发现、下载或更新 Skill。
 
@@ -62,7 +63,7 @@ Business Processing Service 让产品调用方通过一个稳定的 HTTP Interfa
 
 Run Observation Module 同时服务同步 API 和异步 Worker。Run Record 与活动日志只用于观测，不决定业务状态、重试或投递；写入失败不能改变 Process Result。异步调用方始终通过 owner-scoped Process Run Store 查询权威状态。
 
-Agent 只获得 Registration 固定绑定的 Runtime Skill 与窄 Tool。文本 Agent 只能调用 Content Processing Capability；海报、CRT 和新闻图片 Agent 没有 Tool，只编译待校验计划。Agent 不获得 Shell、文件读写、代码编辑或任意远程工具。Runtime Skill 随应用发布，调用方不能选择、增加或排序。
+Agent 只获得 Registration 固定绑定的 Runtime Skill 与窄 Tool。文本 Agent 只能调用 Content Processing Capability；海报、CRT 和新闻图片 Agent 没有 Tool，只编译待校验计划；`composed-task` 的 Planner Agent 只获得 allow-list 中其他 Process 的 Step Tool，每个 Step 仍经 Member Registration 自己的校验、幂等键和错误净化。Agent 不获得 Shell、文件读写、代码编辑或任意远程工具。Runtime Skill 随应用发布，调用方不能选择、增加或排序。
 
 图片 Process 的模型、FAL、OSS、证据和保留策略由服务端 Adapter 与部署环境拥有。产品只提交业务字段并接收图片引用。真实模型、存储和付费验收必须显式运行，凭证与敏感内容不进入日志、正式输出或证据。
 
@@ -71,7 +72,7 @@ Agent 只获得 Registration 固定绑定的 Runtime Skill 与窄 Tool。文本 
 项目当前不提供：
 
 - 动态 Process Definition、运行时注册、自动发现、默认版本或版本回退；
-- 通用工作流编排、已开放的生产 Queue、跨请求 Agent 记忆或调用方控制的重试；
+- 调用方定义的工作流、已开放的生产 Queue、跨请求 Agent 记忆或调用方控制的重试；服务端只提供 `composed-task/v1` 对 allow-list Process 的受控组合，组合深度为一层；
 - 应用内用户系统、RBAC、多租户、CORS 或公网匿名调用；
 - 运维控制台的应用内鉴权、按 caller 隔离的记录视图、聊天历史或通用幂等；
 - 允许 Agent 使用 Coding Tools 的通用 Skill 执行环境；

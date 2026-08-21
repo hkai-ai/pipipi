@@ -19,7 +19,7 @@
 | Business Capability 超时 | 10 秒 | `BUSINESS_API_TIMEOUT_MS=10000` |
 | Poster Rendering Capability 超时 | 90 秒 | `POSTER_API_TIMEOUT_MS=90000` |
 | CRT Rendering Capability 超时 | 180 秒 | `CRT_API_TIMEOUT_MS=180000` |
-| Process Run 超时 | 240 秒 | 本发布显式设置 `PROCESS_TIMEOUT_MS=240000`；代码默认 30 秒 |
+| Process Run 超时 | 240 秒 | 本发布显式设置 `PROCESS_TIMEOUT_MS=240000`；代码默认 30 秒。`composed-task/v1` 本发布保持 `COMPOSED_TASK_ENABLED=false`；开启时它自带 `COMPOSED_TASK_TIMEOUT_MS`（默认 600 秒），平台请求超时必须随之调高 |
 | 平台请求超时 | 270–300 秒 | 必须长于 Process Run 超时 |
 
 服务在上限以内并发执行请求。每个 Agent 请求建立独立内存会话；实例之间不共享业务会话，因此平台可以水平扩容。提升并发或实例数前，先检查实例内存、P95 延迟、Business Capability 容量、模型配额和单次运行成本。

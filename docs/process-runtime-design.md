@@ -68,9 +68,12 @@ Process Definition、依赖、策略和输出验证都留在 Module 内。生产
 | Processing Application | `createProcessingApplication({ executor, http })` | Node HTTP server 的创建、监听和关闭 |
 | Process Executor | `execute(request): Promise<ProcessRunResult>` | envelope 校验、查找、超时、取消、失败映射和记录 |
 | Internal Process Evaluation | `evaluate(request): Promise<ProcessEvaluationResult>` | 复用同步执行治理，以请求作用域回收 Registration 显式提供的非持久化诊断 |
-| Process Registration | `identity`、`accept(input)` 与 `run(acceptedInput, context)` | 单次输入解析、JSON-safe 快照、Process Definition、依赖、策略和输出验证 |
-| Process Registry | `find({ id, version })` | nominal 校验、重复检测、输入集合复制和二级 Map |
-| Process Attempt Runner | `run({ runId, registration, acceptedInput, attemptNumber? })` | 总超时、AbortSignal、公共结果、错误净化和活动日志 |
+| Process Registration | `identity`、`timeoutMs?`、`accept(input)` 与 `run(acceptedInput, context)` | 单次输入解析、JSON-safe 快照、Process Definition、依赖、策略和输出验证；`timeoutMs` 是该 Process 自己的 Attempt 上限（1–3600000 毫秒），缺省时用 Runner 默认值 |
+| Process Registry | `find({ id, version })`、`list()` | nominal 校验、重复检测、输入集合复制和二级 Map |
+| Process Attempt Runner | `run({ runId, registration, acceptedInput, attemptNumber?, signal? })` | 取 Registration 自己的或默认超时、AbortSignal、外部取消、公共结果、错误净化和活动日志；同步入口、异步 Worker 与 composed-task 的 Step Run 是它的三个调用方 |
+| Production Process | `defineProductionProcess({ id, environment, enabled?, members?, installedSkills?, build })` 与 `buildProductionRegistrations(options)` | 按环境开关过滤、两阶段构建（先无 Member 的项，再组合项）、Member 精确匹配与启动期拒绝、`context.members` 的 Registry 与 Attempt Runner |
+| Tool-bearing Structured Agent Session | `run({ prompt, tools, maxToolCalls, signal })` → `{ output, modelId?, toolCalls }` | 与无 Tool Session 共享的 `PiSessionSupport`、Tool 名称唯一与白名单、调用计数、超预算中止 Session 和 JSON 解析 |
+| Process Tool Set | `createProcessToolSet({ members, registry, attemptRunner })`、`bind({ runId, signal, runActivity, budget })` | Member allow-list 与 Registry 的构造期匹配、由 Member `inputSchema` 推导的 JSON Schema、Step 串行化、步数与付费步数预算、派生 `runId` 和 Step 记账 |
 | Process Run Activity Logging | `runActivity(name, operation)` 与 `ProcessRunLogSink` | 活动声明检查、Attempt 关联、单调顺序、耗时、结果净化和 best-effort 输出 |
 | Process Run Log Adapter | `ProcessRunLogSink` | Pino 阈值、严重度映射、敏感字段兜底移除、静态关联字段和单行 JSON stdout |
 | Installed Skill Catalog | `resolve([{ name, version }])`、`list()` | 全局安装项、启动期名称/版本/SHA-256 校验、准确版本解析和不可变结果 |
@@ -166,8 +169,8 @@ Activity Log 只允许 `runId`、Process identity、Attempt、固定 activity、
 ## Composition 与依赖
 
 [`constructProcessingService`](../src/app/api.ts) 拥有 API 的生产 Composition Root。
-它先校验通用配置，创建 Pino Process Run Log Adapter，再组装七个精确 Registration。`CONTENT_PROCESSING_MODE` 只在文本流程中
-选择 `direct` 或 `agent`；海报、CRT 与新闻图片流程始终构造无 Tool Agent，并复用 Structured Agent Session Module。共享的 provider/model 与 OpenAI API
+它先校验通用配置，创建 Pino Process Run Log Adapter，再组装 catalog 中启用的精确 Registration（七个常开项，以及默认关闭的 `composed-task/v1`）。`CONTENT_PROCESSING_MODE` 只在文本流程中
+选择 `direct` 或 `agent`；海报、CRT 与新闻图片流程始终构造无 Tool Agent，并复用 Structured Agent Session Module；`composed-task/v1` 构造只挂 Process Tool 的 Planner Agent，复用 Tool-bearing Structured Agent Session。共享的 provider/model 与 OpenAI API
 mode 在启动时成组校验；Installed Skill Catalog 在监听端口前读取本地 `SKILL.md`，校验准确名称、版本和 SHA-256。模型与远程 Business Capability 仍保持惰性，不影响 liveness。配置或本地 Skill 错误会在
 Application 监听端口前抛出。
 
@@ -192,8 +195,11 @@ Production catalog 是
 [`src/processes/catalog.ts`](../src/processes/catalog.ts) 中的 `productionCatalog` 数组，
 也是唯一知道全部具体 Business Process 的位置。每一项是流程 Module 自己的 `production.ts` 用
 `defineProductionProcess` 声明的生产装配：固定 Process id、安装的 Runtime Skill，以及如何从启动环境、
-共享 Pi 配置和已解析的 Skill 构造 Registration。生产 Composition Root 只算一次共享配置，依次调用每项的
-`build`，校验返回的 Registration id 与声明一致，再交给通用的 `createProcessRuntime` 创建不可变 Registry
+共享 Pi 配置和已解析的 Skill 构造 Registration。生产 Composition Root 只算一次共享配置，交给
+`buildProductionRegistrations` 分两阶段构建：先构建不声明 `members` 的项，再构建声明了 `members` 的组合项，并把精确匹配的
+Member Registry 与一个共享 Sink、默认超时的 Process Attempt Runner放进 `context.members`。`enabled(environment)` 为假的项既不构建，
+也不参与 Skill 校验；Member 引用自身、未列入 catalog、被关闭或本身也声明 `members` 的项都在启动时抛错，因此组合深度固定为 1。
+每项返回的 Registration id 必须与声明一致；结果交给通用的 `createProcessRuntime` 创建不可变 Registry
 和 Process Runner，向 Application 返回 ready `ProcessExecutor`。测试和 smoke 直接向
 `createProcessExecutor({ registrations })` 传入用 fake Adapter 构造的 Registration，以得到更小的隔离 catalog。
 
@@ -204,6 +210,7 @@ Production catalog 是
 - `minimal-zine-poster/v1` 捕获 Poster Agent 与 Poster Rendering Capability。Agent 只加载 `minimal-zine-poster-prompt`，不获得 Tool；Registration 要求四段 Prompt、六个固定 recipe 轴和可选原文逐字保留。验证通过后，Registration 只调用一次 Capability，并以 `runId` 作为下游幂等键。Capability 必须返回 HTTP(S) 图片 URL、受限媒体类型、尺寸和可选过期时间；原始图片字节不进入 Process output。
 - `crt-interface-image/v1` 捕获 CRT Agent 与 CRT Rendering Capability。产品只提交公网 HTTPS `sourceImageUrl`、固定调色板和画幅；Agent 只加载 `tait-crt-interface-prompt`，不获得 Tool，也看不到参考图 URL。Registration 要求四段 Prompt、十四个固定 recipe 轴、请求画幅、准确调色板和核心 CRT 约束；验证通过后只调用一次 Capability，并以 `runId` 作为下游幂等键。Capability 必须返回符合 GPT Image 2 尺寸边界和请求比例的 PNG 引用；Prompt、recipe、来源 URL 和图片字节不进入 Process output。图片 Business API 在自己的 Composition Root 固定 FAL、证据和存储策略。完整边界见 [`processes/common/crt-interface-image/`](processes/common/crt-interface-image/)。
 - 三个语义化新闻图片 Process 分别固定人物叙事碑式、淡彩绘本和原质人文主义 Runtime Skill。它们共享同一组受控 Prompt Agent、Rendering Capability 与 HTTP Adapter，但产品请求只能选择准确的 Process id/version，不能提交 Skill、模型或供应商。Registration 校验固定风格标识并只渲染一次，生产 Business API 按服务端配置选择 OSS 对象前缀。
+- `composed-task/v1` 捕获 Planner Agent、Process Tool Set 和 `maxSteps`/`maxPricedSteps`/`timeoutMs` 限制。Tool Set 在构造期把 `members.ts` 的 allow-list 与 `context.members` 的 Registry 精确匹配，每个 Member 成为一个 Step Tool，参数 Schema 由 Member 自己的 `inputSchema` 推导。Planner 每调用一次 Tool，就在父活动 `process_step` 内以派生 `runId`（`${父runId}.${步骤号}`）经 Process Attempt Runner 执行一个 Step Run；Member 的 `accept`、超时、取消、幂等键和活动日志原样生效，父 `signal` 传给 Step。预算耗尽后 Tool 返回 `STEP_BUDGET_EXHAUSTED` 或 `PRICED_BUDGET_EXHAUSTED` 而不运行 Member；Tool-bearing Session 另有 `maxSteps + 2` 次调用的硬上限。Planner 只回传 `{ summary, result }`，Registration 用自己的 Step 记账生成 `steps`，并要求 `result` 逐字取自某个成功 Step 的输出子树或由这类子树组成的平铺对象；否则按 `AGENT_FAILURE`，已有付费 Step 成功时按 `DEPENDENCY_FAILURE_AFTER_COMMIT`。该 Process 不重试。
 - Execution Context 只携带请求级的 `runId`、`AbortSignal`、受控 `runActivity` 与默认空操作的 `captureEvaluation`；业务依赖和稳定策略仍由 Registration 捕获。只有显式启用的内部评测请求提供非空捕获器。
 
 依赖按 Seam 类型处理：
@@ -214,7 +221,7 @@ Production catalog 是
 | --- | --- | --- |
 | Zod Schema、Registry Map、结果映射 | in-process | 留在深 Module 内，不增加 Adapter |
 | 受控 Business API | remote but owned | `ContentProcessingCapability`、`PosterRenderingCapability` 与 `CrtRenderingCapability` port；生产使用 HTTP Adapter，测试使用内存 Adapter |
-| Pi Agent Runtime | true external | `agent.ts` 定义流程专属窄 Port；海报、CRT 与新闻图片的 `agent.pi.ts` 实现复用无 Tool Structured Agent Session，测试使用注入的 Session factory 或 mock Agent Adapter |
+| Pi Agent Runtime | true external | `agent.ts` 定义流程专属窄 Port；海报、CRT 与新闻图片的 `agent.pi.ts` 实现复用无 Tool Structured Agent Session，composed-task 的实现复用 Tool-bearing Session，测试使用注入的 Session factory 或 mock Agent Adapter |
 | Runtime Skill 快照 | bundled resource | 流程拥有准确安装项；`src/agent-runtime/catalog.ts` 在启动期校验并按版本解析，`skills.ts` 精确加载，不自动发现或扩大 Tool 权限 |
 | Run Record 存储 | 可替换存储 Seam | disabled、内存和持久化 Adapter 共用 `ProcessRunRecordAdapter` |
 
@@ -236,6 +243,7 @@ Interface 就是测试面：
 - 新闻图片 Process 测试三个固定风格的输入归一化、单次渲染、`runId` 幂等键、实现结果隐藏、Agent 输出拒绝和 Rendering Capability 稳定失败。
 - 三个新闻图片 Registration 复用参数化的 `createNewsImageRegistration` Module；私有风格策略固定 Process identity、输出 style、Prompt 契约和公开 Agent 错误，调用方只提供固定 style、Agent 与 Rendering Capability。
 - `createNewsImageAcceptance` 是发布期验收 Module：它固定三个准确 Process 和非敏感测试输入，经产品 `POST /execute` 逐一执行，只从批准的 HTTPS OSS host 与准确对象路径下载且不跟随重定向，并把 URL、签名参数和业务内容移除后返回图片哈希、尺寸、字节数与 Run metadata。测试通过注入的 HTTP Adapter 验证三次执行、风格隔离、对象位置和证据净化；真实命令使用当前 commit 的 production Composition、FAL 与 OSS Adapter。
+- `composed-task/v1` 测试用脚本化 Planner 与内存 Member 验证 Step 链式调用、派生 `runId` 作为 Member 幂等键、父子活动时间线、由 `inputSchema` 推导的 Tool 参数、`accept` 拒绝回传、步数与付费预算拒绝、`result` 来源校验、五种失败映射、父超时取消 Step、构造期 Member 校验与产品输入拒绝。Production catalog 测试用 fake catalog 验证 `enabled` 过滤、两阶段构建和 Member 拒绝；Startup Construction 测试验证默认关闭、开启后注册与 Planner Skill fail-fast。Tool-bearing Session 测试 Tool 白名单、调用计数、超预算中止和畸形 Tool 表面拒绝。真实模型路径尚无脚本化验证。
 - Agent Registration 测试文本 Tool 的缺失、重复调用和结果来源，也测试海报与 CRT Agent 的结构、请求约束和先验证后渲染。CRT 测试还证明 Agent 看不到资产标识、Capability 只调用一次、图片为受限 PNG 且比例正确。确定性测试不调用真实模型。文本 smoke 验证真实 Tool 路径；海报业务验收从产品 `POST /execute` 经过 production catalog、真实 Agent、production HTTP Adapter、受控 `POST /posters` Capability 和真实图片 URL；CRT 的显式 smoke 当前只验证 GPT Image 2 reference-edit stage。Skill A/B 组合仍由独立命令执行。
 
 测试不读取私有 Map，不断言 key 编码，也不依赖内部 helper 的调用顺序。Implementation
@@ -250,7 +258,10 @@ Process Definition、获准依赖和稳定策略的 Locality；显式 production
 [`development.md`](development.md#新增-business-process)。
 
 Runtime registration、自动发现、动态 Process Definition 和版本回退不受支持。显式 catalog
-增加一个中心编辑点，但它让依赖授权、启动顺序和版本选择保持可见。
+增加一个中心编辑点，但它让依赖授权、启动顺序和版本选择保持可见。需要让一个 Process 运行其他 Process 时，
+在 `production.ts` 用 `members` 声明准确的 identity，并在流程 Module 内维护 allow-list；组合只允许一层，
+产品请求仍只选择组合 Process 的 id 与版本。取舍背景见
+[`decisions/2026-08-21-composed-task-planner.md`](decisions/2026-08-21-composed-task-planner.md)。
 
 ## Depth、Leverage 与 Locality
 
@@ -259,6 +270,8 @@ Runtime registration、自动发现、动态 Process Definition 和版本回退�
 - `createProcessAttemptRunner` 隐藏预分配 `runId` 的执行治理，让同步与异步调用方共享
   同一结果、超时、取消、错误净化和活动日志语义。
 - `createProcessRunner` 隐藏同步 envelope、查找、接受、Attempt 调用和记录顺序。
+- `buildProductionRegistrations` 隐藏环境开关、两阶段构建和 Member 精确匹配，让 Composition Root 不为任何一个 Process 增加字段。
+- `createProcessToolSet` 隐藏 Member 解析、Schema 推导、Step 串行化、预算、派生 `runId` 和记账，让 Planner Agent 只看到一组 Tool。
 - `createInstalledSkillCatalog` 隐藏全局安装项校验、内容摘要、准确版本解析和稳定清单。
 - `createSkillSet` 隐藏多目录读取、名称去重、准确匹配、顺序和 Prompt 编译。
 - `PiStructuredAgent` 隐藏无 Tool Pi Session、模型选择、请求隔离、取消、资源释放和 JSON 解析；流程 Adapter 只保留业务指令、用户 Prompt 和流程专属结果约束。

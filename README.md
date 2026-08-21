@@ -4,7 +4,7 @@
 
 ## 当前能力
 
-生产 catalog 包含七个 Business Process。文档先按产品场景分组，运行时仍通过统一的 Process identity 和 HTTP Interface 执行：
+生产 catalog 登记八个 Business Process，其中 `composed-task/v1` 默认关闭。文档先按产品场景分组，运行时仍通过统一的 Process identity 和 HTTP Interface 执行：
 
 | 场景 | Process | 输入 | 输出 |
 | --- | --- | --- | --- |
@@ -15,10 +15,13 @@
 | `memene` | `news-image-narrative-monument/v1` | `{ "title", "summary" }` | `{ "style", "image" }` |
 | `memene` | `news-image-pale-watercolor/v1` | `{ "title", "summary" }` | `{ "style", "image" }` |
 | `memene` | `news-image-raw-humanism/v1` | `{ "title", "summary" }` | `{ "style", "image" }` |
+| `common` | `composed-task/v1`（默认关闭） | `{ "goal", "material"?, "constraints"? }` | `{ "summary", "steps", "result" }` |
 
 Memebuy 已建立独立文档边界，但当前没有明确归属的 production Process。场景入口和归属规则见 [`docs/processes/README.md`](docs/processes/README.md)。
 
-七个流程共享同一个 `POST /execute` Interface。每个明确版本由 Process Registration 绑定业务定义、Schema、依赖、运行活动和策略，再进入不可变 Process Registry。Process Runner 统一处理 `runId`、精确版本查找、超时、取消、错误净化和可选 Run Record。
+`composed-task/v1` 由 `COMPOSED_TASK_ENABLED=true` 开启：一个 Planner Agent 在服务端预算内组合上面七个 Process，每一步仍走对应 Process 自己的校验与治理，调用方只提交目标与素材。
+
+全部流程共享同一个 `POST /execute` Interface。每个明确版本由 Process Registration 绑定业务定义、Schema、依赖、运行活动和策略，再进入不可变 Process Registry。Process Runner 统一处理 `runId`、精确版本查找、超时、取消、错误净化和可选 Run Record。
 
 每次 Process Attempt 都输出不含业务内容的结构化活动日志。可选 Run Record 保存终态与活动归档，但只用于观测，不决定业务状态。运维控制台提供检索、统计和异步提交；它没有应用内鉴权，生产访问控制由部署平台负责。详细语义见 [Process Runtime 设计](docs/process-runtime-design.md)。
 

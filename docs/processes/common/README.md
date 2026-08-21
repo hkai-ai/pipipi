@@ -8,5 +8,6 @@
 | `titled-content-processing/v1` | [`titled-content-processing/`](titled-content-processing/) | 组合标题与正文并复用文本处理能力 |
 | `minimal-zine-poster/v1` | [`minimal-zine-poster/`](minimal-zine-poster/) | 编译、生成并持久化极简 Zine 海报 |
 | `crt-interface-image/v1` | [`crt-interface-image/`](crt-interface-image/) | 根据公网参考图生成 CRT 风格 PNG |
+| `composed-task/v1` | [`composed-task/`](composed-task/) | 由服务端 Planner 在预算内组合 allow-list Process 完成一个目标；默认关闭 |
 
 产品采用通用 Process 时，在对应产品场景 README 中记录产品限制和采用关系，不复制 Process 契约。统一 HTTP 契约见 [`../../api.md`](../../api.md)。

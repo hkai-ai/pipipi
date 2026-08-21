@@ -73,6 +73,7 @@ Content-Type: application/json
 | `memene` | `news-image-narrative-monument` | 生成人物叙事碑式新闻图片 |
 | `memene` | `news-image-pale-watercolor` | 生成淡彩绘本新闻图片 |
 | `memene` | `news-image-raw-humanism` | 生成原质人文主义新闻图片 |
+| `common` | `composed-task` | 由服务端 Planner 在预算内组合上述 Process 完成一个目标；部署默认关闭，未开启时返回 `PROCESS_NOT_FOUND` |
 
 Memebuy 当前没有已登记 Process。完整场景归属见 [Business Process 场景目录](processes/README.md)。
 
@@ -463,6 +464,55 @@ Webhook 是至少一次投递，不保证跨 Run 的全局顺序。网络错误�
 
 新闻图片固定为 4:3 PNG；当前生产图片服务输出 1600×1200。
 
+### Process：`composed-task`（`v1`）
+
+部署显式设置 `COMPOSED_TASK_ENABLED=true` 后才可调用。完整请求 body：
+
+```json
+{
+  "process": "composed-task",
+  "version": "v1",
+  "input": {
+    "goal": "把这段介绍精简后做一张极简 zine 海报",
+    "material": {
+      "copy": "雨天的旧书店，安静、缓慢，适合长时间停留。"
+    },
+    "constraints": {
+      "maxSteps": 3
+    }
+  }
+}
+```
+
+| 字段 | 类型 | 必填 | 约束 |
+| --- | --- | --- | --- |
+| `goal` | string | 是 | 去除首尾空白后为 1–4000 个字符的自然语言目标 |
+| `material` | object | 否 | 至多 16 个条目；键匹配 `^[a-z][a-zA-Z0-9]{0,31}$`，值为 1–12000 个字符的字符串。这是 Planner 能转交给各步骤的全部业务素材 |
+| `constraints.maxSteps` | integer | 否 | 1–8，只能收紧服务端上限，不能放宽 |
+
+调用方不能指定步骤、Process 顺序、Skill、模型或 Tool。服务端 Planner 从固定 allow-list（当前为其余七个 Process）中选择步骤，每个步骤仍按该 Process 自己的输入契约校验，并受服务端 `COMPOSED_TASK_MAX_STEPS`（默认 6）与 `COMPOSED_TASK_MAX_PRICED_STEPS`（默认 2，限制成功的图片步骤数）约束。
+
+响应 `output`：
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| `summary` | string | Planner 对所做步骤的一两句说明 |
+| `steps` | array | 按执行顺序列出全部步骤，包括失败的；每项含 `step`、`process`、`version`、`status`，成功时带该 Process 的 `output`，失败时带 `error.code` 与 `error.message` |
+| `result` | JSON | 逐字取自成功步骤输出的值：某个步骤的完整 `output`、其中一个子值，或由这类子值组成的平铺对象 |
+
+部分步骤失败而 Planner 合理收尾时仍返回 `succeeded`，失败信息保留在 `steps` 中。`steps` 里的图片步骤输出沿用[图片对象](#图片对象)。
+
+该 Process 专属的失败语义：
+
+| error.code | 条件 |
+| --- | --- |
+| `AGENT_FAILURE` | Planner 未运行任何成功步骤、输出无法解析，或 `result` 不是逐字取自成功步骤 |
+| `DEPENDENCY_FAILURE` | 运行过的步骤全部因业务服务不可用失败，且没有任何付费步骤成功 |
+| `DEPENDENCY_FAILURE_AFTER_COMMIT` | 至少一个付费图片步骤已成功，但 Planner 之后失败、超时或输出无效；已产生费用，不得自动重试 |
+| `PROCESS_TIMEOUT` | 整个 Run 超过 `COMPOSED_TASK_TIMEOUT_MS`（默认 600000 毫秒）；进行中的步骤一并取消 |
+
+一次调用可能触发多次付费图片生成，费用上限由服务端 `COMPOSED_TASK_MAX_PRICED_STEPS` 决定。同一 Run 的每个步骤以 `<runId>.<step>` 作为下游幂等键。
+
 ## 成功响应
 
 接口成功时返回 HTTP `200`：
@@ -544,7 +594,7 @@ HTTP 层在执行前拒绝请求时，不返回 `runId`：
 | 500 | `INTERNAL_ERROR` | 服务端发生内部错误 |
 | 502 | `AGENT_FAILURE` | Agent 未能完成任务 |
 | 502 | `DEPENDENCY_FAILURE` | Business Capability、图片服务或存储服务不可用；是否已经产生外部副作用取决于 Process，付费图片调用不得据此自动重试 |
-| 502 | `DEPENDENCY_FAILURE_AFTER_COMMIT` | 图片已生成并计费，但后处理、存储或引用解析失败导致无法交付；重试会再次产生费用，不得自动重试 |
+| 502 | `DEPENDENCY_FAILURE_AFTER_COMMIT` | 图片已生成并计费，但后处理、存储或引用解析失败导致无法交付；`composed-task` 中指付费步骤已成功而 Run 未能完成。重试会再次产生费用，不得自动重试 |
 | 503 | `SERVICE_BUSY` | 同步执行容量已满；按 `Retry-After` 重试 |
 | 504 | `PROCESS_TIMEOUT` | 执行超时 |
 

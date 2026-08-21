@@ -210,6 +210,10 @@ npm run accept:news-image-business
 
 `Production CI/CD` 的 Pull Request Job 不运行该付费验收，默认生产发布也直接跳过。显式把 Repository Variable `NEWS_IMAGE_ACCEPTANCE_ENABLED` 设为 `true` 后，`main` 候选只有修改新闻图片 Runtime Skill、共享 Agent Runtime、新闻图片 Process、图片 Business API、OSS/模型依赖或相关部署资源时，才进入 required-reviewer 管理的 `news-image-acceptance` Environment；批准后对同一 `github.sha` 运行验收，成功才允许生产部署。其他改动跳过该 Job。
 
+## 组合任务 Process
+
+`composed-task/v1` 当前没有脚本化的真实模型验证；确定性测试见 [`processes/common/composed-task/`](processes/common/composed-task/)。人工验证会调用模型、可能触发付费图片生成并写入对象存储，只在受控环境执行：设置 `COMPOSED_TASK_ENABLED=true`、Pi 模型凭证和 Business API 地址启动服务，再向 `POST /execute` 提交 [`api.md`](api.md#processcomposed-taskv1) 中的示例请求。判据是响应 `steps` 与活动日志中 `<runId>.<step>` 的 Step 时间线一致，且 `result` 逐字取自成功步骤。
+
 ## 阿里云 OSS 上传
 
 对象存储默认关闭，图片只写入本地 `artifacts/`。要验证 OSS Adapter，在本地 `.env` 设置测试 bucket 和最小权限凭证：
