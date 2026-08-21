@@ -1,5 +1,6 @@
 /** production Business Process Runtime 与 catalog 依赖组装 */
 import { parseOpenAIApiMode } from "../agent-runtime/pi.js";
+import type { SkillRef } from "../agent-runtime/skills.js";
 import {
     combineProcessRunLogSinks,
     type ProcessRetryPolicy,
@@ -16,13 +17,22 @@ import { HttpContentProcessingCapability } from "../processes/content/capability
 import { parseBusinessApiBaseUrl } from "../processes/content/config.js";
 import { PiCrtAgent } from "../processes/crt/agent.pi.js";
 import { HttpCrtRenderingCapability } from "../processes/crt/capability.http.js";
-import { PiNewsImageAgent } from "../processes/news-image/agent.pi.js";
+import {
+    PiNewsImageAgent,
+    type PiNewsImageAgentOptions,
+} from "../processes/news-image/agent.pi.js";
 import { HttpNewsImageRenderingCapability } from "../processes/news-image/capability.http.js";
 import { PiPosterAgent } from "../processes/poster/agent.pi.js";
 import { HttpPosterRenderingCapability } from "../processes/poster/capability.http.js";
 import { createPinoProcessRunLogSink } from "../run-observation/pino.js";
-import type { StartupEnvironment } from "./config.js";
+import { parsePositiveInteger, type StartupEnvironment } from "./config.js";
 import { createProductionSkillBindings } from "./runtime-skills.js";
+
+/** Pi model selection shared by every Agent-backed production Process. */
+type PiAgentConfig = Pick<
+    PiNewsImageAgentOptions,
+    "provider" | "model" | "openAIBaseUrl" | "openAIApiMode" | "agentDir"
+>;
 
 export function createProductionRuntime(
     environment: StartupEnvironment,
@@ -54,128 +64,59 @@ export function createProductionRuntime(
         environment.CRT_BUSINESS_API_BASE_URL ??
             environment.BUSINESS_API_BASE_URL,
     );
-    const openAIApiMode = parseOpenAIApiMode(environment.OPENAI_API_MODE);
+    const pi: PiAgentConfig = {
+        provider: environment.PI_PROVIDER,
+        model: environment.PI_MODEL,
+        openAIBaseUrl: environment.OPENAI_BASE_URL,
+        openAIApiMode: parseOpenAIApiMode(environment.OPENAI_API_MODE),
+        agentDir: environment.PI_AGENT_DIR,
+    };
     const skills = createProductionSkillBindings(environment);
+    const integer = (name: string, fallback: number) =>
+        parsePositiveInteger(environment[name], fallback, name);
+    const newsImage = (
+        style: PiNewsImageAgentOptions["style"],
+        styleSkills: readonly SkillRef[],
+    ) => ({
+        agent: new PiNewsImageAgent({ style, skills: styleSkills, ...pi }),
+        capability: new HttpNewsImageRenderingCapability({
+            baseUrl: crtBaseUrl,
+            timeoutMs: integer("NEWS_IMAGE_API_TIMEOUT_MS", 180_000),
+        }),
+    });
+
     const capability = new HttpContentProcessingCapability({
         baseUrl,
-        timeoutMs: parsePositiveInteger(
-            environment.BUSINESS_API_TIMEOUT_MS,
-            10_000,
-            "BUSINESS_API_TIMEOUT_MS",
-        ),
+        timeoutMs: integer("BUSINESS_API_TIMEOUT_MS", 10_000),
     });
     const agent: ContentAgent | undefined =
         mode === "agent"
-            ? new PiContentAgent({
-                  skills: skills.content,
-                  provider: environment.PI_PROVIDER,
-                  model: environment.PI_MODEL,
-                  openAIBaseUrl: environment.OPENAI_BASE_URL,
-                  openAIApiMode,
-                  agentDir: environment.PI_AGENT_DIR,
-              })
+            ? new PiContentAgent({ skills: skills.content, ...pi })
             : undefined;
     return createProcessRuntime({
         contentProcessing: capability,
         agent,
         poster: {
-            agent: new PiPosterAgent({
-                skills: skills.poster,
-                provider: environment.PI_PROVIDER,
-                model: environment.PI_MODEL,
-                openAIBaseUrl: environment.OPENAI_BASE_URL,
-                openAIApiMode,
-                agentDir: environment.PI_AGENT_DIR,
-            }),
+            agent: new PiPosterAgent({ skills: skills.poster, ...pi }),
             capability: new HttpPosterRenderingCapability({
                 baseUrl,
-                timeoutMs: parsePositiveInteger(
-                    environment.POSTER_API_TIMEOUT_MS,
-                    90_000,
-                    "POSTER_API_TIMEOUT_MS",
-                ),
+                timeoutMs: integer("POSTER_API_TIMEOUT_MS", 90_000),
             }),
         },
         crt: {
-            agent: new PiCrtAgent({
-                skills: skills.crt,
-                provider: environment.PI_PROVIDER,
-                model: environment.PI_MODEL,
-                openAIBaseUrl: environment.OPENAI_BASE_URL,
-                openAIApiMode,
-                agentDir: environment.PI_AGENT_DIR,
-            }),
+            agent: new PiCrtAgent({ skills: skills.crt, ...pi }),
             capability: new HttpCrtRenderingCapability({
                 baseUrl: crtBaseUrl,
-                timeoutMs: parsePositiveInteger(
-                    environment.CRT_API_TIMEOUT_MS,
-                    180_000,
-                    "CRT_API_TIMEOUT_MS",
-                ),
+                timeoutMs: integer("CRT_API_TIMEOUT_MS", 180_000),
             }),
         },
-        paleWatercolor: {
-            agent: new PiNewsImageAgent({
-                style: "pale-watercolor",
-                skills: skills.paleWatercolor,
-                provider: environment.PI_PROVIDER,
-                model: environment.PI_MODEL,
-                openAIBaseUrl: environment.OPENAI_BASE_URL,
-                openAIApiMode,
-                agentDir: environment.PI_AGENT_DIR,
-            }),
-            capability: new HttpNewsImageRenderingCapability({
-                baseUrl: crtBaseUrl,
-                timeoutMs: parsePositiveInteger(
-                    environment.NEWS_IMAGE_API_TIMEOUT_MS,
-                    180_000,
-                    "NEWS_IMAGE_API_TIMEOUT_MS",
-                ),
-            }),
-        },
-        rawHumanism: {
-            agent: new PiNewsImageAgent({
-                style: "raw-humanism",
-                skills: skills.rawHumanism,
-                provider: environment.PI_PROVIDER,
-                model: environment.PI_MODEL,
-                openAIBaseUrl: environment.OPENAI_BASE_URL,
-                openAIApiMode,
-                agentDir: environment.PI_AGENT_DIR,
-            }),
-            capability: new HttpNewsImageRenderingCapability({
-                baseUrl: crtBaseUrl,
-                timeoutMs: parsePositiveInteger(
-                    environment.NEWS_IMAGE_API_TIMEOUT_MS,
-                    180_000,
-                    "NEWS_IMAGE_API_TIMEOUT_MS",
-                ),
-            }),
-        },
-        narrativeMonument: {
-            agent: new PiNewsImageAgent({
-                style: "narrative-monument",
-                skills: skills.narrativeMonument,
-                provider: environment.PI_PROVIDER,
-                model: environment.PI_MODEL,
-                openAIBaseUrl: environment.OPENAI_BASE_URL,
-                openAIApiMode,
-                agentDir: environment.PI_AGENT_DIR,
-            }),
-            capability: new HttpNewsImageRenderingCapability({
-                baseUrl: crtBaseUrl,
-                timeoutMs: parsePositiveInteger(
-                    environment.NEWS_IMAGE_API_TIMEOUT_MS,
-                    180_000,
-                    "NEWS_IMAGE_API_TIMEOUT_MS",
-                ),
-            }),
-        },
-        processTimeoutMs: parsePositiveInteger(
-            environment.PROCESS_TIMEOUT_MS,
-            30_000,
-            "PROCESS_TIMEOUT_MS",
+        paleWatercolor: newsImage("pale-watercolor", skills.paleWatercolor),
+        rawHumanism: newsImage("raw-humanism", skills.rawHumanism),
+        narrativeMonument: newsImage(
+            "narrative-monument",
+            skills.narrativeMonument,
         ),
+        processTimeoutMs: integer("PROCESS_TIMEOUT_MS", 30_000),
         runLogSink,
         ...(options.runRecords ? { runRecords: options.runRecords } : {}),
         processes: {
@@ -199,11 +140,9 @@ function parseContentMode(value: string | undefined): "direct" | "agent" {
 function parseContentRetry(
     environment: StartupEnvironment,
 ): ProcessRetryPolicy {
-    const maximumAttempts = parsePositiveInteger(
-        environment.CONTENT_PROCESSING_RETRY_MAX_ATTEMPTS,
-        1,
-        "CONTENT_PROCESSING_RETRY_MAX_ATTEMPTS",
-    );
+    const integer = (name: string, fallback: number) =>
+        parsePositiveInteger(environment[name], fallback, name);
+    const maximumAttempts = integer("CONTENT_PROCESSING_RETRY_MAX_ATTEMPTS", 1);
     if (maximumAttempts > 5) {
         throw new Error(
             "CONTENT_PROCESSING_RETRY_MAX_ATTEMPTS must not exceed 5",
@@ -215,29 +154,14 @@ function parseContentRetry(
             maximumAttempts > 1 ? (["DEPENDENCY_FAILURE"] as const) : [],
         ),
         backoff: Object.freeze({
-            initialDelayMs: parsePositiveInteger(
-                environment.CONTENT_PROCESSING_RETRY_INITIAL_DELAY_MS,
-                1_000,
+            initialDelayMs: integer(
                 "CONTENT_PROCESSING_RETRY_INITIAL_DELAY_MS",
+                1_000,
             ),
-            maximumDelayMs: parsePositiveInteger(
-                environment.CONTENT_PROCESSING_RETRY_MAX_DELAY_MS,
-                30_000,
+            maximumDelayMs: integer(
                 "CONTENT_PROCESSING_RETRY_MAX_DELAY_MS",
+                30_000,
             ),
         }),
     });
-}
-
-function parsePositiveInteger(
-    value: string | undefined,
-    fallback: number,
-    name: string,
-): number {
-    if (value === undefined) return fallback;
-    const parsed = Number(value);
-    if (!Number.isInteger(parsed) || parsed < 1) {
-        throw new Error(`${name} must be a positive integer`);
-    }
-    return parsed;
 }
