@@ -1,3 +1,4 @@
+/** minimal-zine-poster/v1 绑定的准确 Runtime Skill */
 import type { InstalledSkillRef } from "../../agent-runtime/skills.js";
 
 export const posterSkillName = "minimal-zine-poster-prompt";

@@ -1,3 +1,4 @@
+/** 对象存储 Interface：定义 ObjectStorageCapability、上传请求/结果类型及 ObjectStorageError */
 export type ObjectUrlAccess = "public" | "signed";
 
 export type UploadObjectRequest = {

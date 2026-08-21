@@ -1,3 +1,4 @@
+/** 周期 reconciliation、人工 Queue Recovery Interface */
 import { randomUUID } from "node:crypto";
 import type {
     ProcessWorkJobInspection,

@@ -1,3 +1,4 @@
+/** Process Work Queue 的 BullMQ Adapter */
 import { DelayedError, type Job, Queue, Worker } from "bullmq";
 import type { ProcessWorker, ProcessWorkResult } from "../worker/index.js";
 import {

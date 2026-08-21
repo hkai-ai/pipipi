@@ -1,3 +1,4 @@
+/** 三个新闻图片 Process 共用的 Registration 工厂：按固定风格选择 Prompt 契约校验规则，编排 Prompt 编译与渲染活动并处理失败 */
 import { z } from "zod";
 import {
     defineProcessRegistration,

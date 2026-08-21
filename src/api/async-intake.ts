@@ -1,3 +1,4 @@
+/** 文件标记控制的 POST /process-runs intake 开关 */
 import { existsSync } from "node:fs";
 import path from "node:path";
 

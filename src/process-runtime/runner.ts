@@ -1,3 +1,4 @@
+/** 组合 Registry、Attempt Runner 与 Run Records，校验请求并派发执行，对外提供 execute/evaluate 入口 */
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { createProcessAttemptRunner } from "./attempt.js";

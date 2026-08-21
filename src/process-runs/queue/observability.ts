@@ -1,3 +1,4 @@
+/** 读取 BullMQ 队列各状态计数与最旧可运行 Job 的堆积时长，生成可观测快照 */
 export type BullMqQueueSnapshot = Readonly<{
     waiting: number;
     active: number;

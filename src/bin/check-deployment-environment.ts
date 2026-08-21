@@ -1,3 +1,4 @@
+/** 校验指定部署角色所需环境变量（及生产环境下的 Runtime Skill 绑定），用于部署前检查 */
 import {
     checkDeploymentEnvironment,
     parseDeploymentRole,

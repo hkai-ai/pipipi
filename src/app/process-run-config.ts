@@ -1,3 +1,4 @@
+/** 解析 Process Runner 所需的数据库、Redis 连接及队列命名配置 */
 import {
     parseConnectionUrl,
     parseQueueComponent,

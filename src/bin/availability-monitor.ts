@@ -1,3 +1,4 @@
+/** 构造 Availability Monitor 命令，执行一次性探测并输出报告 */
 import { constructAvailabilityMonitor } from "../app/availability-monitor.js";
 
 const monitor = constructAvailabilityMonitor(process.env);

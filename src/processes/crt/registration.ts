@@ -1,3 +1,4 @@
+/** crt-interface-image/v1 的上传资产引用、Prompt/recipe 校验、顺序和稳定失败 */
 import { z } from "zod";
 import {
     defineProcessRegistration,

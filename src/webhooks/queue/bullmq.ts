@@ -1,3 +1,4 @@
+/** 基于 BullMQ 实现 Webhook Work Queue 入队去重和 Delivery Worker 的并发消费与优雅关闭 */
 import { type Job, Queue, Worker } from "bullmq";
 import {
     type BullMqQueueSnapshot,

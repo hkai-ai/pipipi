@@ -1,3 +1,4 @@
+/** 生成和校验 Standard Webhooks HMAC 签名及 whsec_ 密钥格式 */
 import { createHmac } from "node:crypto";
 
 export function signStandardWebhook(request: {

@@ -1,3 +1,4 @@
+/** OpenAI 图片生成/编辑 Adapter：封装 Images API 的 generate/edit 调用、栅格格式探测与用量解析 */
 export type GptImageQuality = "low" | "medium" | "high" | "auto";
 
 export type GptImageOutputFormat = "png" | "jpeg" | "webp";

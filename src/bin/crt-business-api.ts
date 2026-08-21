@@ -1,3 +1,4 @@
+/** 校验部署环境后装配 CRT 图像生成、对象存储与证据策略，启动 CRT Business API */
 import { assertDeploymentEnvironment } from "../app/deployment-environment.js";
 import { resolveCrtEvidencePolicy } from "../business-api/crt-evidence.js";
 import { startCrtBusinessApi } from "../business-api/crt-server.js";

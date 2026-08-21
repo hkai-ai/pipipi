@@ -1,3 +1,4 @@
+/** minimal-zine-poster/v1 的 Schema、Prompt 校验、执行顺序和稳定失败 */
 import { z } from "zod";
 import {
     defineProcessRegistration,

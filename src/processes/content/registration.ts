@@ -1,3 +1,4 @@
+/** content-processing/v1 的 Schema、Direct/Agent 流程、失败和 Tool 调用 invariant */
 import { z } from "zod";
 import {
     defineProcessRegistration,

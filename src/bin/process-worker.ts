@@ -1,3 +1,4 @@
+/** 调用 app/process-worker.ts 构造 Process Worker Composition Root 并监听端口 */
 import { constructProcessWorkerService } from "../app/process-worker.js";
 
 const { application, port } = constructProcessWorkerService(process.env);

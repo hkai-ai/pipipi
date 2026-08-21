@@ -1,3 +1,4 @@
+/** 从 Outbox 认领消息并投递到队列，成功标记已发布、失败释放认领（Process 与 Webhook Outbox 共用） */
 import { randomUUID } from "node:crypto";
 import type { WebhookOutbox } from "../../webhooks/outbox/index.js";
 import type { WebhookWorkQueue } from "../../webhooks/queue/index.js";

@@ -1,3 +1,4 @@
+/** 调用 app/process-dispatcher.ts 构造 Dispatcher Composition Root 并监听端口 */
 import { constructProcessDispatcherService } from "../app/process-dispatcher.js";
 
 const { application, port } = constructProcessDispatcherService(process.env);

@@ -1,3 +1,4 @@
+/** 统计汇总 Interface，拥有 RunObservationSummary */
 import type { ProcessRunLogRecord } from "../process-runtime/index.js";
 import type { ProcessRunRecord } from "../process-runtime/records.js";
 

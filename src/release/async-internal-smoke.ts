@@ -1,3 +1,4 @@
+/** 异步网关 smoke 与回滚验证 */
 import { randomUUID } from "node:crypto";
 
 export type AsyncInternalSmokeBaseline = Readonly<{

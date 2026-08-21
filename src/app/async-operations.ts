@@ -1,3 +1,4 @@
+/** 一次性 Operations 运维命令的资源组装 */
 import { Pool } from "pg";
 import {
     createPostgresAsyncOperations,

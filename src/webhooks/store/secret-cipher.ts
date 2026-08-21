@@ -1,3 +1,4 @@
+/** 用 AES-256-GCM 信封加密对 Webhook Endpoint 签名密钥做加解密 */
 import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
 import { assertStandardWebhookSecret } from "../delivery/signing.js";
 

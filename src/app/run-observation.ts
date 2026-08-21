@@ -1,3 +1,4 @@
+/** 按环境选择 JSONL 或 PostgreSQL 观测 Adapter */
 import { Pool } from "pg";
 import {
     type CompletedProcessRun,

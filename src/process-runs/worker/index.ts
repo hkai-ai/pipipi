@@ -1,3 +1,4 @@
+/** 认领并执行单个 Process Run 的 Job，处理成功/失败/重试并落地终态观测记录 */
 import { randomUUID } from "node:crypto";
 import type {
     AcceptedProcessInput,

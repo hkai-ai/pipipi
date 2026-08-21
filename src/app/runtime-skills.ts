@@ -1,3 +1,4 @@
+/** 七个 Runtime Skill 的生产安装集合、启动完整性校验和精确 Process 绑定 */
 import { createInstalledSkillCatalog } from "../agent-runtime/catalog.js";
 import type { SkillRef } from "../agent-runtime/skills.js";
 import { createContentSkillRefs } from "../processes/content/skills.js";

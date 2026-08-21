@@ -1,3 +1,4 @@
+/** production Business Process Runtime 与 catalog 依赖组装 */
 import { parseOpenAIApiMode } from "../agent-runtime/pi.js";
 import {
     combineProcessRunLogSinks,

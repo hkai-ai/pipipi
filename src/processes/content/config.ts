@@ -1,3 +1,4 @@
+/** Business API Base URL 的解析与校验 */
 const invalidBusinessApiBaseUrlMessage =
     "BUSINESS_API_BASE_URL must be a valid HTTP(S) URL without credentials";
 

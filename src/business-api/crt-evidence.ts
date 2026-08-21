@@ -1,3 +1,4 @@
+/** CRT 渲染证据留存：按策略把 source/raw/final 图像与 manifest 落盘存证 */
 import { createHash } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";

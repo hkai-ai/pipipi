@@ -1,3 +1,4 @@
+/** jsonl.ts 按 UTC 日分片的内部 Seam */
 import { appendFile, mkdir, readdir, readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 

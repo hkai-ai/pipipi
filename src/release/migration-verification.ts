@@ -1,3 +1,4 @@
+/** migration 应用后的二次空跑验证 */
 export type MigrationVerification = Readonly<{
     appliedCount: number;
     verificationCount: 0;

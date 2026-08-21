@@ -1,3 +1,4 @@
+/** 无 Tool 的 Poster Agent Interface */
 export type PosterAgentRequest = Readonly<{
     brief: string;
     text?: string;

@@ -1,3 +1,4 @@
+/** 按 Role 声明并校验部署所需的环境变量，缺失或生产环境不合规时报错 */
 import type { StartupEnvironment } from "./config.js";
 
 export const deploymentRoles = Object.freeze([

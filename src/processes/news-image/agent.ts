@@ -1,3 +1,4 @@
+/** 窄 News Image Agent Interface */
 export type NewsImageAgentRequest = Readonly<{
     title: string;
     summary: string;

@@ -1,3 +1,4 @@
+/** Process Worker 角色独立的配置和 Adapter 组装 */
 import { writeAsyncOperationalLog } from "../process-runs/ops/logging.js";
 import { createBullMqProcessWorker } from "../process-runs/queue/bullmq.js";
 import { createPostgresProcessRunStore } from "../process-runs/store/postgres.js";

@@ -1,3 +1,4 @@
+/** Content Processing Capability 的生产 HTTP Adapter */
 import { z } from "zod";
 import {
     type ContentProcessingCapability,

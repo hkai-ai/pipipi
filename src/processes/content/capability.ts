@@ -1,3 +1,4 @@
+/** Content Processing Capability、内容处理契约 */
 export type ContentProcessingCapability = {
     process: (
         input: { content: string },

@@ -1,3 +1,4 @@
+/** 定义 Webhook Work Queue/Source 接口，并提供内存实现用于测试 */
 import {
     parseWebhookDeliveryJob,
     type WebhookDeliveryJob,

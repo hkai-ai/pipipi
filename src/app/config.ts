@@ -1,3 +1,4 @@
+/** 从启动环境字符串解析端口、正整数、布尔值、连接 URL 等基础配置值并校验合法性 */
 export type StartupEnvironment = Readonly<Record<string, string | undefined>>;
 
 export function parsePort(value: string | undefined): number {

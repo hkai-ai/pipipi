@@ -1,3 +1,4 @@
+/** smoke 之后的数据库状态审计 */
 export type AsyncSmokeState = Readonly<{
     schemaVersion: 1;
     event: "async_smoke_state_audited";

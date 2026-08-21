@@ -7,6 +7,7 @@
 - 项目用 Business Process、Process Definition、Process Registration、Business Capability、Module、Interface、Implementation、Seam 和 Adapter 表达设计。用户口中的“工作流”在产品层映射为 Business Process；不要引入第二套 Workflow 领域模型。
 - 保持 production catalog 显式、版本精确、服务端拥有。产品请求不能携带流程步骤、Skill、脚本、模型、Tool、来源地址或运行配置。
 - 命名遵循 [`docs/development.md`](docs/development.md#命名规则)：使用能在当前作用域区分角色的最短名称，不重复目录上下文，也不使用自造缩写。
+- `src/` 下每个源文件顶部必须有一行简体中文 docstring，一句话说明该文件的职责，便于开发时不通读全文件就能判断用途；新增文件或职责变化时必须同一改动中补齐或更新。
 
 ## 请求路由
 

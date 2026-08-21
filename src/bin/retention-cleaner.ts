@@ -1,3 +1,4 @@
+/** 调用 app/retention-cleaner.ts 构造 Retention Cleaner Composition Root 并监听端口 */
 import { constructRetentionCleanerService } from "../app/retention-cleaner.js";
 
 const { application, port } = constructRetentionCleanerService(process.env);

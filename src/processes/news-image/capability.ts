@@ -1,3 +1,4 @@
+/** News Image Rendering Capability 的图片/生成参数契约 */
 import { z } from "zod";
 
 export const newsImageSchema = z

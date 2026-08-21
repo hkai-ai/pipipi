@@ -1,3 +1,4 @@
+/** 定义 Process Run 的成功/失败结果类型（ProcessRunResult）与公开错误码 */
 /**
  * `DEPENDENCY_FAILURE` covers failures that occur before a Business Capability
  * commits its irreversible effect, so retrying costs nothing.

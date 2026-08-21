@@ -1,3 +1,4 @@
+/** 分批清理过期 Run 数据的 Postgres 实现 */
 import { randomUUID } from "node:crypto";
 import type { Pool, PoolClient } from "pg";
 

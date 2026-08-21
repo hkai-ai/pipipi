@@ -1,3 +1,4 @@
+/** News Image Rendering Capability 的 POST /news-images 生产 HTTP Adapter */
 import {
     type NewsImageRenderingCapability,
     type NewsImageRenderingResult,

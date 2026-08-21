@@ -1,3 +1,4 @@
+/** 异步运维快照和 staged release readiness 的 PostgreSQL Adapter */
 import type { Pool, QueryResultRow } from "pg";
 
 export type AsyncReleaseStage = "internal" | "canary" | "production";

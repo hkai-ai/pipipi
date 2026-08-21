@@ -1,3 +1,4 @@
+/** 看不到参考图和资产标识的无 Tool CRT Agent Interface */
 import type { CrtAspectRatio, CrtPalette } from "./style.js";
 
 export type CrtAgentRequest = Readonly<{

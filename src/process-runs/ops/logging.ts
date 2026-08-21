@@ -1,3 +1,4 @@
+/** 定义异步操作日志的记录类型与安全发送/输出工具函数 */
 export type AsyncOperationalLogRecord =
     | Readonly<{
           event: "outbox_message_published" | "outbox_message_publish_failed";

@@ -1,3 +1,4 @@
+/** 组装 HTTP Server 生命周期，把监听/关闭封装成 Processing Application */
 import { createServer, type Server } from "node:http";
 import type { ProcessExecutor } from "../process-runtime/index.js";
 import {

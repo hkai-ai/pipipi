@@ -1,3 +1,4 @@
+/** 多个流程共用的启动期 Skill 完整性与版本 Catalog */
 import { resolve } from "node:path";
 import {
     createSkillSet,

@@ -1,3 +1,4 @@
+/** 受控付费 CRT 异步 smoke */
 import { createHash, randomUUID } from "node:crypto";
 import sharp from "sharp";
 import { isPublicSourceImageUrl } from "../processes/crt/capability.js";

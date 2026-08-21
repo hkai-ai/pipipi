@@ -1,3 +1,4 @@
+/** Webhook Outbox 基于 Postgres 行锁的实现 */
 import type { Pool, QueryResultRow } from "pg";
 import { parseWebhookDeliveryJob } from "../delivery/job.js";
 import type { ClaimedWebhookOutboxMessage, WebhookOutbox } from "./index.js";

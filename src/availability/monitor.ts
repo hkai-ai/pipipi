@@ -1,3 +1,4 @@
+/** Availability Monitor 的 Interface 定义、Probe 编排与聚合状态判定 */
 export type AvailabilityStatus = "available" | "degraded" | "unavailable";
 export type AvailabilityKind = "http" | "redis";
 export type AvailabilityAttribute = string | number | boolean;

@@ -1,3 +1,4 @@
+/** 编排 Outbox 派发与 Run 对账两个周期性循环，统一控制启动、就绪与关闭 */
 import type { OutboxDispatcher } from "./outbox/dispatcher.js";
 import type { ProcessRunReconciler } from "./recovery/index.js";
 

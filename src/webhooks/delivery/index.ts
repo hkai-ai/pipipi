@@ -1,3 +1,4 @@
+/** 汇总导出 delivery 目录下的公共类型和工厂函数 */
 export {
     createStandardWebhookHttpSender,
     type WebhookSender,

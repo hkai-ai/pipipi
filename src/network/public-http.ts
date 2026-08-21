@@ -1,3 +1,4 @@
+/** 公网目标校验、全部 DNS 地址检查、固定 IP 连接和有界响应读取 */
 import { lookup as defaultLookup } from "node:dns/promises";
 import { type IncomingMessage, request as requestHttp } from "node:http";
 import { request as requestHttps } from "node:https";

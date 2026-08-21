@@ -1,3 +1,4 @@
+/** 固定调色板、画幅 */
 export const crtPaletteNames = [
     "经典",
     "粉黛",

@@ -1,3 +1,4 @@
+/** content-processing/v1 获准使用的有序 Runtime Skill 集合与 Tool 名称 */
 import type { InstalledSkillRef } from "../../agent-runtime/skills.js";
 
 export const contentToolName = "process_business_content";

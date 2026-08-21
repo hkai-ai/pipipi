@@ -1,3 +1,4 @@
+/** crt-interface-image/v1 绑定的准确 Runtime Skill */
 import type { InstalledSkillRef } from "../../agent-runtime/skills.js";
 
 export const crtSkillName = "tait-crt-interface-prompt";

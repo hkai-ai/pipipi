@@ -1,3 +1,4 @@
+/** Process Run 权威状态转换 Interface */
 import type {
     AcceptedProcessInput,
     ProcessErrorCode,

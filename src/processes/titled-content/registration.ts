@@ -1,3 +1,4 @@
+/** Titled Content Processing Process Registration，拼接标题与正文后调用 Content Processing Capability */
 import { z } from "zod";
 import {
     defineProcessRegistration,

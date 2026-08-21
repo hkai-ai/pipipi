@@ -1,3 +1,4 @@
+/** Composition Root：按路由把执行、异步 Process Run、控制台 Run Record 查询分发给各协作者 */
 import type {
     IncomingMessage,
     RequestListener,

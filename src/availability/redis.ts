@@ -1,3 +1,4 @@
+/** Redis 的 Availability Probe，检测连接、配置与安全基线 */
 import { Redis } from "ioredis";
 import type {
     AvailabilityAttribute,

@@ -1,3 +1,4 @@
+/** Attempt 活动归档 Interface */
 import type {
     ProcessRunLogRecord,
     ProcessRunLogSink,

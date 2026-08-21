@@ -1,3 +1,4 @@
+/** Webhook Worker 的 Delivery、Outbox、Queue 和 HTTP Sender 组装 */
 import { writeAsyncOperationalLog } from "../process-runs/ops/logging.js";
 import { createWebhookOutboxDispatcher } from "../process-runs/outbox/dispatcher.js";
 import {

@@ -1,3 +1,4 @@
+/** 海报、CRT 与新闻图片共用的无 Tool Structured Agent Session */
 import { resolve } from "node:path";
 import {
     type CreateAgentSessionOptions,

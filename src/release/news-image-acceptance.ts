@@ -1,3 +1,4 @@
+/** 三个新闻图片 Process 的真实 HTTP/OSS 验收、下载限制、PNG 检查和无 URL 证据投影 */
 import { createHash } from "node:crypto";
 import sharp from "sharp";
 import type { NewsImageStyle } from "../processes/news-image/capability.js";

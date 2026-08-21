@@ -1,3 +1,4 @@
+/** Availability Monitor 的 Probe、Notifier 与部署配置组装 */
 import {
     createHttpAvailabilityProbe,
     createPublicHttpAvailabilityProbe,

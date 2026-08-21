@@ -1,3 +1,4 @@
+/** 阿里云 OSS Adapter：实现 ObjectStorageCapability，上传对象并生成签名或公开访问 URL */
 import OSS from "ali-oss";
 import {
     normalizeUploadObjectRequest,

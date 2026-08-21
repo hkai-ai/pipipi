@@ -1,3 +1,4 @@
+/** 调用 app/api.ts 构造 API Composition Root 并监听端口 */
 import { constructProcessingService } from "../app/api.js";
 
 const { application, port } = constructProcessingService(process.env);

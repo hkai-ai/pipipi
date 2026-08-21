@@ -1,3 +1,4 @@
+/** Poster Rendering Capability 的生产 HTTP Adapter */
 import {
     type PosterImage,
     type PosterRenderingCapability,

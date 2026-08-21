@@ -1,3 +1,4 @@
+/** 显式 production catalog 和 Process Runtime 组装 */
 import {
     createProcessRegistry,
     createProcessRunner,

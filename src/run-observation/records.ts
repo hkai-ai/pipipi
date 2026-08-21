@@ -1,3 +1,4 @@
+/** Run Record 归档 Interface，以及两套 Adapter 共用的游标、分页上限、净化和聚合规则 */
 import { createHash } from "node:crypto";
 import type {
     ProcessRunRecord,

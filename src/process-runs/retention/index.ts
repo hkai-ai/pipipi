@@ -1,3 +1,4 @@
+/** 按批次驱动 Postgres 保留期清理并封装为周期性 Runtime（含游标续跑） */
 import type {
     PostgresRetentionCleanup,
     RetentionCleanupBatchResult,

@@ -1,3 +1,4 @@
+/** 以超时和外部取消竞速执行单次 Process Attempt，产出 Run Record 并驱动 Attempt 日志 */
 import {
     createProcessRunAttemptLog,
     type ProcessRunLogClock,

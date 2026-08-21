@@ -1,3 +1,4 @@
+/** 带脱敏的 Pino 活动日志 Sink */
 import pino, {
     type DestinationStream,
     type LevelWithSilent,

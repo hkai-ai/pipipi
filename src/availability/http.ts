@@ -1,3 +1,4 @@
+/** 内部与公网 HTTP 服务的 Availability Probe */
 import {
     createPinnedPublicHttpTransport,
     createPublicHttpTargetPolicy,

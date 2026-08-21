@@ -1,3 +1,4 @@
+/** 定义 Process Registration：校验输入输出 Schema、快照化 JSON、声明可用活动与重试策略，产出可执行的 Registration */
 import type { z } from "zod";
 import type { ProcessRunActivity } from "./logging.js";
 

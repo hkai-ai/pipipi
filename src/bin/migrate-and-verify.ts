@@ -1,3 +1,4 @@
+/** 通过 node-pg-migrate 执行数据库迁移并验证结果 */
 import path from "node:path";
 import { runner } from "node-pg-migrate";
 import { applyMigrationsAndVerify } from "../release/migration-verification.js";

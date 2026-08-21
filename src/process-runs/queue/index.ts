@@ -1,3 +1,4 @@
+/** 最小 Job Interface（内存 Adapter） */
 export type ProcessWorkJob = Readonly<{
     schemaVersion: 1;
     runId: string;

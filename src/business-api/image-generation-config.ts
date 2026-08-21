@@ -1,3 +1,4 @@
+/** 图片生成 Business Capability 的装配 Interface：按 IMAGE_PROVIDER 从环境变量选择 OpenAI 或 FAL Adapter */
 import {
     FalImageGenerationClient,
     type FalImageGenerationClientOptions,

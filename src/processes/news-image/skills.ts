@@ -1,3 +1,4 @@
+/** 三个新闻图片风格各自绑定的准确 Runtime Skill */
 import type { InstalledSkillRef } from "../../agent-runtime/skills.js";
 
 export const paleWatercolorSkillName = "news-image-pale-watercolor-prompt";

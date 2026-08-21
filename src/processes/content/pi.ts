@@ -1,3 +1,4 @@
+/** Content Agent 的生产 Pi Adapter */
 import { resolve } from "node:path";
 import {
     createAgentSession,

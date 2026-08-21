@@ -1,3 +1,4 @@
+/** 基于公网 HTTP 目标策略解析并 Pin 住 Webhook 投递目标地址，拒绝内网/不安全目标 */
 import {
     createPinnedPublicHttpTransport,
     createPublicHttpTargetPolicy,

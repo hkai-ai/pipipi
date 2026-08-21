@@ -1,3 +1,4 @@
+/** 从环境变量装配 AliyunOssStorage：解析 OSS_* 配置并按 OBJECT_STORAGE_PROVIDER 决定是否启用 */
 import {
     AliyunOssStorage,
     type AliyunOssStorageDependencies,

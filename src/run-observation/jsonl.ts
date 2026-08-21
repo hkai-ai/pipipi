@@ -1,3 +1,4 @@
+/** 同一组 Interface 的 JSONL Adapter */
 import type {
     ProcessRunLogRecord,
     ProcessRunLogSink,

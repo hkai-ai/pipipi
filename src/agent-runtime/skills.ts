@@ -1,3 +1,4 @@
+/** Runtime Skill 精确加载 */
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";

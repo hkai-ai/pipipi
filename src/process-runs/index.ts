@@ -1,3 +1,4 @@
+/** 异步提交、owner 隔离、caller-scoped idempotency 和公共状态投影 */
 import { createHash, randomUUID } from "node:crypto";
 import { z } from "zod";
 import type {

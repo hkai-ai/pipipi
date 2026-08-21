@@ -1,3 +1,4 @@
+/** 定义并解析 Webhook Delivery Job 载荷 */
 export type WebhookDeliveryJob = Readonly<{
     schemaVersion: 1;
     deliveryId: string;

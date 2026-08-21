@@ -1,3 +1,4 @@
+/** Poster Rendering Capability、图片引用契约 */
 import { z } from "zod";
 
 export const posterImageSchema = z.strictObject({

@@ -1,3 +1,4 @@
+/** 构造 Recovery 命令，执行一次性队列恢复批次并输出报告 */
 import { constructProcessRecoveryCommand } from "../app/process-recovery.js";
 import {
     parseQueueRecoveryCommandOptions,

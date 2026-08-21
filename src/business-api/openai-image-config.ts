@@ -1,3 +1,4 @@
+/** 从环境变量解析 OpenAI 图片 Adapter 所需的 API Key 与 Base URL */
 export type OpenAIImageConfiguration = Readonly<{
     apiKey: string;
     baseUrl?: string;

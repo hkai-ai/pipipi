@@ -1,3 +1,4 @@
+/** Process Outbox 的认领/标记已发布/释放接口 */
 import type { ProcessWorkJob } from "../queue/index.js";
 
 export type ClaimedProcessOutboxMessage = Readonly<{

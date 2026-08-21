@@ -1,3 +1,4 @@
+/** 从 Registration Schema 推导控制台 Process 目录 */
 import { z } from "zod";
 import type { ProcessRegistry } from "../process-runtime/index.js";
 import type { ConsoleProcessDescription } from "./http.js";

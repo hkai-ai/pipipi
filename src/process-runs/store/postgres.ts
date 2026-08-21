@@ -1,3 +1,4 @@
+/** Process Run Store 的 PostgreSQL Adapter */
 import { randomUUID } from "node:crypto";
 import type { Pool, PoolClient, QueryResultRow } from "pg";
 import type {

@@ -1,3 +1,4 @@
+/** FAL（GPT Image 2）图片生成/编辑 Adapter：封装 fal client 的 subscribe 调用与结果解析 */
 import { createFalClient } from "@fal-ai/client";
 import {
     detectRasterImage,

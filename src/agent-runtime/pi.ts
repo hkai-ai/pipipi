@@ -1,3 +1,4 @@
+/** Pi provider 配置 */
 import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
 
 export type OpenAIApiMode = "responses" | "chat-completions";

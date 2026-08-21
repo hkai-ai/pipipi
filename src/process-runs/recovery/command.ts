@@ -1,3 +1,4 @@
+/** 解析 Queue Recovery 命令行参数并驱动 reconciler 分批执行对账/恢复 */
 import type { ProcessRecoveryReport, ProcessRunReconciler } from "./index.js";
 
 export type QueueRecoveryCommandOptions = Readonly<{

@@ -1,3 +1,4 @@
+/** Webhook 事务 Outbox 的认领/发布/释放接口 */
 import type { WebhookDeliveryJob } from "../delivery/job.js";
 
 export type ClaimedWebhookOutboxMessage = Readonly<{

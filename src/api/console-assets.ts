@@ -1,3 +1,4 @@
+/** 从构建产物目录按白名单模式提供控制台文档与静态资源 */
 import { readFile } from "node:fs/promises";
 import type { ServerResponse } from "node:http";
 import { join } from "node:path";

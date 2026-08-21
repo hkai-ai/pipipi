@@ -1,3 +1,4 @@
+/** 飞书机器人 Webhook 的 Availability Notifier */
 import {
     createPinnedPublicHttpTransport,
     createPublicHttpTargetPolicy,

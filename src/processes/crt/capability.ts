@@ -1,3 +1,4 @@
+/** CRT Rendering Capability、PNG 引用契约 */
 import { z } from "zod";
 import type { CrtAspectRatio, CrtGrain, CrtPalette } from "./style.js";
 

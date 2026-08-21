@@ -1,3 +1,4 @@
+/** Dispatcher 角色独立的配置和 Adapter 组装 */
 import type { Pool } from "pg";
 import { createProcessDispatcherRuntime } from "../process-runs/dispatcher.js";
 import { writeAsyncOperationalLog } from "../process-runs/ops/logging.js";

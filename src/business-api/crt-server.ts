@@ -1,3 +1,4 @@
+/** CRT Business API 本地 HTTP 服务：编排图片编辑/生成、幂等与结果落盘、CRT 终稿与新闻图渲染、对象存储上传与错误归因 */
 import { createHash } from "node:crypto";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import {

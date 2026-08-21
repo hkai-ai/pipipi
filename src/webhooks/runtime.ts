@@ -1,3 +1,4 @@
+/** 编排 Outbox 派发定时器与 Delivery Worker 的启动、就绪检查和优雅关闭 */
 import type { OutboxDispatcher } from "../process-runs/outbox/dispatcher.js";
 
 export type WebhookWorkerRuntime = Readonly<{

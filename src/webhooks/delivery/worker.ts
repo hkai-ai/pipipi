@@ -1,3 +1,4 @@
+/** Delivery Worker：认领投递、调用 Sender 发送、按重试策略计算退避并重新调度或终结投递 */
 import { randomUUID } from "node:crypto";
 import {
     type AsyncOperationalLogSink,

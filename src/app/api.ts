@@ -1,3 +1,4 @@
+/** API 配置翻译、校验、Adapter 选择和完整生产组装 */
 import { fileURLToPath } from "node:url";
 import { Pool } from "pg";
 import {

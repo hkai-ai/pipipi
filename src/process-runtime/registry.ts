@@ -1,3 +1,4 @@
+/** 按 id/version 索引 Process Registration 集合，提供按身份查找与全量有序列表 */
 import {
     assertProcessIdentity,
     type ProcessIdentity,

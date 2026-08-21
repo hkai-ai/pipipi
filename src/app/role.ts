@@ -1,3 +1,4 @@
+/** 为后台 Role 组装健康检查、就绪探测的 HTTP Runtime，并管理其生命周期 */
 import { createServer, type Server, type ServerResponse } from "node:http";
 
 export type RuntimeRoleName =

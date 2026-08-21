@@ -1,3 +1,4 @@
+/** 同一组 Interface 的 PostgreSQL Adapter */
 import type { Pool } from "pg";
 import type {
     ProcessErrorCode,

@@ -1,3 +1,4 @@
+/** 用 Standard Webhooks 签名和目标策略发起签名 HTTP 投递，产出成功/失败结果 */
 import { signStandardWebhook } from "./signing.js";
 import {
     createPinnedWebhookHttpClient,

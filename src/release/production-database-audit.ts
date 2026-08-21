@@ -1,3 +1,4 @@
+/** 生产数据库身份、TLS 与最小权限审计 */
 import { createHash } from "node:crypto";
 
 export type ProductionDatabaseAuditSource = Readonly<{

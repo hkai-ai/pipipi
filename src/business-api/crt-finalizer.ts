@@ -1,3 +1,4 @@
+/** CRT 图像后处理：确定性像素化、扫描线与调色板渲染，产出最终 CRT 风格 PNG */
 import sharp from "sharp";
 import {
     type CrtAspectRatio,

@@ -1,3 +1,4 @@
+/** 窄 Content Agent Interface */
 import type { ContentProcessingCapability } from "./capability.js";
 
 export type ContentAgentRequest = {

@@ -1,3 +1,4 @@
+/** Retention Cleaner 角色独立的配置和 Adapter 组装 */
 import {
     createRetentionCleaner,
     createRetentionCleanerRuntime,

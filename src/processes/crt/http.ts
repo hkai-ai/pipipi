@@ -1,3 +1,4 @@
+/** CRT Rendering Capability 的 POST /crt-images Adapter */
 import {
     type CrtRenderingCapability,
     type CrtRenderingResult,

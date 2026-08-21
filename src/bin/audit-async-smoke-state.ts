@@ -1,3 +1,4 @@
+/** 连接数据库审计异步冒烟测试状态，支持等待投递覆盖完成 */
 import { Pool } from "pg";
 import { parseConnectionUrl } from "../app/config.js";
 import {

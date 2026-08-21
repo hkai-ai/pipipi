@@ -1,3 +1,4 @@
+/** Process Outbox 基于 Postgres 行锁的实现 */
 import type { Pool, QueryResultRow } from "pg";
 import { parseProcessWorkJob } from "../queue/index.js";
 import type { ClaimedProcessOutboxMessage, ProcessOutbox } from "./index.js";

@@ -1,3 +1,4 @@
+/** 定义 Process Run Record 及其存取接口，提供禁用与内存两种 Adapter */
 import type { ProcessErrorCode, ProcessRunResult } from "./result.js";
 
 export type ProcessRunRecord = {

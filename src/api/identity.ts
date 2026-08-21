@@ -1,3 +1,4 @@
+/** 网关共享密钥 Seam 的唯一 Adapter：校验请求头并解析 caller identity */
 import { createHash, timingSafeEqual } from "node:crypto";
 import type { IncomingHttpHeaders } from "node:http";
 

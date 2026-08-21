@@ -1,3 +1,4 @@
+/** 调用 app/webhook-worker.ts 构造 Webhook Worker Composition Root 并监听端口 */
 import { constructWebhookWorkerService } from "../app/webhook-worker.js";
 
 const { application, port } = constructWebhookWorkerService(process.env);

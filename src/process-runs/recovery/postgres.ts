@@ -1,3 +1,4 @@
+/** 恢复候选的 PostgreSQL Adapter */
 import type { Pool, QueryResultRow } from "pg";
 import type {
     ProcessRecoveryCandidate,

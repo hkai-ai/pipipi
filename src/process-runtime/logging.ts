@@ -1,3 +1,4 @@
+/** 定义 Process Run 日志事件结构，创建单次 Attempt 的活动日志并支持多 Sink 合并 */
 import type { ProcessErrorCode } from "./result.js";
 
 type ProcessRunLogBase = Readonly<{

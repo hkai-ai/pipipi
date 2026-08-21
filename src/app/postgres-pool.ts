@@ -1,3 +1,4 @@
+/** 从启动环境构造各角色共用的 pg Pool */
 import { Pool } from "pg";
 import { parsePositiveInteger, type StartupEnvironment } from "./config.js";
 

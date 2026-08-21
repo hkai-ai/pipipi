@@ -1,3 +1,4 @@
+/** 缓存并按固定路径提供随版本发布的只读文档（如 llms.txt） */
 import { readFile } from "node:fs/promises";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { join } from "node:path";
