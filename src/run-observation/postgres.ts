@@ -6,11 +6,10 @@ import type {
 import type { ProcessRunRecord } from "../process-runtime/records.js";
 import type { ProcessRunActivityArchive } from "./activities.js";
 import {
-    defaultProcessRunRecordListLimit,
     encodeProcessRunRecordCursor,
-    maximumProcessRunRecordListLimit,
     type ProcessRunRecordArchive,
     parseProcessRunRecordCursor,
+    parseProcessRunRecordListLimit,
     redactProcessRunRecord,
 } from "./records.js";
 import {
@@ -70,7 +69,7 @@ export function createPostgresProcessRunRecordArchive(options: {
         },
 
         list: async (query = {}) => {
-            const limit = parseListLimit(query.limit);
+            const limit = parseProcessRunRecordListLimit(query.limit);
             const before = parseProcessRunRecordCursor(query.before);
             const { rows } = await pool.query(
                 `${recordSelect}
@@ -374,12 +373,4 @@ function toRecentFailure(row: RecentFailureRow) {
         version: row.process_version,
         errorCode: row.error_code,
     });
-}
-
-function parseListLimit(value: number | undefined): number {
-    if (value === undefined) return defaultProcessRunRecordListLimit;
-    if (!Number.isSafeInteger(value) || value < 1) {
-        throw new Error("Run Record list limit must be a positive integer");
-    }
-    return Math.min(value, maximumProcessRunRecordListLimit);
 }

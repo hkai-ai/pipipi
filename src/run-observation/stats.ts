@@ -1,13 +1,49 @@
-import type { ConsoleStatsSummary } from "../api/http.js";
 import type { ProcessRunLogRecord } from "../process-runtime/index.js";
 import type { ProcessRunRecord } from "../process-runtime/records.js";
-import { createJsonlProcessRunActivityReader } from "./activities.js";
-import { createJsonlProcessRunRecordReader } from "./records.js";
+
+/**
+ * What the service has been doing in a window, derived from the observation
+ * archive. Live concurrency is not here: occupancy exists only in the process
+ * serving a request, so the HTTP layer adds it.
+ */
+export type RunObservationSummary = Readonly<{
+    since: string;
+    totals: Readonly<{ succeeded: number; failed: number }>;
+    byProcess: readonly Readonly<{
+        process: string;
+        version: string;
+        succeeded: number;
+        failed: number;
+    }>[];
+    byErrorCode: readonly Readonly<{ errorCode: string; count: number }>[];
+    byDay: readonly Readonly<{
+        day: string;
+        succeeded: number;
+        failed: number;
+        byErrorCode: readonly Readonly<{
+            errorCode: string;
+            count: number;
+        }>[];
+    }>[];
+    recentFailures: readonly Readonly<{
+        runId: string;
+        recordedAt: string;
+        process: string;
+        version: string;
+        errorCode: string;
+    }>[];
+    attemptDurationMs: Readonly<{
+        samples: number;
+        p50?: number;
+        p95?: number;
+        max?: number;
+    }>;
+}>;
 
 export type RunObservationStats = Readonly<{
     summarise: (
         query: Readonly<{ since: string }>,
-    ) => Promise<ConsoleStatsSummary>;
+    ) => Promise<RunObservationSummary>;
 }>;
 
 export type RunObservationCount = Readonly<{
@@ -20,31 +56,6 @@ export type RunObservationCount = Readonly<{
 }>;
 
 /**
- * File-backed statistics. The window is scanned on every request: at the volume
- * a single synchronous instance can produce, a full scan of the retained window
- * is milliseconds, and a cache would only add a staleness question.
- */
-export function createJsonlRunObservationStats(options: {
-    directory: string;
-    retentionDays?: number;
-    clock?: () => Date;
-}): RunObservationStats {
-    const readRecords = createJsonlProcessRunRecordReader(options);
-    const readActivities = createJsonlProcessRunActivityReader(options);
-    return Object.freeze({
-        summarise: async ({ since }) =>
-            summariseRunObservation({
-                since,
-                records: await readRecords(since),
-                attemptDurationsMs: attemptDurationsOf(
-                    await readActivities(since),
-                    since,
-                ),
-            }),
-    });
-}
-
-/**
  * Summarises Run observation from already-loaded records.
  *
  * Shared by both storage Implementations so the numbers cannot disagree: the
@@ -55,7 +66,7 @@ export function summariseRunObservation(input: {
     since: string;
     records: readonly ProcessRunRecord[];
     attemptDurationsMs: readonly number[];
-}): ConsoleStatsSummary {
+}): RunObservationSummary {
     const grouped = new Map<string, RunObservationCount>();
     for (const record of input.records) {
         const count = {
@@ -105,9 +116,9 @@ export function summariseRunObservation(input: {
 export function summariseAggregatedRunObservation(input: {
     since: string;
     counts: readonly RunObservationCount[];
-    recentFailures: ConsoleStatsSummary["recentFailures"];
-    attemptDurationMs: ConsoleStatsSummary["attemptDurationMs"];
-}): ConsoleStatsSummary {
+    recentFailures: RunObservationSummary["recentFailures"];
+    attemptDurationMs: RunObservationSummary["attemptDurationMs"];
+}): RunObservationSummary {
     const totals = { succeeded: 0, failed: 0 };
     const byProcess = new Map<
         string,
@@ -212,7 +223,7 @@ export function summariseAggregatedRunObservation(input: {
  */
 export function summariseDurations(
     samples: readonly number[],
-): ConsoleStatsSummary["attemptDurationMs"] {
+): RunObservationSummary["attemptDurationMs"] {
     if (samples.length === 0) return Object.freeze({ samples: 0 });
     const sorted = [...samples].sort((left, right) => left - right);
     return Object.freeze({

@@ -6,9 +6,9 @@ import type { ProcessRunRecord } from "../src/process-runtime/records.js";
 import { createProcessRunRecords } from "../src/process-runtime/records.js";
 import {
     createJsonlProcessRunRecordArchive,
-    parseProcessRunRecordContent,
     pruneProcessRunRecords,
-} from "../src/run-observation/records.js";
+} from "../src/run-observation/jsonl.js";
+import { parseProcessRunRecordContent } from "../src/run-observation/records.js";
 
 const directories: string[] = [];
 

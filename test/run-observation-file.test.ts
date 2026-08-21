@@ -2,9 +2,11 @@ import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe } from "vitest";
-import { createJsonlProcessRunActivityArchive } from "../src/run-observation/activities.js";
-import { createJsonlProcessRunRecordArchive } from "../src/run-observation/records.js";
-import { createJsonlRunObservationStats } from "../src/run-observation/stats.js";
+import {
+    createJsonlProcessRunActivityArchive,
+    createJsonlProcessRunRecordArchive,
+    createJsonlRunObservationStats,
+} from "../src/run-observation/jsonl.js";
 import { describeRunObservationContract } from "./support/run-observation-contract.js";
 
 const clock = () => new Date("2026-08-11T10:00:00.000Z");

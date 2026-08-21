@@ -16,6 +16,7 @@ import type {
     ProcessRunResult,
 } from "../process-runtime/index.js";
 import type { ProcessRunRecord } from "../process-runtime/records.js";
+import type { RunObservationSummary } from "../run-observation/stats.js";
 import { createConsoleAssets } from "./console-assets.js";
 import type { CallerIdentityResolver } from "./identity.js";
 import { createPublicDocumentation } from "./public-documents.js";
@@ -87,43 +88,11 @@ export type ConsoleHttpOptions = Readonly<{
 }>;
 
 /**
- * What the service has been doing, derived from the observation archive. Live
- * concurrency is added by the HTTP layer, because occupancy exists only in the
- * process serving the request.
+ * The observation summary as the console receives it; `run-observation` owns
+ * the shape. Live concurrency is added below, because occupancy exists only in
+ * the process serving the request.
  */
-export type ConsoleStatsSummary = Readonly<{
-    since: string;
-    totals: Readonly<{ succeeded: number; failed: number }>;
-    byProcess: readonly Readonly<{
-        process: string;
-        version: string;
-        succeeded: number;
-        failed: number;
-    }>[];
-    byErrorCode: readonly Readonly<{ errorCode: string; count: number }>[];
-    byDay: readonly Readonly<{
-        day: string;
-        succeeded: number;
-        failed: number;
-        byErrorCode: readonly Readonly<{
-            errorCode: string;
-            count: number;
-        }>[];
-    }>[];
-    recentFailures: readonly Readonly<{
-        runId: string;
-        recordedAt: string;
-        process: string;
-        version: string;
-        errorCode: string;
-    }>[];
-    attemptDurationMs: Readonly<{
-        samples: number;
-        p50?: number;
-        p95?: number;
-        max?: number;
-    }>;
-}>;
+export type ConsoleStatsSummary = RunObservationSummary;
 
 export type ConsoleStats = ConsoleStatsSummary &
     Readonly<{

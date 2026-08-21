@@ -124,8 +124,9 @@ curl --fail -X POST http://127.0.0.1:4300/execute \
 | `src/app/availability-monitor.ts` | Availability Monitor 的 Probe、Notifier 与部署配置组装 |
 | `src/network/public-http.ts` | 公网目标校验、全部 DNS 地址检查、固定 IP 连接和有界响应读取 |
 | `src/process-runtime/` | Registration、Registry、同步 Runner、Attempt Runner、运行活动日志、Run Record、公共结果和错误治理 |
-| `src/run-observation/records.ts`、`activities.ts`、`stats.ts` | Run Record 归档、活动归档与统计的 Interface、游标、净化和 JSONL Adapter |
-| `src/run-observation/postgres.ts`、`day-files.ts`、`pino.ts` | 同一组 Interface 的 PostgreSQL Adapter、按 UTC 日分片的 JSONL 存储，以及带脱敏的 Pino 活动日志 Sink |
+| `src/run-observation/records.ts`、`activities.ts`、`stats.ts` | Run Record 归档、活动归档与统计汇总的 Interface，以及两套 Adapter 共用的游标、分页上限、净化和聚合规则；`stats.ts` 拥有 `RunObservationSummary` |
+| `src/run-observation/jsonl.ts`、`postgres.ts` | 同一组 Interface 的 JSONL Adapter（含按 UTC 日分片的 `day-files.ts` 内部 Seam）与 PostgreSQL Adapter |
+| `src/run-observation/pino.ts` | 带脱敏的 Pino 活动日志 Sink |
 | `src/api/process-catalog.ts`、`async-intake.ts` | 从 Registration Schema 推导控制台 Process 目录；文件标记控制的 `POST /process-runs` intake 开关 |
 | `src/agent-runtime/catalog.ts`、`pi.ts`、`skills.ts`、`structured.ts` | 多个流程共用的启动期 Skill 完整性与版本 Catalog、Pi provider 配置、Runtime Skill 精确加载，以及海报、CRT 与新闻图片共用的无 Tool Structured Agent Session |
 | `src/processes/catalog.ts` | 显式 production catalog 和 Process Runtime 组装 |
@@ -151,7 +152,7 @@ curl --fail -X POST http://127.0.0.1:4300/execute \
 | `src/webhooks/store/postgres.ts` | Endpoint、Delivery、Attempt 和 replay 的 PostgreSQL Adapter |
 | `src/webhooks/queue/`、`src/webhooks/outbox/` | Webhook Job 调度和事务 Outbox 发布 |
 
-依赖方向固定为：`bin` 只进入 `app` 与 `release`；`app` 组装 `api`、`processes`、`process-runs`、`webhooks` 和 `run-observation`；`release` 只依赖 `processes` 的公开契约与注入的 HTTP/数据库句柄；`run-observation` 只依赖 `process-runtime` 的稳定 Interface 和 `api` 的控制台投影类型；具体 `processes` 依赖 `process-runtime` 与 `agent-runtime`，`api` 和 `process-runs` 只依赖 `process-runtime` 的稳定 Interface。Runtime Module 不反向引用具体 Business Process，领域与业务 Module 不反向引用 `app` 或 `bin`；Composition Root 负责把它们连接起来。
+依赖方向固定为：`bin` 只进入 `app` 与 `release`；`app` 组装 `api`、`processes`、`process-runs`、`webhooks` 和 `run-observation`；`release` 只依赖 `processes` 的公开契约与注入的 HTTP/数据库句柄；`run-observation` 只依赖 `process-runtime` 的稳定 Interface；具体 `processes` 依赖 `process-runtime` 与 `agent-runtime`，`process-runs` 只依赖 `process-runtime` 的稳定 Interface，`api` 只依赖 `process-runtime` 的稳定 Interface 和 `run-observation` 拥有的汇总类型。Runtime Module 不反向引用具体 Business Process，领域与业务 Module 不反向引用 `app` 或 `bin`；Composition Root 负责把它们连接起来。
 
 顶层目录使用明确的领域名，子目录对应实际 Module。父目录已经提供的上下文不在文件名中重复，例如使用 `src/process-runs/store/postgres.ts`，不用 `src/process-runs/store/postgres-process-run-store.ts`；Adapter 文件只保留 `postgres.ts`、`bullmq.ts`、`http.ts` 等技术名称。不要新增 `common/`、`shared/`、`utils/` 或横向的 `controllers/services/repositories` 目录。无法明确归属的代码应先重新检查 Module 和 Seam。
 

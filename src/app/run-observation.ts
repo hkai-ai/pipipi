@@ -4,11 +4,14 @@ import {
     createProcessRunRecords,
     type ProcessRunRecords,
 } from "../process-runtime/records.js";
+import type { ProcessRunActivityArchive } from "../run-observation/activities.js";
 import {
     createJsonlProcessRunActivityArchive,
-    type ProcessRunActivityArchive,
+    createJsonlProcessRunRecordArchive,
+    createJsonlRunObservationStats,
     pruneProcessRunActivities,
-} from "../run-observation/activities.js";
+    pruneProcessRunRecords,
+} from "../run-observation/jsonl.js";
 import {
     createPostgresProcessRunActivityArchive,
     createPostgresProcessRunRecordArchive,
@@ -16,16 +19,11 @@ import {
     pruneProcessRunObservation,
 } from "../run-observation/postgres.js";
 import {
-    createJsonlProcessRunRecordArchive,
     defaultProcessRunRecordRetentionDays,
     type ProcessRunRecordArchive,
     parseProcessRunRecordContent,
-    pruneProcessRunRecords,
 } from "../run-observation/records.js";
-import {
-    createJsonlRunObservationStats,
-    type RunObservationStats,
-} from "../run-observation/stats.js";
+import type { RunObservationStats } from "../run-observation/stats.js";
 import { parsePositiveInteger, type StartupEnvironment } from "./config.js";
 
 export type ConstructedProcessRunObservation = Readonly<{

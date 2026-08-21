@@ -9,7 +9,7 @@ import {
 import {
     createJsonlProcessRunActivityArchive,
     pruneProcessRunActivities,
-} from "../src/run-observation/activities.js";
+} from "../src/run-observation/jsonl.js";
 
 const fixedClock = () => new Date("2026-08-11T10:00:00.000Z");
 
