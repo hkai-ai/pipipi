@@ -16,6 +16,11 @@ import {
     type PiStructuredAgentSessionFactory,
 } from "../src/agent-runtime/structured.js";
 import { PiTooledAgent } from "../src/agent-runtime/tooled.js";
+import { PiContentAgent } from "../src/processes/content/agent.pi.js";
+import {
+    contentToolName,
+    createContentSkillRefs,
+} from "../src/processes/content/skills.js";
 import { createPosterSkillRefs } from "../src/processes/poster/skills.js";
 
 describe("OpenAI-compatible provider configuration", () => {
@@ -343,6 +348,128 @@ describe("tooled Pi Agent", () => {
             }),
         ).rejects.toThrow("Tooled Agent Tool call budget must be positive");
         expect(sessionFactory).not.toHaveBeenCalled();
+    });
+});
+
+describe("content Pi Agent", () => {
+    it("exposes only the Business Capability Tool and returns the model's JSON", async () => {
+        const modelRuntime = await createEmptyModelRuntime();
+        const capabilityCalls: unknown[] = [];
+        let captured: CreateAgentSessionOptions | undefined;
+        const sessionFactory: PiStructuredAgentSessionFactory = async (
+            options,
+        ) => {
+            captured = options;
+            return fakeSessionResult({
+                prompt: async () => {
+                    const tool = options.customTools?.[0];
+                    if (!tool) throw new Error("no tool");
+                    await tool.execute(
+                        "c1",
+                        { content: "Improved copy" },
+                        undefined,
+                        undefined,
+                        fakeExtensionContext(),
+                    );
+                },
+                abort: vi.fn(async () => undefined),
+                dispose: vi.fn(),
+                messages: [
+                    {
+                        role: "assistant",
+                        content: [
+                            { type: "text", text: '{"content":"Refined"}' },
+                        ],
+                        stopReason: "stop",
+                    },
+                ],
+            });
+        };
+        const agent = new PiContentAgent({
+            skills: createContentSkillRefs(),
+            modelRuntime,
+            sessionFactory,
+        });
+
+        const output = await agent.optimize({
+            content: "Original copy",
+            signal: new AbortController().signal,
+            idempotencyKey: "run-1",
+            capability: {
+                process: async (input, options) => {
+                    capabilityCalls.push({
+                        input,
+                        idempotencyKey: options.idempotencyKey,
+                    });
+                    return { content: "Refined" };
+                },
+            },
+        });
+
+        expect(output).toEqual({ content: "Refined" });
+        expect(capabilityCalls).toEqual([
+            {
+                input: { content: "Improved copy" },
+                idempotencyKey: "run-1",
+            },
+        ]);
+        expect(captured?.tools).toEqual([contentToolName]);
+        expect(captured?.customTools?.map((tool) => tool.name)).toEqual([
+            contentToolName,
+        ]);
+        expect(captured?.resourceLoader?.getSystemPrompt()).toContain(
+            "You are a business content agent.",
+        );
+    });
+
+    it("aborts the session when the model calls the Capability twice", async () => {
+        const modelRuntime = await createEmptyModelRuntime();
+        const abort = vi.fn(async () => undefined);
+        let capabilityCalls = 0;
+        const sessionFactory: PiStructuredAgentSessionFactory = async (
+            options,
+        ) =>
+            fakeSessionResult({
+                prompt: async () => {
+                    const tool = options.customTools?.[0];
+                    if (!tool) throw new Error("no tool");
+                    for (const content of ["one", "two"]) {
+                        await tool
+                            .execute(
+                                "c",
+                                { content },
+                                undefined,
+                                undefined,
+                                fakeExtensionContext(),
+                            )
+                            .catch(() => undefined);
+                    }
+                },
+                abort,
+                dispose: vi.fn(),
+                messages: [],
+            });
+        const agent = new PiContentAgent({
+            skills: createContentSkillRefs(),
+            modelRuntime,
+            sessionFactory,
+        });
+
+        await expect(
+            agent.optimize({
+                content: "Original copy",
+                signal: new AbortController().signal,
+                idempotencyKey: "run-2",
+                capability: {
+                    process: async () => {
+                        capabilityCalls += 1;
+                        return { content: "Refined" };
+                    },
+                },
+            }),
+        ).rejects.toThrow("The Agent exceeded its Tool call budget");
+        expect(capabilityCalls).toBe(1);
+        expect(abort).toHaveBeenCalledOnce();
     });
 });
 

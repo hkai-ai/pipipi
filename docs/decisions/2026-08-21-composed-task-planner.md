@@ -247,7 +247,7 @@ export const composedProduction = defineProductionProcess({
 
 - `context.members` 的形状定为 `{ registry: ProcessRegistry; attemptRunner: ProcessAttemptRunner }`（`ProductionMembers`），由 Composition Root 用共享 Sink 与默认超时构造；Step Run 的活动日志因此与父 Run 进入同一 Pino Sink。提案中的 `MemberExecutor.runStep` 没有单独出现，`ProcessAttemptRunner.run` 就是那个入口。
 - Planner 只回传 `{ summary, result }`；`steps` 由 Registration 的 Step 记账生成，不再要求模型回传并比对。`result` 的来源校验保留。
-- 带 Tool 的 Session 落在 `src/agent-runtime/tooled.ts`，与 `structured.ts` 共享新的 `session.ts`；`PiContentAgent` 尚未迁移。
+- 带 Tool 的 Session 落在 `src/agent-runtime/tooled.ts`，与 `structured.ts` 共享新的 `session.ts`；`PiContentAgent` 随后也迁到了 `PiTooledAgent` 上，`maxToolCalls: 1` 取代了原先手写的 Session 创建。
 - 新增 `PI_COMPOSED_SKILL_DIRECTORY`，与其他 Skill 路径覆盖同形；五个变量都已进入 `.env.example` 与 `ops/` 清单。
 - `ProcessRegistration.timeoutMs` 上限定为 3600000 毫秒；异步 Worker 的租约校验改为对照 catalog 中最长的 Registration 超时。
 - 真实模型路径尚无脚本化验证，见 [`experiments.md`](../experiments.md)。

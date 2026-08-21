@@ -1,24 +1,10 @@
-/** agent.ts 里 ContentAgent Port 的生产 Pi 实现 */
-import { resolve } from "node:path";
-import {
-    createAgentSession,
-    DefaultResourceLoader,
-    defineTool,
-    getAgentDir,
-    ModelRuntime,
-    SessionManager,
-} from "@earendil-works/pi-coding-agent";
+/** agent.ts 里 ContentAgent Port 的生产 Pi 实现：只挂一个 Business Capability Tool 的受限 Session */
+import { defineTool, type ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import {
-    configureOpenAI,
-    type OpenAIApiMode,
-    parseAgentJson,
-} from "../../agent-runtime/pi.js";
-import {
-    createSkillSet,
-    type SkillRef,
-    type SkillSet,
-} from "../../agent-runtime/skills.js";
+import type { OpenAIApiMode } from "../../agent-runtime/pi.js";
+import type { PiSessionFactory } from "../../agent-runtime/session.js";
+import type { SkillRef } from "../../agent-runtime/skills.js";
+import { PiTooledAgent } from "../../agent-runtime/tooled.js";
 import type { ContentAgent, ContentAgentRequest } from "./agent.js";
 import { contentToolName } from "./skills.js";
 
@@ -31,71 +17,27 @@ export type PiContentAgentOptions = {
     openAIBaseUrl?: string;
     openAIApiMode?: OpenAIApiMode;
     modelRuntime?: ModelRuntime;
+    sessionFactory?: PiSessionFactory;
 };
 
 /**
- * The production Agent adapter. Conversation state is deliberately request-local;
- * the model/auth runtime may be shared because it carries no business messages.
+ * The production Agent adapter. The single Tool closes over the request's
+ * permitted Capability, so the model can reach nothing the Registration did
+ * not hand over; a second Tool call aborts the Session outright.
  */
 export class PiContentAgent implements ContentAgent {
-    readonly #cwd: string;
-    readonly #agentDir: string;
-    readonly #skills: SkillSet;
-    readonly #provider: string | undefined;
-    readonly #model: string | undefined;
-    readonly #openAIBaseUrl: string | undefined;
-    readonly #openAIApiMode: OpenAIApiMode;
-    readonly #models: ModelRuntime | undefined;
-    #modelsPromise: Promise<ModelRuntime> | undefined;
+    readonly #agent: PiTooledAgent;
 
     constructor(options: PiContentAgentOptions) {
-        if (
-            (options.provider === undefined) !==
-            (options.model === undefined)
-        ) {
-            throw new Error(
-                "Pi provider and model must be configured together",
-            );
-        }
-
-        this.#cwd = resolve(options.cwd ?? process.cwd());
-        this.#agentDir = options.agentDir ?? getAgentDir();
-        this.#skills = createSkillSet(options.skills, this.#cwd);
-        this.#provider = options.provider;
-        this.#model = options.model;
-        this.#openAIBaseUrl = options.openAIBaseUrl?.trim() || undefined;
-        this.#openAIApiMode =
-            options.openAIApiMode ??
-            (this.#openAIBaseUrl ? "chat-completions" : "responses");
-        if (
-            this.#openAIBaseUrl &&
-            this.#openAIApiMode === "chat-completions" &&
-            (this.#provider !== "openai" || !this.#model)
-        ) {
-            throw new Error(
-                "OpenAI Chat Completions mode requires PI_PROVIDER=openai and PI_MODEL",
-            );
-        }
-        this.#models = options.modelRuntime;
+        this.#agent = new PiTooledAgent({
+            ...options,
+            instructions: [
+                "You are a business content agent. Follow every bound Runtime Skill and return only the requested structured result.",
+            ],
+        });
     }
 
     async optimize(request: ContentAgentRequest): Promise<unknown> {
-        const loaded = this.#skills.load();
-        const resourceLoader = new DefaultResourceLoader({
-            cwd: this.#cwd,
-            agentDir: this.#agentDir,
-            noExtensions: true,
-            noSkills: true,
-            noPromptTemplates: true,
-            noThemes: true,
-            noContextFiles: true,
-            systemPrompt: [
-                "You are a business content agent. Follow every bound Runtime Skill and return only the requested structured result.",
-                loaded.instructions,
-            ].join("\n\n"),
-        });
-        await resourceLoader.reload();
-
         const businessContentTool = defineTool({
             name: contentToolName,
             label: "Process business content",
@@ -124,62 +66,15 @@ export class PiContentAgent implements ContentAgent {
             },
         });
 
-        const modelRuntime = await this.#getModels();
-        const selectedModel =
-            this.#provider && this.#model
-                ? modelRuntime.getModel(this.#provider, this.#model)
-                : undefined;
-        if (this.#provider && !selectedModel) {
-            throw new Error("The configured Pi model is unavailable");
-        }
-
-        // A fresh in-memory manager and session prevent messages from crossing requests.
-        const { session } = await createAgentSession({
-            cwd: this.#cwd,
-            agentDir: this.#agentDir,
-            modelRuntime,
-            ...(selectedModel ? { model: selectedModel } : {}),
-            ...(selectedModel?.api === "openai-completions"
-                ? { thinkingLevel: "off" as const }
-                : {}),
-            resourceLoader,
-            sessionManager: SessionManager.inMemory(this.#cwd),
-            customTools: [businessContentTool],
-            tools: [contentToolName],
-        });
-        const abortSession = () => {
-            void session.abort();
-        };
-        request.signal.addEventListener("abort", abortSession, { once: true });
-
-        try {
-            if (request.signal.aborted)
-                throw new Error("Agent request was aborted");
-            await session.prompt(
+        const result = await this.#agent.run({
+            prompt:
                 `Optimize this content: ${JSON.stringify(request.content)}\n` +
-                    `Call ${contentToolName} as directed by the Skills. ` +
-                    'Return only JSON matching {"content":"non-empty string"}.',
-            );
-            return parseAgentJson(session.messages);
-        } finally {
-            request.signal.removeEventListener("abort", abortSession);
-            session.dispose();
-        }
-    }
-
-    #getModels(): Promise<ModelRuntime> {
-        this.#modelsPromise ??= (
-            this.#models ? Promise.resolve(this.#models) : ModelRuntime.create()
-        ).then((runtime) => {
-            if (this.#openAIBaseUrl) {
-                configureOpenAI(runtime, {
-                    baseUrl: this.#openAIBaseUrl,
-                    apiMode: this.#openAIApiMode,
-                    modelId: this.#model,
-                });
-            }
-            return runtime;
+                `Call ${contentToolName} as directed by the Skills. ` +
+                'Return only JSON matching {"content":"non-empty string"}.',
+            tools: [businessContentTool],
+            maxToolCalls: 1,
+            signal: request.signal,
         });
-        return this.#modelsPromise;
+        return result.output;
     }
 }
