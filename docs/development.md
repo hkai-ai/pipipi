@@ -111,28 +111,52 @@ curl --fail -X POST http://127.0.0.1:4300/execute \
 
 | 路径 | 职责 |
 | --- | --- |
+| `src/bin/api.ts`、`dispatcher.ts`、`process-worker.ts`、`webhook-worker.ts`、`retention-cleaner.ts` | 分别调用对应 `app/` Composition Root 构造角色服务并监听端口 |
+| `src/bin/operations.ts`、`recover.ts`、`availability-monitor.ts` | 分别构造 Operations、Recovery、Availability Monitor 命令，执行一次性运维操作并输出报告 |
+| `src/bin/check-deployment-environment.ts` | 校验指定部署角色所需环境变量（及生产环境下的 Runtime Skill 绑定），用于部署前检查 |
+| `src/bin/migrate-and-verify.ts` | 通过 node-pg-migrate 执行数据库迁移并验证结果 |
+| `src/bin/audit-production-database.ts`、`audit-async-smoke-state.ts` | 连接生产数据库分别采集审计证据、审计异步冒烟测试状态（支持等待投递覆盖完成） |
+| `src/bin/crt-business-api.ts` | 校验部署环境后装配 CRT 图像生成、对象存储与证据策略，启动 CRT Business API |
 | `src/app/api.ts` | API 配置翻译、校验、Adapter 选择和完整生产组装 |
 | `src/app/business-processes.ts` | production Business Process Runtime 与 catalog 依赖组装 |
 | `src/app/runtime-skills.ts` | 七个 Runtime Skill 的生产安装集合、启动完整性校验和精确 Process 绑定 |
 | `src/app/run-observation.ts`、`postgres-pool.ts` | 按环境选择 JSONL 或 PostgreSQL 观测 Adapter；从启动环境构造各角色共用的 pg Pool |
-| `src/release/news-image-acceptance.ts` | 三个新闻图片 Process 的真实 HTTP/OSS 验收、下载限制、PNG 检查和无 URL 证据投影 |
-| `src/release/async-internal-smoke.ts`、`paid-async-image-smoke.ts`、`async-smoke-state.ts` | 异步网关 smoke 与回滚验证、受控付费 CRT 异步 smoke，以及 smoke 之后的数据库状态审计 |
-| `src/release/production-database-audit.ts`、`migration-verification.ts` | 生产数据库身份、TLS 与最小权限审计；migration 应用后的二次空跑验证 |
 | `src/app/process-dispatcher.ts`、`process-worker.ts`、`retention-cleaner.ts` | 各后台角色独立的配置和 Adapter 组装 |
 | `src/app/process-recovery.ts`、`async-operations.ts` | 一次性运维命令的资源组装 |
 | `src/app/webhook-worker.ts` | Webhook Worker 的 Delivery、Outbox、Queue 和 HTTP Sender 组装 |
 | `src/app/availability-monitor.ts` | Availability Monitor 的 Probe、Notifier 与部署配置组装 |
-| `src/network/public-http.ts` | 公网目标校验、全部 DNS 地址检查、固定 IP 连接和有界响应读取 |
-| `src/process-runtime/` | Registration、Registry、同步 Runner、Attempt Runner、运行活动日志、Run Record、公共结果和错误治理 |
+| `src/app/config.ts` | 从启动环境字符串解析端口、正整数、布尔值、连接 URL 等基础配置值并校验合法性 |
+| `src/app/deployment-environment.ts` | 按 Role 声明并校验部署所需的环境变量，缺失或生产环境不合规时报错 |
+| `src/app/process-run-config.ts` | 解析 Process Runner 所需的数据库、Redis 连接及队列命名配置 |
+| `src/app/role.ts` | 为后台 Role 组装健康检查、就绪探测的 HTTP Runtime，并管理其生命周期 |
+| `src/release/news-image-acceptance.ts` | 三个新闻图片 Process 的真实 HTTP/OSS 验收、下载限制、PNG 检查和无 URL 证据投影 |
+| `src/release/async-internal-smoke.ts`、`paid-async-image-smoke.ts`、`async-smoke-state.ts` | 异步网关 smoke 与回滚验证、受控付费 CRT 异步 smoke，以及 smoke 之后的数据库状态审计 |
+| `src/release/production-database-audit.ts`、`migration-verification.ts` | 生产数据库身份、TLS 与最小权限审计；migration 应用后的二次空跑验证 |
+| `src/api/process-catalog.ts`、`async-intake.ts` | 从 Registration Schema 推导控制台 Process 目录；文件标记控制的 `POST /process-runs` intake 开关 |
+| `src/api/application.ts` | 组装 HTTP Server 生命周期，把监听/关闭封装成 Processing Application |
+| `src/api/http.ts` | Composition Root：按路由把执行、异步 Process Run、控制台 Run Record 查询分发给各协作者 |
+| `src/api/console-assets.ts` | 从构建产物目录按白名单模式提供控制台文档与静态资源 |
+| `src/api/identity.ts` | 网关共享密钥 Seam 的唯一 Adapter：校验请求头并解析 caller identity |
+| `src/api/public-documents.ts` | 缓存并按固定路径提供随版本发布的只读文档（如 `llms.txt`） |
 | `src/run-observation/records.ts`、`activities.ts`、`stats.ts` | Run Record 归档、活动归档与统计汇总的 Interface，以及两套 Adapter 共用的游标、分页上限、净化和聚合规则；`stats.ts` 拥有 `RunObservationSummary` |
 | `src/run-observation/jsonl.ts`、`postgres.ts` | 同一组 Interface 的 JSONL Adapter（含按 UTC 日分片的 `day-files.ts` 内部 Seam）与 PostgreSQL Adapter |
 | `src/run-observation/pino.ts` | 带脱敏的 Pino 活动日志 Sink |
-| `src/api/process-catalog.ts`、`async-intake.ts` | 从 Registration Schema 推导控制台 Process 目录；文件标记控制的 `POST /process-runs` intake 开关 |
+| `src/process-runtime/registration.ts` | 定义 Process Registration：校验输入输出 Schema、快照化 JSON、声明可用活动与重试策略，产出可执行的 Registration |
+| `src/process-runtime/registry.ts` | 按 id/version 索引 Process Registration 集合，提供按身份查找与全量有序列表 |
+| `src/process-runtime/runner.ts` | 组合 Registry、Attempt Runner 与 Run Records，校验请求并派发执行，对外提供 execute/evaluate 入口 |
+| `src/process-runtime/attempt.ts` | 以超时和外部取消竞速执行单次 Process Attempt，产出 Run Record 并驱动 Attempt 日志 |
+| `src/process-runtime/logging.ts` | 定义 Process Run 日志事件结构，创建单次 Attempt 的活动日志并支持多 Sink 合并，日志失败不影响执行结果 |
+| `src/process-runtime/records.ts` | 定义 Process Run Record 及其存取接口，提供禁用与内存两种 Adapter，记录失败不影响执行结果 |
+| `src/process-runtime/result.ts` | 定义 Process Run 的成功/失败结果类型（`ProcessRunResult`）与公开错误码，提供失败结果构造函数 |
+| `src/process-runtime/index.ts` | process-runtime 模块的公开导出入口，收拢 Attempt/Registry/Registration/Runner/Records/日志/结果类型 |
 | `src/agent-runtime/catalog.ts`、`pi.ts`、`skills.ts`、`structured.ts` | 多个流程共用的启动期 Skill 完整性与版本 Catalog、Pi provider 配置、Runtime Skill 精确加载，以及海报、CRT 与新闻图片共用的无 Tool Structured Agent Session |
 | `src/processes/catalog.ts` | 显式 production catalog 和 Process Runtime 组装 |
 | `src/processes/content/registration.ts` | `content-processing/v1` 的 Schema、Direct/Agent 流程、失败和 Tool 调用 invariant |
 | `src/processes/content/skills.ts` | `content-processing/v1` 获准使用的有序 Runtime Skill 集合与 Tool 名称 |
 | `src/processes/content/agent.ts`、`pi.ts` | 窄 Content Agent Interface，以及生产 Pi Adapter |
+| `src/processes/content/capability.ts`、`http.ts` | Content Processing Capability、内容处理契约与生产 HTTP Adapter |
+| `src/processes/content/config.ts` | Business API Base URL 的解析与校验 |
+| `src/processes/titled-content/registration.ts` | Titled Content Processing Process Registration，拼接标题与正文后调用 Content Processing Capability |
 | `src/processes/poster/registration.ts` | `minimal-zine-poster/v1` 的 Schema、Prompt 校验、执行顺序和稳定失败 |
 | `src/processes/poster/agent.ts`、`pi.ts` | 无 Tool 的 Poster Agent Interface 与 Pi Prompt 编译 Adapter |
 | `src/processes/poster/capability.ts`、`http.ts` | Poster Rendering Capability、图片引用契约与生产 HTTP Adapter |
@@ -141,16 +165,47 @@ curl --fail -X POST http://127.0.0.1:4300/execute \
 | `src/processes/crt/agent.ts`、`pi.ts` | 看不到参考图和资产标识的无 Tool CRT Agent Interface 与 Pi Adapter |
 | `src/processes/crt/capability.ts`、`http.ts` | CRT Rendering Capability、PNG 引用契约与 `POST /crt-images` Adapter |
 | `src/processes/crt/style.ts`、`skills.ts` | 固定调色板、画幅和准确 Runtime Skill 绑定 |
+| `src/processes/news-image/registration.ts` | 三个新闻图片 Process 共用的 Registration 工厂：按固定风格选择 Prompt 契约校验规则，编排 Prompt 编译与渲染活动并处理失败 |
+| `src/processes/news-image/capability.ts`、`http.ts` | News Image Rendering Capability 的图片/生成参数契约，以及 `POST /news-images` 生产 HTTP Adapter |
+| `src/processes/news-image/agent.ts`、`pi.ts` | 窄 News Image Agent Interface，以及无 Tool 的 Pi Prompt 编译 Adapter |
+| `src/processes/news-image/skills.ts` | 三个新闻图片风格各自绑定的准确 Runtime Skill |
 | `test/news-image-process.test.ts` | 三个新闻图片 Process 的输入归一化、固定风格、单次渲染、输出隐藏和稳定失败回归 |
 | `test/news-image-business-acceptance.test.ts` | 三个固定 Process 的单次验收、OSS 位置、重定向拒绝和证据净化 |
 | `src/process-runs/index.ts` | 异步提交、owner 隔离、caller-scoped idempotency 和公共状态投影 |
+| `src/process-runs/dispatcher.ts` | 编排 Outbox 派发与 Run 对账两个周期性循环，统一控制启动、就绪与关闭 |
 | `src/process-runs/store/index.ts`、`src/process-runs/store/postgres.ts` | 权威状态转换，以及内存和 PostgreSQL Adapter |
 | `src/process-runs/queue/index.ts`、`src/process-runs/queue/bullmq.ts` | 最小 Job Interface，以及内存和 BullMQ Adapter |
+| `src/process-runs/queue/observability.ts` | 读取 BullMQ 队列各状态计数与最旧可运行 Job 的堆积时长，生成可观测快照 |
+| `src/process-runs/outbox/index.ts`、`postgres.ts` | Process Outbox 的认领/标记已发布/释放接口，及基于 Postgres 行锁的实现 |
+| `src/process-runs/outbox/dispatcher.ts` | 从 Outbox 认领消息并投递到队列，成功标记已发布、失败释放认领（Process 与 Webhook Outbox 共用） |
 | `src/process-runs/recovery/index.ts`、`src/process-runs/recovery/postgres.ts` | 周期 reconciliation、人工 Queue Recovery，以及恢复候选的 PostgreSQL Adapter |
+| `src/process-runs/recovery/command.ts` | 解析 Queue Recovery 命令行参数并驱动 reconciler 分批执行对账/恢复 |
+| `src/process-runs/retention/index.ts`、`postgres.ts` | 按批次驱动 Postgres 保留期清理并封装为周期性 Runtime（含游标续跑），及分批清理过期 Run 数据的 Postgres 实现 |
+| `src/process-runs/worker/index.ts` | 认领并执行单个 Process Run 的 Job，处理成功/失败/重试并落地终态观测记录 |
 | `src/process-runs/ops/postgres.ts` | 异步运维快照和 staged release readiness 的 PostgreSQL Adapter |
-| `src/webhooks/delivery/` | Delivery Worker、HTTP Adapter、Standard Webhooks 签名和目标策略 |
+| `src/process-runs/ops/logging.ts` | 定义异步操作日志的记录类型与安全发送/输出工具函数 |
+| `src/webhooks/delivery/http.ts` | 用 Standard Webhooks 签名和目标策略发起签名 HTTP 投递，产出成功/失败结果 |
+| `src/webhooks/delivery/signing.ts` | 生成和校验 Standard Webhooks HMAC 签名及 `whsec_` 密钥格式 |
+| `src/webhooks/delivery/target-policy.ts` | 基于公网 HTTP 目标策略解析并 Pin 住 Webhook 投递目标地址，拒绝内网/不安全目标 |
+| `src/webhooks/delivery/job.ts` | 定义并解析 Webhook Delivery Job 载荷 |
+| `src/webhooks/delivery/worker.ts` | Delivery Worker：认领投递、调用 Sender 发送、按重试策略计算退避并重新调度或终结投递 |
+| `src/webhooks/delivery/index.ts` | 汇总导出 delivery 目录下的公共类型和工厂函数 |
 | `src/webhooks/store/postgres.ts` | Endpoint、Delivery、Attempt 和 replay 的 PostgreSQL Adapter |
-| `src/webhooks/queue/`、`src/webhooks/outbox/` | Webhook Job 调度和事务 Outbox 发布 |
+| `src/webhooks/store/secret-cipher.ts` | 用 AES-256-GCM 信封加密对 Webhook Endpoint 签名密钥做加解密 |
+| `src/webhooks/queue/index.ts` | 定义 Webhook Work Queue/Source 接口，并提供内存实现用于测试 |
+| `src/webhooks/queue/bullmq.ts` | 基于 BullMQ 实现 Webhook Work Queue 入队去重和 Delivery Worker 的并发消费与优雅关闭 |
+| `src/webhooks/outbox/index.ts`、`postgres.ts` | Webhook 事务 Outbox 的认领/发布/释放接口，及基于 Postgres 行锁的实现 |
+| `src/webhooks/runtime.ts` | 编排 Outbox 派发定时器与 Delivery Worker 的启动、就绪检查和优雅关闭 |
+| `src/network/public-http.ts` | 公网目标校验、全部 DNS 地址检查、固定 IP 连接和有界响应读取 |
+| `src/availability/monitor.ts` | Availability Monitor 的 Interface 定义、Probe 编排与聚合状态判定 |
+| `src/availability/http.ts` | 内部与公网 HTTP 服务的 Availability Probe |
+| `src/availability/redis.ts` | Redis 的 Availability Probe，检测连接、配置与安全基线 |
+| `src/availability/webhook.ts` | 飞书机器人 Webhook 的 Availability Notifier |
+| `src/business-api/object-storage.ts`、`aliyun-oss-storage.ts`、`object-storage-config.ts` | 对象存储 Interface（`ObjectStorageCapability`）、阿里云 OSS Adapter 与环境变量装配 |
+| `src/business-api/openai-image-generation.ts`、`openai-image-config.ts` | OpenAI 图片生成/编辑 Adapter 与其 API Key/Base URL 装配 |
+| `src/business-api/fal-image-generation.ts`、`image-generation-config.ts` | FAL（GPT Image 2）图片生成/编辑 Adapter，及按 `IMAGE_PROVIDER` 选择 Adapter 的装配 Interface |
+| `src/business-api/crt-finalizer.ts`、`crt-evidence.ts` | CRT 图像后处理（像素化/扫描线/调色板渲染）与渲染证据留存 |
+| `src/business-api/crt-server.ts` | CRT Business API 本地 HTTP 服务：编排图片编辑/生成、幂等与结果落盘、CRT 终稿与新闻图渲染、对象存储上传与错误归因 |
 
 依赖方向固定为：`bin` 只进入 `app` 与 `release`；`app` 组装 `api`、`processes`、`process-runs`、`webhooks` 和 `run-observation`；`release` 只依赖 `processes` 的公开契约与注入的 HTTP/数据库句柄；`run-observation` 只依赖 `process-runtime` 的稳定 Interface；具体 `processes` 依赖 `process-runtime` 与 `agent-runtime`，`process-runs` 只依赖 `process-runtime` 的稳定 Interface，`api` 只依赖 `process-runtime` 的稳定 Interface 和 `run-observation` 拥有的汇总类型。Runtime Module 不反向引用具体 Business Process，领域与业务 Module 不反向引用 `app` 或 `bin`；Composition Root 负责把它们连接起来。
 
