@@ -5,6 +5,11 @@ import { createTitledContentRegistration } from "./registration.js";
 
 export const titledContentProduction = defineProductionProcess({
     id: "titled-content-processing",
+    environment: [
+        "BUSINESS_API_BASE_URL",
+        "BUSINESS_API_TIMEOUT_MS",
+        "TITLED_CONTENT_SEPARATOR",
+    ],
     build: ({ environment, positiveInteger }) =>
         createTitledContentRegistration({
             capability: createProductionContentProcessingCapability(

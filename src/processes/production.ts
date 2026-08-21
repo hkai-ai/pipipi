@@ -30,10 +30,13 @@ export type ProductionContext = Readonly<{
  * One production Process as the explicit catalog lists it. `installedSkills`
  * runs before any Adapter exists so deployment preflight can validate every
  * Skill; `build` runs once at startup and must return a Registration whose id
- * equals `id`.
+ * equals `id`. `environment` names every startup variable the Process itself
+ * reads (the shared Pi selection is the Composition Root's); tests hold
+ * `.env.example` and the deployment tooling to that list.
  */
 export type ProductionProcess = Readonly<{
     id: string;
+    environment: readonly string[];
     installedSkills: (
         environment: ProductionEnvironment,
     ) => readonly InstalledSkillRef[];
@@ -42,11 +45,13 @@ export type ProductionProcess = Readonly<{
 
 export function defineProductionProcess(options: {
     id: string;
+    environment?: readonly string[];
     installedSkills?: ProductionProcess["installedSkills"];
     build: ProductionProcess["build"];
 }): ProductionProcess {
     return Object.freeze({
         id: options.id,
+        environment: Object.freeze([...(options.environment ?? [])]),
         installedSkills: options.installedSkills ?? (() => noSkills),
         build: options.build,
     });

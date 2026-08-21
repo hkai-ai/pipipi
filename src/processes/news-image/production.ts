@@ -15,6 +15,12 @@ import {
     createRawHumanismSkillRefs,
 } from "./skills.js";
 
+const skillDirectoryVariables = {
+    "narrative-monument": "PI_NARRATIVE_MONUMENT_SKILL_DIRECTORY",
+    "pale-watercolor": "PI_PALE_WATERCOLOR_SKILL_DIRECTORY",
+    "raw-humanism": "PI_RAW_HUMANISM_SKILL_DIRECTORY",
+} satisfies Record<NewsImageStyle, string>;
+
 const installedSkills = {
     "narrative-monument": (environment: ProductionEnvironment) =>
         createNarrativeMonumentSkillRefs({
@@ -33,6 +39,12 @@ const installedSkills = {
 function newsImageProduction(style: NewsImageStyle): ProductionProcess {
     return defineProductionProcess({
         id: `news-image-${style}`,
+        environment: [
+            skillDirectoryVariables[style],
+            "CRT_BUSINESS_API_BASE_URL",
+            "BUSINESS_API_BASE_URL",
+            "NEWS_IMAGE_API_TIMEOUT_MS",
+        ],
         installedSkills: installedSkills[style],
         build: ({ environment, pi, skills, positiveInteger }) =>
             createNewsImageRegistration(style, {

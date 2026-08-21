@@ -11,6 +11,12 @@ import { createCrtSkillRefs } from "./skills.js";
 
 export const crtProduction = defineProductionProcess({
     id: "crt-interface-image",
+    environment: [
+        "PI_CRT_SKILL_DIRECTORY",
+        "CRT_BUSINESS_API_BASE_URL",
+        "BUSINESS_API_BASE_URL",
+        "CRT_API_TIMEOUT_MS",
+    ],
     installedSkills: (environment) =>
         createCrtSkillRefs({ path: environment.PI_CRT_SKILL_DIRECTORY }),
     build: ({ environment, pi, skills, positiveInteger }) =>

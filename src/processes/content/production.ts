@@ -13,6 +13,15 @@ import { createContentSkillRefs } from "./skills.js";
 
 export const contentProduction = defineProductionProcess({
     id: "content-processing",
+    environment: [
+        "PI_SKILL_DIRECTORY",
+        "CONTENT_PROCESSING_MODE",
+        "BUSINESS_API_BASE_URL",
+        "BUSINESS_API_TIMEOUT_MS",
+        "CONTENT_PROCESSING_RETRY_MAX_ATTEMPTS",
+        "CONTENT_PROCESSING_RETRY_INITIAL_DELAY_MS",
+        "CONTENT_PROCESSING_RETRY_MAX_DELAY_MS",
+    ],
     installedSkills: (environment) =>
         createContentSkillRefs({
             optimizationPath: environment.PI_SKILL_DIRECTORY,

@@ -152,7 +152,7 @@ curl --fail -X POST http://127.0.0.1:4300/execute \
 | `src/agent-runtime/catalog.ts`、`pi.ts`、`skills.ts`、`structured.ts` | 多个流程共用的启动期 Skill 完整性与版本 Catalog、Pi provider 配置、Runtime Skill 精确加载，以及海报、CRT 与新闻图片共用的无 Tool Structured Agent Session |
 | `src/processes/catalog.ts` | 显式 production catalog（`productionCatalog` 数组）和通用 Process Runtime 组装 |
 | `src/processes/production.ts` | Process 模块自带的生产装配契约：声明安装的 Runtime Skill，并从启动环境构造自己的 Registration |
-| `src/processes/<module>/production.ts` | 各 Process 的生产装配：绑定自己的 Skill、Pi Agent 与 HTTP Capability Adapter 并读取专属环境变量；新闻图片模块按三个固定风格各导出一项 |
+| `src/processes/<module>/production.ts` | 各 Process 的生产装配：绑定自己的 Skill、Pi Agent 与 HTTP Capability Adapter，并在 `environment` 中声明自己读取的启动变量；新闻图片模块按三个固定风格各导出一项 |
 | `src/processes/content/registration.ts` | `content-processing/v1` 的 Schema、Direct/Agent 流程、失败和 Tool 调用 invariant |
 | `src/processes/content/skills.ts` | `content-processing/v1` 获准使用的有序 Runtime Skill 集合与 Tool 名称 |
 | `src/processes/content/agent.ts`、`agent.pi.ts` | 窄 Content Agent Port，以及它的生产 Pi 实现 |
@@ -286,7 +286,7 @@ JSON-safe snapshot。业务 input payload 默认上限为 262144 UTF-8 bytes，�
 2. 新建 `create…Registration` factory，通过 `defineProcessRegistration` 声明固定 `id`、`version`、输入 Schema、输出 Schema、运行活动和 Process Definition。
 3. 把该流程获准使用的窄 Business Capability 和稳定策略传给 factory，并由闭包捕获。流程使用 Agent 时，在流程 Module 内定义准确、有序的 Skill 与 Tool 集合；Composition Root 只提供 Adapter 和部署配置。Execution Context 只携带 `runId`、`AbortSignal` 和受控 `runActivity` 等请求级信息。
 4. 用 `failProcess` 返回预期的 `AGENT_FAILURE` 或 `DEPENDENCY_FAILURE`。让意外异常继续抛出，由 Process Runner 转换为安全的 `INTERNAL_ERROR`。
-5. 在流程 Module 内新建 `production.ts`，用 `defineProductionProcess` 声明 Process id、安装的 Runtime Skill，以及如何从启动环境和共享 Pi 配置构造 Registration；再把它加入 [`src/processes/catalog.ts`](../src/processes/catalog.ts) 的 `productionCatalog` 数组。每项只代表一个准确 `(id, version)`；Composition Root 不再为单个 Process 增加字段。
+5. 在流程 Module 内新建 `production.ts`，用 `defineProductionProcess` 声明 Process id、安装的 Runtime Skill、自己读取的启动变量，以及如何从启动环境和共享 Pi 配置构造 Registration；再把它加入 [`src/processes/catalog.ts`](../src/processes/catalog.ts) 的 `productionCatalog` 数组。每项只代表一个准确 `(id, version)`；Composition Root 不再为单个 Process 增加字段。新 Process 默认复用共享变量（`BUSINESS_API_BASE_URL`、`CRT_BUSINESS_API_BASE_URL`、`PROCESS_TIMEOUT_MS` 和 Pi 选择），只有真实部署需要单独调节时才新增专属变量；[`test/production-environment.test.ts`](../test/production-environment.test.ts) 会要求 `environment` 声明与实际读取一致，并且每个声明的变量都出现在 `.env.example` 和 `ops/` 的异步生产环境清单中。
 6. 通过 Registration Seam 测试接受、JSON 往返、单次解析、策略和输出。Agent 流程还要验证 Tool 调用次数、下游幂等键和最终结果来源；通过 Process Attempt Runner 测试预分配 `runId`、超时、活动时间线、日志故障隔离与错误净化；通过真实本地 `/execute` 测试产品行为和 HTTP 映射。
 7. 创建或更新 `docs/processes/<scenario>/<process-id>/README.md` 和所属场景 README，再更新 README 的当前能力、`CONTEXT.md` 的产品契约，以及受影响的设计或发布文档。
 
