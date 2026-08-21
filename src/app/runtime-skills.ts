@@ -2,6 +2,7 @@
 import { createInstalledSkillCatalog } from "../agent-runtime/catalog.js";
 import type { InstalledSkillRef, SkillRef } from "../agent-runtime/skills.js";
 import { productionCatalog } from "../processes/catalog.js";
+import { enabledProductionProcesses } from "../processes/production.js";
 import type { StartupEnvironment } from "./config.js";
 
 /** Resolved Skill refs keyed by Process id; Processes without Skills are absent. */
@@ -10,15 +11,16 @@ export type ProductionSkillBindings = Readonly<
 >;
 
 /**
- * Validates every Runtime Skill the production catalog declares and returns
- * exact per-Process bindings. API, Process Worker and deployment preflight all
- * run this before any Adapter exists.
+ * Validates every Runtime Skill the enabled production catalog declares and
+ * returns exact per-Process bindings. API, Process Worker and deployment
+ * preflight all run this before any Adapter exists; a Process the environment
+ * switches off contributes nothing, so its Skills need not ship.
  */
 export function createProductionSkillBindings(
     environment: StartupEnvironment,
     cwd = process.cwd(),
 ): ProductionSkillBindings {
-    const declared = productionCatalog
+    const declared = enabledProductionProcesses(productionCatalog, environment)
         .map((process) => ({
             id: process.id,
             refs: process.installedSkills(environment),

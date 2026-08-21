@@ -2,8 +2,16 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { parsePositiveInteger } from "../src/app/config.js";
 import { createProductionSkillBindings } from "../src/app/runtime-skills.js";
+import {
+    createProcessAttemptRunner,
+    createProcessRegistry,
+} from "../src/process-runtime/index.js";
 import { productionCatalog } from "../src/processes/catalog.js";
-import type { ProductionEnvironment } from "../src/processes/production.js";
+import {
+    buildProductionRegistrations,
+    type ProductionEnvironment,
+    type ProductionProcess,
+} from "../src/processes/production.js";
 
 const baseEnvironment: ProductionEnvironment = Object.freeze({
     BUSINESS_API_BASE_URL: "https://business.example",
@@ -33,15 +41,17 @@ describe("production Process environment declarations", () => {
                     return Reflect.get(target, key);
                 },
             });
-            const skills =
-                createProductionSkillBindings(baseEnvironment)[process.id] ??
-                [];
+            // Declared installs double as refs here, so a Process the base
+            // environment switches off can still prove what it reads.
+            const skills = process.installedSkills(baseEnvironment);
 
+            process.enabled(environment);
             process.installedSkills(environment);
             const registration = process.build({
                 environment,
                 pi: {},
                 skills,
+                members: membersOf(process),
                 positiveInteger: (name, fallback) =>
                     parsePositiveInteger(environment[name], fallback, name),
             });
@@ -92,6 +102,28 @@ describe("production Process environment declarations", () => {
         }
     });
 });
+
+/**
+ * Builds exactly the Members a Process declares from the base environment, so
+ * the Proxy above only observes the composing Process's own reads.
+ */
+function membersOf(process: ProductionProcess) {
+    const attemptRunner = createProcessAttemptRunner();
+    if (process.members.length === 0) {
+        return { registry: createProcessRegistry([]), attemptRunner };
+    }
+    const memberIds = new Set(process.members.map((member) => member.id));
+    const registrations = buildProductionRegistrations({
+        catalog: productionCatalog.filter((entry) => memberIds.has(entry.id)),
+        environment: baseEnvironment,
+        pi: {},
+        skills: createProductionSkillBindings(baseEnvironment),
+        positiveInteger: (name, fallback) =>
+            parsePositiveInteger(baseEnvironment[name], fallback, name),
+        attemptRunner,
+    });
+    return { registry: createProcessRegistry(registrations), attemptRunner };
+}
 
 function missingFrom(
     known: ReadonlySet<string>,

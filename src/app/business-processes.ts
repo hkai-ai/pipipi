@@ -2,6 +2,7 @@
 import { parseOpenAIApiMode } from "../agent-runtime/pi.js";
 import {
     combineProcessRunLogSinks,
+    createProcessAttemptRunner,
     type ProcessRunLogSink,
 } from "../process-runtime/index.js";
 import type { ProcessRunRecords } from "../process-runtime/records.js";
@@ -10,7 +11,10 @@ import {
     type ProcessRuntime,
     productionCatalog,
 } from "../processes/catalog.js";
-import type { ProductionContext } from "../processes/production.js";
+import {
+    buildProductionRegistrations,
+    type ProductionContext,
+} from "../processes/production.js";
 import { createPinoProcessRunLogSink } from "../run-observation/pino.js";
 import { parsePositiveInteger, type StartupEnvironment } from "./config.js";
 import { createProductionSkillBindings } from "./runtime-skills.js";
@@ -51,23 +55,23 @@ export function createProductionRuntime(
         agentDir: environment.PI_AGENT_DIR,
     };
     const skills = createProductionSkillBindings(environment);
-    const registrations = productionCatalog.map((process) => {
-        const registration = process.build({
-            environment,
-            pi,
-            skills: skills[process.id] ?? [],
-            positiveInteger,
-        });
-        if (registration.identity.id !== process.id) {
-            throw new Error(
-                `Production Process "${process.id}" built Registration "${registration.identity.id}"`,
-            );
-        }
-        return registration;
+    const processTimeoutMs = positiveInteger("PROCESS_TIMEOUT_MS", 30_000);
+    const registrations = buildProductionRegistrations({
+        catalog: productionCatalog,
+        environment,
+        pi,
+        skills,
+        positiveInteger,
+        // Member Steps share the top-level Sink and default limit so a composed
+        // Run's timeline reads like any other Run's.
+        attemptRunner: createProcessAttemptRunner({
+            processTimeoutMs,
+            logSink: runLogSink,
+        }),
     });
     return createProcessRuntime({
         registrations,
-        processTimeoutMs: positiveInteger("PROCESS_TIMEOUT_MS", 30_000),
+        processTimeoutMs,
         runLogSink,
         ...(options.runRecords ? { runRecords: options.runRecords } : {}),
     });
