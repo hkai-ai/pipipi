@@ -1,4 +1,4 @@
-/** Poster Rendering Capability、图片引用契约 */
+/** Poster Rendering Capability Port 与图片引用契约，生产实现见 capability.http.ts */
 import { z } from "zod";
 
 export const posterImageSchema = z.strictObject({

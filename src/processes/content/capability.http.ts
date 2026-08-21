@@ -1,4 +1,4 @@
-/** Content Processing Capability 的生产 HTTP Adapter */
+/** capability.ts 里 ContentProcessingCapability Port 的生产 HTTP 实现 */
 import { z } from "zod";
 import {
     type ContentProcessingCapability,

@@ -1,4 +1,4 @@
-/** Content Agent 的生产 Pi Adapter */
+/** agent.ts 里 ContentAgent Port 的生产 Pi 实现 */
 import { resolve } from "node:path";
 import {
     createAgentSession,

@@ -1,4 +1,4 @@
-/** News Image Rendering Capability 的图片/生成参数契约 */
+/** News Image Rendering Capability Port 与图片/生成参数契约，生产实现见 capability.http.ts */
 import { z } from "zod";
 
 export const newsImageSchema = z

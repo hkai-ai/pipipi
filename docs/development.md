@@ -153,21 +153,21 @@ curl --fail -X POST http://127.0.0.1:4300/execute \
 | `src/processes/catalog.ts` | 显式 production catalog 和 Process Runtime 组装 |
 | `src/processes/content/registration.ts` | `content-processing/v1` 的 Schema、Direct/Agent 流程、失败和 Tool 调用 invariant |
 | `src/processes/content/skills.ts` | `content-processing/v1` 获准使用的有序 Runtime Skill 集合与 Tool 名称 |
-| `src/processes/content/agent.ts`、`pi.ts` | 窄 Content Agent Interface，以及生产 Pi Adapter |
-| `src/processes/content/capability.ts`、`http.ts` | Content Processing Capability、内容处理契约与生产 HTTP Adapter |
+| `src/processes/content/agent.ts`、`agent.pi.ts` | 窄 Content Agent Port，以及它的生产 Pi 实现 |
+| `src/processes/content/capability.ts`、`capability.http.ts` | Content Processing Capability Port、内容处理契约与它的生产 HTTP 实现 |
 | `src/processes/content/config.ts` | Business API Base URL 的解析与校验 |
 | `src/processes/titled-content/registration.ts` | Titled Content Processing Process Registration，拼接标题与正文后调用 Content Processing Capability |
 | `src/processes/poster/registration.ts` | `minimal-zine-poster/v1` 的 Schema、Prompt 校验、执行顺序和稳定失败 |
-| `src/processes/poster/agent.ts`、`pi.ts` | 无 Tool 的 Poster Agent Interface 与 Pi Prompt 编译 Adapter |
-| `src/processes/poster/capability.ts`、`http.ts` | Poster Rendering Capability、图片引用契约与生产 HTTP Adapter |
+| `src/processes/poster/agent.ts`、`agent.pi.ts` | 无 Tool 的 Poster Agent Port 与它的 Pi Prompt 编译实现 |
+| `src/processes/poster/capability.ts`、`capability.http.ts` | Poster Rendering Capability Port、图片引用契约与它的生产 HTTP 实现 |
 | `src/processes/poster/skills.ts` | `minimal-zine-poster/v1` 绑定的准确 Runtime Skill |
 | `src/processes/crt/registration.ts` | `crt-interface-image/v1` 的上传资产引用、Prompt/recipe 校验、顺序和稳定失败 |
-| `src/processes/crt/agent.ts`、`pi.ts` | 看不到参考图和资产标识的无 Tool CRT Agent Interface 与 Pi Adapter |
-| `src/processes/crt/capability.ts`、`http.ts` | CRT Rendering Capability、PNG 引用契约与 `POST /crt-images` Adapter |
+| `src/processes/crt/agent.ts`、`agent.pi.ts` | 看不到参考图和资产标识的无 Tool CRT Agent Port 与它的 Pi 实现 |
+| `src/processes/crt/capability.ts`、`capability.http.ts` | CRT Rendering Capability Port、PNG 引用契约与它的 `POST /crt-images` 实现 |
 | `src/processes/crt/style.ts`、`skills.ts` | 固定调色板、画幅和准确 Runtime Skill 绑定 |
 | `src/processes/news-image/registration.ts` | 三个新闻图片 Process 共用的 Registration 工厂：按固定风格选择 Prompt 契约校验规则，编排 Prompt 编译与渲染活动并处理失败 |
-| `src/processes/news-image/capability.ts`、`http.ts` | News Image Rendering Capability 的图片/生成参数契约，以及 `POST /news-images` 生产 HTTP Adapter |
-| `src/processes/news-image/agent.ts`、`pi.ts` | 窄 News Image Agent Interface，以及无 Tool 的 Pi Prompt 编译 Adapter |
+| `src/processes/news-image/capability.ts`、`capability.http.ts` | News Image Rendering Capability Port 的图片/生成参数契约，以及它的 `POST /news-images` 生产 HTTP 实现 |
+| `src/processes/news-image/agent.ts`、`agent.pi.ts` | 窄 News Image Agent Port，以及它无 Tool 的 Pi Prompt 编译实现 |
 | `src/processes/news-image/skills.ts` | 三个新闻图片风格各自绑定的准确 Runtime Skill |
 | `test/news-image-process.test.ts` | 三个新闻图片 Process 的输入归一化、固定风格、单次渲染、输出隐藏和稳定失败回归 |
 | `test/news-image-business-acceptance.test.ts` | 三个固定 Process 的单次验收、OSS 位置、重定向拒绝和证据净化 |
@@ -209,7 +209,7 @@ curl --fail -X POST http://127.0.0.1:4300/execute \
 
 依赖方向固定为：`bin` 只进入 `app` 与 `release`；`app` 组装 `api`、`processes`、`process-runs`、`webhooks` 和 `run-observation`；`release` 只依赖 `processes` 的公开契约与注入的 HTTP/数据库句柄；`run-observation` 只依赖 `process-runtime` 的稳定 Interface；具体 `processes` 依赖 `process-runtime` 与 `agent-runtime`，`process-runs` 只依赖 `process-runtime` 的稳定 Interface，`api` 只依赖 `process-runtime` 的稳定 Interface 和 `run-observation` 拥有的汇总类型。Runtime Module 不反向引用具体 Business Process，领域与业务 Module 不反向引用 `app` 或 `bin`；Composition Root 负责把它们连接起来。
 
-顶层目录使用明确的领域名，子目录对应实际 Module。父目录已经提供的上下文不在文件名中重复，例如使用 `src/process-runs/store/postgres.ts`，不用 `src/process-runs/store/postgres-process-run-store.ts`；Adapter 文件只保留 `postgres.ts`、`bullmq.ts`、`http.ts` 等技术名称。不要新增 `common/`、`shared/`、`utils/` 或横向的 `controllers/services/repositories` 目录。无法明确归属的代码应先重新检查 Module 和 Seam。
+顶层目录使用明确的领域名，子目录对应实际 Module。父目录已经提供的上下文不在文件名中重复，例如使用 `src/process-runs/store/postgres.ts`，不用 `src/process-runs/store/postgres-process-run-store.ts`；Adapter 文件只保留 `postgres.ts`、`bullmq.ts`、`http.ts` 等技术名称；当同一 Module 内有多个 Port 各带 Adapter 时，用 `<port>.<技术>.ts` 让配对显形，例如 `agent.ts`/`agent.pi.ts` 与 `capability.ts`/`capability.http.ts`。不要新增 `common/`、`shared/`、`utils/` 或横向的 `controllers/services/repositories` 目录。无法明确归属的代码应先重新检查 Module 和 Seam。
 
 完整 Module 关系见 [`process-runtime-design.md`](process-runtime-design.md)。海报与 CRT Business Process 及其受控 HTTP Adapter 已进入 production catalog；供应商专用的 OpenAI Images 与阿里云 OSS Adapter 仍只由 `examples/` 中的显式集成和业务验收使用。各 Process 的独立入口见 [`processes/`](processes/)；CRT 的上传、后处理和完整发布门禁见 [`processes/common/crt-interface-image/`](processes/common/crt-interface-image/)。
 

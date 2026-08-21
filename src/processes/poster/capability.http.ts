@@ -1,4 +1,4 @@
-/** Poster Rendering Capability 的生产 HTTP Adapter */
+/** capability.ts 里 PosterRenderingCapability Port 的生产 HTTP 实现：POST /posters */
 import {
     type PosterImage,
     type PosterRenderingCapability,

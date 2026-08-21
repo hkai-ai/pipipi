@@ -1,4 +1,4 @@
-/** CRT Rendering Capability、PNG 引用契约 */
+/** CRT Rendering Capability Port 与 PNG 引用契约，生产实现见 capability.http.ts */
 import { z } from "zod";
 import type { CrtAspectRatio, CrtGrain, CrtPalette } from "./style.js";
 

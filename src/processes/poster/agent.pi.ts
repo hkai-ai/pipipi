@@ -1,4 +1,4 @@
-/** Poster 的 Pi Prompt 编译 Adapter */
+/** agent.ts 里 PosterAgent Port 的生产 Pi 实现：无 Tool 把 brief 编译成海报 Prompt */
 import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import type { OpenAIApiMode } from "../../agent-runtime/pi.js";
 import type { SkillRef } from "../../agent-runtime/skills.js";

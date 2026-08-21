@@ -1,4 +1,4 @@
-/** 无 Tool 的 News Image Pi Prompt 编译 Adapter */
+/** agent.ts 里 NewsImageAgent Port 的生产 Pi 实现：无 Tool 编译新闻图片 Prompt */
 import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import type { OpenAIApiMode } from "../../agent-runtime/pi.js";
 import type { SkillRef } from "../../agent-runtime/skills.js";

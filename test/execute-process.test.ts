@@ -12,11 +12,11 @@ import {
     type ProcessRuntimeOptions,
 } from "../src/processes/catalog.js";
 import type { ContentAgent } from "../src/processes/content/agent.js";
+import { HttpContentProcessingCapability } from "../src/processes/content/capability.http.js";
 import {
     type ContentProcessingCapability,
     ContentProcessingUnavailable,
 } from "../src/processes/content/capability.js";
-import { HttpContentProcessingCapability } from "../src/processes/content/http.js";
 
 type RunningServer = {
     url: string;

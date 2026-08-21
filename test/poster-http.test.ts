@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
+import { HttpPosterRenderingCapability } from "../src/processes/poster/capability.http.js";
 import { PosterRenderingUnavailable } from "../src/processes/poster/capability.js";
-import { HttpPosterRenderingCapability } from "../src/processes/poster/http.js";
 
 const image = {
     url: "https://assets.example/posters/poster-1.webp",

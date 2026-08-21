@@ -1,10 +1,10 @@
 import { parseOpenAIApiMode } from "../src/agent-runtime/pi.js";
 import { createProcessingApplication } from "../src/api/application.js";
 import { createProcessExecutor } from "../src/processes/catalog.js";
+import { PiContentAgent } from "../src/processes/content/agent.pi.js";
+import { HttpContentProcessingCapability } from "../src/processes/content/capability.http.js";
 import type { ContentProcessingCapability } from "../src/processes/content/capability.js";
 import { parseBusinessApiBaseUrl } from "../src/processes/content/config.js";
-import { HttpContentProcessingCapability } from "../src/processes/content/http.js";
-import { PiContentAgent } from "../src/processes/content/pi.js";
 import { createContentSkillRefs } from "../src/processes/content/skills.js";
 
 const businessApiBaseUrl = parseBusinessApiBaseUrl(

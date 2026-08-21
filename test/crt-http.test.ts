@@ -1,6 +1,6 @@
 ﻿import { describe, expect, it, vi } from "vitest";
+import { HttpCrtRenderingCapability } from "../src/processes/crt/capability.http.js";
 import { CrtRenderingUnavailable } from "../src/processes/crt/capability.js";
-import { HttpCrtRenderingCapability } from "../src/processes/crt/http.js";
 
 const image = {
     url: "https://assets.example/crt/run-1.png",

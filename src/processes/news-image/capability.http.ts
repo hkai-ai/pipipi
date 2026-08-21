@@ -1,4 +1,4 @@
-/** News Image Rendering Capability 的 POST /news-images 生产 HTTP Adapter */
+/** capability.ts 里 NewsImageRenderingCapability Port 的生产 HTTP 实现：POST /news-images */
 import {
     type NewsImageRenderingCapability,
     type NewsImageRenderingResult,

@@ -211,7 +211,7 @@ Production catalog 由
 | --- | --- | --- |
 | Zod Schema、Registry Map、结果映射 | in-process | 留在深 Module 内，不增加 Adapter |
 | 受控 Business API | remote but owned | `ContentProcessingCapability`、`PosterRenderingCapability` 与 `CrtRenderingCapability` port；生产使用 HTTP Adapter，测试使用内存 Adapter |
-| Pi Agent Runtime | true external | `agent.ts` 定义流程专属窄 Interface；海报、CRT 与新闻图片的 `pi.ts` Adapter 复用无 Tool Structured Agent Session，测试使用注入的 Session factory 或 mock Agent Adapter |
+| Pi Agent Runtime | true external | `agent.ts` 定义流程专属窄 Port；海报、CRT 与新闻图片的 `agent.pi.ts` 实现复用无 Tool Structured Agent Session，测试使用注入的 Session factory 或 mock Agent Adapter |
 | Runtime Skill 快照 | bundled resource | 流程拥有准确安装项；`src/agent-runtime/catalog.ts` 在启动期校验并按版本解析，`skills.ts` 精确加载，不自动发现或扩大 Tool 权限 |
 | Run Record 存储 | 可替换存储 Seam | disabled、内存和持久化 Adapter 共用 `ProcessRunRecordAdapter` |
 

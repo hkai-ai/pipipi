@@ -1,4 +1,4 @@
-/** 窄 News Image Agent Interface */
+/** 窄 News Image Agent Port，生产实现见 agent.pi.ts */
 export type NewsImageAgentRequest = Readonly<{
     title: string;
     summary: string;

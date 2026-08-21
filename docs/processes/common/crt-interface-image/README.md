@@ -248,9 +248,9 @@ npm run accept:crt-business
 | 目标 | 文件 |
 | --- | --- |
 | 产品契约、顺序与错误 | [`src/processes/crt/registration.ts`](../../../../src/processes/crt/registration.ts) |
-| Agent Interface 与 Pi Adapter | [`src/processes/crt/agent.ts`](../../../../src/processes/crt/agent.ts)、[`src/processes/crt/pi.ts`](../../../../src/processes/crt/pi.ts) |
+| Agent Interface 与 Pi Adapter | [`src/processes/crt/agent.ts`](../../../../src/processes/crt/agent.ts)、[`src/processes/crt/agent.pi.ts`](../../../../src/processes/crt/agent.pi.ts) |
 | 调色板和画幅 | [`src/processes/crt/style.ts`](../../../../src/processes/crt/style.ts) |
-| Capability 与 HTTP 协议 | [`src/processes/crt/capability.ts`](../../../../src/processes/crt/capability.ts)、[`src/processes/crt/http.ts`](../../../../src/processes/crt/http.ts) |
+| Capability 与 HTTP 协议 | [`src/processes/crt/capability.ts`](../../../../src/processes/crt/capability.ts)、[`src/processes/crt/capability.http.ts`](../../../../src/processes/crt/capability.http.ts) |
 | Skill 绑定与来源 | [`src/processes/crt/skills.ts`](../../../../src/processes/crt/skills.ts)、[Runtime Skill](../../../../.pi/skills/tait-crt-interface-prompt) |
 | GPT Image edit Adapter 与配置 | [`src/business-api/openai-image-generation.ts`](../../../../src/business-api/openai-image-generation.ts)、[`src/business-api/fal-image-generation.ts`](../../../../src/business-api/fal-image-generation.ts)、[`src/business-api/image-generation-config.ts`](../../../../src/business-api/image-generation-config.ts) |
 | 生产 Business API、finalizer 与 OSS | [`src/bin/crt-business-api.ts`](../../../../src/bin/crt-business-api.ts)、[`src/business-api/crt-server.ts`](../../../../src/business-api/crt-server.ts)、[`src/business-api/crt-finalizer.ts`](../../../../src/business-api/crt-finalizer.ts)、[`src/business-api/object-storage-config.ts`](../../../../src/business-api/object-storage-config.ts) |

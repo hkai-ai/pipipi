@@ -11,8 +11,8 @@ import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { parseOpenAIApiMode } from "../src/agent-runtime/pi.js";
 import { createProcessingApplication } from "../src/api/application.js";
 import { createProcessExecutor } from "../src/processes/catalog.js";
-import { HttpContentProcessingCapability } from "../src/processes/content/http.js";
-import { PiContentAgent } from "../src/processes/content/pi.js";
+import { PiContentAgent } from "../src/processes/content/agent.pi.js";
+import { HttpContentProcessingCapability } from "../src/processes/content/capability.http.js";
 
 const sourceContent =
     process.env.SKILL_AB_CONTENT ??

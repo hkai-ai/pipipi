@@ -1,4 +1,4 @@
-/** CRT Rendering Capability 的 POST /crt-images Adapter */
+/** capability.ts 里 CrtRenderingCapability Port 的生产 HTTP 实现：POST /crt-images */
 import {
     type CrtRenderingCapability,
     type CrtRenderingResult,

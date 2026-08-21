@@ -1,4 +1,4 @@
-/** Content Processing Capability、内容处理契约 */
+/** Content Processing Capability Port 与内容处理契约，生产实现见 capability.http.ts */
 export type ContentProcessingCapability = {
     process: (
         input: { content: string },

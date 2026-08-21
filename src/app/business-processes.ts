@@ -11,15 +11,15 @@ import {
     type ProcessRuntime,
 } from "../processes/catalog.js";
 import type { ContentAgent } from "../processes/content/agent.js";
+import { PiContentAgent } from "../processes/content/agent.pi.js";
+import { HttpContentProcessingCapability } from "../processes/content/capability.http.js";
 import { parseBusinessApiBaseUrl } from "../processes/content/config.js";
-import { HttpContentProcessingCapability } from "../processes/content/http.js";
-import { PiContentAgent } from "../processes/content/pi.js";
-import { HttpCrtRenderingCapability } from "../processes/crt/http.js";
-import { PiCrtAgent } from "../processes/crt/pi.js";
-import { HttpNewsImageRenderingCapability } from "../processes/news-image/http.js";
-import { PiNewsImageAgent } from "../processes/news-image/pi.js";
-import { HttpPosterRenderingCapability } from "../processes/poster/http.js";
-import { PiPosterAgent } from "../processes/poster/pi.js";
+import { PiCrtAgent } from "../processes/crt/agent.pi.js";
+import { HttpCrtRenderingCapability } from "../processes/crt/capability.http.js";
+import { PiNewsImageAgent } from "../processes/news-image/agent.pi.js";
+import { HttpNewsImageRenderingCapability } from "../processes/news-image/capability.http.js";
+import { PiPosterAgent } from "../processes/poster/agent.pi.js";
+import { HttpPosterRenderingCapability } from "../processes/poster/capability.http.js";
 import { createPinoProcessRunLogSink } from "../run-observation/pino.js";
 import type { StartupEnvironment } from "./config.js";
 import { createProductionSkillBindings } from "./runtime-skills.js";

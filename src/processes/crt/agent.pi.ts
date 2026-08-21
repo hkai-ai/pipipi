@@ -1,4 +1,4 @@
-/** CRT 的 Pi Adapter */
+/** agent.ts 里 CrtAgent Port 的生产 Pi 实现：把调色板与画幅编译成 Prompt */
 import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import type { OpenAIApiMode } from "../../agent-runtime/pi.js";
 import type { SkillRef } from "../../agent-runtime/skills.js";

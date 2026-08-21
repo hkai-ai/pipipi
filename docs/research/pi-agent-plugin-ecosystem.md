@@ -8,7 +8,7 @@
 
 这里的“pi-agent”最可能指原 `badlogic/pi-mono` 中的 Pi coding agent。原仓库地址现已重定向到 [`earendil-works/pi`](https://github.com/earendil-works/pi)，官方 README 明确区分交互式 `@earendil-works/pi-coding-agent` 与底层 `@earendil-works/pi-agent-core`。本项目依赖的也是 [`@earendil-works/pi-coding-agent`](../../package.json)，因此后文使用它的 extension/package 生态作为调查对象。
 
-当前不应把任何社区 extension 直接加入生产 Agent。[`PiContentAgent`](../../src/processes/content/pi.ts) 和 [`PiPosterAgent`](../../src/processes/poster/pi.ts) 都显式设置 `noExtensions`、`noPromptTemplates`、`noThemes` 和 `noContextFiles`，并为每个请求创建独立内存 Session。前者只暴露 `process_business_content`，后者没有 Tool。这与 [`CONTEXT.md`](../../CONTEXT.md) 中“请求级无状态、无跨请求记忆、无通用 Coding Tools”的信任模型一致。
+当前不应把任何社区 extension 直接加入生产 Agent。[`PiContentAgent`](../../src/processes/content/agent.pi.ts) 和 [`PiPosterAgent`](../../src/processes/poster/agent.pi.ts) 都显式设置 `noExtensions`、`noPromptTemplates`、`noThemes` 和 `noContextFiles`，并为每个请求创建独立内存 Session。前者只暴露 `process_business_content`，后者没有 Tool。这与 [`CONTEXT.md`](../../CONTEXT.md) 中“请求级无状态、无跨请求记忆、无通用 Coding Tools”的信任模型一致。
 
 如果维护者另行使用交互式 Pi CLI 开发本仓库，建议先试用一个低外部副作用的 extension：`@juicesharp/rpiv-ask-user-question`。MCP、LSP、人工计划审阅和权限提示都有价值，但只应按明确需求安装到个人开发环境。Subagent、Web、浏览器、记忆、遥测和自动安全审计 extension 当前都不适合进入本项目生产 Runtime。
 
