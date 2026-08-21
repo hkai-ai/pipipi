@@ -5,7 +5,7 @@ describe("Async paid image smoke workflow", () => {
     it("is manual, protected, cost-approved, same-revision, and fixed to CRT", async () => {
         const [workflow, module, command, packageJson] = await Promise.all([
             readFile(".github/workflows/async-paid-image-smoke.yml", "utf8"),
-            readFile("src/app/paid-async-image-smoke.ts", "utf8"),
+            readFile("src/release/paid-async-image-smoke.ts", "utf8"),
             readFile("examples/paid-async-image-smoke.ts", "utf8"),
             readFile("package.json", "utf8"),
         ]);

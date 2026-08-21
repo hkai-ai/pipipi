@@ -1,6 +1,6 @@
 import path from "node:path";
 import { runner } from "node-pg-migrate";
-import { applyMigrationsAndVerify } from "../app/migration-verification.js";
+import { applyMigrationsAndVerify } from "../release/migration-verification.js";
 
 const databaseUrl = process.env.DATABASE_URL?.trim();
 if (!databaseUrl) throw new Error("DATABASE_URL is required");

@@ -3,7 +3,7 @@ import { dirname, resolve } from "node:path";
 import {
     createPaidAsyncImageSmoke,
     type PaidAsyncImageSmokeEvidence,
-} from "../src/app/paid-async-image-smoke.js";
+} from "../src/release/paid-async-image-smoke.js";
 
 const evidenceFile = resolve(
     process.env.PAID_ASYNC_EVIDENCE_FILE ??

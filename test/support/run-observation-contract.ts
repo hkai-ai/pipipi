@@ -1,9 +1,9 @@
 import { expect, it } from "vitest";
-import type { ProcessRunActivityArchive } from "../../src/app/process-run-activities.js";
-import type { ProcessRunRecordArchive } from "../../src/app/process-run-records.js";
-import type { RunObservationStats } from "../../src/app/run-observation-stats.js";
 import type { ProcessRunLogRecord } from "../../src/process-runtime/index.js";
 import type { ProcessRunRecord } from "../../src/process-runtime/records.js";
+import type { ProcessRunActivityArchive } from "../../src/run-observation/activities.js";
+import type { ProcessRunRecordArchive } from "../../src/run-observation/records.js";
+import type { RunObservationStats } from "../../src/run-observation/stats.js";
 
 export type ObservationBackend = Readonly<{
     archive: ProcessRunRecordArchive;

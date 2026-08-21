@@ -1,8 +1,8 @@
 import type { ConsoleStatsSummary } from "../api/http.js";
 import type { ProcessRunLogRecord } from "../process-runtime/index.js";
 import type { ProcessRunRecord } from "../process-runtime/records.js";
-import { createJsonlProcessRunActivityReader } from "./process-run-activities.js";
-import { createJsonlProcessRunRecordReader } from "./process-run-records.js";
+import { createJsonlProcessRunActivityReader } from "./activities.js";
+import { createJsonlProcessRunRecordReader } from "./records.js";
 
 export type RunObservationStats = Readonly<{
     summarise: (

@@ -2,7 +2,7 @@ import type {
     ProcessRunLogRecord,
     ProcessRunLogSink,
 } from "../process-runtime/index.js";
-import { createJsonlDayFiles, utcDayOf } from "./jsonl-day-files.js";
+import { createJsonlDayFiles, utcDayOf } from "./day-files.js";
 
 /**
  * The durable half of the activity log.

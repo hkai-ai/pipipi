@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { describeProcessCatalog } from "../src/api/process-catalog.js";
 import { createProductionRuntime } from "../src/app/business-processes.js";
-import { describeProcessCatalog } from "../src/app/process-catalog.js";
 import type { ProcessRegistry } from "../src/process-runtime/index.js";
 
 const registry: ProcessRegistry = createProductionRuntime({

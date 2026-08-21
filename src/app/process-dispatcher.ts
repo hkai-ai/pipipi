@@ -13,7 +13,7 @@ import {
     type StartupEnvironment,
 } from "./config.js";
 import { assertDeploymentEnvironment } from "./deployment-environment.js";
-import { createRuntimePool } from "./postgres.js";
+import { createRuntimePool } from "./postgres-pool.js";
 import { loadProcessRunConnections } from "./process-run-config.js";
 import {
     type ConstructedRuntimeRoleService,

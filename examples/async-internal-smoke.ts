@@ -3,7 +3,7 @@ import path from "node:path";
 import {
     type AsyncInternalSmokeBaseline,
     createAsyncInternalSmoke,
-} from "../src/app/async-internal-smoke.js";
+} from "../src/release/async-internal-smoke.js";
 
 const phase = required("ASYNC_INTERNAL_SMOKE_PHASE");
 if (phase !== "baseline" && phase !== "rollback") {

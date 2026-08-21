@@ -19,8 +19,8 @@ import { HttpNewsImageRenderingCapability } from "../processes/news-image/http.j
 import { PiNewsImageAgent } from "../processes/news-image/pi.js";
 import { HttpPosterRenderingCapability } from "../processes/poster/http.js";
 import { PiPosterAgent } from "../processes/poster/pi.js";
+import { createPinoProcessRunLogSink } from "../run-observation/pino.js";
 import type { StartupEnvironment } from "./config.js";
-import { createPinoProcessRunLogSink } from "./process-run-logging.js";
 import { createProductionSkillBindings } from "./runtime-skills.js";
 
 export function createProductionRuntime(

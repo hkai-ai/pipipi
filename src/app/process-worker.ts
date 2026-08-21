@@ -6,6 +6,7 @@ import {
     combineProcessRunLogSinks,
     createProcessAttemptRunner,
 } from "../process-runtime/index.js";
+import { createPinoProcessRunLogSink } from "../run-observation/pino.js";
 import { createProductionRuntime } from "./business-processes.js";
 import {
     optionalNonEmpty,
@@ -16,9 +17,8 @@ import {
     type StartupEnvironment,
 } from "./config.js";
 import { assertDeploymentEnvironment } from "./deployment-environment.js";
-import { createRuntimePool } from "./postgres.js";
+import { createRuntimePool } from "./postgres-pool.js";
 import { loadProcessRunConnections } from "./process-run-config.js";
-import { createPinoProcessRunLogSink } from "./process-run-logging.js";
 import {
     type BackgroundRuntime,
     type ConstructedRuntimeRoleService,

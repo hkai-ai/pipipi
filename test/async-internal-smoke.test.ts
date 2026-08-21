@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createAsyncInternalSmoke } from "../src/app/async-internal-smoke.js";
+import { createAsyncInternalSmoke } from "../src/release/async-internal-smoke.js";
 
 const REVISION = "c".repeat(40);
 const SUCCESS_RUN = "00000000-0000-4000-8000-000000000201";

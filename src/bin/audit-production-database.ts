@@ -2,7 +2,7 @@ import { Pool } from "pg";
 import {
     auditProductionDatabase,
     parseProductionDatabaseAuditConnection,
-} from "../app/production-database-audit.js";
+} from "../release/production-database-audit.js";
 
 const connectionString = parseProductionDatabaseAuditConnection(
     process.env.DATABASE_URL,

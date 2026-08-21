@@ -6,7 +6,7 @@ describe("news image Business Process acceptance workflow", () => {
         const [workflow, command, module, manifestSource] = await Promise.all([
             readFile(".github/workflows/production-ci-cd.yml", "utf8"),
             readFile("examples/news-image-business-acceptance.ts", "utf8"),
-            readFile("src/app/news-image-acceptance.ts", "utf8"),
+            readFile("src/release/news-image-acceptance.ts", "utf8"),
             readFile("package.json", "utf8"),
         ]);
         const manifest = JSON.parse(manifestSource) as {

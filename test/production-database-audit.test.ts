@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
     auditProductionDatabase,
     parseProductionDatabaseAuditConnection,
-} from "../src/app/production-database-audit.js";
+} from "../src/release/production-database-audit.js";
 
 describe("Production database audit", () => {
     it("requires the fixed production CA contract before connecting", () => {

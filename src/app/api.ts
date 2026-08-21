@@ -4,12 +4,14 @@ import {
     createProcessingApplication,
     type ProcessingApplication,
 } from "../api/application.js";
+import { createFileControlledAsyncIntake } from "../api/async-intake.js";
 import {
     defaultHttpMaxRequestBodyBytes,
     defaultMaxConcurrentExecutions,
     type ProcessingHttpOptions,
 } from "../api/http.js";
 import { createGatewayCallerIdentityResolver } from "../api/identity.js";
+import { describeProcessCatalog } from "../api/process-catalog.js";
 import { createAsyncProcessRuns } from "../process-runs/index.js";
 import {
     type AsyncReleaseStage,
@@ -17,11 +19,9 @@ import {
 } from "../process-runs/ops/postgres.js";
 import { createPostgresProcessRunStore } from "../process-runs/store/postgres.js";
 import type { ProcessRegistry } from "../process-runtime/index.js";
-import { createFileControlledAsyncIntake } from "./async-intake.js";
 import { createProductionRuntime } from "./business-processes.js";
 import type { StartupEnvironment } from "./config.js";
 import { assertDeploymentEnvironment } from "./deployment-environment.js";
-import { describeProcessCatalog } from "./process-catalog.js";
 import {
     type ConstructedProcessRunObservation,
     constructProcessRunObservation,

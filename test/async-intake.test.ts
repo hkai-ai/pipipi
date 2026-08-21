@@ -2,7 +2,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { createFileControlledAsyncIntake } from "../src/app/async-intake.js";
+import { createFileControlledAsyncIntake } from "../src/api/async-intake.js";
 
 describe("File-controlled async intake", () => {
     const directories: string[] = [];

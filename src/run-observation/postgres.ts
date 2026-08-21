@@ -4,7 +4,7 @@ import type {
     ProcessRunLogRecord,
 } from "../process-runtime/index.js";
 import type { ProcessRunRecord } from "../process-runtime/records.js";
-import type { ProcessRunActivityArchive } from "./process-run-activities.js";
+import type { ProcessRunActivityArchive } from "./activities.js";
 import {
     defaultProcessRunRecordListLimit,
     encodeProcessRunRecordCursor,
@@ -12,11 +12,11 @@ import {
     type ProcessRunRecordArchive,
     parseProcessRunRecordCursor,
     redactProcessRunRecord,
-} from "./process-run-records.js";
+} from "./records.js";
 import {
     type RunObservationStats,
     summariseAggregatedRunObservation,
-} from "./run-observation-stats.js";
+} from "./stats.js";
 
 /**
  * PostgreSQL-backed Run Record archive.

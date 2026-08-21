@@ -6,7 +6,7 @@ describe("Async internal smoke workflow", () => {
         const [workflow, smoke, intake, lease, collector, releaseEvidence] =
             await Promise.all([
                 readFile(".github/workflows/async-internal-smoke.yml", "utf8"),
-                readFile("src/app/async-internal-smoke.ts", "utf8"),
+                readFile("src/release/async-internal-smoke.ts", "utf8"),
                 readFile("ops/set-async-internal-intake.sh", "utf8"),
                 readFile("ops/set-async-internal-smoke-lease.sh", "utf8"),
                 readFile(

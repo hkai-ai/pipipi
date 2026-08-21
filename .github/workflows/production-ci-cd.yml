@@ -144,7 +144,7 @@ jobs:
                 src/app/api.ts \
                 src/app/business-processes.ts \
                 src/app/config.ts \
-                src/app/news-image-acceptance.ts \
+                src/release/news-image-acceptance.ts \
                 src/app/runtime-skills.ts \
                 src/bin/api.ts \
                 src/bin/crt-business-api.ts \

@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
-import { createPinoProcessRunLogSink } from "../src/app/process-run-logging.js";
 import {
     createProcessAttemptRunner,
     defineProcessRegistration,
@@ -9,6 +8,7 @@ import {
     type ProcessRunLogRecord,
 } from "../src/process-runtime/index.js";
 import { createProcessExecutor } from "../src/processes/catalog.js";
+import { createPinoProcessRunLogSink } from "../src/run-observation/pino.js";
 
 const inputSchema = z.strictObject({ value: z.string() });
 const outputSchema = z.strictObject({ value: z.string() });

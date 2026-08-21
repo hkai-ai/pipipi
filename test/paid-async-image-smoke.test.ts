@@ -1,6 +1,6 @@
 import sharp from "sharp";
 import { describe, expect, it } from "vitest";
-import { createPaidAsyncImageSmoke } from "../src/app/paid-async-image-smoke.js";
+import { createPaidAsyncImageSmoke } from "../src/release/paid-async-image-smoke.js";
 
 const REVISION = "a".repeat(40);
 const RUN_ID = "7f6ec44d-2870-42e8-b5c5-512fee086e70";

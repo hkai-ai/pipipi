@@ -2,13 +2,13 @@ import path from "node:path";
 import { runner } from "node-pg-migrate";
 import { Pool } from "pg";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { auditProductionDatabase } from "../src/release/production-database-audit.js";
 import {
     createPostgresProcessRunActivityArchive,
     createPostgresProcessRunRecordArchive,
     createPostgresRunObservationStats,
     pruneProcessRunObservation,
-} from "../src/app/postgres-run-observation.js";
-import { auditProductionDatabase } from "../src/app/production-database-audit.js";
+} from "../src/run-observation/postgres.js";
 import {
     describeRunObservationContract,
     processRunActivity,

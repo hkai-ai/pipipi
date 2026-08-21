@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { summariseAggregatedRunObservation } from "../src/app/run-observation-stats.js";
+import { summariseAggregatedRunObservation } from "../src/run-observation/stats.js";
 
 describe("Run observation aggregate shaping", () => {
     it("keeps large SQL counts aggregated instead of expanding fake Runs", () => {

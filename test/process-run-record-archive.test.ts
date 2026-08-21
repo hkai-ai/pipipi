@@ -2,13 +2,13 @@ import { mkdtemp, readdir, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import type { ProcessRunRecord } from "../src/process-runtime/records.js";
+import { createProcessRunRecords } from "../src/process-runtime/records.js";
 import {
     createJsonlProcessRunRecordArchive,
     parseProcessRunRecordContent,
     pruneProcessRunRecords,
-} from "../src/app/process-run-records.js";
-import type { ProcessRunRecord } from "../src/process-runtime/records.js";
-import { createProcessRunRecords } from "../src/process-runtime/records.js";
+} from "../src/run-observation/records.js";
 
 const directories: string[] = [];
 

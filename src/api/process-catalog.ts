@@ -1,6 +1,6 @@
 import { z } from "zod";
-import type { ConsoleProcessDescription } from "../api/http.js";
 import type { ProcessRegistry } from "../process-runtime/index.js";
+import type { ConsoleProcessDescription } from "./http.js";
 
 /**
  * Describes the production catalog for the operator console.

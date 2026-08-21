@@ -1,9 +1,9 @@
 import { Pool } from "pg";
+import { parseConnectionUrl } from "../app/config.js";
 import {
     auditAsyncSmokeState,
     waitForAsyncSmokeDeliveryCoverage,
-} from "../app/async-smoke-state.js";
-import { parseConnectionUrl } from "../app/config.js";
+} from "../release/async-smoke-state.js";
 
 const arguments_ = process.argv.slice(2);
 const waitForDeliveries = arguments_[0] === "--wait-for-deliveries";

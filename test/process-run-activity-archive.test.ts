@@ -3,13 +3,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
-    createJsonlProcessRunActivityArchive,
-    pruneProcessRunActivities,
-} from "../src/app/process-run-activities.js";
-import {
     combineProcessRunLogSinks,
     type ProcessRunLogRecord,
 } from "../src/process-runtime/index.js";
+import {
+    createJsonlProcessRunActivityArchive,
+    pruneProcessRunActivities,
+} from "../src/run-observation/activities.js";
 
 const fixedClock = () => new Date("2026-08-11T10:00:00.000Z");
 

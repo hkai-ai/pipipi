@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { applyMigrationsAndVerify } from "../src/app/migration-verification.js";
+import { applyMigrationsAndVerify } from "../src/release/migration-verification.js";
 
 describe("migration verification", () => {
     it("applies migrations and proves the second run is empty", async () => {

@@ -3,13 +3,13 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { parseOpenAIApiMode } from "../src/agent-runtime/pi.js";
 import { constructProcessingService } from "../src/app/api.js";
-import {
-    createNewsImageAcceptance,
-    type NewsImageAcceptanceRun,
-} from "../src/app/news-image-acceptance.js";
 import { startLocalCrtBusinessApi } from "../src/business-api/crt-server.js";
 import { createImageGenerationClient } from "../src/business-api/image-generation-config.js";
 import { createObjectStorageFromEnvironment } from "../src/business-api/object-storage-config.js";
+import {
+    createNewsImageAcceptance,
+    type NewsImageAcceptanceRun,
+} from "../src/release/news-image-acceptance.js";
 
 const evidenceFile = resolve(
     process.env.NEWS_IMAGE_ACCEPTANCE_EVIDENCE_FILE ??

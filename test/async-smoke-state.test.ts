@@ -3,7 +3,7 @@ import {
     type AsyncSmokeState,
     auditAsyncSmokeState,
     waitForAsyncSmokeDeliveryCoverage,
-} from "../src/app/async-smoke-state.js";
+} from "../src/release/async-smoke-state.js";
 
 describe("Async smoke state audit", () => {
     it("reports only preservation signals and never owner or idempotency values", async () => {

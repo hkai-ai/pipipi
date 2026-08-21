@@ -3,7 +3,7 @@ import type {
     ProcessRunRecord,
     ProcessRunRecordAdapter,
 } from "../process-runtime/records.js";
-import { createJsonlDayFiles, utcDayOf } from "./jsonl-day-files.js";
+import { createJsonlDayFiles, utcDayOf } from "./day-files.js";
 
 /**
  * A page of Run Records, newest first. `nextBefore` is an opaque cursor that

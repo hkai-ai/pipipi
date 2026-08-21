@@ -1,6 +1,6 @@
 import sharp from "sharp";
 import { beforeAll, describe, expect, it } from "vitest";
-import { createNewsImageAcceptance } from "../src/app/news-image-acceptance.js";
+import { createNewsImageAcceptance } from "../src/release/news-image-acceptance.js";
 
 const cases = {
     "news-image-narrative-monument": {
