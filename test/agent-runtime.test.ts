@@ -1,8 +1,11 @@
 import {
     type CreateAgentSessionOptions,
     type CreateAgentSessionResult,
+    defineTool,
+    type ExtensionContext,
     ModelRuntime,
 } from "@earendil-works/pi-coding-agent";
+import { Type } from "typebox";
 import { describe, expect, it, vi } from "vitest";
 import {
     configureOpenAI,
@@ -12,6 +15,7 @@ import {
     PiStructuredAgent,
     type PiStructuredAgentSessionFactory,
 } from "../src/agent-runtime/structured.js";
+import { PiTooledAgent } from "../src/agent-runtime/tooled.js";
 import { createPosterSkillRefs } from "../src/processes/poster/skills.js";
 
 describe("OpenAI-compatible provider configuration", () => {
@@ -145,6 +149,206 @@ describe("structured Pi Agent", () => {
         ).toThrow("Pi provider and model must be configured together");
     });
 });
+
+describe("tooled Pi Agent", () => {
+    const echoTool = (name: string, calls: unknown[]) =>
+        defineTool({
+            name,
+            label: name,
+            description: `Echo through ${name}`,
+            parameters: Type.Object({ value: Type.String() }),
+            execute: async (_toolCallId, input) => {
+                calls.push(input);
+                return {
+                    content: [{ type: "text" as const, text: input.value }],
+                    details: {},
+                };
+            },
+        });
+
+    it("exposes exactly the listed Tools and counts the calls the model makes", async () => {
+        const modelRuntime = await createEmptyModelRuntime();
+        const calls: unknown[] = [];
+        let captured: CreateAgentSessionOptions | undefined;
+        const abort = vi.fn(async () => undefined);
+        const dispose = vi.fn();
+        const sessionFactory: PiStructuredAgentSessionFactory = async (
+            options,
+        ) => {
+            captured = options;
+            return fakeSessionResult({
+                prompt: async () => {
+                    // Stand in for the model: call the first Tool twice.
+                    const tool = options.customTools?.[0];
+                    if (!tool) throw new Error("no tool");
+                    await tool.execute(
+                        "c1",
+                        { value: "one" },
+                        undefined,
+                        undefined,
+                        fakeExtensionContext(),
+                    );
+                    await tool.execute(
+                        "c2",
+                        { value: "two" },
+                        undefined,
+                        undefined,
+                        fakeExtensionContext(),
+                    );
+                },
+                abort,
+                dispose,
+                messages: [
+                    {
+                        role: "assistant",
+                        content: [{ type: "text", text: '{"done":true}' }],
+                        stopReason: "stop",
+                    },
+                ],
+                modelId: "test-model",
+            });
+        };
+        const agent = new PiTooledAgent({
+            skills: createPosterSkillRefs(),
+            instructions: ["Plan with the Tools."],
+            modelRuntime,
+            sessionFactory,
+        });
+
+        const result = await agent.run({
+            prompt: "Go.",
+            tools: [echoTool("run_alpha", calls), echoTool("run_beta", [])],
+            maxToolCalls: 3,
+            signal: new AbortController().signal,
+        });
+
+        expect(result).toEqual({
+            output: { done: true },
+            modelId: "test-model",
+            toolCalls: 2,
+        });
+        expect(calls).toEqual([{ value: "one" }, { value: "two" }]);
+        expect(captured?.tools).toEqual(["run_alpha", "run_beta"]);
+        expect(captured?.noTools).toBeUndefined();
+        expect(captured?.customTools?.map((tool) => tool.name)).toEqual([
+            "run_alpha",
+            "run_beta",
+        ]);
+        expect(abort).not.toHaveBeenCalled();
+        expect(dispose).toHaveBeenCalledOnce();
+    });
+
+    it("aborts the session and fails once the Tool call budget is crossed", async () => {
+        const modelRuntime = await createEmptyModelRuntime();
+        const calls: unknown[] = [];
+        const abort = vi.fn(async () => undefined);
+        const dispose = vi.fn();
+        let thirdCall: Promise<unknown> | undefined;
+        const sessionFactory: PiStructuredAgentSessionFactory = async (
+            options,
+        ) =>
+            fakeSessionResult({
+                prompt: async () => {
+                    const tool = options.customTools?.[0];
+                    if (!tool) throw new Error("no tool");
+                    for (const value of ["one", "two"]) {
+                        await tool.execute(
+                            "c",
+                            { value },
+                            undefined,
+                            undefined,
+                            fakeExtensionContext(),
+                        );
+                    }
+                    thirdCall = tool
+                        .execute(
+                            "c3",
+                            { value: "three" },
+                            undefined,
+                            undefined,
+                            fakeExtensionContext(),
+                        )
+                        .catch((error: unknown) => error);
+                    await thirdCall;
+                },
+                abort,
+                dispose,
+                messages: [
+                    {
+                        role: "assistant",
+                        content: [{ type: "text", text: '{"done":true}' }],
+                        stopReason: "stop",
+                    },
+                ],
+            });
+        const agent = new PiTooledAgent({
+            skills: createPosterSkillRefs(),
+            instructions: ["Plan with the Tools."],
+            modelRuntime,
+            sessionFactory,
+        });
+
+        await expect(
+            agent.run({
+                prompt: "Go.",
+                tools: [echoTool("run_alpha", calls)],
+                maxToolCalls: 2,
+                signal: new AbortController().signal,
+            }),
+        ).rejects.toThrow("The Agent exceeded its Tool call budget");
+        expect(calls).toEqual([{ value: "one" }, { value: "two" }]);
+        await expect(thirdCall).resolves.toMatchObject({
+            name: "ToolCallBudgetExceeded",
+        });
+        expect(abort).toHaveBeenCalledOnce();
+        expect(dispose).toHaveBeenCalledOnce();
+    });
+
+    it("rejects an empty, duplicated or malformed Tool surface before opening a session", async () => {
+        const modelRuntime = await createEmptyModelRuntime();
+        const sessionFactory = vi.fn<PiStructuredAgentSessionFactory>();
+        const agent = new PiTooledAgent({
+            skills: createPosterSkillRefs(),
+            instructions: ["Plan with the Tools."],
+            modelRuntime,
+            sessionFactory,
+        });
+        const signal = new AbortController().signal;
+
+        await expect(
+            agent.run({ prompt: "Go.", tools: [], maxToolCalls: 1, signal }),
+        ).rejects.toThrow("Tooled Agent requires at least one Tool");
+        await expect(
+            agent.run({
+                prompt: "Go.",
+                tools: [echoTool("run_alpha", []), echoTool("run_alpha", [])],
+                maxToolCalls: 1,
+                signal,
+            }),
+        ).rejects.toThrow('Tool "run_alpha" is duplicated');
+        await expect(
+            agent.run({
+                prompt: "Go.",
+                tools: [echoTool("Run-Alpha", [])],
+                maxToolCalls: 1,
+                signal,
+            }),
+        ).rejects.toThrow("Tool name is invalid");
+        await expect(
+            agent.run({
+                prompt: "Go.",
+                tools: [echoTool("run_alpha", [])],
+                maxToolCalls: 0,
+                signal,
+            }),
+        ).rejects.toThrow("Tooled Agent Tool call budget must be positive");
+        expect(sessionFactory).not.toHaveBeenCalled();
+    });
+});
+
+function fakeExtensionContext(): ExtensionContext {
+    return {} as ExtensionContext;
+}
 
 async function createEmptyModelRuntime(): Promise<ModelRuntime> {
     return ModelRuntime.create({ modelsPath: null, refreshOnCreate: false });
