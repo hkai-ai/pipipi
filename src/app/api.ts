@@ -13,6 +13,7 @@ import {
 } from "../api/http.js";
 import { createGatewayCallerIdentityResolver } from "../api/identity.js";
 import { describeProcessCatalog } from "../api/process-catalog.js";
+import { describeSkillCatalog } from "../api/skill-catalog.js";
 import { createAsyncProcessRuns } from "../process-runs/index.js";
 import {
     type AsyncReleaseStage,
@@ -20,7 +21,10 @@ import {
 } from "../process-runs/ops/postgres.js";
 import { createPostgresProcessRunStore } from "../process-runs/store/postgres.js";
 import type { ProcessRegistry } from "../process-runtime/index.js";
-import { createProductionRuntime } from "./business-processes.js";
+import {
+    createProductionRuntime,
+    type ProductionRuntime,
+} from "./business-processes.js";
 import type { StartupEnvironment } from "./config.js";
 import { assertDeploymentEnvironment } from "./deployment-environment.js";
 import {
@@ -56,11 +60,7 @@ export function constructProcessingService(
         environment,
         runtime.registry,
     );
-    const consoleOptions = constructConsole(
-        environment,
-        archive,
-        runtime.registry,
-    );
+    const consoleOptions = constructConsole(environment, archive, runtime);
 
     return {
         application: createProcessingApplication({
@@ -118,7 +118,7 @@ function consoleAssetDirectory(environment: StartupEnvironment): string {
 function constructConsole(
     environment: StartupEnvironment,
     archive: ConstructedProcessRunObservation | undefined,
-    registry: ProcessRegistry,
+    runtime: ProductionRuntime,
 ): NonNullable<ProcessingHttpOptions["console"]> | undefined {
     if (!parseFeatureFlag(environment.CONSOLE_ENABLED, "CONSOLE_ENABLED")) {
         return undefined;
@@ -140,7 +140,8 @@ function constructConsole(
         activities: Object.freeze({
             findByRun: archive.activities.findByRun,
         }),
-        processes: describeProcessCatalog(registry),
+        processes: describeProcessCatalog(runtime.registry),
+        skills: describeSkillCatalog(runtime.skills),
         stats: Object.freeze({ summarise: archive.stats.summarise }),
     });
 }

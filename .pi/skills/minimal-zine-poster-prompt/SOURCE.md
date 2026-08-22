@@ -13,6 +13,10 @@
 
 The source contains one `SKILL.md`, three README translations, an MIT license, a `.gitignore`, and six example JPEG images. It contains no scripts, references required at runtime, MCP configuration, or declared external Tools. The JPEG files are illustrative outputs and are not needed by the Runtime prompt compiler, so they are excluded from the production snapshot.
 
+## Console cover
+
+`cover.webp` is not an upstream asset. It is the lower part of this project's own `minimal-zine-poster/v1` business acceptance output (`artifacts/gpt-image-2/latest.png`, run `a673807d-932c-447b-997a-f2905d776a86`), cropped and downscaled for the operator console's Skill catalog. The Agent never reads it, it is outside the `SKILL.md` SHA-256 integrity check, and replacing it does not change the Skill version.
+
 ## Adaptations
 
 The upstream Development Skill both compiles a prompt and invokes built-in image generation. This Runtime snapshot keeps the Standard Mode prompt compiler, visual rules, variation axes, output checks, and attribution, but narrows its authority and output:

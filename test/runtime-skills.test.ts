@@ -170,10 +170,13 @@ describe("Runtime Skill set", () => {
         const ref = refs[0];
         expect(ref).toBeDefined();
         if (!ref) throw new Error("Poster Skill ref is unavailable");
+        // `cover.webp` is the console preview cut from this Process's own
+        // acceptance output, not an upstream asset; see SOURCE.md.
         expect(readdirSync(ref.path).sort()).toEqual([
             "LICENSE",
             "SKILL.md",
             "SOURCE.md",
+            "cover.webp",
         ]);
         expect(readFileSync("Dockerfile", "utf8")).toContain(
             `COPY --chown=node:node ${ref.path} ./${ref.path}`,
@@ -231,7 +234,11 @@ describe("Runtime Skill set", () => {
         const ref = refs[0];
         expect(ref).toBeDefined();
         if (!ref) throw new Error("CRT Skill ref is unavailable");
-        expect(readdirSync(ref.path).sort()).toEqual(["SKILL.md", "SOURCE.md"]);
+        expect(readdirSync(ref.path).sort()).toEqual([
+            "SKILL.md",
+            "SOURCE.md",
+            "cover.webp",
+        ]);
         expect(readFileSync("Dockerfile", "utf8")).toContain(
             `COPY --chown=node:node ${ref.path} ./${ref.path}`,
         );

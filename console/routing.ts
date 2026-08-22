@@ -4,6 +4,8 @@ export type Route =
     | Readonly<{ view: "runs" }>
     | Readonly<{ view: "run"; runId: string }>
     | Readonly<{ view: "processes" }>
+    | Readonly<{ view: "skills" }>
+    | Readonly<{ view: "skill"; name: string; version: string }>
     | Readonly<{ view: "stats" }>
     | Readonly<{ view: "submit" }>;
 
@@ -18,7 +20,23 @@ export function parseRoute(hash: string): Route {
     if (head === "run" && rest[0]) {
         return { view: "run", runId: decodeURIComponent(rest[0]) };
     }
-    if (head === "processes" || head === "stats" || head === "submit") {
+    if (head === "skills" && rest[0]) {
+        const identity = decodeURIComponent(rest[0]);
+        const separator = identity.indexOf("@");
+        if (separator > 0) {
+            return {
+                view: "skill",
+                name: identity.slice(0, separator),
+                version: identity.slice(separator + 1),
+            };
+        }
+    }
+    if (
+        head === "processes" ||
+        head === "skills" ||
+        head === "stats" ||
+        head === "submit"
+    ) {
         return { view: head };
     }
     return { view: "runs" };
@@ -30,6 +48,8 @@ export function hrefFor(route: Route): string {
             return `#/run/${encodeURIComponent(route.runId)}`;
         case "runs":
             return "#/runs";
+        case "skill":
+            return `#/skills/${encodeURIComponent(`${route.name}@${route.version}`)}`;
         default:
             return `#/${route.view}`;
     }

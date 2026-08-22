@@ -7,6 +7,8 @@ import {
     ProcessesView,
     RunsView,
     RunView,
+    SkillsView,
+    SkillView,
     StatsView,
     SubmitView,
 } from "./views.jsx";
@@ -15,8 +17,16 @@ const tabs: readonly Readonly<{ route: Route; label: string }>[] = [
     { route: { view: "runs" }, label: "运行记录" },
     { route: { view: "stats" }, label: "服务压力" },
     { route: { view: "processes" }, label: "Process 目录" },
+    { route: { view: "skills" }, label: "Skill 目录" },
     { route: { view: "submit" }, label: "提交任务" },
 ];
+
+/** A detail view highlights the tab of the list it was opened from. */
+function tabOf(view: Route["view"]): Route["view"] {
+    if (view === "run") return "runs";
+    if (view === "skill") return "skills";
+    return view;
+}
 
 function Console() {
     const route = useRoute();
@@ -49,8 +59,7 @@ function Console() {
                         key={tab.label}
                         href={hrefFor(tab.route)}
                         aria-current={
-                            tab.route.view === route.view ||
-                            (tab.route.view === "runs" && route.view === "run")
+                            tab.route.view === tabOf(route.view)
                                 ? "page"
                                 : undefined
                         }
@@ -66,6 +75,10 @@ function Console() {
             {route.view === "run" ? <RunView runId={route.runId} /> : null}
             {route.view === "stats" ? <StatsView /> : null}
             {route.view === "processes" ? <ProcessesView /> : null}
+            {route.view === "skills" ? <SkillsView /> : null}
+            {route.view === "skill" ? (
+                <SkillView name={route.name} version={route.version} />
+            ) : null}
             {route.view === "submit" ? (
                 <SubmitView processes={processes} />
             ) : null}

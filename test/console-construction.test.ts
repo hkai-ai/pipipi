@@ -114,6 +114,49 @@ describe("operator console construction", () => {
         });
     });
 
+    it("serves the installed Skill catalog with its shipped covers", async () => {
+        const directory = await mkdtemp(join(tmpdir(), "pipipi-console-"));
+        const url = await startService({
+            PROCESS_RUN_RECORD_DIRECTORY: directory,
+            CONSOLE_ENABLED: "true",
+        });
+
+        const catalog = (await (
+            await fetch(`${url}/console/skills`)
+        ).json()) as {
+            skills: readonly {
+                name: string;
+                version: string;
+                processes: readonly string[];
+                cover?: { file: string; mediaType: string };
+            }[];
+        };
+        expect(catalog.skills.map((skill) => skill.name)).toEqual([
+            "content-integrity",
+            "content-optimization",
+            "minimal-zine-poster-prompt",
+            "news-image-narrative-monument-prompt",
+            "news-image-pale-watercolor-prompt",
+            "news-image-raw-humanism-prompt",
+            "tait-crt-interface-prompt",
+        ]);
+        const poster = catalog.skills.find(
+            (skill) => skill.name === "minimal-zine-poster-prompt",
+        );
+        expect(poster?.processes).toEqual(["minimal-zine-poster"]);
+        expect(poster?.cover).toEqual({
+            file: "cover.webp",
+            mediaType: "image/webp",
+        });
+
+        const cover = await fetch(
+            `${url}/console/skills/minimal-zine-poster-prompt@v1/cover`,
+        );
+        expect(cover.status).toBe(200);
+        expect(cover.headers.get("content-type")).toBe("image/webp");
+        expect((await cover.arrayBuffer()).byteLength).toBeGreaterThan(0);
+    });
+
     it("keeps recording off and the console unmounted by default", async () => {
         const url = await startService({});
 

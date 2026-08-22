@@ -5,6 +5,8 @@ import { join } from "node:path";
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
 import {
     type ConsoleHttpOptions,
+    type ConsoleSkillCatalog,
+    type ConsoleSkillDescription,
     createProcessingRequestListener,
 } from "../src/api/http.js";
 import type {
@@ -342,6 +344,96 @@ describe("operator console HTTP boundary", () => {
         );
     });
 
+    it("serves the installed Skill catalog", async () => {
+        const service = await startConsole({ skills: stubSkillCatalog() });
+
+        const response = await fetch(`${service.url}/console/skills`);
+
+        expect(response.status).toBe(200);
+        expect(response.headers.get("cache-control")).toBe("no-store");
+        expect(await response.json()).toEqual({
+            skills: [stubSkill],
+        });
+    });
+
+    it("serves a Skill cover by exact identity and revalidates by ETag", async () => {
+        const service = await startConsole({ skills: stubSkillCatalog() });
+        const url = `${service.url}/console/skills/${encodeURIComponent("news-image-pale-watercolor-prompt@v1")}/cover`;
+
+        const response = await fetch(url);
+
+        expect(response.status).toBe(200);
+        expect(response.headers.get("content-type")).toBe("image/png");
+        expect(response.headers.get("cache-control")).toBe("no-cache");
+        expect(response.headers.get("x-content-type-options")).toBe("nosniff");
+        expect(Buffer.from(await response.arrayBuffer())).toEqual(coverBytes);
+        const etag = response.headers.get("etag");
+        expect(etag).toBe('"0123456789abcdef0123456789abcdef"');
+
+        const revalidation = await fetch(url, {
+            headers: { "if-none-match": etag as string },
+        });
+        expect(revalidation.status).toBe(304);
+    });
+
+    it("reports a missing or malformed Skill cover without reaching the catalog", async () => {
+        const requested: string[] = [];
+        const service = await startConsole({
+            skills: stubSkillCatalog((name, version) => {
+                requested.push(`${name}@${version}`);
+            }),
+        });
+
+        const missing = await fetch(
+            `${service.url}/console/skills/content-integrity@v1/cover`,
+        );
+        expect(missing.status).toBe(404);
+        expect(await missing.json()).toEqual({
+            status: "failed",
+            error: {
+                code: "SKILL_COVER_NOT_FOUND",
+                message: "Runtime Skill cover not found",
+            },
+        });
+
+        for (const path of [
+            "/console/skills/../../etc/passwd/cover",
+            "/console/skills/Bad_Name@v1/cover",
+            "/console/skills/content-integrity@latest/cover",
+            "/console/skills/content-integrity/cover",
+            "/console/skills/content-integrity@v1/other",
+            "/console/skills/content-integrity@v1/cover/extra",
+        ]) {
+            const response = await fetch(`${service.url}${path}`);
+            expect(response.status, path).toBe(404);
+        }
+        expect(requested).toEqual(["content-integrity@v1"]);
+    });
+
+    it("omits the Skill routes when the catalog is not configured", async () => {
+        const service = await startRequestListener(
+            createProcessingRequestListener(rejectingExecutor(), {
+                console: {
+                    basePath: "/console",
+                    assetDirectory: builtConsoleDirectory,
+                    records: {
+                        list: async () => ({ records: [storedRecord] }),
+                        find: async () => storedRecord,
+                    },
+                },
+            }),
+        );
+
+        expect((await fetch(`${service.url}/console/skills`)).status).toBe(404);
+        expect(
+            (
+                await fetch(
+                    `${service.url}/console/skills/content-integrity@v1/cover`,
+                )
+            ).status,
+        ).toBe(404);
+    });
+
     it("adds live concurrency to the stored summary", async () => {
         const service = await startConsole({
             summarise: async ({ since }) => ({ ...emptySummary, since }),
@@ -435,6 +527,39 @@ describe("operator console HTTP boundary", () => {
     });
 });
 
+const coverBytes = Buffer.from("\x89PNG\r\n\x1a\nstub", "binary");
+
+const stubSkill: ConsoleSkillDescription = {
+    name: "news-image-pale-watercolor-prompt",
+    version: "v1",
+    sha256: "a".repeat(64),
+    description: "Compile factual news into a pale-watercolor prompt.",
+    processes: ["news-image-pale-watercolor"],
+    instructions: "# Pale watercolor news image\n\nCompile only.",
+    files: ["SKILL.md", "SOURCE.md", "cover.png"],
+    cover: { file: "cover.png", mediaType: "image/png" },
+    source: "# Source",
+};
+
+function stubSkillCatalog(
+    onCover?: (name: string, version: string) => void,
+): ConsoleSkillCatalog {
+    return {
+        list: () => [stubSkill],
+        readCover: async (name, version) => {
+            onCover?.(name, version);
+            if (name !== stubSkill.name || version !== stubSkill.version) {
+                return undefined;
+            }
+            return {
+                mediaType: "image/png",
+                contents: coverBytes,
+                etag: '"0123456789abcdef0123456789abcdef"',
+            };
+        },
+    };
+}
+
 async function startConsole(
     options: {
         basePath?: string;
@@ -444,6 +569,7 @@ async function startConsole(
             ConsoleHttpOptions["activities"]
         >["findByRun"];
         processes?: ConsoleHttpOptions["processes"];
+        skills?: ConsoleHttpOptions["skills"];
         summarise?: NonNullable<ConsoleHttpOptions["stats"]>["summarise"];
         revision?: string;
         executor?: ProcessExecutor;
@@ -471,6 +597,7 @@ async function startConsole(
                     ...(options.processes
                         ? { processes: options.processes }
                         : {}),
+                    ...(options.skills ? { skills: options.skills } : {}),
                     ...(options.summarise
                         ? { stats: { summarise: options.summarise } }
                         : {}),

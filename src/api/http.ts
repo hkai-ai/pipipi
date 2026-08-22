@@ -81,6 +81,8 @@ export type ConsoleHttpOptions = Readonly<{
     }>;
     /** The fixed production catalog. Absent when catalog exposure is off. */
     processes?: readonly ConsoleProcessDescription[];
+    /** The installed Runtime Skills. Absent when Skill exposure is off. */
+    skills?: ConsoleSkillCatalog;
     stats?: Readonly<{
         summarise: (
             query: Readonly<{ since: string }>,
@@ -116,6 +118,39 @@ export type ConsoleProcessDescription = Readonly<{
     }>;
     input?: unknown;
     output?: unknown;
+}>;
+
+/**
+ * How one installed Runtime Skill is described to operators. Entries come from
+ * the exact bindings the production Processes were built with, so the list
+ * cannot name a Skill the release does not ship. `instructions` is the
+ * reviewed `SKILL.md` body the Agent receives; `cover` is present only when
+ * the snapshot ships a cover image beside `SKILL.md`.
+ */
+export type ConsoleSkillDescription = Readonly<{
+    name: string;
+    version: string;
+    sha256: string;
+    description: string;
+    /** Process ids whose Registration binds this exact version. */
+    processes: readonly string[];
+    instructions: string;
+    /** Every file in the snapshot, as POSIX paths relative to its directory. */
+    files: readonly string[];
+    cover?: Readonly<{ file: string; mediaType: string }>;
+    /** Provenance notes from `SOURCE.md`, when the snapshot carries them. */
+    source?: string;
+}>;
+
+export type ConsoleSkillCatalog = Readonly<{
+    list: () => readonly ConsoleSkillDescription[];
+    readCover: (
+        name: string,
+        version: string,
+    ) => Promise<
+        | Readonly<{ mediaType: string; contents: Buffer; etag: string }>
+        | undefined
+    >;
 }>;
 
 export type AsyncProcessRunsHttpOptions = Readonly<{
@@ -540,6 +575,47 @@ async function handleConsole(
         return true;
     }
 
+    if (options.skills && path === `${base}/skills`) {
+        response.setHeader("cache-control", "no-store");
+        writeJson(response, 200, { skills: options.skills.list() });
+        return true;
+    }
+
+    const coverSkill = options.skills
+        ? consoleSkillFromPath(path, base, "/cover")
+        : undefined;
+    if (options.skills && coverSkill !== undefined) {
+        const cover = await options.skills.readCover(
+            coverSkill.name,
+            coverSkill.version,
+        );
+        if (!cover) {
+            writeFailureJson(
+                response,
+                404,
+                "SKILL_COVER_NOT_FOUND",
+                "Runtime Skill cover not found",
+            );
+            return true;
+        }
+        // The cover is fixed for a release but its URL carries no content
+        // hash, so revalidation is by ETag rather than a long max-age.
+        response.setHeader("cache-control", "no-cache");
+        response.setHeader("etag", cover.etag);
+        if (request.headers["if-none-match"] === cover.etag) {
+            response.writeHead(304);
+            response.end();
+            return true;
+        }
+        response.writeHead(200, {
+            "content-type": cover.mediaType,
+            "content-length": cover.contents.byteLength,
+            "x-content-type-options": "nosniff",
+        });
+        response.end(cover.contents);
+        return true;
+    }
+
     if (path === `${base}/runs`) {
         const limit = parseListLimitParameter(url.searchParams.get("limit"));
         if (limit === "invalid") {
@@ -699,6 +775,43 @@ function parseOptionalTimestamp(
     const milliseconds = Date.parse(value);
     if (!Number.isFinite(milliseconds)) return "invalid";
     return new Date(milliseconds).toISOString();
+}
+
+const consoleSkillNamePattern = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+const consoleSkillVersionPattern = /^v[0-9]+(?:\.[0-9]+){0,2}$/;
+
+/**
+ * Extracts the exact Skill identity from `{base}/skills/{name}@{version}{suffix}`.
+ * Both halves are validated against the Runtime Skill naming rules, so an
+ * arbitrary segment never reaches the catalog.
+ */
+function consoleSkillFromPath(
+    path: string,
+    basePath: string,
+    suffix: string,
+): Readonly<{ name: string; version: string }> | undefined {
+    const prefix = `${basePath}/skills/`;
+    if (!path.startsWith(prefix) || !path.endsWith(suffix)) return undefined;
+    const candidate = path.slice(prefix.length, -suffix.length);
+    if (candidate.length === 0 || candidate.includes("/")) return undefined;
+    let identity: string;
+    try {
+        identity = decodeURIComponent(candidate);
+    } catch {
+        return undefined;
+    }
+    const separator = identity.indexOf("@");
+    if (separator <= 0) return undefined;
+    const name = identity.slice(0, separator);
+    const version = identity.slice(separator + 1);
+    if (
+        name.length > 64 ||
+        !consoleSkillNamePattern.test(name) ||
+        !consoleSkillVersionPattern.test(version)
+    ) {
+        return undefined;
+    }
+    return { name, version };
 }
 
 /**

@@ -339,9 +339,13 @@ Schema 由部署脚本在激活新容器前执行 `npm run db:migrate` 应用，
 | `GET {base}/runs/{runId}` | 读取单条 Run Record |
 | `GET {base}/runs/{runId}/activities` | 读取该 Run 的 Attempt 与活动时间线，按 Attempt 序号和 sequence 排序 |
 | `GET {base}/processes` | 读取生产 catalog：精确版本、固定活动名、Registration 级重试策略，以及输入输出字段表 |
+| `GET {base}/skills` | 读取随本次发布安装、并被已启用 Process 绑定的 Runtime Skill：精确 `name`/`version`/SHA-256、`description`、绑定它的 Process id、`SKILL.md` 指令正文、快照文件清单、封面信息与 `SOURCE.md` 来源记录 |
+| `GET {base}/skills/{name}@{version}/cover` | 读取该 Skill 快照目录内的封面图。无封面、身份不精确或格式不合法时返回 `404`；响应带 ETag，按 `no-cache` 重验证 |
 | `GET {base}/stats?hours=` | 窗口内的执行计数、按 Process 汇总、UTC 每日吞吐与错误码分布、最近失败、Attempt 耗时分位数，以及实时并发占用。`hours` 为 1–720，缺省 24 |
 
-页面是 Preact + Vite 构建的单页应用，四个视图：运行记录（检索、组合筛选、稳定翻页，以及声明活动顺序与各 Attempt 实际顺序的对照）、服务压力（每日吞吐、错误随时间分布和最近失败）、Process 目录、提交任务。它由 `npm run build` 一并构建到 `dist/console`，随镜像发布，由 API 同源提供——服务不启用 CORS，控制台不能独立部署到其他源。
+页面是 Preact + Vite 构建的单页应用，五个视图：运行记录（检索、组合筛选、稳定翻页，以及声明活动顺序与各 Attempt 实际顺序的对照）、服务压力（每日吞吐、错误随时间分布和最近失败）、Process 目录、Skill 目录（封面卡片网格、按名称/描述/绑定 Process 筛选，点开查看指令正文、文件清单与来源记录）、提交任务。它由 `npm run build` 一并构建到 `dist/console`，随镜像发布，由 API 同源提供——服务不启用 CORS，控制台不能独立部署到其他源。
+
+Skill 目录来自生产 Composition Root 构建 Process 时使用的同一组 Skill 绑定，因此它只会列出本次发布真正装载、且被启用 Process 精确绑定的版本；被 `enabled` 关闭的 Process 不会贡献 Skill。目录只读：安装、更新或移除 Skill 仍是代码评审与发布动作，控制台不提供任何写入。封面按目录约定读取——在 Skill 快照目录放置 `cover.png`、`cover.jpg`、`cover.jpeg`、`cover.webp` 或 `cover.gif`（按此顺序取第一个非空、不超过 10 MiB 的文件）即可，不需要改 `SKILL.md`，也不影响其 SHA-256 完整性校验。封面在启动时定位、首次请求时读入并常驻内存。
 
 构建工具与框架是 devDependencies，生产镜像用 `--omit=dev` 安装运行时依赖，因此它们不进入运行时容器，只有构建产物进入。
 

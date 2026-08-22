@@ -18,6 +18,10 @@
 
 The resolved source contains `SKILL.md`, two required reference files, one Python finalizer, Codex UI metadata, a bilingual README, two interaction assets, ten source examples, and ten generated examples. The required color card and representative output were inspected. Example images are illustrative and are excluded from the application artifact.
 
+## Console cover
+
+`cover.webp` is not an upstream asset. It is a downscaled copy of this project's own `crt-interface-image/v1` business acceptance output (`artifacts/crt-interface-image/acceptance/latest.png`), shipped only as the cover for the operator console's Skill catalog. The Agent never reads it, it is outside the `SKILL.md` SHA-256 integrity check, and replacing it does not change the Skill version.
+
 The Python finalizer imports only the standard library and Pillow. It reads one local raster, quantizes it to a supplied two-to-five-color palette, applies a same-resolution grid and edge warp, adds scanlines and the locked signature, creates the destination directory, and writes a new PNG. It has no network access, Secret reads, command execution, deletion, or broad filesystem writes. It rejects an existing output path and refuses to overwrite the input. The current production Agent cannot run scripts or load Pillow, so the script is not installed as Runtime authority; an owned image Capability must implement and test the equivalent finalization contract.
 
 ## Adaptations

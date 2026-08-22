@@ -2,15 +2,18 @@ import { useEffect, useRef, useState } from "preact/hooks";
 import { compareAttemptActivities } from "./activity-comparison.js";
 import {
     type ConsoleProcessDescription,
+    type ConsoleSkillDescription,
     type ConsoleStats,
     findRun,
     findTimeline,
     listProcesses,
     listRuns,
+    listSkills,
     type ProcessRunRecord,
     type RunFilters,
     type RunTimeline,
     readStats,
+    skillCoverHref,
 } from "./api.js";
 import {
     formatDuration,
@@ -607,6 +610,238 @@ function describeConstraint(property: Record<string, unknown>): string {
         parts.push(`缺省 ${JSON.stringify(property.default)}`);
     }
     return parts.join("，");
+}
+
+/**
+ * The installed Runtime Skills as a cover grid. The catalog is read-only by
+ * design: installing, updating or removing a Skill is a reviewed code change
+ * and a release, never a console action.
+ */
+export function SkillsView() {
+    const catalog = useAsync(() => listSkills(), []);
+    const [query, setQuery] = useState("");
+    const needle = query.trim().toLowerCase();
+    const skills = (catalog.value?.skills ?? []).filter(
+        (skill) =>
+            needle.length === 0 ||
+            [skill.name, skill.description, ...skill.processes].some((text) =>
+                text.toLowerCase().includes(needle),
+            ),
+    );
+
+    return (
+        <Panel title="Skill 目录">
+            <p class="hint">
+                随本次发布安装、并被已启用 Process 精确绑定的 Runtime
+                Skill。目录只读：安装、更新或移除 Skill
+                都要经过代码评审与发布，不能在控制台操作。点击卡片查看指令正文与来源记录。
+            </p>
+            <div class="toolbar">
+                <label class="grow">
+                    筛选
+                    <input
+                        type="search"
+                        placeholder="按名称、描述或绑定 Process 筛选"
+                        value={query}
+                        onInput={(event) => setQuery(event.currentTarget.value)}
+                    />
+                </label>
+                <span class="hint">
+                    {catalog.value
+                        ? `${skills.length} / ${catalog.value.skills.length} 个`
+                        : ""}
+                </span>
+            </div>
+            {catalog.error ? <p class="error">{catalog.error}</p> : null}
+            {catalog.value && skills.length === 0 ? (
+                <p class="empty">
+                    {catalog.value.skills.length === 0
+                        ? "当前发布没有启用任何绑定 Runtime Skill 的 Process。"
+                        : "没有匹配的 Skill。"}
+                </p>
+            ) : null}
+            <div class="skill-grid">
+                {skills.map((skill) => (
+                    <SkillCard
+                        key={`${skill.name}@${skill.version}`}
+                        skill={skill}
+                    />
+                ))}
+            </div>
+        </Panel>
+    );
+}
+
+function SkillCard({ skill }: { skill: ConsoleSkillDescription }) {
+    return (
+        <a
+            class="skill-card"
+            href={hrefFor({
+                view: "skill",
+                name: skill.name,
+                version: skill.version,
+            })}
+        >
+            <SkillCover skill={skill} />
+            <div class="skill-card-body">
+                <div class="skill-card-title">
+                    {skill.name}
+                    <span class="skill-version">{skill.version}</span>
+                </div>
+                <p class="skill-card-description" title={skill.description}>
+                    {skill.description || "（未提供描述）"}
+                </p>
+                <ProcessChips processes={skill.processes} />
+            </div>
+        </a>
+    );
+}
+
+/**
+ * A Skill without a cover still gets a stable, recognisable tile so the grid
+ * scans the same whether or not every snapshot ships an image.
+ */
+function SkillCover({ skill }: { skill: ConsoleSkillDescription }) {
+    if (skill.cover) {
+        return (
+            <img
+                class="skill-cover"
+                loading="lazy"
+                src={skillCoverHref(skill)}
+                alt={`${skill.name} 封面`}
+            />
+        );
+    }
+    const initials = skill.name
+        .split("-")
+        .filter((part) => part.length > 0)
+        .slice(0, 3)
+        .map((part) => part[0]?.toUpperCase() ?? "")
+        .join("");
+    return (
+        <div class="skill-cover skill-cover-missing">
+            <span aria-hidden="true">{initials}</span>
+            <small>未提供封面</small>
+        </div>
+    );
+}
+
+function ProcessChips({ processes }: { processes: readonly string[] }) {
+    if (processes.length === 0) {
+        return <span class="hint">未被任何已启用 Process 绑定</span>;
+    }
+    return (
+        <div class="chips">
+            {processes.map((process) => (
+                <span class="chip" key={process}>
+                    {process}
+                </span>
+            ))}
+        </div>
+    );
+}
+
+export function SkillView({
+    name,
+    version,
+}: {
+    name: string;
+    version: string;
+}) {
+    const catalog = useAsync(() => listSkills(), []);
+    const skill = catalog.value?.skills.find(
+        (entry) => entry.name === name && entry.version === version,
+    );
+    const back = <a href={hrefFor({ view: "skills" })}>← 返回 Skill 目录</a>;
+
+    if (catalog.error) {
+        return (
+            <Panel title={`${name} @ ${version}`} action={back}>
+                <p class="error">{catalog.error}</p>
+            </Panel>
+        );
+    }
+    if (!catalog.value) {
+        return (
+            <Panel title={`${name} @ ${version}`} action={back}>
+                <p class="hint">加载中…</p>
+            </Panel>
+        );
+    }
+    if (!skill) {
+        return (
+            <Panel title={`${name} @ ${version}`} action={back}>
+                <p class="empty">
+                    本次发布没有安装这个 Skill 版本，或它未被任何已启用 Process
+                    绑定。
+                </p>
+            </Panel>
+        );
+    }
+
+    return (
+        <Panel title={`${skill.name} @ ${skill.version}`} action={back}>
+            <div class="skill-hero">
+                {skill.cover ? (
+                    <a
+                        href={skillCoverHref(skill)}
+                        target="_blank"
+                        rel="noreferrer"
+                        title="在新标签页中打开封面"
+                    >
+                        <SkillCover skill={skill} />
+                    </a>
+                ) : (
+                    <SkillCover skill={skill} />
+                )}
+                <div>
+                    <p class="skill-description">
+                        {skill.description || "（未提供描述）"}
+                    </p>
+                    <table>
+                        <tbody>
+                            <tr>
+                                <th>绑定 Process</th>
+                                <td>
+                                    <ProcessChips processes={skill.processes} />
+                                </td>
+                            </tr>
+                            <tr>
+                                <th>SHA-256</th>
+                                <td class="mono">{skill.sha256 || "—"}</td>
+                            </tr>
+                            <tr>
+                                <th>封面文件</th>
+                                <td class="mono">
+                                    {skill.cover
+                                        ? `${skill.cover.file}（${skill.cover.mediaType}）`
+                                        : "无；在 Skill 目录放置 cover.png / cover.jpg / cover.webp 即可显示"}
+                                </td>
+                            </tr>
+                            <tr>
+                                <th>快照文件</th>
+                                <td class="mono">{skill.files.join("　")}</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                    <p class="hint">
+                        SHA-256 只覆盖
+                        SKILL.md；封面与其他随附文件不参与完整性校验。
+                    </p>
+                </div>
+            </div>
+            <details open>
+                <summary>SKILL.md 指令正文（Agent 实际收到的内容）</summary>
+                <pre class="skill-text">{skill.instructions}</pre>
+            </details>
+            {skill.source !== undefined ? (
+                <details>
+                    <summary>SOURCE.md 来源与审查记录</summary>
+                    <pre class="skill-text">{skill.source}</pre>
+                </details>
+            ) : null}
+        </Panel>
+    );
 }
 
 export function StatsView() {

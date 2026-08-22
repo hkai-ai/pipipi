@@ -1,5 +1,6 @@
 import type {
     ConsoleProcessDescription,
+    ConsoleSkillDescription,
     ConsoleStats,
 } from "../src/api/http.js";
 import type { ProcessRunLogRecord } from "../src/process-runtime/logging.js";
@@ -13,6 +14,7 @@ import type { ProcessRunRecord } from "../src/process-runtime/records.js";
  */
 export type {
     ConsoleProcessDescription,
+    ConsoleSkillDescription,
     ConsoleStats,
     ProcessRunLogRecord,
     ProcessRunRecord,
@@ -81,4 +83,24 @@ export function listProcesses(): Promise<
 
 export function readStats(hours: number): Promise<ConsoleStats> {
     return readJson(`stats?hours=${hours}`);
+}
+
+export function listSkills(): Promise<
+    Readonly<{ skills: readonly ConsoleSkillDescription[] }>
+> {
+    return readJson("skills");
+}
+
+/**
+ * The cover is an ordinary same-origin image URL so the browser caches it and
+ * `<img>` can load it lazily; it resolves against the same `<base>` as the
+ * JSON routes.
+ */
+export function skillCoverHref(
+    skill: Pick<ConsoleSkillDescription, "name" | "version">,
+): string {
+    return new URL(
+        `skills/${encodeURIComponent(`${skill.name}@${skill.version}`)}/cover`,
+        document.baseURI,
+    ).toString();
 }

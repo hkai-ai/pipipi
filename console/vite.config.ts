@@ -37,6 +37,7 @@ export default defineConfig(({ command, mode }) => {
             proxy: {
                 "/console/runs": "http://127.0.0.1:4300",
                 "/console/processes": "http://127.0.0.1:4300",
+                "/console/skills": "http://127.0.0.1:4300",
                 "/console/stats": "http://127.0.0.1:4300",
                 ...(developmentGateway
                     ? { "/process-runs": developmentGateway }
