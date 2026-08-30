@@ -45,3 +45,50 @@ describe("In-memory Agent Conversation retention", () => {
         ).resolves.toEqual({ outcome: "deleted" });
     });
 });
+
+describe("In-memory Agent Conversation admission", () => {
+    it("replays before capacity and enforces caller and global backlogs", async () => {
+        const store = createInMemoryAgentConversationStore({
+            admission: {
+                globalBacklogLimit: 2,
+                callerBacklogLimit: 1,
+                retryAfterSeconds: 7,
+            },
+        });
+        const callerA = acceptedConversation(20);
+        const callerB = {
+            ...acceptedConversation(21),
+            ownerId: "owner-b",
+        };
+
+        await expect(store.accept(callerA)).resolves.toMatchObject({
+            outcome: "created",
+        });
+        await expect(store.accept(callerA)).resolves.toMatchObject({
+            outcome: "replayed",
+        });
+        await expect(
+            store.accept({
+                ...acceptedConversation(22),
+                ownerId: callerA.ownerId,
+            }),
+        ).resolves.toEqual({
+            outcome: "capacity",
+            scope: "caller",
+            retryAfterSeconds: 7,
+        });
+        await expect(store.accept(callerB)).resolves.toMatchObject({
+            outcome: "created",
+        });
+        await expect(
+            store.accept({
+                ...acceptedConversation(23),
+                ownerId: "owner-c",
+            }),
+        ).resolves.toEqual({
+            outcome: "capacity",
+            scope: "global",
+            retryAfterSeconds: 7,
+        });
+    });
+});

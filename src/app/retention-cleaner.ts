@@ -4,6 +4,7 @@ import {
     createRetentionCleanerRuntime,
 } from "../process-runs/retention/index.js";
 import { createPostgresRetentionCleanup } from "../process-runs/retention/postgres.js";
+import { constructAgentRetentionCleaner } from "./agent-retention-cleaner.js";
 import {
     parseBoundedPositiveInteger,
     parsePort,
@@ -15,6 +16,7 @@ import { createRuntimePool } from "./postgres-pool.js";
 import { parseProcessRunDatabaseUrl } from "./process-run-config.js";
 import {
     type ConstructedRuntimeRoleService,
+    combineBackgroundRuntimes,
     constructRuntimeRoleService,
 } from "./role.js";
 
@@ -74,7 +76,10 @@ export function constructRetentionCleanerService(
 
     return constructRuntimeRoleService({
         role: "retention-cleaner",
-        runtime,
+        runtime: combineBackgroundRuntimes([
+            runtime,
+            constructAgentRetentionCleaner(environment),
+        ]),
         port,
         readinessTimeoutMs,
     });

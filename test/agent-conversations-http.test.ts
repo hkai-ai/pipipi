@@ -314,6 +314,60 @@ describe("Agent Conversations HTTP Interface", () => {
         await expect(fixture.queue.take()).resolves.toBeUndefined();
     });
 
+    it("returns caller-scoped HTTP 429 with the server Retry-After", async () => {
+        const fixture = await startFixture({
+            admission: {
+                globalBacklogLimit: 2,
+                callerBacklogLimit: 1,
+                retryAfterSeconds: 7,
+            },
+        });
+        const accepted = await open(fixture.url, {
+            callerId: "caller-a",
+            idempotencyKey: "capacity-1",
+        });
+        const replay = await open(fixture.url, {
+            callerId: "caller-a",
+            idempotencyKey: "capacity-1",
+        });
+        const rejected = await open(fixture.url, {
+            callerId: "caller-a",
+            idempotencyKey: "capacity-2",
+        });
+
+        expect(accepted.status).toBe(202);
+        expect(replay.status).toBe(202);
+        expect(rejected.status).toBe(429);
+        expect(rejected.headers.get("retry-after")).toBe("7");
+        expect(await rejected.json()).toMatchObject({
+            error: { code: "CALLER_AGENT_BACKLOG_LIMIT_REACHED" },
+        });
+    });
+
+    it("returns global HTTP 429 with the server Retry-After", async () => {
+        const fixture = await startFixture({
+            admission: {
+                globalBacklogLimit: 1,
+                callerBacklogLimit: 1,
+                retryAfterSeconds: 9,
+            },
+        });
+        await open(fixture.url, {
+            callerId: "caller-a",
+            idempotencyKey: "global-1",
+        });
+        const rejected = await open(fixture.url, {
+            callerId: "caller-b",
+            idempotencyKey: "global-2",
+        });
+
+        expect(rejected.status).toBe(429);
+        expect(rejected.headers.get("retry-after")).toBe("9");
+        expect(await rejected.json()).toMatchObject({
+            error: { code: "AGENT_BACKLOG_LIMIT_REACHED" },
+        });
+    });
+
     it("rejects unknown versions, invalid text and caller-supplied mechanics", async () => {
         const fixture = await startFixture();
 
@@ -399,7 +453,16 @@ describe("Agent Conversations HTTP Interface", () => {
     });
 });
 
-async function startFixture(options: { agent?: InteractiveAgent } = {}) {
+async function startFixture(
+    options: {
+        agent?: InteractiveAgent;
+        admission?: {
+            globalBacklogLimit: number;
+            callerBacklogLimit: number;
+            retryAfterSeconds: number;
+        };
+    } = {},
+) {
     const timestamps = [firstTimestamp, startedTimestamp, finishedTimestamp];
     const clock = () => timestamps.shift() ?? finishedTimestamp;
     const registry: AgentRegistry = createAgentRegistry([
@@ -425,15 +488,26 @@ async function startFixture(options: { agent?: InteractiveAgent } = {}) {
                 } satisfies InteractiveAgent),
         }),
     ]);
-    const store = createInMemoryAgentConversationStore();
+    const store = createInMemoryAgentConversationStore(
+        options.admission ? { admission: options.admission } : {},
+    );
     const queue = createInMemoryAgentTurnQueue();
+    let identitySequence = 0;
     const conversations = createAgentConversations({
         registry,
         store,
         queue,
         clock,
-        createConversationId: () => conversationId,
-        createTurnId: () => turnId,
+        createConversationId: () => {
+            identitySequence += 1;
+            return identitySequence === 1
+                ? conversationId
+                : `conversation-${String(identitySequence).padStart(4, "0")}`;
+        },
+        createTurnId: () =>
+            identitySequence === 1
+                ? turnId
+                : `turn-${String(identitySequence).padStart(4, "0")}`,
     });
     const drain = createAgentTurnDrain({
         source: queue,

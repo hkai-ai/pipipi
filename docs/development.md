@@ -72,7 +72,7 @@ curl --fail -X POST http://127.0.0.1:4300/execute \
 | `npm run test:integration:agent-tools:local` | 在临时 Docker PostgreSQL 中验证 Tool Ledger 重放、预算、fencing 和 after-commit | 创建并清理隔离容器与 `_test` 数据库 |
 | `npm run build` | 构建服务端与控制台 | 重建 `dist/` |
 
-修改异步执行、PostgreSQL、Redis、Queue、Webhook、恢复或控制台异步提交时，转到 [异步 Process Run 开发指南](async-process-runs-development.md)。真实 Agent、图片、模型、OSS 和已部署环境验证转到 [实验与真实集成](experiments.md)。生产配置检查、migration、恢复和发布操作按对应 Runbook 执行。
+修改异步执行、PostgreSQL、Redis、Queue、Webhook、恢复或控制台异步提交时，转到 [异步 Process Run 开发指南](async-process-runs-development.md)。修改或启用交互式 Agent 时同时阅读 [Agent Conversations 设计](agent-conversations-design.md) 与 [发布运维手册](agent-conversations-runbook.md)。真实 Agent、图片、模型、OSS 和已部署环境验证转到 [实验与真实集成](experiments.md)。
 
 `package.json` 是脚本名称的事实来源。开发文档只保留选择依据、危险边界和环境无法表达的约束，不复制完整脚本清单。
 
@@ -156,6 +156,8 @@ curl --fail -X POST http://127.0.0.1:4300/execute \
 | `src/agent-runtime/session.ts`、`structured.ts`、`tooled.ts` | 请求级 Pi Session 的共享支撑（选项校验、Skill 注入、模型选择、内存 Session），以及建立在它之上的无 Tool Structured Agent Session 与带 Tool 白名单和调用预算的 Tool-bearing Session |
 | `src/agent-runtime/process-tools.ts` | 受限 Agent 共用的精确 Process Tool allow-list、Schema 推导、稳定子 Run identity、Attempt 执行和净化结果；预算与账本留在调用方 Module |
 | `src/agent-conversations/` | Agent Registration/Registry、多轮 Conversation/Turn、owner-scoped 图片 Resource Resolver、准确 Process Tool allow-list、内存/PostgreSQL Tool Ledger、跨 Worker 预算与 after-commit、Pi Interactive Agent、caller 操作级幂等、原子顺序、分页、删除/过期与分批清理、Context Assembly、内存/PostgreSQL Store、Turn Outbox、BullMQ Queue/Worker、Dispatcher、Reconciler 和读取时资源投影 |
+| `src/agents/` | 显式 production Agent catalog、`design-assistant/v1` 固定行为配置、确定性 `configRevision` 与 PostgreSQL 活动 revision 完整性检查 |
+| `src/app/agent-conversations.ts`、`agent-turn-dispatcher.ts`、`agent-turn-worker.ts`、`agent-retention-cleaner.ts` | 按默认关闭的部署开关组装 Agent API、Dispatcher/Reconciler、Worker 与 Cleaner，并在 readiness 校验所有依赖 |
 | `src/processes/catalog.ts` | 显式 production catalog（`productionCatalog` 数组）和通用 Process Runtime 组装 |
 | `src/processes/production.ts` | Process 模块自带的生产装配契约：声明安装的 Runtime Skill、启用条件与依赖的 Member Process，并由 `buildProductionRegistrations` 两阶段构建 |
 | `src/processes/<module>/production.ts` | 各 Process 的生产装配：绑定自己的 Skill、Pi Agent 与 HTTP Capability Adapter，并在 `environment` 中声明自己读取的启动变量；新闻图片模块按三个固定风格各导出一项，`composed/` 另声明 `enabled` 与 `members` |

@@ -51,6 +51,12 @@ export type AgentResourceResolver = Readonly<{
         ownerId: string;
         resource: AgentImageResource;
     }) => Promise<AgentImageProjection | undefined>;
+    publishProcessOutput?: (request: {
+        ownerId: string;
+        turnId: string;
+        toolName: string;
+        result: unknown;
+    }) => Promise<unknown>;
 }>;
 
 export type OwnedAgentResourceService = Readonly<{
@@ -68,6 +74,12 @@ export type OwnedAgentResourceService = Readonly<{
     createReadProjection: (request: {
         ownerId: string;
         resourceId: string;
+    }) => Promise<unknown>;
+    publishProcessOutput: (request: {
+        ownerId: string;
+        turnId: string;
+        toolName: string;
+        result: unknown;
     }) => Promise<unknown>;
 }>;
 
@@ -112,6 +124,8 @@ export function createOwnedServiceAgentResourceResolver(
                     resourceId: resource.resourceId,
                 }),
             ),
+        publishProcessOutput: (request) =>
+            service.publishProcessOutput(request),
     });
 }
 

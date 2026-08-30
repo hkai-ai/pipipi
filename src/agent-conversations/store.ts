@@ -97,18 +97,26 @@ type AcceptedResult = Readonly<{
 export type AgentConversationAcceptance =
     | (Readonly<{ outcome: "created" | "replayed" }> & AcceptedResult)
     | Readonly<{ outcome: "conflict" }>
+    | AgentConversationCapacity
     | Readonly<{ outcome: "deleted" }>;
 
 export type AgentTurnAcceptance =
     | (Readonly<{ outcome: "created" | "replayed" }> & AcceptedResult)
+    | AgentConversationCapacity
     | Readonly<{
           outcome:
               | "busy"
-              | "capacity"
               | "conflict"
               | "not_found"
-              | "sequence_conflict";
+              | "sequence_conflict"
+              | "turn_limit";
       }>;
+
+export type AgentConversationCapacity = Readonly<{
+    outcome: "capacity";
+    scope: "caller" | "global";
+    retryAfterSeconds: number;
+}>;
 
 export type AgentConversationDeletion =
     | Readonly<{
@@ -217,13 +225,22 @@ type IdempotencyRecord = Readonly<{
 }>;
 
 export function createInMemoryAgentConversationStore(
-    options: { retentionMs?: number; clock?: () => string } = {},
+    options: {
+        retentionMs?: number;
+        clock?: () => string;
+        admission?: {
+            globalBacklogLimit: number;
+            callerBacklogLimit: number;
+            retryAfterSeconds: number;
+        };
+    } = {},
 ): AgentConversationStore {
     const retentionMs = positiveInteger(
         options.retentionMs ?? 30 * 24 * 60 * 60 * 1_000,
         "Agent Conversation retention",
     );
     const clock = options.clock ?? (() => new Date().toISOString());
+    const admission = defineAdmission(options.admission);
     const conversations = new Map<string, StoredAgentConversation>();
     const deleted = new Map<
         string,
@@ -247,6 +264,8 @@ export function createInMemoryAgentConversationStore(
             if (conversations.has(candidate.conversationId)) {
                 throw new Error("Agent Conversation identity already exists");
             }
+            const capacity = capacityFor(candidate.ownerId);
+            if (capacity) return capacity;
             assertFreshTurnId(candidate.turnId);
 
             const turn: StoredAgentTurn = {
@@ -304,12 +323,14 @@ export function createInMemoryAgentConversationStore(
             if (conversation.turns.some(isActive)) {
                 return { outcome: "busy" };
             }
+            const capacity = capacityFor(candidate.ownerId);
+            if (capacity) return capacity;
             const lastTurn = conversation.turns.at(-1);
             if (!lastTurn || lastTurn.turnId !== candidate.afterTurnId) {
                 return { outcome: "sequence_conflict" };
             }
             if (conversation.turns.length >= candidate.maxTurns) {
-                return { outcome: "capacity" };
+                return { outcome: "turn_limit" };
             }
             assertFreshTurnId(candidate.turnId);
 
@@ -544,6 +565,32 @@ export function createInMemoryAgentConversationStore(
         conversationIdsByTurn.set(turn.turnId, conversation.conversationId);
         conversations.set(conversation.conversationId, clone(conversation));
     }
+
+    function capacityFor(
+        ownerId: string,
+    ): AgentConversationCapacity | undefined {
+        if (!admission) return undefined;
+        let global = 0;
+        let caller = 0;
+        for (const conversation of conversations.values()) {
+            if (!conversation.turns.some(isActive)) continue;
+            global += 1;
+            if (conversation.ownerId === ownerId) caller += 1;
+        }
+        return caller >= admission.callerBacklogLimit
+            ? {
+                  outcome: "capacity",
+                  scope: "caller",
+                  retryAfterSeconds: admission.retryAfterSeconds,
+              }
+            : global >= admission.globalBacklogLimit
+              ? {
+                    outcome: "capacity",
+                    scope: "global",
+                    retryAfterSeconds: admission.retryAfterSeconds,
+                }
+              : undefined;
+    }
 }
 
 function metadata(
@@ -606,6 +653,39 @@ function positiveInteger(value: number, label: string): number {
         throw new Error(`${label} must be a positive safe integer`);
     }
     return value;
+}
+
+function defineAdmission(
+    admission:
+        | {
+              globalBacklogLimit: number;
+              callerBacklogLimit: number;
+              retryAfterSeconds: number;
+          }
+        | undefined,
+) {
+    if (!admission) return undefined;
+    const globalBacklogLimit = positiveInteger(
+        admission.globalBacklogLimit,
+        "Global Agent Turn backlog limit",
+    );
+    const callerBacklogLimit = positiveInteger(
+        admission.callerBacklogLimit,
+        "Caller Agent Turn backlog limit",
+    );
+    if (callerBacklogLimit > globalBacklogLimit) {
+        throw new Error(
+            "Caller Agent Turn backlog limit must not exceed the global limit",
+        );
+    }
+    return Object.freeze({
+        globalBacklogLimit,
+        callerBacklogLimit,
+        retryAfterSeconds: positiveInteger(
+            admission.retryAfterSeconds,
+            "Agent Turn backlog Retry-After",
+        ),
+    });
 }
 
 function assertDeletionWindow(requestedAt: string, deleteBy: string): void {

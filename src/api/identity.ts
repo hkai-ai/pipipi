@@ -15,10 +15,11 @@ export type CallerIdentityResolver = Readonly<{
 
 export function createGatewayCallerIdentityResolver(options: {
     sharedSecret: string;
+    secretName?: string;
 }): CallerIdentityResolver {
     if (Buffer.byteLength(options.sharedSecret, "utf8") < 32) {
         throw new Error(
-            "ASYNC_GATEWAY_SHARED_SECRET must be at least 32 bytes",
+            `${options.secretName ?? "ASYNC_GATEWAY_SHARED_SECRET"} must be at least 32 bytes`,
         );
     }
     const expectedSecretDigest = digest(options.sharedSecret);

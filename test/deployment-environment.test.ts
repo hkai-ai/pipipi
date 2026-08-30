@@ -73,6 +73,38 @@ describe("Deployment environment", () => {
         ).toEqual(["DATABASE_URL", "REDIS_URL"]);
     });
 
+    it("requires the Agent gateway, execution and backlog dependencies only when enabled", () => {
+        const enabled = {
+            BUSINESS_API_BASE_URL: "https://business.example",
+            AGENT_CONVERSATIONS_ENABLED: "true",
+        };
+
+        expect(
+            checkDeploymentEnvironment(enabled, "api").missingVariables,
+        ).toEqual([
+            "DATABASE_URL",
+            "REDIS_URL",
+            "AGENT_GLOBAL_BACKLOG_LIMIT",
+            "AGENT_CALLER_BACKLOG_LIMIT",
+            "AGENT_BACKLOG_RETRY_AFTER_SECONDS",
+            "PI_PROVIDER",
+            "PI_MODEL",
+            "AGENT_RESOURCE_SERVICE_BASE_URL",
+            "AGENT_RESOURCE_SERVICE_SHARED_SECRET",
+            "AGENT_GATEWAY_SHARED_SECRET",
+        ]);
+        expect(
+            checkDeploymentEnvironment(enabled, "process-dispatcher")
+                .missingVariables,
+        ).toEqual([
+            "DATABASE_URL",
+            "REDIS_URL",
+            "AGENT_GLOBAL_BACKLOG_LIMIT",
+            "AGENT_CALLER_BACKLOG_LIMIT",
+            "AGENT_BACKLOG_RETRY_AFTER_SECONDS",
+        ]);
+    });
+
     it.each([
         [
             "crt-business-api",
@@ -232,8 +264,13 @@ describe("Deployment environment", () => {
         for (const role of deploymentRoles) {
             const environment = {
                 ...(role === "api"
-                    ? { ASYNC_PROCESS_RUNS_ENABLED: "true" }
-                    : {}),
+                    ? {
+                          ASYNC_PROCESS_RUNS_ENABLED: "true",
+                          AGENT_CONVERSATIONS_ENABLED: "true",
+                      }
+                    : role === "process-dispatcher" || role === "process-worker"
+                      ? { AGENT_CONVERSATIONS_ENABLED: "true" }
+                      : {}),
                 ...(role === "api" || role === "process-worker"
                     ? { PI_PROVIDER: "openai" }
                     : {}),

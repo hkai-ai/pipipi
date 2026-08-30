@@ -75,6 +75,21 @@ const asyncApiVariables = Object.freeze([
     "ASYNC_BACKLOG_RETRY_AFTER_SECONDS",
 ]);
 
+const agentSharedVariables = Object.freeze([
+    "DATABASE_URL",
+    "REDIS_URL",
+    "AGENT_GLOBAL_BACKLOG_LIMIT",
+    "AGENT_CALLER_BACKLOG_LIMIT",
+    "AGENT_BACKLOG_RETRY_AFTER_SECONDS",
+]);
+
+const agentExecutionVariables = Object.freeze([
+    "PI_PROVIDER",
+    "PI_MODEL",
+    "AGENT_RESOURCE_SERVICE_BASE_URL",
+    "AGENT_RESOURCE_SERVICE_SHARED_SECRET",
+]);
+
 /**
  * The console can only show what was recorded, and records only survive a
  * release when they are written outside the container: a host volume for the
@@ -106,10 +121,23 @@ export function checkDeploymentEnvironment(
     role: DeploymentRole,
     options: DeploymentEnvironmentCheckOptions = {},
 ): DeploymentEnvironmentCheck {
-    const requiredVariables = Object.freeze([
+    const requiredCandidates = [
         ...variablesByRole[role],
         ...(role === "api" && environment.ASYNC_PROCESS_RUNS_ENABLED === "true"
             ? asyncApiVariables
+            : []),
+        ...(environment.AGENT_CONVERSATIONS_ENABLED === "true" &&
+        (role === "api" ||
+            role === "process-dispatcher" ||
+            role === "process-worker")
+            ? agentSharedVariables
+            : []),
+        ...(environment.AGENT_CONVERSATIONS_ENABLED === "true" &&
+        (role === "api" || role === "process-worker")
+            ? agentExecutionVariables
+            : []),
+        ...(environment.AGENT_CONVERSATIONS_ENABLED === "true" && role === "api"
+            ? ["AGENT_GATEWAY_SHARED_SECRET"]
             : []),
         ...(role === "api" && environment.CONSOLE_ENABLED === "true"
             ? consoleApiVariables(environment)
@@ -126,7 +154,8 @@ export function checkDeploymentEnvironment(
         environment.PI_PROVIDER === "openai"
             ? ["OPENAI_API_KEY"]
             : []),
-    ]);
+    ];
+    const requiredVariables = Object.freeze([...new Set(requiredCandidates)]);
     const missingVariables = Object.freeze(
         requiredVariables.filter((name) => !environment[name]?.trim()),
     );

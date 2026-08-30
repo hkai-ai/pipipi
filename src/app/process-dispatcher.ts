@@ -7,6 +7,7 @@ import { createPostgresProcessOutbox } from "../process-runs/outbox/postgres.js"
 import { createBullMqProcessWorkQueue } from "../process-runs/queue/bullmq.js";
 import { createProcessRunReconciler } from "../process-runs/recovery/index.js";
 import { createPostgresProcessRunRecoverySource } from "../process-runs/recovery/postgres.js";
+import { constructAgentTurnDispatcher } from "./agent-turn-dispatcher.js";
 import {
     parseBoundedPositiveInteger,
     parsePort,
@@ -18,6 +19,7 @@ import { createRuntimePool } from "./postgres-pool.js";
 import { loadProcessRunConnections } from "./process-run-config.js";
 import {
     type ConstructedRuntimeRoleService,
+    combineBackgroundRuntimes,
     constructRuntimeRoleService,
 } from "./role.js";
 
@@ -117,7 +119,10 @@ export function constructProcessDispatcherService(
 
     return constructRuntimeRoleService({
         role: "process-dispatcher",
-        runtime,
+        runtime: combineBackgroundRuntimes([
+            runtime,
+            constructAgentTurnDispatcher(environment),
+        ]),
         port,
         readinessTimeoutMs,
     });

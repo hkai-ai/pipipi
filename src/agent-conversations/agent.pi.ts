@@ -25,6 +25,10 @@ export class PiInteractiveAgent implements InteractiveAgent {
         this.#support = new PiSessionSupport(options);
     }
 
+    async ready(): Promise<void> {
+        await this.#support.ready();
+    }
+
     async respond(request: InteractiveAgentRequest): Promise<unknown> {
         let toolCalls = 0;
         let budgetExceeded = false;

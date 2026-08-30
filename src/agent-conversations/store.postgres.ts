@@ -5,6 +5,7 @@ import type {
     AcceptedAgentConversation,
     AcceptedAgentTurn,
     AgentConversationAcceptance,
+    AgentConversationCapacity,
     AgentConversationStore,
     ClaimedAgentTurn,
     RecoverableAgentConversationStore,
@@ -25,6 +26,11 @@ export function createPostgresAgentConversationStore(options: {
     createOutboxMessageId?: () => string;
     createClaimToken?: () => string;
     clock?: () => string;
+    admission?: {
+        globalBacklogLimit: number;
+        callerBacklogLimit: number;
+        retryAfterSeconds: number;
+    };
 }): PostgresAgentConversationStore {
     const retentionMs = positiveInteger(
         options.retentionMs,
@@ -40,6 +46,7 @@ export function createPostgresAgentConversationStore(options: {
         options.deletionGraceMs ?? 24 * 60 * 60 * 1_000,
     );
     const clock = options.clock ?? (() => new Date().toISOString());
+    const admission = defineAdmission(options.admission);
 
     return Object.freeze({
         accept: async (candidate) =>
@@ -51,6 +58,12 @@ export function createPostgresAgentConversationStore(options: {
                     deletionGraceMs,
                 );
                 if (replay) return replay;
+                const capacity = await capacityFor(
+                    client,
+                    candidate.ownerId,
+                    admission,
+                );
+                if (capacity) return capacity;
 
                 const expiresAt = addMilliseconds(
                     candidate.createdAt,
@@ -149,6 +162,12 @@ export function createPostgresAgentConversationStore(options: {
                 if (conversation.status === "busy") {
                     return { outcome: "busy" };
                 }
+                const capacity = await capacityFor(
+                    client,
+                    candidate.ownerId,
+                    admission,
+                );
+                if (capacity) return capacity;
                 const latest = await client.query<{
                     turn_id: string;
                     sequence: number;
@@ -167,7 +186,7 @@ export function createPostgresAgentConversationStore(options: {
                     return { outcome: "sequence_conflict" };
                 }
                 if (last.sequence >= candidate.maxTurns) {
-                    return { outcome: "capacity" };
+                    return { outcome: "turn_limit" };
                 }
 
                 const sequence = last.sequence + 1;
@@ -1475,6 +1494,92 @@ function boundedDeletionGrace(value: number): number {
         );
     }
     return value;
+}
+
+type Admission = Readonly<{
+    globalBacklogLimit: number;
+    callerBacklogLimit: number;
+    retryAfterSeconds: number;
+}>;
+
+function defineAdmission(
+    admission:
+        | {
+              globalBacklogLimit: number;
+              callerBacklogLimit: number;
+              retryAfterSeconds: number;
+          }
+        | undefined,
+): Admission | undefined {
+    if (!admission) return undefined;
+    const globalBacklogLimit = positiveInteger(
+        admission.globalBacklogLimit,
+        "Global Agent Turn backlog limit",
+    );
+    const callerBacklogLimit = positiveInteger(
+        admission.callerBacklogLimit,
+        "Caller Agent Turn backlog limit",
+    );
+    if (callerBacklogLimit > globalBacklogLimit) {
+        throw new Error(
+            "Caller Agent Turn backlog limit must not exceed the global limit",
+        );
+    }
+    return Object.freeze({
+        globalBacklogLimit,
+        callerBacklogLimit,
+        retryAfterSeconds: positiveInteger(
+            admission.retryAfterSeconds,
+            "Agent Turn backlog Retry-After",
+        ),
+    });
+}
+
+async function capacityFor(
+    client: PoolClient,
+    ownerId: string,
+    admission: Admission | undefined,
+): Promise<AgentConversationCapacity | undefined> {
+    if (!admission) return undefined;
+    await client.query(
+        "SELECT pg_advisory_xact_lock(hashtextextended('agent-turn-admission', 0))",
+    );
+    const result = await client.query<{
+        global_count: string;
+        caller_count: string;
+    }>(
+        `
+      SELECT
+        count(*)::text AS global_count,
+        count(*) FILTER (WHERE conversations.owner_id = $1)::text
+          AS caller_count
+      FROM agent_conversation_turns AS turns
+      JOIN agent_conversations AS conversations
+        ON conversations.conversation_id = turns.conversation_id
+      WHERE
+        conversations.status IN ('busy', 'ready')
+        AND turns.status IN ('queued', 'running')
+    `,
+        [ownerId],
+    );
+    const global = Number(result.rows[0]?.global_count);
+    const caller = Number(result.rows[0]?.caller_count);
+    if (!Number.isSafeInteger(global) || !Number.isSafeInteger(caller)) {
+        throw new Error("Agent Turn backlog count is unavailable");
+    }
+    return caller >= admission.callerBacklogLimit
+        ? Object.freeze({
+              outcome: "capacity" as const,
+              scope: "caller" as const,
+              retryAfterSeconds: admission.retryAfterSeconds,
+          })
+        : global >= admission.globalBacklogLimit
+          ? Object.freeze({
+                outcome: "capacity" as const,
+                scope: "global" as const,
+                retryAfterSeconds: admission.retryAfterSeconds,
+            })
+          : undefined;
 }
 
 function assertDeletionWindow(requestedAt: string, deleteBy: string): void {

@@ -107,6 +107,17 @@ export class PiSessionSupport {
         this.#sessionFactory = options.sessionFactory ?? createAgentSession;
     }
 
+    async ready(): Promise<void> {
+        this.#skills.load();
+        const models = await this.#getModels();
+        if (
+            this.#provider &&
+            (!this.#model || !models.getModel(this.#provider, this.#model))
+        ) {
+            throw new Error("The configured Pi model is unavailable");
+        }
+    }
+
     async open(
         toolSurface: PiSessionToolSurface,
         systemPromptSuffix: readonly string[] = [],

@@ -13,6 +13,38 @@ export type BackgroundRuntime = Readonly<{
     close: () => Promise<void>;
 }>;
 
+export function combineBackgroundRuntimes(
+    runtimes: readonly (BackgroundRuntime | undefined)[],
+): BackgroundRuntime {
+    const present = runtimes.filter(
+        (runtime): runtime is BackgroundRuntime => runtime !== undefined,
+    );
+    return Object.freeze({
+        start: async () => {
+            await Promise.all(present.map((runtime) => runtime.start()));
+        },
+        ready: async () => {
+            await Promise.all(present.map((runtime) => runtime.ready()));
+        },
+        close: async () => {
+            const results = await Promise.allSettled(
+                [...present].reverse().map((runtime) => runtime.close()),
+            );
+            const failures = results.filter(
+                (result): result is PromiseRejectedResult =>
+                    result.status === "rejected",
+            );
+            if (failures.length === 1) throw failures[0]?.reason;
+            if (failures.length > 1) {
+                throw new AggregateError(
+                    failures.map((failure) => failure.reason),
+                    "Background Runtime resources failed to close",
+                );
+            }
+        },
+    });
+}
+
 export type RuntimeRoleApplication = Readonly<{
     listen: (options?: {
         host?: string;
