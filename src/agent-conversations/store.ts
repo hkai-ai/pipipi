@@ -118,6 +118,14 @@ export type StartedAgentTurn = Readonly<{
     priorTurns: readonly StoredAgentTurn[];
 }>;
 
+export type ClaimedAgentTurn = StartedAgentTurn &
+    Readonly<{
+        claimToken: string;
+        claimExpiresAt: string;
+        attemptNumber: number;
+        revision: number;
+    }>;
+
 export type AgentConversationStore = Readonly<{
     accept: (
         candidate: AcceptedAgentConversation,
@@ -143,6 +151,48 @@ export type AgentConversationStore = Readonly<{
         completion: AgentTurnCompletion;
     }) => Promise<boolean>;
 }>;
+
+export type RecoverableAgentConversationStore = AgentConversationStore &
+    Readonly<{
+        claim: (request: {
+            turnId: string;
+            claimToken: string;
+            claimedAt: string;
+        }) => Promise<ClaimedAgentTurn | undefined>;
+        completeClaim: (request: {
+            turnId: string;
+            claimToken: string;
+            completedAt: string;
+            completion: AgentTurnCompletion;
+        }) => Promise<boolean>;
+        releaseClaim: (request: {
+            turnId: string;
+            claimToken: string;
+            releasedAt: string;
+        }) => Promise<boolean>;
+        findRecoverable: (request: {
+            asOf: string;
+            queuedBefore: string;
+            limit: number;
+        }) => Promise<
+            readonly Readonly<{
+                turnId: string;
+                status: "queued" | "running";
+            }>[]
+        >;
+    }>;
+
+export function isRecoverableAgentConversationStore(
+    store: AgentConversationStore,
+): store is RecoverableAgentConversationStore {
+    const candidate = store as Partial<RecoverableAgentConversationStore>;
+    return (
+        typeof candidate.claim === "function" &&
+        typeof candidate.completeClaim === "function" &&
+        typeof candidate.releaseClaim === "function" &&
+        typeof candidate.findRecoverable === "function"
+    );
+}
 
 type IdempotencyRecord = Readonly<{
     fingerprint: string;

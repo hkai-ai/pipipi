@@ -6,7 +6,7 @@
 
 Agent Conversations 与 Business Process 并列，不覆盖 Process 内部请求级 Agent。Conversation 可以依赖 Process Runtime；Process Registration、Process Run 和 `/execute` 不能反向依赖 Conversation。
 
-当前实现支持可靠多轮文本、owner-scoped 图片资源、受控 Business Process Tool 和 PostgreSQL 权威状态。Agent Conversation Store 提供内存与 PostgreSQL 两个 Adapter；PostgreSQL Adapter 在一个事务内接受 Turn、幂等记录和调度 Outbox。production Composition Root 尚未装配，所以默认服务不挂载路由。BullMQ Worker、持久 Tool Ledger、删除和 production `design-assistant/v1` 仍是后续阶段。
+当前实现支持可靠多轮文本、owner-scoped 图片资源、受控 Business Process Tool、PostgreSQL 权威状态和可恢复的 BullMQ 执行。Agent Conversation Store 提供内存与 PostgreSQL 两个 Adapter；PostgreSQL Adapter 在一个事务内接受 Turn、幂等记录和调度 Outbox，并以 Attempt、lease、revision 和 fencing 保护执行。Dispatcher、Worker 与 Reconciler 已实现，production Composition Root 尚未装配，所以默认服务不挂载路由。持久 Tool Ledger、删除和 production `design-assistant/v1` 仍是后续阶段。
 
 ## 共同语言
 
@@ -20,6 +20,7 @@ Agent Conversations 与 Business Process 并列，不覆盖 Process 内部请求
 - **Resource Projection**：查询时由 Resolver 为 owner 临时签发的 HTTPS URL 与 `expiresAt`，不是权威历史。
 - **Agent Tool Ledger**：记录本 Turn 的稳定调用 identity、输入摘要、准确 Process、side effect、终态和净化结果；当前内存 Adapter 只证明串行、重放、冲突和预算语义。
 - **Agent Turn Outbox**：与新 Turn 在同一 PostgreSQL 事务写入的最小调度消息。Dispatcher 可以 claim、ack 或失败 release，payload 只含 schema version 和 Turn identity。
+- **Agent Turn Attempt**：Worker 对同一个 Turn 的一次带租期认领。Attempt 有独立 claim token；只有当前 token 可以提交终态，过期或释放后的 Worker 结果会被 fencing 拒绝。
 - **Pi Session**：每次 Turn 执行时创建并释放的请求级模型对象，不是 Conversation，也不是 Memory 权威来源。
 
 ## Module 与 Interface
@@ -29,14 +30,16 @@ Agent Conversations 与 Business Process 并列，不覆盖 Process 内部请求
 | Agent Conversations | `open`、`continue`、`find` | strict envelope、准确 Registration、caller、操作 fingerprint、identity 分配、分页游标、Queue 唤醒和公共投影 |
 | Agent Registration | `identity`、`revision`、`limits`、`accept`、`run` | Content Block Schema、全局上限收紧、accepted input、Interactive Agent、准确 Process Tool Runtime、输出校验和稳定失败 |
 | Agent Registry | `find(identity)`、`list()` | nominal Registration 校验、重复 identity 拒绝、准确版本 Map |
-| Agent Conversation Store | `accept`、`acceptTurn`、`findOwnedMetadata`、`findOwnedPage`、`start`、`complete` | owner、操作级 idempotency index、原子 busy/sequence/capacity 判断与权威 Turn；提供内存与 PostgreSQL Adapter |
-| Agent Turn Outbox | `claim`、`markPublished`、`release` | PostgreSQL `SKIP LOCKED` claim、租期、发布计数和最小 Turn Job；BullMQ Dispatcher 尚未装配 |
+| Agent Conversation Store | `accept`、`acceptTurn`、`findOwnedPage`、`claim`、`completeClaim`、`releaseClaim`、`findRecoverable` | owner、操作级 idempotency index、原子 busy/sequence/capacity、Attempt、lease、revision、fencing 与权威 Turn；提供内存与 PostgreSQL Adapter |
+| Agent Turn Outbox | `claim`、`markPublished`、`release` | PostgreSQL `SKIP LOCKED` claim、租期、发布计数和最小 Turn Job |
+| Agent Turn Dispatcher | `dispatchOnce`、`start`、`ready`、`close` | Outbox claim、BullMQ publish、ack/失败 release、周期派发和数据库/Redis readiness |
+| Agent Turn Reconciler | `reconcileOnce` | 扫描长期 queued 或租期过期的 running Turn，检查 Redis Job 并恢复缺失、终态或损坏的最小 Job |
 | Context Assembly | `assembleAgentConversationContext` | succeeded 公共历史过滤、最近历史窗口、Working Summary 重建和保守 token 上界 |
 | Agent Resource Resolver | `inspectInput`、`inspectOutput`、`acquire`、`project` | owner/存在性、稳定媒体元数据、模型 base64、获准输出证明和临时读取 URL；生产 Adapter 只调用 owned resource service |
 | Agent Tool Ledger | `bind(request)`、`records(turnId)` | 每 Turn 串行调用、稳定 invocation、输入 fingerprint、幂等重放、冲突检测、费用预算和净化记录；当前只有内存 Adapter |
 | Pi Interactive Agent | `respond(request)` | 固定 Skill/指令、Registration Tool 白名单、请求级串行 Session、多模态附件、JSON 输出解析，以及成功/失败/取消释放 |
-| Agent Turn Queue | `enqueue(job)`、`take()` | `{ schemaVersion, turnId }` 最小 Job、去重和确定性 drain；当前只有内存 Adapter |
-| Agent Turn Worker | `process(job)` | Job 校验、准确 Registration/revision、Context Assembly、Tool 绑定、图片获取/释放、输出来源验证、running/terminal 转换和错误净化 |
+| Agent Turn Queue | `enqueue(job)`、`inspectJobs(turnIds)` | `{ schemaVersion, turnId }` 最小 Job、稳定 job id、去重与状态检查；提供内存与 BullMQ Adapter |
+| Agent Turn Worker | `process(job)`、`releaseActive` | 从权威 Store claim、准确 Registration/revision、Context Assembly、Tool 绑定、图片获取/释放、输出来源验证、受 fencing 保护的终态提交和关闭时释放 |
 | HTTP Adapter | `POST /agent-conversations`、`POST /agent-conversations/{id}/turns`、`GET /agent-conversations/{id}` | media type、body limit、可信 caller、幂等 header、cursor query、HTTP 状态和 Retry-After |
 
 Agent Conversations 是主业务 Seam。HTTP 测试从完整 Application 进入，并注入脚本化 Interactive Agent、内存 Store 和确定性 Queue；测试不依赖 Prompt 文本、模型 SDK 或私有调用顺序。
@@ -48,11 +51,14 @@ Agent Conversations 是主业务 Seam。HTTP 测试从完整 Application 进入�
 3. Registration 准确解析文本或 `{ type: "image", resourceId }`，并以自身 limits 收紧全局 Turn、输入输出、图片数量/大小/类型/尺寸、Context 与分页上限。
 4. Resource Resolver 按 caller 检查每个输入资源，返回稳定元数据；不存在与其他 owner 所有统一成为 `INVALID_INPUT`。HTTP 不接受 URL、base64、文件路径或上传内容。
 5. Store 先按 caller + key 比对操作 fingerprint，再原子执行 busy、`afterTurnId` 和容量判断。PostgreSQL Adapter 在同一事务写入 Conversation/Turn、幂等记录和最小 Outbox；任何一步失败都会回滚。
-6. Worker 认领 Turn，装配 succeeded 公共 Context，再让 Resolver 为其中的稳定图片换取模型内容。
-7. Worker 只把 Registration 固定的准确 Process Tool 绑定到本 Turn。每次调用先过 Ledger 预算，再由共享 Process Tool Runtime 执行成员 Registration 的输入校验和 Process Attempt。
-8. Tool 按调用 ordinal 串行执行；子 Run identity 固定为 `{turnId}.{ordinal}`。取消信号传入 Process Attempt。
-9. Agent 文本输出必须来自本 Turn 成功 Tool 结果；图片输出必须由 Resolver 证明来自获准 Adapter 或本 Turn Tool。虚构输出使 Turn 以 `INVALID_OUTPUT` 失败。
-10. Pi Session 只在本次执行窗口持有；所有路径 finally 释放。Store 只保存稳定 resource identity 和媒体元数据；owner 查询时才投影临时 URL。
+6. Dispatcher 从同事务 Outbox 向 BullMQ 发布只含 `{ schemaVersion, turnId }` 的 Job，成功 ack，失败 release。Reconciler 按 PostgreSQL 权威状态恢复 Redis 中缺失或已终止的 Job。
+7. Worker 用独立 claim token 认领 Turn；Store 增加 Attempt 和 revision 并给出 lease。Worker 从 Store 取得准确 Agent identity/revision、输入与历史，不信任 Job 携带业务数据。
+8. Worker 装配 succeeded 公共 Context，再让 Resolver 为其中的稳定图片换取模型内容。
+9. Worker 只把 Registration 固定的准确 Process Tool 绑定到本 Turn。每次调用先过 Ledger 预算，再由共享 Process Tool Runtime 执行成员 Registration 的输入校验和 Process Attempt。
+10. Tool 按调用 ordinal 串行执行；子 Run identity 固定为 `{turnId}.{ordinal}`。取消信号传入 Process Attempt。
+11. Agent 文本输出必须来自本 Turn 成功 Tool 结果；图片输出必须由 Resolver 证明来自获准 Adapter 或本 Turn Tool。虚构输出使 Turn 以 `INVALID_OUTPUT` 失败。
+12. 只有当前 claim token 能提交公共终态。关闭中的 Worker 先释放 active claim 并取消 Agent；迟到结果、重复 Job 和并发 Worker 不能覆盖较新 Attempt。
+13. Pi Session 只在本次执行窗口持有；所有路径 finally 释放。Store 只保存稳定 resource identity 和媒体元数据；owner 查询时才投影临时 URL。
 
 ## Invariant 与限制
 
@@ -63,6 +69,9 @@ Agent Conversations 是主业务 Seam。HTTP 测试从完整 Application 进入�
 - PostgreSQL 用 Conversation 行锁分配 sequence，并用 `(conversation_id, sequence)` 唯一约束和活动 Turn 部分唯一索引抵御并发提交。
 - PostgreSQL 保存准确 Agent identity/revision、owner、状态、期限、公共 Content Block、可选 Working Summary、caller 幂等记录和 Outbox。单个输入或输出 JSON 上限为 264 KiB；数据库没有 Prompt、隐藏推理、原始模型消息、Secret 或内部异常字段。
 - Agent Turn Outbox 支持带期限的 claim、ack 和失败 release。Dispatcher 重启后仍可重新 claim 未发布或租期已过的消息。
+- Queue Job 只含 schema version 和 Turn identity。Agent 输入、Context、Registration revision、Tool、模型和运行配置只从服务端权威 Store/Registry 取得。
+- 每次有效 claim 增加 Attempt 和 Turn revision。`completeClaim` 与 `releaseClaim` 都校验当前 claim token；过期 Worker 的提交不会改变公共状态。
+- Redis/BullMQ 是至少一次调度，不是权威状态。Reconciler 从 PostgreSQL 找出长期 queued 与 lease 过期 running Turn，再检查 Queue 并重投；Queue 重建不产生新的 Conversation 或 Turn identity。
 - Context 只含 Working Summary、有限 succeeded 公共历史和当前输入。queued、running、failed 输出、Prompt、隐藏推理、原始 provider 消息、Secret 与内部异常不进入 Context。
 - 图片块保持与文本块的请求顺序。权威历史和 Queue Job 不保存 base64、临时 URL、`expiresAt`、文件路径或任意远程地址。
 - Resource Resolver 是窄 owned-service Adapter，不下载调用方 URL、不读取本地文件，也不提供图片上传入口；模型访问内容只能由 Resolver 返回。
@@ -73,11 +82,11 @@ Agent Conversations 是主业务 Seam。HTTP 测试从完整 Application 进入�
 - 输出图片必须匹配 owner、本 Turn 与获准来源。模型虚构的 URL 或 resource identity 不能成为公共输出。
 - Working Summary 是可从权威 Session History 重建的派生状态。当前实现每次重建，不把 Summary 当作权威记录。
 - Token 预算用序列化 UTF-8 byte 长度作为保守上界；Registration 只能收紧全局上限，不能扩大。
-- PostgreSQL Store 提供跨 API 重启的权威状态与操作幂等；当前确定性 Queue 和 Worker 尚不提供生产级 claim lease、fencing、重投或恢复，production 入口必须保持关闭。
+- PostgreSQL Store 提供跨 API/Worker 重启的权威状态、操作幂等和执行 fencing；BullMQ Queue、Dispatcher、Worker 与 Reconciler 提供可恢复的至少一次调度。production 入口仍必须保持关闭，直到后续 Ticket 完成持久 Ledger、删除/保留和 production 装配。
 - 当前没有图片上传、持久 Memory、删除、过期、SSE 或 Canvas Document；Tool Ledger 尚未持久化，临时读取 URL 的实际签发服务仍由部署方提供。
 
 ## 测试面
 
-最高测试 Seam 是业务 HTTP Interface。确定性验收覆盖文本/图片、Tool allow-list 与输出来源；Store 共用契约同时验证内存与 PostgreSQL Adapter。隔离 PostgreSQL 集成测试执行真实 migration，并覆盖事务回滚、并发 sequence、owner、幂等、API 重启、Outbox claim/ack/release 和安全 rollback。
+最高测试 Seam 是业务 HTTP Interface。确定性验收覆盖文本/图片、Tool allow-list 与输出来源；Store 共用契约同时验证内存与 PostgreSQL Adapter。隔离 PostgreSQL 集成测试执行真实 migration，并覆盖事务回滚、并发 sequence、owner、幂等、API 重启、Outbox claim/ack/release、lease 过期与 fencing。
 
-`npm run test:integration:agent-postgres` 使用 `POSTGRES_TEST_DATABASE_URL`；本地可通过仓库的临时 Docker 集成环境运行。真实模型和付费图片不进入该测试。
+`npm run test:integration:agent-postgres` 使用 `POSTGRES_TEST_DATABASE_URL`。`npm run test:integration:agent-runtime:local` 会启动临时 Docker PostgreSQL/Redis，覆盖 publish failure、redelivery、Worker restart 和 Queue rebuild；它不调用真实模型或付费图片。
