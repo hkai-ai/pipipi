@@ -523,6 +523,8 @@ function piRequest(): InteractiveAgentRequest {
                 data: "BASE64-input-image",
             },
         ],
+        processTools: [],
+        maxToolCalls: 6,
         signal: new AbortController().signal,
     };
 }

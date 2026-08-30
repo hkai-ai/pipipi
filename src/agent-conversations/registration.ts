@@ -1,12 +1,22 @@
 /** 定义准确 Agent Registration、多模态 Content Block、Context 与资源上限契约 */
 import { z } from "zod";
 import {
+    createProcessToolRuntime,
+    type ProcessToolRuntime,
+    type ProcessToolRuntimeOptions,
+} from "../agent-runtime/process-tools.js";
+import {
     type AgentImageAccess,
     type AgentImageMediaType,
     type AgentImageResource,
     type AgentResourceResolver,
     agentImageMediaTypes,
 } from "./resource.js";
+import {
+    type AgentProcessTool,
+    type AgentToolLimits,
+    defineAgentToolLimits,
+} from "./tools.js";
 
 export const agentRegistrationBrand: unique symbol =
     Symbol("AgentRegistration");
@@ -111,6 +121,8 @@ export type InteractiveAgentRequest = Readonly<{
     input: AcceptedAgentTurnInput;
     context: AgentConversationContext;
     imageAccess: readonly AgentImageAccess[];
+    processTools: readonly AgentProcessTool[];
+    maxToolCalls: number;
     signal: AbortSignal;
 }>;
 export type InteractiveAgent = Readonly<{
@@ -124,6 +136,8 @@ export type AgentRegistration = Readonly<{
     revision: string;
     limits: AgentRegistrationLimits;
     imageMediaTypes: readonly AgentImageMediaType[];
+    processToolRuntime?: ProcessToolRuntime;
+    toolLimits: AgentToolLimits;
     accept: (input: unknown) => AgentRegistrationAcceptance;
     run: (
         request: InteractiveAgentRequest,
@@ -138,6 +152,8 @@ export function defineAgentRegistration(options: {
     agent: InteractiveAgent;
     limits?: Partial<AgentRegistrationLimits>;
     imageMediaTypes?: readonly AgentImageMediaType[];
+    processTools?: Omit<ProcessToolRuntimeOptions, "owner">;
+    toolLimits?: Partial<AgentToolLimits>;
 }): AgentRegistration {
     assertAgentIdentity({ id: options.id, version: options.version });
     if (
@@ -158,11 +174,20 @@ export function defineAgentRegistration(options: {
     }
     const limits = defineLimits(options.limits);
     const imageTypes = defineImageMediaTypes(options.imageMediaTypes);
+    const toolLimits = defineAgentToolLimits(options.toolLimits);
+    const processToolRuntime = options.processTools
+        ? createProcessToolRuntime({
+              ...options.processTools,
+              owner: { id: options.id, version: options.version },
+          })
+        : undefined;
     return Object.freeze({
         identity: Object.freeze({ id: options.id, version: options.version }),
         revision: options.revision,
         limits,
         imageMediaTypes: imageTypes,
+        ...(processToolRuntime ? { processToolRuntime } : {}),
+        toolLimits,
         accept: (input) => {
             const result = turnInputSchema.safeParse(input);
             return result.success &&
