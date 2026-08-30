@@ -67,7 +67,7 @@ curl --fail -X POST http://127.0.0.1:4300/execute \
 | `npm run typecheck` | 检查服务端与控制台 TypeScript | 无 |
 | `npm test` | 运行确定性测试 | 无 |
 | `npm run test:watch` | 监听并运行 Vitest | 无 |
-| `npm run test:integration:agent-postgres` | 验证 Agent Conversation migration、事务、重启和 Outbox | 写入专用 `_test` PostgreSQL 数据库 |
+| `npm run test:integration:agent-postgres` | 验证 Agent Conversation migration、事务、重启、Outbox、删除/过期 fencing 和清理续跑 | 写入专用 `_test` PostgreSQL 数据库 |
 | `npm run test:integration:agent-runtime:local` | 在临时 Docker PostgreSQL/Redis 中验证 Agent Turn 发布、重投、Worker 重启和 Queue 重建 | 创建并清理隔离容器与 `_test` 数据库 |
 | `npm run test:integration:agent-tools:local` | 在临时 Docker PostgreSQL 中验证 Tool Ledger 重放、预算、fencing 和 after-commit | 创建并清理隔离容器与 `_test` 数据库 |
 | `npm run build` | 构建服务端与控制台 | 重建 `dist/` |
@@ -155,7 +155,7 @@ curl --fail -X POST http://127.0.0.1:4300/execute \
 | `src/agent-runtime/catalog.ts`、`pi.ts`、`skills.ts` | 多个流程共用的启动期 Skill 完整性与版本 Catalog、Pi provider 配置和 Runtime Skill 精确加载 |
 | `src/agent-runtime/session.ts`、`structured.ts`、`tooled.ts` | 请求级 Pi Session 的共享支撑（选项校验、Skill 注入、模型选择、内存 Session），以及建立在它之上的无 Tool Structured Agent Session 与带 Tool 白名单和调用预算的 Tool-bearing Session |
 | `src/agent-runtime/process-tools.ts` | 受限 Agent 共用的精确 Process Tool allow-list、Schema 推导、稳定子 Run identity、Attempt 执行和净化结果；预算与账本留在调用方 Module |
-| `src/agent-conversations/` | Agent Registration/Registry、多轮 Conversation/Turn、owner-scoped 图片 Resource Resolver、准确 Process Tool allow-list、内存/PostgreSQL Tool Ledger、跨 Worker 预算与 after-commit、Pi Interactive Agent、caller 操作级幂等、原子顺序、分页、Context Assembly、内存/PostgreSQL Store、Turn Outbox、BullMQ Queue/Worker、Dispatcher、Reconciler 和读取时资源投影 |
+| `src/agent-conversations/` | Agent Registration/Registry、多轮 Conversation/Turn、owner-scoped 图片 Resource Resolver、准确 Process Tool allow-list、内存/PostgreSQL Tool Ledger、跨 Worker 预算与 after-commit、Pi Interactive Agent、caller 操作级幂等、原子顺序、分页、删除/过期与分批清理、Context Assembly、内存/PostgreSQL Store、Turn Outbox、BullMQ Queue/Worker、Dispatcher、Reconciler 和读取时资源投影 |
 | `src/processes/catalog.ts` | 显式 production catalog（`productionCatalog` 数组）和通用 Process Runtime 组装 |
 | `src/processes/production.ts` | Process 模块自带的生产装配契约：声明安装的 Runtime Skill、启用条件与依赖的 Member Process，并由 `buildProductionRegistrations` 两阶段构建 |
 | `src/processes/<module>/production.ts` | 各 Process 的生产装配：绑定自己的 Skill、Pi Agent 与 HTTP Capability Adapter，并在 `environment` 中声明自己读取的启动变量；新闻图片模块按三个固定风格各导出一项，`composed/` 另声明 `enabled` 与 `members` |
@@ -192,6 +192,7 @@ curl --fail -X POST http://127.0.0.1:4300/execute \
 | `src/process-runs/recovery/index.ts`、`src/process-runs/recovery/postgres.ts` | 周期 reconciliation、人工 Queue Recovery，以及恢复候选的 PostgreSQL Adapter |
 | `src/process-runs/recovery/command.ts` | 解析 Queue Recovery 命令行参数并驱动 reconciler 分批执行对账/恢复 |
 | `src/process-runs/retention/index.ts`、`postgres.ts` | 按批次驱动 Postgres 保留期清理并封装为周期性 Runtime（含游标续跑），及分批清理过期 Run 数据的 Postgres 实现 |
+| `src/agent-conversations/retention.ts`、`retention.postgres.ts` | 驱动 Agent Conversation 过期/删除的有界批次、取消与游标续跑，并以 Postgres 短事务冻结或级联清理权威状态 |
 | `src/process-runs/worker/index.ts` | 认领并执行单个 Process Run 的 Job，处理成功/失败/重试并落地终态观测记录 |
 | `src/process-runs/ops/postgres.ts` | 异步运维快照和 staged release readiness 的 PostgreSQL Adapter |
 | `src/process-runs/ops/logging.ts` | 定义异步操作日志的记录类型与安全发送/输出工具函数 |

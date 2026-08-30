@@ -65,6 +65,7 @@ export type AgentConversationView = Readonly<{
     lastTurnId: string;
     createdAt: string;
     updatedAt: string;
+    expiresAt: string;
     turns: readonly AgentTurnView[];
     nextCursor?: string;
 }>;
@@ -75,6 +76,20 @@ export type AgentConversationLookup =
           found: false;
           error: Readonly<{
               code: "CONVERSATION_NOT_FOUND" | "INVALID_QUERY";
+              message: string;
+          }>;
+      }>;
+
+export type AgentConversationDeletion =
+    | Readonly<{
+          accepted: true;
+          conversationId: string;
+          deleteBy: string;
+      }>
+    | Readonly<{
+          accepted: false;
+          error: Readonly<{
+              code: "CONVERSATION_NOT_FOUND";
               message: string;
           }>;
       }>;
@@ -139,6 +154,10 @@ export type AgentConversations = Readonly<{
             limit?: number;
         }>,
     ) => Promise<AgentConversationLookup>;
+    remove: (
+        conversationId: string,
+        context: Readonly<{ callerId: string }>,
+    ) => Promise<AgentConversationDeletion>;
 }>;
 
 export function createAgentConversations(options: {
@@ -149,10 +168,14 @@ export function createAgentConversations(options: {
     clock?: () => string;
     createConversationId?: () => string;
     createTurnId?: () => string;
+    deletionGraceMs?: number;
 }): AgentConversations {
     const clock = options.clock ?? (() => new Date().toISOString());
     const createConversationId = options.createConversationId ?? randomUUID;
     const createTurnId = options.createTurnId ?? randomUUID;
+    const deletionGraceMs = boundedDeletionGrace(
+        options.deletionGraceMs ?? 24 * 60 * 60 * 1_000,
+    );
 
     return Object.freeze({
         open: async (rawRequest, context) => {
@@ -203,6 +226,12 @@ export function createAgentConversations(options: {
                 return rejected(
                     "IDEMPOTENCY_CONFLICT",
                     "The idempotency key was already used for a different request",
+                );
+            }
+            if (result.outcome === "deleted") {
+                return rejected(
+                    "CONVERSATION_NOT_FOUND",
+                    "Agent Conversation not found",
                 );
             }
             if (result.outcome === "created") {
@@ -361,6 +390,31 @@ export function createAgentConversations(options: {
                 ),
             });
         },
+
+        remove: async (conversationId, context) => {
+            assertIdentifier("conversationId", conversationId);
+            assertContext("callerId", context.callerId);
+            const requestedAt = clock();
+            const result = await options.store.deleteOwned({
+                conversationId,
+                ownerId: context.callerId,
+                requestedAt,
+                deleteBy: addMilliseconds(requestedAt, deletionGraceMs),
+            });
+            return result.outcome === "not_found"
+                ? Object.freeze({
+                      accepted: false,
+                      error: Object.freeze({
+                          code: "CONVERSATION_NOT_FOUND" as const,
+                          message: "Agent Conversation not found",
+                      }),
+                  })
+                : Object.freeze({
+                      accepted: true,
+                      conversationId: result.conversationId,
+                      deleteBy: result.deleteBy,
+                  });
+        },
     });
 }
 
@@ -413,6 +467,7 @@ async function toView(
         lastTurnId: conversation.lastTurnId,
         createdAt: conversation.createdAt,
         updatedAt: conversation.updatedAt,
+        expiresAt: conversation.expiresAt,
         turns: Object.freeze(
             await Promise.all(
                 page.turns.map((turn) => toTurnView(turn, ownerId, resolver)),
@@ -555,4 +610,22 @@ function assertContext(name: string, value: string): void {
             `${name} must be a non-empty string of at most 512 bytes`,
         );
     }
+}
+
+function boundedDeletionGrace(value: number): number {
+    const maximum = 24 * 60 * 60 * 1_000;
+    if (!Number.isSafeInteger(value) || value < 1 || value > maximum) {
+        throw new Error(
+            "Agent Conversation deletion grace must be between 1 ms and 24 hours",
+        );
+    }
+    return value;
+}
+
+function addMilliseconds(timestamp: string, durationMs: number): string {
+    const value = new Date(timestamp).getTime();
+    if (!Number.isFinite(value)) {
+        throw new Error("Agent Conversation timestamp is invalid");
+    }
+    return new Date(value + durationMs).toISOString();
 }

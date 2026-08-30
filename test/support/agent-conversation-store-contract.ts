@@ -154,6 +154,62 @@ export function agentConversationStoreContract(
                 }),
             ).resolves.toBeUndefined();
         });
+
+        it("deletes by owner, fences work immediately and replays one deadline", async () => {
+            const store = createStore();
+            const original = acceptedConversation(4);
+            await store.accept(original);
+
+            await expect(
+                store.deleteOwned({
+                    conversationId: original.conversationId,
+                    ownerId: "another-owner",
+                    requestedAt: timestamp(1),
+                    deleteBy: timestamp(2),
+                }),
+            ).resolves.toEqual({ outcome: "not_found" });
+            const deletion = await store.deleteOwned({
+                conversationId: original.conversationId,
+                ownerId: original.ownerId,
+                requestedAt: timestamp(1),
+                deleteBy: timestamp(2),
+            });
+            expect(deletion).toEqual({
+                outcome: "accepted",
+                conversationId: original.conversationId,
+                deleteBy: timestamp(2),
+            });
+            await expect(
+                store.deleteOwned({
+                    conversationId: original.conversationId,
+                    ownerId: original.ownerId,
+                    requestedAt: timestamp(3),
+                    deleteBy: timestamp(4),
+                }),
+            ).resolves.toEqual({
+                outcome: "replayed",
+                conversationId: original.conversationId,
+                deleteBy: timestamp(2),
+            });
+            await expect(
+                store.findOwnedMetadata(
+                    original.conversationId,
+                    original.ownerId,
+                ),
+            ).resolves.toBeUndefined();
+            await expect(
+                store.start({
+                    turnId: original.turnId,
+                    startedAt: timestamp(3),
+                }),
+            ).resolves.toBeUndefined();
+            await expect(
+                store.acceptTurn(acceptedTurn(original, 2)),
+            ).resolves.toEqual({ outcome: "not_found" });
+            await expect(store.accept(original)).resolves.toEqual({
+                outcome: "deleted",
+            });
+        });
     });
 }
 

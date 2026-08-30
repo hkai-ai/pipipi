@@ -138,7 +138,7 @@ describe("Agent Conversation image resources", () => {
             limit: 10,
         });
         expect(JSON.stringify(stored)).not.toContain("https://");
-        expect(JSON.stringify(stored)).not.toContain("expiresAt");
+        expect(JSON.stringify(stored?.turns)).not.toContain("expiresAt");
         expect(JSON.stringify(stored)).not.toContain("BASE64");
     });
 

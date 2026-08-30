@@ -23,6 +23,7 @@ const turnId = "turn-0001";
 const firstTimestamp = "2026-08-30T08:00:00.000Z";
 const startedTimestamp = "2026-08-30T08:00:01.000Z";
 const finishedTimestamp = "2026-08-30T08:00:02.000Z";
+const conversationExpiresAt = "2026-09-29T08:00:00.000Z";
 
 const runningApplications: Array<{ close: () => Promise<void> }> = [];
 
@@ -122,6 +123,7 @@ describe("Agent Conversations HTTP Interface", () => {
             lastTurnId: turnId,
             createdAt: firstTimestamp,
             updatedAt: finishedTimestamp,
+            expiresAt: conversationExpiresAt,
             turns: [
                 {
                     turnId,
@@ -169,6 +171,57 @@ describe("Agent Conversations HTTP Interface", () => {
         expect(await unauthenticated.json()).toMatchObject({
             error: { code: "CALLER_UNAUTHORIZED" },
         });
+    });
+
+    it("accepts owner deletion, hides state immediately and replays the deadline", async () => {
+        const fixture = await startFixture();
+        await open(fixture.url, {
+            callerId: "caller-a",
+            idempotencyKey: "request-delete",
+        });
+
+        const otherOwner = await remove(
+            fixture.url,
+            conversationId,
+            "caller-b",
+        );
+        const deletion = await remove(fixture.url, conversationId, "caller-a");
+        const deletionBody = await deletion.json();
+        const replay = await remove(fixture.url, conversationId, "caller-a");
+        const hidden = await find(fixture.url, conversationId, "caller-a");
+        const continued = await fetch(
+            `${fixture.url}/agent-conversations/${conversationId}/turns`,
+            {
+                method: "POST",
+                headers: {
+                    "content-type": "application/json",
+                    "idempotency-key": "continue-after-delete",
+                    "x-test-caller": "caller-a",
+                },
+                body: JSON.stringify({
+                    afterTurnId: turnId,
+                    input: { content: [{ type: "text", text: "继续" }] },
+                }),
+            },
+        );
+
+        expect(otherOwner.status).toBe(404);
+        expect(deletion.status).toBe(202);
+        expect(deletion.headers.get("cache-control")).toBe("no-store");
+        expect(deletionBody).toEqual({
+            conversationId,
+            status: "deletion_accepted",
+            deleteBy: "2026-08-31T08:00:02.000Z",
+        });
+        expect(replay.status).toBe(202);
+        expect(await replay.json()).toEqual(deletionBody);
+        expect(hidden.status).toBe(404);
+        expect(continued.status).toBe(404);
+        await expect(fixture.queue.take()).resolves.toEqual({
+            schemaVersion: 1,
+            turnId,
+        });
+        await expect(fixture.queue.take()).resolves.toBeUndefined();
     });
 
     it("requires a bounded Idempotency-Key before accepting work", async () => {
@@ -457,6 +510,13 @@ async function open(
 
 async function find(url: string, id: string, callerId: string) {
     return fetch(`${url}/agent-conversations/${encodeURIComponent(id)}`, {
+        headers: { "x-test-caller": callerId },
+    });
+}
+
+async function remove(url: string, id: string, callerId: string) {
+    return fetch(`${url}/agent-conversations/${encodeURIComponent(id)}`, {
+        method: "DELETE",
         headers: { "x-test-caller": callerId },
     });
 }
