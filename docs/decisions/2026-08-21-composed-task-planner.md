@@ -49,9 +49,9 @@ flowchart LR
 | Module | 位置 | Interface | 隐藏的 Implementation |
 | --- | --- | --- | --- |
 | Member Allow-list | `src/processes/composed/members.ts` | `composedMembers: readonly MemberSpec[]`，`MemberSpec = { process, version, toolName, description, sideEffect: "none" \| "priced" }` | 哪些 Process 可被 Planner 看到、Tool 名称、面向模型的一句话描述、是否产生付费副作用；`production.ts` 的 `members` 声明从它派生 |
-| Process Tool Set | `src/processes/composed/tools.ts` | `createProcessToolSet({ members, registry, attemptRunner }): ProcessToolSet`，`ProcessToolSet.bind(context): readonly ToolDefinition[]` | allow-list 与 Member Registry 精确匹配、`inputSchema` 到 JSON Schema 的推导、Step Run 的 `runId` 派生、结果裁剪 |
+| Process Tool Runtime | `src/agent-runtime/process-tools.ts` | `createProcessToolRuntime({ specs, registry, attemptRunner, owner })` | allow-list 与 Process Registry 精确匹配、`inputSchema` 到 JSON Schema 的推导、子 Run 的 `runId` 派生、Attempt 执行和净化结果；供 composed Process Agent 与 Interactive Agent 复用 |
+| Process Tool Set | `src/processes/composed/tools.ts` | `createProcessToolSet({ members, registry, attemptRunner }): ProcessToolSet`，`ProcessToolSet.bind(context): readonly ToolDefinition[]` | composed-task 专属 Step 预算、串行化、活动与账本投影 |
 | Composed Production | `src/processes/composed/production.ts` | `composedProduction = defineProductionProcess({ id, environment, enabled, members, installedSkills, build })` | 从 `context.members` 与启动变量构造 Registration；声明自己读取的四个变量 |
-| Step Run Executor | `src/processes/composed/steps.ts` | `runStep({ member, input, stepNumber, parent }): Promise<StepResult>` | `accept` 拒绝映射、Attempt Runner 调用、父 `signal` 传播、步数与付费步数计数、结果记账 |
 | Process Planner Agent Port | `src/processes/composed/agent.ts` | `plan({ goal, constraints, tools, signal }): Promise<unknown>` | 流程专属结果约束；生产实现在 `agent.pi.ts` |
 | Tool-bearing Structured Session | `src/agent-runtime/tooled.ts` | `PiTooledAgent.run({ prompt, tools, signal }) → { output, modelId?, toolCalls }` | 带 Tool 的请求级 Pi Session、Tool 名称白名单、最大轮数、取消、释放、JSON 解析 |
 | Planner Runtime Skill | `.pi/skills/composed-task-planner/SKILL.md` | 固定名称、版本、SHA-256 | 规划纪律：先读 Tool 描述再行动、付费步骤节制、最终输出格式 |
@@ -250,4 +250,5 @@ export const composedProduction = defineProductionProcess({
 - 带 Tool 的 Session 落在 `src/agent-runtime/tooled.ts`，与 `structured.ts` 共享新的 `session.ts`；`PiContentAgent` 随后也迁到了 `PiTooledAgent` 上，`maxToolCalls: 1` 取代了原先手写的 Session 创建。
 - 新增 `PI_COMPOSED_SKILL_DIRECTORY`，与其他 Skill 路径覆盖同形；五个变量都已进入 `.env.example` 与 `ops/` 清单。
 - `ProcessRegistration.timeoutMs` 上限定为 3600000 毫秒；异步 Worker 的租约校验改为对照 catalog 中最长的 Registration 超时。
+- Process Tool 的准确 Registration 解析、Schema 推导、稳定子 Run identity、Attempt 执行和净化结果后来下沉到 `src/agent-runtime/process-tools.ts`，供 composed Process Agent 与 Interactive Agent 复用；composed 专属预算、串行化、活动和 Step 记账仍留在 Process Tool Set。
 - 真实模型路径尚无脚本化验证，见 [`experiments.md`](../experiments.md)。
