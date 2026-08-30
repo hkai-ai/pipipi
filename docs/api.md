@@ -10,7 +10,7 @@
 
 现有 Process 是否一定调用 Agent 由服务端 Registration 决定，调用方不应依赖内部实现。`minimal-zine-poster/v1`、`crt-interface-image/v1` 和三个新闻图片 Process 当前使用受限 Agent；`content-processing/v1` 可由部署选择 Direct 或 Agent 路径；`composed-task/v1` 使用 Planner Agent，但默认关闭。
 
-Agent Conversations 当前支持可靠多轮文本与 owner-scoped 图片资源：代码支持创建、追加与分页查询，但 production Composition Root 尚未装配，默认部署访问这些路由仍返回 404。当前阶段不提供图片上传、任意 URL 抓取、跨 Conversation 长期 Memory、SSE、删除或 production Agent catalog。
+Agent Conversations 当前支持可靠多轮文本、owner-scoped 图片资源和 Registration 固定的受控 Business Process Tool：代码支持创建、追加与分页查询，但 production Composition Root 尚未装配，默认部署访问这些路由仍返回 404。当前阶段不提供图片上传、任意 URL 抓取、跨 Conversation 长期 Memory、SSE、删除或 production Agent catalog。
 
 能力可调用不等于可以匿名公开。同步 `/execute` 的应用本身不校验调用方身份；Agent Conversations 必须注入可信 caller identity，且每次创建和追加都要求 caller-scoped `Idempotency-Key`。正式公网开放前，部署方还必须完成 PostgreSQL、Queue、容量、恢复、保留、限流和费用门禁。
 
@@ -94,6 +94,8 @@ Idempotency-Key: design-request-001
 ```
 
 请求是 strict object，不能增加 role、system、Prompt、Skill、Tool、模型、provider、Memory、预算、重试、`url`、`data`、base64、`path` 或 `file://`。Agent id/version 必须准确匹配 Registration，不提供默认版本或回退。默认全局图片上限是每 Turn 4 张、单图 10 MiB、合计 20 MiB、宽高各 8192 px，媒体类型只允许 JPEG、PNG、WebP；每个 Registration 可以继续收紧，不能扩大。
+
+Agent 的 Tool 由服务端 Registration 固定。每项 Tool 指向 production Process catalog 中一个准确 Process/version；调用方不能列出、增加或覆盖 Tool。默认每 Turn 最多调用 6 次 Tool，其中最多 1 次付费 Tool；每 Conversation 最多尝试 10 次付费 Tool。每次调用仍经过成员 Process 的输入 Schema、Attempt、超时、取消和错误净化。Agent 只能返回本 Turn 成功 Tool 的结果或经过 Resource Resolver 验证的图片资源。
 
 服务完成 owner 与幂等检查并接受首轮 Turn 后返回 `202`：
 

@@ -53,7 +53,7 @@ Business Processing Service 让产品调用方通过一个稳定的 HTTP Interfa
 
 默认 HTTP Interface 提供健康检查和同步 `POST /execute`。异步提交、owner 查询、PostgreSQL Store、BullMQ Worker、Webhook、恢复和保留已经实现，但入口默认关闭。精确行为见 [异步设计](docs/async-process-runs-design.md)。
 
-Agent Conversations Module 已实现可靠多轮文本与 owner-scoped 图片资源：调用方用准确 Agent id/version 和 `Idempotency-Key` 创建首轮，用最后接受的 `afterTurnId` 追加，并按 owner 分页查询。图片块只接受稳定 `resourceId`；Resource Resolver 验证归属和稳定元数据，Worker 执行窗口换取模型内容并释放，查询时才投影短期 URL。Store 原子保证单活跃 Turn、无分支 sequence 与操作级幂等；Worker 从成功公共历史重建受预算 Context 和 Working Summary。该 Interface 只在 Application 显式注入依赖时挂载；production Composition Root 尚未装配，所以默认服务仍返回 404。PostgreSQL、BullMQ、Tool Ledger、删除和 production `design-assistant/v1` 仍是后续阶段。
+Agent Conversations Module 已实现可靠多轮文本、owner-scoped 图片资源和受控 Business Process Tool：调用方用准确 Agent id/version 和 `Idempotency-Key` 创建首轮，用最后接受的 `afterTurnId` 追加，并按 owner 分页查询。图片块只接受稳定 `resourceId`；Resource Resolver 验证归属和稳定元数据，Worker 执行窗口换取模型内容并释放，查询时才投影短期 URL。Agent Registration 在服务端固定准确 Process allow-list；内存 Tool Ledger 保证每 Turn 串行、稳定子 Run、输入冲突、6 次总调用、1 次付费调用和每 Conversation 10 次付费调用。成员调用仍经 Process Registration 和 Attempt Runner，最终输出必须来自本 Turn 成功 Tool 或获准图片资源。Store 原子保证单活跃 Turn、无分支 sequence 与操作级幂等；Worker 从成功公共历史重建受预算 Context 和 Working Summary。该 Interface 只在 Application 显式注入依赖时挂载；production Composition Root 尚未装配，所以默认服务仍返回 404。PostgreSQL、BullMQ、持久 Tool Ledger、删除和 production `design-assistant/v1` 仍是后续阶段。
 
 海报、CRT 和 Memene 新闻图片 Process 会调用模型并持久化图片。产品只接收图片引用；真实验收、证据与费用必须显式启用。CRT 和新闻图片上游来源的许可证仍是发布门禁。
 
@@ -98,7 +98,8 @@ Agent 只获得 Registration 固定绑定的 Runtime Skill 与窄 Tool。文本 
 | Process Attempt Runner | `run({ runId, registration, acceptedInput, attemptNumber? })` | 预分配 runId、超时、取消、公开错误净化和活动时间线 |
 | Process Tool Runtime | `createProcessToolRuntime({ specs, registry, attemptRunner, owner })` | 受限 Agent 共用的准确 Process allow-list、Tool Schema 推导、稳定子 Run identity、Attempt 执行和净化结果；调用方 Module 自己拥有预算与账本 |
 | Agent Conversations | `open`、`continue`、`find` | 准确 Agent Registration、多轮 Turn、caller ownership、操作级幂等、单活跃 Turn、游标分页和公共状态投影；内存 Store 与确定性 Queue 支撑当前行为 |
-| Agent Registration | `identity`、`revision`、`limits`、`accept`、`run` | 文本/图片引用 Schema、不可变 accepted input、图片与 Context 上限、Interactive Agent、输出校验和稳定错误 |
+| Agent Registration | `identity`、`revision`、`limits`、`accept`、`run` | 文本/图片引用 Schema、不可变 accepted input、图片与 Context 上限、Interactive Agent、准确 Process Tool allow-list、输出校验和稳定错误 |
+| Agent Tool Ledger | `bind(request)`、`records(turnId)` | 每 Turn 串行 Process Tool、稳定 invocation、输入 fingerprint、重放冲突、费用预算和净化结果；当前只有内存 Adapter |
 | Agent Resource Resolver | `inspectInput`、`inspectOutput`、`acquire`、`project` | owner-scoped 稳定图片元数据、模型内容、获准输出证明和读取时短期 URL；不提供上传或任意抓取 |
 | Process Run Activity Logging | `runActivity(name, operation)`、`ProcessRunLogSink` | 声明检查、Attempt 关联、顺序、耗时、结果净化，以及 Pino 与内存 Adapter |
 | Async Process Runs | `submit(request, context)`、`find(runId, context)` | 输入接受、owner、幂等摘要和公共状态投影 |

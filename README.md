@@ -27,7 +27,7 @@ Memebuy 已建立独立文档边界，但当前没有明确归属的 production 
 
 生产启动通过 Installed Skill Catalog 校验 Runtime Skill 的准确名称、版本和 SHA-256。Process 只加载 Registration 固定绑定的 Skill 与窄 Tool；运行期不发现、下载或更新 Skill。
 
-仓库还提供默认不挂载的 Agent Conversations 多轮文本与 owner-scoped 图片能力。调用方只提交准确 Agent、`afterTurnId`、文本和稳定图片 `resourceId`；服务端保证顺序和幂等，并通过窄 Resource Resolver 校验归属、给 Pi Session 提供临时模型内容、在读取时投影短期 URL。当前仍使用内存 Store 与确定性 Queue，不具备生产恢复。完整当前契约见 [Agent Conversations API](docs/api.md#agent-conversations多轮文本与图片资源)。
+仓库还提供默认不挂载的 Agent Conversations 多轮文本、owner-scoped 图片和受控 Process Tool 能力。调用方只提交准确 Agent、`afterTurnId`、文本和稳定图片 `resourceId`；服务端 Registration 固定 Tool allow-list 和预算。当前仍使用内存 Store、Queue 与 Tool Ledger，不具备生产恢复。完整当前契约见 [Agent Conversations API](docs/api.md#agent-conversations多轮文本与图片资源)。
 
 图片 Process 只公开业务输入和图片引用。Prompt、模型、供应商、Skill 和存储配置留在服务端。内部新闻图片评测默认关闭，只在受控环境复用同一次正式 Process 执行。
 

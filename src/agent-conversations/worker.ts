@@ -16,6 +16,11 @@ import type {
     AgentResourceResolver,
 } from "./resource.js";
 import type { AgentConversationStore, StartedAgentTurn } from "./store.js";
+import {
+    type AgentToolLedger,
+    createInMemoryAgentToolLedger,
+    isAgentOutputDerivedFromTools,
+} from "./tools.js";
 
 export type AgentTurnWorker = Readonly<{
     process: (job: unknown) => Promise<"processed" | "ignored" | "invalid-job">;
@@ -25,9 +30,11 @@ export function createAgentTurnWorker(options: {
     registry: AgentRegistry;
     store: AgentConversationStore;
     resourceResolver?: AgentResourceResolver;
+    toolLedger?: AgentToolLedger;
     clock?: () => string;
 }): AgentTurnWorker {
     const clock = options.clock ?? (() => new Date().toISOString());
+    const toolLedger = options.toolLedger ?? createInMemoryAgentToolLedger();
     return Object.freeze({
         process: async (rawJob) => {
             const job = parseAgentTurnJob(rawJob);
@@ -45,6 +52,7 @@ export function createAgentTurnWorker(options: {
                           started,
                           registration,
                           options.resourceResolver,
+                          toolLedger,
                       )
                     : {
                           status: "failed" as const,
@@ -67,6 +75,7 @@ async function executeAgentTurn(
     started: StartedAgentTurn,
     registration: AgentRegistration,
     resolver: AgentResourceResolver | undefined,
+    toolLedger: AgentToolLedger,
 ): Promise<AgentTurnCompletion> {
     const signal = new AbortController().signal;
     const acquired: AcquiredAgentImage[] = [];
@@ -88,14 +97,31 @@ async function executeAgentTurn(
             if (!image) return resourceUnavailable();
             acquired.push(image);
         }
+        const boundTools = registration.processToolRuntime
+            ? toolLedger.bind({
+                  conversationId: started.conversationId,
+                  turnId: started.turnId,
+                  runtime: registration.processToolRuntime,
+                  limits: registration.toolLimits,
+                  signal,
+              })
+            : undefined;
         const draft = await registration.run({
             conversationId: started.conversationId,
             turnId: started.turnId,
             input: started.input,
             context,
             imageAccess: Object.freeze(acquired.map((image) => image.access)),
+            processTools: boundTools?.tools ?? [],
+            maxToolCalls: registration.toolLimits.maxCallsPerTurn,
             signal,
         });
+        if (
+            boundTools &&
+            !isAgentOutputDerivedFromTools(draft, boundTools.records())
+        ) {
+            return invalidOutput();
+        }
         return await resolveAgentTurnCompletion(draft, {
             ownerId: started.ownerId,
             turnId: started.turnId,
@@ -109,6 +135,16 @@ async function executeAgentTurn(
             acquired.reverse().map((image) => image.release()),
         );
     }
+}
+
+function invalidOutput(): AgentTurnCompletion {
+    return Object.freeze({
+        status: "failed",
+        error: Object.freeze({
+            code: "INVALID_OUTPUT",
+            message: "The Agent produced an invalid output",
+        }),
+    });
 }
 
 function imageResources(
