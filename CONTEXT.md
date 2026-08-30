@@ -53,6 +53,8 @@ Business Processing Service 让产品调用方通过一个稳定的 HTTP Interfa
 
 默认 HTTP Interface 提供健康检查和同步 `POST /execute`。异步提交、owner 查询、PostgreSQL Store、BullMQ Worker、Webhook、恢复和保留已经实现，但入口默认关闭。精确行为见 [异步设计](docs/async-process-runs-design.md)。
 
+Agent Conversations Module 已实现首轮文本 tracer bullet：调用方用准确 Agent id/version 和 `Idempotency-Key` 创建包含第一轮 Turn 的 Conversation，再按 owner 查询 queued、running、succeeded 或 failed 状态。该 Interface 只在 Application 显式注入内存 Store、确定性 Queue、Agent Registry 与可信 caller identity 时挂载；production Composition Root 尚未装配，所以默认服务仍返回 404。多轮、图片、PostgreSQL、BullMQ、Tool Ledger、删除和 production `design-assistant/v1` 仍是后续阶段。
+
 海报、CRT 和 Memene 新闻图片 Process 会调用模型并持久化图片。产品只接收图片引用；真实验收、证据与费用必须显式启用。CRT 和新闻图片上游来源的许可证仍是发布门禁。
 
 ## 运行与信任模型
@@ -72,7 +74,7 @@ Agent 只获得 Registration 固定绑定的 Runtime Skill 与窄 Tool。文本 
 项目当前不提供：
 
 - 动态 Process Definition、运行时注册、自动发现、默认版本或版本回退；
-- 调用方定义的工作流、已开放的生产 Queue、跨请求 Agent 记忆或调用方控制的重试；服务端只提供 `composed-task/v1` 对 allow-list Process 的受控组合，组合深度为一层；
+- 调用方定义的工作流、已开放的生产 Queue、多轮 Agent 记忆或调用方控制的重试；服务端只提供 `composed-task/v1` 对 allow-list Process 的受控组合，组合深度为一层；Agent Conversations 当前只接受首轮文本 Turn；
 - 应用内用户系统、RBAC、多租户、CORS 或公网匿名调用；
 - 运维控制台的应用内鉴权、按 caller 隔离的记录视图、聊天历史或通用幂等；
 - 允许 Agent 使用 Coding Tools 的通用 Skill 执行环境；
@@ -95,6 +97,8 @@ Agent 只获得 Registration 固定绑定的 Runtime Skill 与窄 Tool。文本 
 | Process Registration | `identity`、`retryPolicy`、`accept(input)`、`run(acceptedInput, context)` | Schema、JSON-safe accepted input、Process Definition、依赖、服务端重试策略和输出验证 |
 | Process Attempt Runner | `run({ runId, registration, acceptedInput, attemptNumber? })` | 预分配 runId、超时、取消、公开错误净化和活动时间线 |
 | Process Tool Runtime | `createProcessToolRuntime({ specs, registry, attemptRunner, owner })` | 受限 Agent 共用的准确 Process allow-list、Tool Schema 推导、稳定子 Run identity、Attempt 执行和净化结果；调用方 Module 自己拥有预算与账本 |
+| Agent Conversations | `open(request, context)`、`find(conversationId, context)` | 准确 Agent Registration、首轮 Turn、caller ownership、幂等、公共状态投影；内存 Store 与确定性 Queue 支撑当前 tracer bullet |
+| Agent Registration | `identity`、`revision`、`accept(input)`、`run(request)` | 文本 Content Block Schema、不可变 accepted input、Interactive Agent、输出校验和稳定错误 |
 | Process Run Activity Logging | `runActivity(name, operation)`、`ProcessRunLogSink` | 声明检查、Attempt 关联、顺序、耗时、结果净化，以及 Pino 与内存 Adapter |
 | Async Process Runs | `submit(request, context)`、`find(runId, context)` | 输入接受、owner、幂等摘要和公共状态投影 |
 | Console Process Run Client | `execute(request, options)`、`pending()`、`dismiss()` | 浏览器 transport、稳定幂等操作、请求摘要、本地恢复状态、轮询、运行时响应校验、同源结果地址与结构化页面结果 |

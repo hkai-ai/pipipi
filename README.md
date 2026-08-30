@@ -27,6 +27,8 @@ Memebuy 已建立独立文档边界，但当前没有明确归属的 production 
 
 生产启动通过 Installed Skill Catalog 校验 Runtime Skill 的准确名称、版本和 SHA-256。Process 只加载 Registration 固定绑定的 Skill 与窄 Tool；运行期不发现、下载或更新 Skill。
 
+仓库还提供默认不挂载的 Agent Conversations 首轮文本 tracer bullet。受控测试 Application 可以用准确 Agent id/version 和 `Idempotency-Key` 创建首轮 Turn，再按 owner 查询 queued、running、succeeded 或 failed；当前使用内存 Store 与确定性 Queue，不支持多轮、图片或生产恢复。完整当前契约见 [Agent Conversations API](docs/api.md#agent-conversations首轮文本-tracer-bullet)。
+
 图片 Process 只公开业务输入和图片引用。Prompt、模型、供应商、Skill 和存储配置留在服务端。内部新闻图片评测默认关闭，只在受控环境复用同一次正式 Process 执行。
 
 ## 按 Business Process 查看

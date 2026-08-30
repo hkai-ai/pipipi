@@ -5,6 +5,11 @@ import type {
     ServerResponse,
 } from "node:http";
 import type {
+    AgentConversationSubmission,
+    AgentConversations,
+    AgentConversationView,
+} from "../agent-conversations/index.js";
+import type {
     AsyncProcessRuns,
     ProcessRunSubmission,
     ProcessRunView,
@@ -44,8 +49,15 @@ export type ProcessingHttpOptions = {
     logSink?: ProcessingLogSink;
     clock?: ProcessingClock;
     asyncProcessRuns?: AsyncProcessRunsHttpOptions;
+    agentConversations?: AgentConversationsHttpOptions;
     console?: ConsoleHttpOptions;
 };
+
+export type AgentConversationsHttpOptions = Readonly<{
+    conversations: AgentConversations;
+    callerIdentity: CallerIdentityResolver;
+    retryAfterSeconds?: number;
+}>;
 
 export type ConsoleRecordPage = Readonly<{
     records: readonly ProcessRunRecord[];
@@ -250,6 +262,7 @@ type RequestHandlingContext = {
     logging: RequestLoggingContext;
     internalEvaluationEnabled: boolean;
     asyncProcessRuns?: AsyncProcessRunsHttpOptions;
+    agentConversations?: AgentConversationsHttpOptions;
     console?: ConsoleHttpOptions;
 };
 
@@ -311,6 +324,7 @@ export function createProcessingRequestListener(
                 ...(requestId === undefined ? {} : { requestId }),
             },
             asyncProcessRuns: options.asyncProcessRuns,
+            agentConversations: options.agentConversations,
             console: options.console,
         };
         void handleRequest(request, response, context).catch(() => {
@@ -368,6 +382,29 @@ async function handleRequest(
             context.admission,
         );
         if (handled) return;
+    }
+
+    if (
+        context.agentConversations &&
+        request.method === "POST" &&
+        request.url === "/agent-conversations"
+    ) {
+        await openAgentConversation(request, response, context);
+        return;
+    }
+
+    const agentConversationId =
+        context.agentConversations && request.method === "GET"
+            ? agentConversationIdFromPath(request.url)
+            : undefined;
+    if (context.agentConversations && agentConversationId !== undefined) {
+        await findAgentConversation(
+            request,
+            response,
+            agentConversationId,
+            context.agentConversations,
+        );
+        return;
     }
 
     if (
@@ -469,6 +506,192 @@ async function handleRequest(
         writeJson(response, statusFor(result), result);
     } finally {
         releaseExecution();
+    }
+}
+
+async function openAgentConversation(
+    request: IncomingMessage,
+    response: ServerResponse,
+    context: RequestHandlingContext,
+): Promise<void> {
+    const options = context.agentConversations;
+    if (!options) throw new Error("Agent Conversations are not configured");
+    const caller = await resolveAgentCaller(request, response, options);
+    if (!caller) return;
+
+    const idempotencyKey = parseIdempotencyKey(
+        request.headers["idempotency-key"],
+        response,
+    );
+    if (!idempotencyKey) return;
+    if (!isJsonMediaType(request.headers["content-type"])) {
+        rejectRequest(response, unsupportedMediaTypeFailure, context.logging);
+        return;
+    }
+    const requestBody = await readRequestBody(
+        request,
+        context.maxRequestBodyBytes,
+    );
+    if (requestBody.kind === "too_large") {
+        rejectRequest(response, requestTooLargeFailure, context.logging);
+        return;
+    }
+
+    let submission: AgentConversationSubmission;
+    try {
+        submission = await options.conversations.open(requestBody.value, {
+            callerId: caller.callerId,
+            idempotencyKey,
+        });
+    } catch {
+        writeAgentConversationsUnavailable(response, options);
+        return;
+    }
+    if (!submission.accepted) {
+        const status = {
+            INVALID_INPUT: 400,
+            AGENT_NOT_FOUND: 404,
+            IDEMPOTENCY_CONFLICT: 409,
+        }[submission.error.code];
+        writeFailureJson(
+            response,
+            status,
+            submission.error.code,
+            submission.error.message,
+        );
+        return;
+    }
+
+    const retryAfter = agentRetryAfterSeconds(options);
+    response.setHeader(
+        "location",
+        `/agent-conversations/${submission.conversationId}`,
+    );
+    response.setHeader("retry-after", String(retryAfter));
+    response.setHeader("cache-control", "no-store");
+    writeJson(response, 202, {
+        conversationId: submission.conversationId,
+        turnId: submission.turnId,
+        sequence: submission.sequence,
+        status: submission.status,
+        createdAt: submission.createdAt,
+    });
+}
+
+async function findAgentConversation(
+    request: IncomingMessage,
+    response: ServerResponse,
+    conversationId: string,
+    options: AgentConversationsHttpOptions,
+): Promise<void> {
+    const caller = await resolveAgentCaller(request, response, options);
+    if (!caller) return;
+
+    let conversation: AgentConversationView | undefined;
+    try {
+        conversation = await options.conversations.find(conversationId, caller);
+    } catch {
+        writeAgentConversationsUnavailable(response, options);
+        return;
+    }
+    if (!conversation) {
+        writeFailureJson(
+            response,
+            404,
+            "CONVERSATION_NOT_FOUND",
+            "Agent Conversation not found",
+        );
+        return;
+    }
+    response.setHeader("cache-control", "no-store");
+    if (conversation.status === "busy") {
+        response.setHeader(
+            "retry-after",
+            String(agentRetryAfterSeconds(options)),
+        );
+    }
+    writeJson(response, 200, conversation);
+}
+
+async function resolveAgentCaller(
+    request: IncomingMessage,
+    response: ServerResponse,
+    options: AgentConversationsHttpOptions,
+) {
+    try {
+        const caller = await options.callerIdentity.resolve(request.headers);
+        if (caller) return caller;
+    } catch {
+        writeAgentConversationsUnavailable(response, options);
+        return undefined;
+    }
+    writeFailureJson(
+        response,
+        401,
+        "CALLER_UNAUTHORIZED",
+        "Caller identity could not be verified",
+    );
+    return undefined;
+}
+
+function parseIdempotencyKey(
+    value: string | string[] | undefined,
+    response: ServerResponse,
+): string | undefined {
+    if (
+        value === undefined ||
+        (typeof value === "string" && value.trim().length === 0)
+    ) {
+        writeFailureJson(
+            response,
+            400,
+            "IDEMPOTENCY_KEY_REQUIRED",
+            "Idempotency-Key is required",
+        );
+        return undefined;
+    }
+    if (typeof value !== "string" || Buffer.byteLength(value, "utf8") > 512) {
+        writeFailureJson(
+            response,
+            400,
+            "INVALID_IDEMPOTENCY_KEY",
+            "Idempotency-Key must be at most 512 bytes",
+        );
+        return undefined;
+    }
+    return value;
+}
+
+function writeAgentConversationsUnavailable(
+    response: ServerResponse,
+    options: AgentConversationsHttpOptions,
+): void {
+    response.setHeader("retry-after", String(agentRetryAfterSeconds(options)));
+    response.setHeader("cache-control", "no-store");
+    writeFailureJson(
+        response,
+        503,
+        "AGENT_CONVERSATIONS_UNAVAILABLE",
+        "Agent Conversations are temporarily unavailable",
+    );
+}
+
+function agentRetryAfterSeconds(
+    options: AgentConversationsHttpOptions,
+): number {
+    const value = options.retryAfterSeconds ?? 2;
+    return Number.isInteger(value) && value > 0 ? value : 2;
+}
+
+function agentConversationIdFromPath(
+    url: string | undefined,
+): string | undefined {
+    const match = /^\/agent-conversations\/([^/?#]+)$/.exec(url ?? "");
+    if (!match?.[1]) return undefined;
+    try {
+        return decodeURIComponent(match[1]);
+    } catch {
+        return undefined;
     }
 }
 
