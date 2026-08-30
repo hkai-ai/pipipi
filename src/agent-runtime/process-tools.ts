@@ -191,20 +191,76 @@ async function runProcessTool(
         );
     }
 
-    const result = await request.attemptRunner.run({
-        runId: processToolRunId(request.parentRunId, request.invocation),
-        registration: request.registration,
-        acceptedInput: acceptance.acceptedInput,
-        signal: request.signal,
-    });
-    if (result.status === "succeeded") {
-        return Object.freeze({
-            ...base,
-            status: "succeeded",
-            output: result.output as JsonValue,
+    const runId = processToolRunId(request.parentRunId, request.invocation);
+    for (
+        let attemptNumber = 1;
+        attemptNumber <= request.registration.retryPolicy.maximumAttempts;
+        attemptNumber += 1
+    ) {
+        const result = await request.attemptRunner.run({
+            runId,
+            registration: request.registration,
+            acceptedInput: acceptance.acceptedInput,
+            attemptNumber,
+            signal: request.signal,
         });
+        if (result.status === "succeeded") {
+            return Object.freeze({
+                ...base,
+                status: "succeeded",
+                output: result.output as JsonValue,
+            });
+        }
+        if (
+            attemptNumber >= request.registration.retryPolicy.maximumAttempts ||
+            !request.registration.retryPolicy.retryableErrorCodes.some(
+                (code) => code === result.error.code,
+            ) ||
+            request.signal.aborted
+        ) {
+            return failedInvocation(
+                base,
+                result.error.code,
+                result.error.message,
+            );
+        }
+        await waitForRetry(
+            retryDelay(request.registration.retryPolicy, attemptNumber),
+            request.signal,
+        );
     }
-    return failedInvocation(base, result.error.code, result.error.message);
+    return failedInvocation(
+        base,
+        "INTERNAL_ERROR",
+        "The Process Tool could not be completed",
+    );
+}
+
+function retryDelay(
+    policy: ProcessRegistration["retryPolicy"],
+    attemptNumber: number,
+): number {
+    return Math.min(
+        policy.backoff.initialDelayMs * 2 ** (attemptNumber - 1),
+        policy.backoff.maximumDelayMs,
+    );
+}
+
+async function waitForRetry(
+    delayMs: number,
+    signal: AbortSignal,
+): Promise<void> {
+    if (signal.aborted) return;
+    await new Promise<void>((resolve) => {
+        const timeout = setTimeout(done, delayMs);
+        const cancel = () => done();
+        signal.addEventListener("abort", cancel, { once: true });
+        function done() {
+            clearTimeout(timeout);
+            signal.removeEventListener("abort", cancel);
+            resolve();
+        }
+    });
 }
 
 function failedInvocation(

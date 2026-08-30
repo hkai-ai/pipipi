@@ -102,6 +102,7 @@ export type AgentConversationContext = Readonly<{
 }>;
 export type AgentTurnErrorCode =
     | "AGENT_FAILURE"
+    | "DEPENDENCY_FAILURE_AFTER_COMMIT"
     | "INTERNAL_ERROR"
     | "INVALID_OUTPUT"
     | "RESOURCE_UNAVAILABLE";

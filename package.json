@@ -52,6 +52,8 @@
         "test:integration:agent-postgres": "RUN_POSTGRES_INTEGRATION=1 vitest run test/postgres-agent-conversation-store.integration.test.ts",
         "test:integration:agent-runtime": "RUN_ASYNC_INTEGRATION=1 vitest run test/bullmq-agent-turn-runtime.integration.test.ts",
         "test:integration:agent-runtime:local": "ASYNC_INTEGRATION_TEST_SCRIPT=test:integration:agent-runtime node --import tsx tools/run-async-integration.ts",
+        "test:integration:agent-tools": "RUN_POSTGRES_INTEGRATION=1 vitest run test/postgres-agent-tool-ledger.integration.test.ts",
+        "test:integration:agent-tools:local": "ASYNC_INTEGRATION_TEST_SCRIPT=test:integration:agent-tools node --import tsx tools/run-async-integration.ts",
         "test:integration:observation": "RUN_POSTGRES_INTEGRATION=1 vitest run test/postgres-run-observation.integration.test.ts",
         "test:integration:async": "RUN_ASYNC_INTEGRATION=1 vitest run test/bullmq-process-runtime.integration.test.ts",
         "test:integration:async:local": "node --import tsx tools/run-async-integration.ts",

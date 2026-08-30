@@ -162,6 +162,7 @@ async function executeAgentTurn(
     signal: AbortSignal,
 ): Promise<AgentTurnCompletion> {
     const acquired: AcquiredAgentImage[] = [];
+    let records: readonly ReturnType<AgentToolLedger["records"]>[number][] = [];
     try {
         const context = assembleAgentConversationContext(
             started.priorTurns,
@@ -199,25 +200,51 @@ async function executeAgentTurn(
             maxToolCalls: registration.toolLimits.maxCallsPerTurn,
             signal,
         });
-        if (
-            boundTools &&
-            !isAgentOutputDerivedFromTools(draft, boundTools.records())
-        ) {
-            return invalidOutput();
+        records = boundTools?.records() ?? [];
+        if (boundTools && !isAgentOutputDerivedFromTools(draft, records)) {
+            return protectPricedCommit(invalidOutput(), records);
         }
-        return await resolveAgentTurnCompletion(draft, {
-            ownerId: started.ownerId,
-            turnId: started.turnId,
-            resolver,
-            registration,
-        });
+        return protectPricedCommit(
+            await resolveAgentTurnCompletion(draft, {
+                ownerId: started.ownerId,
+                turnId: started.turnId,
+                resolver,
+                registration,
+            }),
+            records,
+        );
     } catch {
-        return resourceUnavailable();
+        return protectPricedCommit(resourceUnavailable(), records);
     } finally {
         await Promise.allSettled(
             acquired.reverse().map((image) => image.release()),
         );
     }
+}
+
+function protectPricedCommit(
+    completion: AgentTurnCompletion,
+    records: readonly ReturnType<AgentToolLedger["records"]>[number][],
+): AgentTurnCompletion {
+    if (
+        completion.status === "failed" &&
+        records.some(
+            (record) =>
+                record.sideEffect === "priced" &&
+                (record.status === "succeeded" ||
+                    record.error?.code === "DEPENDENCY_FAILURE_AFTER_COMMIT"),
+        )
+    ) {
+        return Object.freeze({
+            status: "failed",
+            error: Object.freeze({
+                code: "DEPENDENCY_FAILURE_AFTER_COMMIT",
+                message:
+                    "A priced dependency completed but the Turn could not be completed",
+            }),
+        });
+    }
+    return completion;
 }
 
 function invalidOutput(): AgentTurnCompletion {

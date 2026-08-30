@@ -287,6 +287,38 @@ describe("Interactive Agent Process Tools", () => {
             ],
         });
     });
+
+    it("reports after-commit when invalid output follows a priced Tool success", async () => {
+        let pricedExecutions = 0;
+        const fixture = await startFixture({
+            specs: [pricedSpec],
+            execute: async () => {
+                pricedExecutions += 1;
+                return { content: "paid result" };
+            },
+            agent: {
+                respond: async (request) => {
+                    await request.processTools[0]?.execute({
+                        content: "paid design",
+                    });
+                    return textOutput("invented final value");
+                },
+            },
+        });
+        await open(fixture.url, "after-commit", "start");
+        await fixture.drain.drainOne();
+
+        const view = await find(fixture.url);
+        expect(await view.json()).toMatchObject({
+            turns: [
+                {
+                    status: "failed",
+                    error: { code: "DEPENDENCY_FAILURE_AFTER_COMMIT" },
+                },
+            ],
+        });
+        expect(pricedExecutions).toBe(1);
+    });
 });
 
 describe("Agent Tool Ledger contract", () => {

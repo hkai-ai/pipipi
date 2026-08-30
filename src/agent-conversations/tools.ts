@@ -102,7 +102,7 @@ export function createInMemoryAgentToolLedger(): AgentToolLedger {
                             nextInvocation += 1;
                             const invocation = nextInvocation;
                             return serialize(request.turnId, async () => {
-                                const fingerprint = inputFingerprint({
+                                const fingerprint = agentToolInputFingerprint({
                                     toolName: descriptor.name,
                                     input,
                                 });
@@ -320,7 +320,7 @@ function assertLimits(limits: AgentToolLimits): void {
     }
 }
 
-function inputFingerprint(value: unknown): string {
+export function agentToolInputFingerprint(value: unknown): string {
     return createHash("sha256")
         .update(canonicalJson(value), "utf8")
         .digest("hex");

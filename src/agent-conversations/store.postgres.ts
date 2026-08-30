@@ -1020,11 +1020,13 @@ function isAgentTurnErrorCode(
     value: string | null,
 ): value is
     | "AGENT_FAILURE"
+    | "DEPENDENCY_FAILURE_AFTER_COMMIT"
     | "INTERNAL_ERROR"
     | "INVALID_OUTPUT"
     | "RESOURCE_UNAVAILABLE" {
     return (
         value === "AGENT_FAILURE" ||
+        value === "DEPENDENCY_FAILURE_AFTER_COMMIT" ||
         value === "INTERNAL_ERROR" ||
         value === "INVALID_OUTPUT" ||
         value === "RESOURCE_UNAVAILABLE"

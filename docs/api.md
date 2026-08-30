@@ -12,7 +12,7 @@
 
 Agent Conversations 当前支持可靠多轮文本、owner-scoped 图片资源和 Registration 固定的受控 Business Process Tool：代码支持创建、追加与分页查询，但 production Composition Root 尚未装配，默认部署访问这些路由仍返回 404。当前阶段不提供图片上传、任意 URL 抓取、跨 Conversation 长期 Memory、SSE、删除或 production Agent catalog。
 
-能力可调用不等于可以匿名公开。同步 `/execute` 的应用本身不校验调用方身份；Agent Conversations 必须注入可信 caller identity，且每次创建和追加都要求 caller-scoped `Idempotency-Key`。仓库已有 PostgreSQL 权威 Store、BullMQ Dispatcher/Worker 和 Reconciler；正式公网开放前，部署方还必须完成 production 装配、持久 Tool Ledger、容量、保留、限流和费用门禁。
+能力可调用不等于可以匿名公开。同步 `/execute` 的应用本身不校验调用方身份；Agent Conversations 必须注入可信 caller identity，且每次创建和追加都要求 caller-scoped `Idempotency-Key`。仓库已有 PostgreSQL 权威 Store/Tool Ledger、BullMQ Dispatcher/Worker 和 Reconciler；正式公网开放前，部署方还必须完成 production 装配、容量、保留、限流和费用门禁。
 
 ### 最短接入路径
 
@@ -222,7 +222,7 @@ Resource Resolver 在接受图片输入时按 caller 校验归属、存在性、
 | cursor、limit 或额外 query 无效 | 400 | `INVALID_QUERY` |
 | Store、Queue 或 identity 依赖异常 | 503 | `AGENT_CONVERSATIONS_UNAVAILABLE` |
 
-Agent 异常收敛为 Turn 终态 `AGENT_FAILURE`，执行时资源不可访问收敛为 `RESOURCE_UNAVAILABLE`，不合法、超限或未获准图片输出收敛为 `INVALID_OUTPUT`。响应不透传 provider 错误、Prompt、隐藏推理、资源服务细节或内部异常。PostgreSQL Adapter 能在 API 重启后保留 Conversation 与幂等 identity；当前确定性 Queue 和 Worker 仍不提供生产恢复，不能据此开放 production 流量。
+Agent 异常收敛为 Turn 终态 `AGENT_FAILURE`，执行时资源不可访问收敛为 `RESOURCE_UNAVAILABLE`，不合法、超限或未获准图片输出收敛为 `INVALID_OUTPUT`。priced Process Tool 成功或进入结果不确定窗口后，如果 Turn 无法交付有效结果，则终态为 `DEPENDENCY_FAILURE_AFTER_COMMIT`；这表示费用可能已经发生，调用方不得自动重试。响应不透传 provider 错误、Prompt、隐藏推理、Tool 输入输出正文、资源服务细节或内部异常。PostgreSQL Adapter 能在 API/Worker 重启后保留 Conversation、幂等 identity 与 Tool invocation；BullMQ 提供可恢复的至少一次调度，但 production 装配、容量和保留门禁完成前仍不能开放流量。
 
 ## Agent 读取入口
 
