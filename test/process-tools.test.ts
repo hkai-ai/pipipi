@@ -10,6 +10,7 @@ import {
     createProcessAttemptRunner,
     createProcessRegistry,
     defineProcessRegistration,
+    failProcess,
 } from "../src/process-runtime/index.js";
 
 const textTool: ProcessToolSpec = {
@@ -102,6 +103,92 @@ describe("Process Tool Runtime", () => {
                 message: "The Process Tool input is invalid",
             },
         });
+    });
+
+    it("retries only declared pre-commit failures with the stable child Run", async () => {
+        const runIds: string[] = [];
+        let attempts = 0;
+        const registration = defineProcessRegistration({
+            id: "text",
+            version: "v1",
+            inputSchema: z.strictObject({ content: z.string().min(1) }),
+            outputSchema: z.strictObject({ content: z.string() }),
+            activities: [],
+            retryPolicy: {
+                maximumAttempts: 2,
+                retryableErrorCodes: ["DEPENDENCY_FAILURE"],
+                backoff: { initialDelayMs: 1, maximumDelayMs: 1 },
+            },
+            execute: async (input, context) => {
+                attempts += 1;
+                runIds.push(context.runId);
+                if (attempts === 1) {
+                    return failProcess(
+                        "DEPENDENCY_FAILURE",
+                        "Dependency unavailable",
+                    );
+                }
+                return { content: input.content };
+            },
+        });
+        const runtime = createProcessToolRuntime({
+            specs: [textTool],
+            registry: createProcessRegistry([registration]),
+            attemptRunner: createProcessAttemptRunner(),
+        });
+
+        await expect(
+            runtime.invoke({
+                toolName: "run_text",
+                input: { content: "retry" },
+                parentRunId: "turn-retry",
+                invocation: 1,
+                signal: new AbortController().signal,
+            }),
+        ).resolves.toMatchObject({ status: "succeeded" });
+        expect(runIds).toEqual(["turn-retry.1", "turn-retry.1"]);
+    });
+
+    it("never retries an after-commit failure", async () => {
+        let attempts = 0;
+        const registration = defineProcessRegistration({
+            id: "text",
+            version: "v1",
+            inputSchema: z.strictObject({ content: z.string().min(1) }),
+            outputSchema: z.strictObject({ content: z.string() }),
+            activities: [],
+            retryPolicy: {
+                maximumAttempts: 2,
+                retryableErrorCodes: ["DEPENDENCY_FAILURE"],
+                backoff: { initialDelayMs: 1, maximumDelayMs: 1 },
+            },
+            execute: async () => {
+                attempts += 1;
+                return failProcess(
+                    "DEPENDENCY_FAILURE_AFTER_COMMIT",
+                    "A priced effect already completed",
+                );
+            },
+        });
+        const runtime = createProcessToolRuntime({
+            specs: [textTool],
+            registry: createProcessRegistry([registration]),
+            attemptRunner: createProcessAttemptRunner(),
+        });
+
+        await expect(
+            runtime.invoke({
+                toolName: "run_text",
+                input: { content: "do not retry" },
+                parentRunId: "turn-after-commit",
+                invocation: 1,
+                signal: new AbortController().signal,
+            }),
+        ).resolves.toMatchObject({
+            status: "failed",
+            error: { code: "DEPENDENCY_FAILURE_AFTER_COMMIT" },
+        });
+        expect(attempts).toBe(1);
     });
 
     it("rejects unavailable, duplicated, self-referential and unknown Tools", async () => {

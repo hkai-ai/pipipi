@@ -338,7 +338,7 @@ postgresDescribe("PostgreSQL Agent Conversation Store", () => {
     });
 
     it("rolls migration back without changing Process Run tables", async () => {
-        await migrate("down", 2);
+        await migrate("down", 3);
         const tables = await primaryPool.query<{
             process_runs: string | null;
             agent_conversations: string | null;

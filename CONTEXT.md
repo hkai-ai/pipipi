@@ -53,7 +53,7 @@ Business Processing Service 让产品调用方通过一个稳定的 HTTP Interfa
 
 默认 HTTP Interface 提供健康检查和同步 `POST /execute`。异步提交、owner 查询、PostgreSQL Store、BullMQ Worker、Webhook、恢复和保留已经实现，但入口默认关闭。精确行为见 [异步设计](docs/async-process-runs-design.md)。
 
-Agent Conversations Module 已实现可靠多轮文本、owner-scoped 图片资源、受控 Business Process Tool、PostgreSQL 权威状态和可恢复的 BullMQ 执行。调用方用准确 Agent id/version 和 `Idempotency-Key` 创建首轮，用最后接受的 `afterTurnId` 追加，并按 owner 分页查询。PostgreSQL Store 在一个事务内写入 Turn、单调 sequence、幂等 fingerprint 与最小调度 Outbox；行锁和数据库约束保证单活动 Turn，API 重启后仍可查询和重放。Dispatcher 对 Outbox 做 claim、ack 和失败 release；Worker 只凭最小 Turn identity 从 Store 认领准确 revision，并用 lease、attempt、revision 和 fencing 提交终态；Reconciler 可恢复租期过期或 Redis 中缺失的 Job。图片块只接受稳定 `resourceId`；Agent Registration 固定准确 Process allow-list；内存 Tool Ledger 实施 6/1/10 调用预算，最终输出必须来自本 Turn 成功 Tool 或获准图片资源。该 Interface 只在 Application 显式注入依赖时挂载；production Composition Root 尚未装配，所以默认服务仍返回 404。持久 Tool Ledger、删除和 production `design-assistant/v1` 仍是后续阶段。
+Agent Conversations Module 已实现可靠多轮文本、owner-scoped 图片资源、受控 Business Process Tool、PostgreSQL 权威状态和可恢复的 BullMQ 执行。调用方用准确 Agent id/version 和 `Idempotency-Key` 创建首轮，用最后接受的 `afterTurnId` 追加，并按 owner 分页查询。PostgreSQL Store 在一个事务内写入 Turn、单调 sequence、幂等 fingerprint 与最小调度 Outbox；行锁和数据库约束保证单活动 Turn，API 重启后仍可查询和重放。Dispatcher 对 Outbox 做 claim、ack 和失败 release；Worker 只凭最小 Turn identity 从 Store 认领准确 revision，并用 lease、attempt、revision 和 fencing 提交终态；Reconciler 可恢复租期过期或 Redis 中缺失的 Job。图片块只接受稳定 `resourceId`；Agent Registration 固定准确 Process allow-list；PostgreSQL Tool Ledger 用稳定 invocation/子 Run、输入 fingerprint、execution token 和数据库锁实施 6/1/10 调用预算与重放。priced Tool 进入执行后若结果不确定，Turn 以 `DEPENDENCY_FAILURE_AFTER_COMMIT` 失败且不自动重试；最终输出仍必须来自本 Turn 成功 Tool 或获准图片资源。该 Interface 只在 Application 显式注入依赖时挂载；production Composition Root 尚未装配，所以默认服务仍返回 404。删除和 production `design-assistant/v1` 仍是后续阶段。
 
 海报、CRT 和 Memene 新闻图片 Process 会调用模型并持久化图片。产品只接收图片引用；真实验收、证据与费用必须显式启用。CRT 和新闻图片上游来源的许可证仍是发布门禁。
 
@@ -104,7 +104,7 @@ Agent 只获得 Registration 固定绑定的 Runtime Skill 与窄 Tool。文本 
 | Agent Turn Reconciler | `reconcileOnce()` | 从 PostgreSQL 权威 queued/过期 running Turn 恢复 Redis 中缺失、终态或损坏的最小 Job |
 | Agent Turn Queue / Worker | `enqueue`、`inspectJobs`、`process` | BullMQ 至少一次调度；Worker 按准确 Agent revision 执行并以 claim token fencing 提交，Queue 不保存业务输入或运行配置 |
 | Agent Registration | `identity`、`revision`、`limits`、`accept`、`run` | 文本/图片引用 Schema、不可变 accepted input、图片与 Context 上限、Interactive Agent、准确 Process Tool allow-list、输出校验和稳定错误 |
-| Agent Tool Ledger | `bind(request)`、`records(turnId)` | 每 Turn 串行 Process Tool、稳定 invocation、输入 fingerprint、重放冲突、费用预算和净化结果；当前只有内存 Adapter |
+| Agent Tool Ledger | `bind(request)`、`records(turnId)`、`findRecords(turnId)` | 提供内存与 PostgreSQL Adapter；持久 invocation、准确 Process、稳定子 Run、输入 fingerprint、execution fencing、跨 Worker 预算、净化结果和 priced after-commit 语义 |
 | Agent Resource Resolver | `inspectInput`、`inspectOutput`、`acquire`、`project` | owner-scoped 稳定图片元数据、模型内容、获准输出证明和读取时短期 URL；不提供上传或任意抓取 |
 | Process Run Activity Logging | `runActivity(name, operation)`、`ProcessRunLogSink` | 声明检查、Attempt 关联、顺序、耗时、结果净化，以及 Pino 与内存 Adapter |
 | Async Process Runs | `submit(request, context)`、`find(runId, context)` | 输入接受、owner、幂等摘要和公共状态投影 |

@@ -14,6 +14,7 @@ import {
     it,
     vi,
 } from "vitest";
+import { z } from "zod";
 import { createAgentTurnOutboxDispatcher } from "../src/agent-conversations/dispatcher.js";
 import { createPostgresAgentTurnOutbox } from "../src/agent-conversations/outbox.js";
 import {
@@ -27,7 +28,13 @@ import {
     createPostgresAgentConversationStore,
     type PostgresAgentConversationStore,
 } from "../src/agent-conversations/store.postgres.js";
+import { createPostgresAgentToolLedger } from "../src/agent-conversations/tools.postgres.js";
 import { createAgentTurnWorker } from "../src/agent-conversations/worker.js";
+import {
+    createProcessAttemptRunner,
+    createProcessRegistry,
+    defineProcessRegistration,
+} from "../src/process-runtime/index.js";
 import { acceptedConversation } from "./support/agent-conversation-store-contract.js";
 
 const databaseUrl = process.env.POSTGRES_TEST_DATABASE_URL;
@@ -226,6 +233,118 @@ integrationDescribe("BullMQ Agent Turn runtime", () => {
         });
     });
 
+    it("replays a committed priced Tool after Worker restart without charging twice", async () => {
+        let blocked = true;
+        let capabilityCalls = 0;
+        const registration = defineAgentRegistration({
+            id: "design-assistant",
+            version: "v1",
+            revision: "registration-revision-1",
+            agent: {
+                respond: async (request) => {
+                    const result = await request.processTools[0]?.execute({
+                        content: "paid design",
+                    });
+                    if (blocked) {
+                        await new Promise<never>((_resolve, reject) => {
+                            request.signal.addEventListener(
+                                "abort",
+                                () => reject(new Error("worker stopped")),
+                                { once: true },
+                            );
+                        });
+                    }
+                    return {
+                        content: [
+                            {
+                                type: "text",
+                                text: toolContent(result),
+                            },
+                        ],
+                    };
+                },
+            },
+            processTools: {
+                specs: [
+                    {
+                        process: "render-design",
+                        version: "v1",
+                        toolName: "render_design",
+                        description: "Render one design",
+                        sideEffect: "priced",
+                    },
+                ],
+                registry: createProcessRegistry([
+                    defineProcessRegistration({
+                        id: "render-design",
+                        version: "v1",
+                        inputSchema: z.strictObject({
+                            content: z.string().min(1),
+                        }),
+                        outputSchema: z.strictObject({
+                            content: z.string().min(1),
+                        }),
+                        activities: [],
+                        execute: async () => {
+                            capabilityCalls += 1;
+                            return { content: "paid result" };
+                        },
+                    }),
+                ]),
+                attemptRunner: createProcessAttemptRunner(),
+            },
+        });
+        const registry = createAgentRegistry([registration]);
+        const original = acceptedConversation(33);
+        await store.accept(original);
+        const queueRuntime = trackQueue();
+        const { queue } = queueRuntime;
+        await dispatcherFor(queue).dispatchOnce();
+        const firstWorker = trackWorker(
+            createBullMqAgentTurnWorker({
+                redisUrl: redisUrl as string,
+                queueName: queueRuntime.name,
+                worker: createAgentTurnWorker({
+                    registry,
+                    store,
+                    toolLedger: createPostgresAgentToolLedger({ pool }),
+                }),
+                shutdownGraceMs: 20,
+            }),
+        );
+        await firstWorker.start();
+        await vi.waitFor(() => expect(capabilityCalls).toBe(1));
+        await firstWorker.close();
+        await vi.waitFor(async () => {
+            expect(await turnStatus(original.turnId)).toBe("queued");
+        });
+
+        blocked = false;
+        await createAgentTurnReconciler({
+            store,
+            queue,
+            queuedAgeMs: 1,
+            clock: () => "2026-08-30T09:00:00.000Z",
+        }).reconcileOnce();
+        const secondWorker = trackWorker(
+            createBullMqAgentTurnWorker({
+                redisUrl: redisUrl as string,
+                queueName: queueRuntime.name,
+                worker: createAgentTurnWorker({
+                    registry,
+                    store,
+                    toolLedger: createPostgresAgentToolLedger({ pool }),
+                }),
+            }),
+        );
+        await secondWorker.start();
+        await secondWorker.ready();
+        await vi.waitFor(async () => {
+            expect(await turnStatus(original.turnId)).toBe("succeeded");
+        });
+        expect(capabilityCalls).toBe(1);
+    });
+
     function trackQueue() {
         const name = `agent-test-${randomUUID().slice(0, 8)}`;
         const queue = createBullMqAgentTurnQueue({
@@ -270,6 +389,21 @@ function registryWith(
             agent: { respond },
         }),
     ]);
+}
+
+function toolContent(value: unknown): string {
+    if (
+        typeof value === "object" &&
+        value !== null &&
+        "output" in value &&
+        typeof value.output === "object" &&
+        value.output !== null &&
+        "content" in value.output &&
+        typeof value.output.content === "string"
+    ) {
+        return value.output.content;
+    }
+    throw new Error("Tool did not return content");
 }
 
 async function migrate(url: string) {
