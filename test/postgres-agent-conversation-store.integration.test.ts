@@ -132,6 +132,44 @@ postgresDescribe("PostgreSQL Agent Conversation Store", () => {
         ).resolves.toMatchObject({ turnCount: 2, busy: true });
     });
 
+    it("serializes global Agent backlog admission across adapter instances", async () => {
+        const admission = {
+            globalBacklogLimit: 1,
+            callerBacklogLimit: 1,
+            retryAfterSeconds: 7,
+        };
+        const leftStore = createPostgresAgentConversationStore({
+            pool: primaryPool,
+            retentionMs: 30 * 24 * 60 * 60 * 1_000,
+            admission,
+        });
+        const rightStore = createPostgresAgentConversationStore({
+            pool: secondaryPool,
+            retentionMs: 30 * 24 * 60 * 60 * 1_000,
+            admission,
+        });
+        const left = acceptedConversation(40, { ownerId: "owner-left" });
+        const right = acceptedConversation(41, { ownerId: "owner-right" });
+
+        const outcomes = await Promise.all([
+            leftStore.accept(left),
+            rightStore.accept(right),
+        ]);
+
+        expect(
+            outcomes.filter((result) => result.outcome === "created"),
+        ).toHaveLength(1);
+        expect(
+            outcomes.filter((result) => result.outcome === "capacity"),
+        ).toEqual([
+            {
+                outcome: "capacity",
+                scope: "global",
+                retryAfterSeconds: 7,
+            },
+        ]);
+    });
+
     it("recovers an expired lease and fences the previous Worker", async () => {
         const original = acceptedConversation(24);
         await primaryStore.accept(original);

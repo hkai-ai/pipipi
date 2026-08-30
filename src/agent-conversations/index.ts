@@ -31,6 +31,8 @@ const continueRequestSchema = z.strictObject({
 
 export type AgentConversationErrorCode =
     | "AGENT_NOT_FOUND"
+    | "AGENT_BACKLOG_LIMIT_REACHED"
+    | "CALLER_AGENT_BACKLOG_LIMIT_REACHED"
     | "CONVERSATION_BUSY"
     | "CONVERSATION_NOT_FOUND"
     | "CONVERSATION_SEQUENCE_CONFLICT"
@@ -53,6 +55,7 @@ export type AgentConversationSubmission =
           error: Readonly<{
               code: AgentConversationErrorCode;
               message: string;
+              retryAfterSeconds?: number;
           }>;
       }>;
 
@@ -234,6 +237,9 @@ export function createAgentConversations(options: {
                     "Agent Conversation not found",
                 );
             }
+            if (result.outcome === "capacity") {
+                return capacityRejected(result);
+            }
             if (result.outcome === "created") {
                 await enqueue(options.queue, result.turn.turnId);
             }
@@ -257,11 +263,11 @@ export function createAgentConversations(options: {
                     "Agent Conversation not found",
                 );
             }
-            const registration = options.registry.find(metadata.agent);
-            if (
-                !registration ||
-                registration.revision !== metadata.configRevision
-            ) {
+            const registration = options.registry.findRevision(
+                metadata.agent,
+                metadata.configRevision,
+            );
+            if (!registration) {
                 return rejected(
                     "AGENT_NOT_FOUND",
                     "The Conversation Agent version is not available",
@@ -319,11 +325,13 @@ export function createAgentConversations(options: {
                         "CONVERSATION_SEQUENCE_CONFLICT",
                         "afterTurnId is not the last accepted Turn",
                     );
-                case "capacity":
+                case "turn_limit":
                     return rejected(
                         "CONVERSATION_TURN_LIMIT_REACHED",
                         "Agent Conversation reached its Turn limit",
                     );
+                case "capacity":
+                    return capacityRejected(result);
                 case "created":
                     await enqueue(options.queue, result.turn.turnId);
                     return submitted(conversationId, result.turn);
@@ -435,11 +443,31 @@ function submitted(
 function rejected(
     code: AgentConversationErrorCode,
     message: string,
+    retryAfterSeconds?: number,
 ): AgentConversationSubmission {
     return Object.freeze({
         accepted: false,
-        error: Object.freeze({ code, message }),
+        error: Object.freeze({
+            code,
+            message,
+            ...(retryAfterSeconds ? { retryAfterSeconds } : {}),
+        }),
     });
+}
+
+function capacityRejected(request: {
+    scope: "caller" | "global";
+    retryAfterSeconds: number;
+}): AgentConversationSubmission {
+    return rejected(
+        request.scope === "caller"
+            ? "CALLER_AGENT_BACKLOG_LIMIT_REACHED"
+            : "AGENT_BACKLOG_LIMIT_REACHED",
+        request.scope === "caller"
+            ? "Caller Agent Turn backlog limit reached"
+            : "Agent Turn backlog limit reached",
+        request.retryAfterSeconds,
+    );
 }
 
 function lookupRejected(

@@ -55,6 +55,7 @@ export type ProcessingHttpOptions = {
 export type AgentConversationsHttpOptions = Readonly<{
     conversations: AgentConversations;
     callerIdentity: CallerIdentityResolver;
+    readiness?: () => Promise<void>;
     retryAfterSeconds?: number;
 }>;
 
@@ -367,7 +368,11 @@ async function handleRequest(
     }
 
     if (request.method === "GET" && request.url === "/readyz") {
-        await handleReadiness(response, context.asyncProcessRuns);
+        await handleReadiness(
+            response,
+            context.asyncProcessRuns,
+            context.agentConversations,
+        );
         return;
     }
 
@@ -667,13 +672,23 @@ function writeAgentConversationRejection(
         INVALID_INPUT: 400,
         INVALID_QUERY: 400,
         AGENT_NOT_FOUND: 404,
+        AGENT_BACKLOG_LIMIT_REACHED: 429,
+        CALLER_AGENT_BACKLOG_LIMIT_REACHED: 429,
         CONVERSATION_NOT_FOUND: 404,
         IDEMPOTENCY_CONFLICT: 409,
         CONVERSATION_BUSY: 409,
         CONVERSATION_SEQUENCE_CONFLICT: 409,
         CONVERSATION_TURN_LIMIT_REACHED: 409,
     }[submission.error.code];
-    if (submission.error.code === "CONVERSATION_BUSY") {
+    if (
+        submission.error.code === "AGENT_BACKLOG_LIMIT_REACHED" ||
+        submission.error.code === "CALLER_AGENT_BACKLOG_LIMIT_REACHED"
+    ) {
+        response.setHeader(
+            "retry-after",
+            String(submission.error.retryAfterSeconds),
+        );
+    } else if (submission.error.code === "CONVERSATION_BUSY") {
         response.setHeader(
             "retry-after",
             String(agentRetryAfterSeconds(options)),
@@ -1278,14 +1293,18 @@ function consoleRunIdFromPath(
 async function handleReadiness(
     response: ServerResponse,
     asyncOptions: AsyncProcessRunsHttpOptions | undefined,
+    agentOptions: AgentConversationsHttpOptions | undefined,
 ): Promise<void> {
     response.setHeader("cache-control", "no-store");
-    if (!asyncOptions) {
+    if (!asyncOptions && !agentOptions?.readiness) {
         writeJson(response, 200, { status: "ready" });
         return;
     }
     try {
-        await asyncOptions.readiness();
+        await Promise.all([
+            asyncOptions?.readiness(),
+            agentOptions?.readiness?.(),
+        ]);
         writeJson(response, 200, { status: "ready" });
     } catch {
         writeJson(response, 503, { status: "not_ready" });

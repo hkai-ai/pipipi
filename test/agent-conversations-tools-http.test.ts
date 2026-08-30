@@ -8,6 +8,7 @@ import {
     type InteractiveAgent,
 } from "../src/agent-conversations/registration.js";
 import { createAgentRegistry } from "../src/agent-conversations/registry.js";
+import type { AgentResourceResolver } from "../src/agent-conversations/resource.js";
 import { createInMemoryAgentConversationStore } from "../src/agent-conversations/store.js";
 import { createInMemoryAgentToolLedger } from "../src/agent-conversations/tools.js";
 import {
@@ -319,6 +320,131 @@ describe("Interactive Agent Process Tools", () => {
         });
         expect(pricedExecutions).toBe(1);
     });
+
+    it("publishes a priced Process image as an owned output resource", async () => {
+        const published: unknown[] = [];
+        const resourceResolver: AgentResourceResolver = {
+            inspectInput: async () => undefined,
+            acquire: async () => undefined,
+            inspectOutput: async ({ ownerId, resourceId, turnId }) =>
+                ownerId === "caller-a" &&
+                resourceId === "output-image-1" &&
+                turnId === "turn-0001"
+                    ? {
+                          resourceId,
+                          mediaType: "image/png",
+                          byteSize: 1_024,
+                          width: 1_200,
+                          height: 2_000,
+                      }
+                    : undefined,
+            project: async () => ({
+                url: "https://resources.example/output-image-1",
+                expiresAt: "2026-08-30T10:00:00.000Z",
+            }),
+            publishProcessOutput: async (request) => {
+                published.push(request);
+                return {
+                    ...(request.result as Record<string, unknown>),
+                    output: {
+                        image: { resourceId: "output-image-1" },
+                    },
+                };
+            },
+        };
+        const fixture = await startFixture({
+            specs: [pricedSpec],
+            resourceResolver,
+            execute: async () => ({ content: "paid image" }),
+            agent: {
+                respond: async (request) => {
+                    const result = await request.processTools[0]?.execute({
+                        content: "render",
+                    });
+                    const resourceId = toolResourceId(result);
+                    return {
+                        content: [{ type: "image", resourceId }],
+                    };
+                },
+            },
+        });
+
+        await open(fixture.url, "publish-image", "start");
+        await expect(fixture.drain.drainOne()).resolves.toBe("processed");
+        expect(published).toMatchObject([
+            {
+                ownerId: "caller-a",
+                turnId: "turn-0001",
+                toolName: "render_design",
+                result: {
+                    process: "render-design",
+                    version: "v1",
+                    status: "succeeded",
+                },
+            },
+        ]);
+        const view = await find(fixture.url);
+        expect(await view.json()).toMatchObject({
+            turns: [
+                {
+                    status: "succeeded",
+                    output: {
+                        content: [
+                            {
+                                type: "image",
+                                resource: { resourceId: "output-image-1" },
+                                url: "https://resources.example/output-image-1",
+                            },
+                        ],
+                    },
+                },
+            ],
+        });
+    });
+
+    it("does not retry a priced Tool when owned output publication fails", async () => {
+        let pricedExecutions = 0;
+        const resourceResolver: AgentResourceResolver = {
+            inspectInput: async () => undefined,
+            acquire: async () => undefined,
+            inspectOutput: async () => undefined,
+            project: async () => undefined,
+            publishProcessOutput: async () => {
+                throw new Error("resource provider detail");
+            },
+        };
+        const fixture = await startFixture({
+            specs: [pricedSpec],
+            resourceResolver,
+            execute: async () => {
+                pricedExecutions += 1;
+                return { content: "paid image" };
+            },
+            agent: {
+                respond: async (request) => {
+                    await request.processTools[0]?.execute({
+                        content: "render",
+                    });
+                    return textOutput("unreachable");
+                },
+            },
+        });
+
+        await open(fixture.url, "publish-failure", "start");
+        await expect(fixture.drain.drainOne()).resolves.toBe("processed");
+        expect(pricedExecutions).toBe(1);
+        const view = await find(fixture.url);
+        const body = await view.json();
+        expect(body).toMatchObject({
+            turns: [
+                {
+                    status: "failed",
+                    error: { code: "DEPENDENCY_FAILURE_AFTER_COMMIT" },
+                },
+            ],
+        });
+        expect(JSON.stringify(body)).not.toContain("resource provider detail");
+    });
 });
 
 describe("Agent Tool Ledger contract", () => {
@@ -424,6 +550,7 @@ async function startFixture(options: {
         input: unknown,
         context: { runId: string; signal: AbortSignal },
     ) => Promise<{ content: string }>;
+    resourceResolver?: AgentResourceResolver;
 }) {
     let turnSequence = 0;
     const registrations = [
@@ -465,6 +592,9 @@ async function startFixture(options: {
         queue,
         createConversationId: () => conversationId,
         createTurnId: () => `turn-${String(++turnSequence).padStart(4, "0")}`,
+        ...(options.resourceResolver
+            ? { resourceResolver: options.resourceResolver }
+            : {}),
     });
     const drain = createAgentTurnDrain({
         source: queue,
@@ -472,6 +602,9 @@ async function startFixture(options: {
             registry,
             store,
             toolLedger: ledger,
+            ...(options.resourceResolver
+                ? { resourceResolver: options.resourceResolver }
+                : {}),
         }),
     });
     const application = createProcessingApplication({
@@ -566,6 +699,24 @@ function toolText(value: unknown): string {
 
 function hasToolOutput(value: unknown): boolean {
     return typeof value === "object" && value !== null && "output" in value;
+}
+
+function toolResourceId(value: unknown): string {
+    if (
+        typeof value === "object" &&
+        value !== null &&
+        "output" in value &&
+        typeof value.output === "object" &&
+        value.output !== null &&
+        "image" in value.output &&
+        typeof value.output.image === "object" &&
+        value.output.image !== null &&
+        "resourceId" in value.output.image &&
+        typeof value.output.image.resourceId === "string"
+    ) {
+        return value.output.image.resourceId;
+    }
+    throw new Error("Tool did not publish an image resource");
 }
 
 function headers(key: string) {

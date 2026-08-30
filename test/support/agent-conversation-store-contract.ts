@@ -88,7 +88,7 @@ export function agentConversationStoreContract(
             await finishTurn(store, third.turnId, 3);
             await expect(
                 store.acceptTurn(acceptedTurn(original, 4, { maxTurns: 3 })),
-            ).resolves.toEqual({ outcome: "capacity" });
+            ).resolves.toEqual({ outcome: "turn_limit" });
         });
 
         it("starts once, stores only public terminal state and paginates", async () => {

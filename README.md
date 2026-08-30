@@ -27,7 +27,7 @@ Memebuy 已建立独立文档边界，但当前没有明确归属的 production 
 
 生产启动通过 Installed Skill Catalog 校验 Runtime Skill 的准确名称、版本和 SHA-256。Process 只加载 Registration 固定绑定的 Skill 与窄 Tool；运行期不发现、下载或更新 Skill。
 
-仓库还提供默认不挂载的 Agent Conversations 多轮文本、owner-scoped 图片和受控 Process Tool 能力。调用方只提交准确 Agent、`afterTurnId`、文本和稳定图片 `resourceId`；服务端 Registration 固定 Tool allow-list 和预算。PostgreSQL 保存权威 Turn、幂等、执行 claim、Outbox 与 Tool Ledger；BullMQ 只投递最小 Turn identity，Dispatcher、Worker 与 Reconciler 通过 lease、revision 和 fencing 处理重投、Worker 中断及 Queue 重建。priced Tool 用稳定子 Run、执行 token 和 after-commit 语义避免重启后重复扣费。owner 可删除 Conversation；30 天闲置期限、立即 fencing、最迟 24 小时物理清理和可续跑 Cleaner 已实现。production 装配尚未完成，因此 production 仍保持关闭。完整当前契约见 [Agent Conversations API](docs/api.md#agent-conversations多轮文本与图片资源)。
+production Agent catalog 精确登记默认关闭的 `design-assistant/v1`，提供 Agent Conversations 多轮文本、owner-scoped 图片和受控 Process Tool 能力。调用方只提交准确 Agent、`afterTurnId`、文本和稳定图片 `resourceId`；服务端 Registration 固定 Runtime Skill、Context/Memory 策略、模型、Tool allow-list、预算、输出与保留。PostgreSQL 保存权威 Turn、幂等、`configRevision`、执行 claim、Outbox 与 Tool Ledger；BullMQ 只投递最小 Turn identity，Dispatcher、Worker 与 Reconciler 通过 lease、revision 和 fencing 处理重投、Worker 中断及 Queue 重建。priced Tool 用稳定子 Run、执行 token 和 after-commit 语义避免重启后重复扣费。owner 可删除 Conversation；30 天闲置期限、立即 fencing、最迟 24 小时物理清理和可续跑 Cleaner 已实现。`AGENT_CONVERSATIONS_ENABLED=false` 使默认部署仍返回 404；受控启用见 [Agent Conversations Runbook](docs/agent-conversations-runbook.md)，公开契约见 [Agent Conversations API](docs/api.md#agent-conversations多轮文本与图片资源)。
 
 图片 Process 只公开业务输入和图片引用。Prompt、模型、供应商、Skill 和存储配置留在服务端。内部新闻图片评测默认关闭，只在受控环境复用同一次正式 Process 执行。
 
@@ -71,7 +71,7 @@ cp .env.example .env
 
 `.env` 已被 Git 忽略。文本 Direct 路径不调用模型；执行海报业务验收、文本 Agent 路径或真实模型 smoke 时需要模型凭证。不要把真实凭证提交到仓库。
 
-生产预检、Compose 形状、异步发布和付费 smoke 不属于快速开始。部署前分别阅读 [同步发布手册](docs/mvp-release-runbook.md) 与 [异步发布手册](docs/async-process-runs-runbook.md)。
+生产预检、Compose 形状、异步发布和付费 smoke 不属于快速开始。部署前分别阅读 [同步发布手册](docs/mvp-release-runbook.md)、[异步发布手册](docs/async-process-runs-runbook.md) 与 [Agent Conversations Runbook](docs/agent-conversations-runbook.md)。
 
 在第一个终端启动演示 Business Capability：
 

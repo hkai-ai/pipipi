@@ -21,6 +21,7 @@ import {
 } from "../process-runs/ops/postgres.js";
 import { createPostgresProcessRunStore } from "../process-runs/store/postgres.js";
 import type { ProcessRegistry } from "../process-runtime/index.js";
+import { constructAgentConversationsApi } from "./agent-conversations.js";
 import {
     createProductionRuntime,
     type ProductionRuntime,
@@ -60,6 +61,10 @@ export function constructProcessingService(
         environment,
         runtime.registry,
     );
+    const agentConversations = constructAgentConversationsApi(
+        environment,
+        runtime.registry,
+    );
     const consoleOptions = constructConsole(environment, archive, runtime);
 
     return {
@@ -70,9 +75,16 @@ export function constructProcessingService(
                 ...(asyncProcessRuns
                     ? { asyncProcessRuns: asyncProcessRuns.http }
                     : {}),
+                ...(agentConversations
+                    ? { agentConversations: agentConversations.http }
+                    : {}),
                 ...(consoleOptions ? { console: consoleOptions } : {}),
             },
-            ...closeResourcesOption([asyncProcessRuns?.close, archive?.close]),
+            ...closeResourcesOption([
+                agentConversations?.close,
+                asyncProcessRuns?.close,
+                archive?.close,
+            ]),
         }),
         port,
     };

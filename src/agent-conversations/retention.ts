@@ -23,6 +23,12 @@ export type AgentConversationCleaner = Readonly<{
     }) => Promise<AgentConversationCleanupSweepResult>;
 }>;
 
+export type AgentConversationCleanerRuntime = Readonly<{
+    start: () => Promise<void>;
+    ready: () => Promise<void>;
+    close: () => Promise<void>;
+}>;
+
 export function createAgentConversationCleaner(options: {
     cleanup: PostgresAgentConversationCleanup;
     batchSize?: number;
@@ -85,6 +91,73 @@ export function createAgentConversationCleaner(options: {
                 completed: cursor === undefined,
                 ...(cursor ? { nextCursor: cursor } : {}),
             });
+        },
+    });
+}
+
+export function createAgentConversationCleanerRuntime(options: {
+    cleaner: AgentConversationCleaner;
+    databaseReady: () => Promise<void>;
+    closeResources: () => Promise<void>;
+    intervalMs?: number;
+}): AgentConversationCleanerRuntime {
+    const intervalMs = boundedPositiveInteger(
+        options.intervalMs ?? 3_600_000,
+        86_400_000,
+        "Agent Conversation cleanup interval",
+    );
+    let current: Promise<void> | undefined;
+    let timer: NodeJS.Timeout | undefined;
+    let controller: AbortController | undefined;
+    let continuation: Readonly<{ asOf: string; cursor: string }> | undefined;
+    let closed = false;
+    const run = () => {
+        if (closed || current) return;
+        controller = new AbortController();
+        current = options.cleaner
+            .runSweep({
+                ...(continuation ?? {}),
+                signal: controller.signal,
+            })
+            .then((result) => {
+                continuation = result.nextCursor
+                    ? { asOf: result.asOf, cursor: result.nextCursor }
+                    : undefined;
+                console.log(
+                    JSON.stringify({
+                        event: "agent_conversation_cleanup_completed",
+                        ...result,
+                        timestamp: new Date().toISOString(),
+                    }),
+                );
+            })
+            .catch(() => {
+                console.error(
+                    JSON.stringify({
+                        event: "agent_conversation_cleanup_failed",
+                        timestamp: new Date().toISOString(),
+                    }),
+                );
+            })
+            .finally(() => {
+                current = undefined;
+                controller = undefined;
+                if (!closed) timer = setTimeout(run, intervalMs);
+            });
+    };
+    return Object.freeze({
+        start: async () => run(),
+        ready: options.databaseReady,
+        close: async () => {
+            if (closed) return;
+            closed = true;
+            if (timer) clearTimeout(timer);
+            controller?.abort();
+            try {
+                await current;
+            } finally {
+                await options.closeResources();
+            }
         },
     });
 }

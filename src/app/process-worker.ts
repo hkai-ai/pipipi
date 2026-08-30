@@ -8,6 +8,7 @@ import {
     createProcessAttemptRunner,
 } from "../process-runtime/index.js";
 import { createPinoProcessRunLogSink } from "../run-observation/pino.js";
+import { constructAgentTurnWorker } from "./agent-turn-worker.js";
 import { createProductionRuntime } from "./business-processes.js";
 import {
     optionalNonEmpty,
@@ -23,6 +24,7 @@ import { loadProcessRunConnections } from "./process-run-config.js";
 import {
     type BackgroundRuntime,
     type ConstructedRuntimeRoleService,
+    combineBackgroundRuntimes,
     constructRuntimeRoleService,
 } from "./role.js";
 import { constructProcessRunObservation } from "./run-observation.js";
@@ -56,6 +58,10 @@ export function constructProcessWorkerService(
         30_000,
         "PROCESS_TIMEOUT_MS",
     );
+    const attemptRunner = createProcessAttemptRunner({
+        processTimeoutMs,
+        logSink: runLogSink,
+    });
     const observationTimeoutMs = parsePositiveInteger(
         environment.PROCESS_RUN_OBSERVATION_TIMEOUT_MS,
         2_000,
@@ -146,10 +152,7 @@ export function constructProcessWorkerService(
         worker: createProcessWorker({
             registry: processRuntime.registry,
             store,
-            attemptRunner: createProcessAttemptRunner({
-                processTimeoutMs,
-                logSink: runLogSink,
-            }),
+            attemptRunner,
             runRecords: observation?.records,
             observationTimeoutMs,
             logSink: writeAsyncOperationalLog,
@@ -186,7 +189,14 @@ export function constructProcessWorkerService(
 
     return constructRuntimeRoleService({
         role: "process-worker",
-        runtime,
+        runtime: combineBackgroundRuntimes([
+            runtime,
+            constructAgentTurnWorker({
+                environment,
+                processRegistry: processRuntime.registry,
+                attemptRunner,
+            }),
+        ]),
         port,
         readinessTimeoutMs,
     });

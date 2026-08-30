@@ -1,6 +1,6 @@
 # 业务接口文档
 
-本文面向业务调用方和调用 Agent，记录八个 Business Process、Agent Conversations、重试与通知契约，以及临时开放的内部评测接口。场景列帮助产品找到契约；请求仍只提交准确 Process 或 Agent 版本和业务输入。其中 `composed-task/v1` 随应用发布但默认关闭，Agent Conversations 尚未进入 production Composition Root。
+本文面向业务调用方和调用 Agent，记录八个 Business Process、Agent Conversations、重试与通知契约，以及临时开放的内部评测接口。场景列帮助产品找到契约；请求仍只提交准确 Process 或 Agent 版本和业务输入。其中 `composed-task/v1` 随应用发布但默认关闭；production Agent catalog 精确登记 `design-assistant/v1`，其四个业务路由由部署开关控制且默认关闭。
 
 ## Agent 能力接入结论
 
@@ -10,9 +10,9 @@
 
 现有 Process 是否一定调用 Agent 由服务端 Registration 决定，调用方不应依赖内部实现。`minimal-zine-poster/v1`、`crt-interface-image/v1` 和三个新闻图片 Process 当前使用受限 Agent；`content-processing/v1` 可由部署选择 Direct 或 Agent 路径；`composed-task/v1` 使用 Planner Agent，但默认关闭。
 
-Agent Conversations 当前支持可靠多轮文本、owner-scoped 图片资源、Registration 固定的受控 Business Process Tool，以及 owner 删除和 30 天闲置保留：代码支持创建、追加、分页查询与删除，但 production Composition Root 尚未装配，默认部署访问这些路由仍返回 404。当前阶段不提供图片上传、任意 URL 抓取、跨 Conversation 长期 Memory、SSE 或 production Agent catalog。
+Agent Conversations 当前支持可靠多轮文本、owner-scoped 图片资源、Registration 固定的受控 Business Process Tool，以及 owner 删除和 30 天闲置保留。production Composition Root 已装配 PostgreSQL、BullMQ、资源服务、请求级 Pi Session、Dispatcher、Worker、Reconciler 与 Cleaner；`AGENT_CONVERSATIONS_ENABLED=false` 是默认值，因此未启用的部署访问这些路由仍返回 404。当前阶段不提供图片上传、任意 URL 抓取、跨 Conversation 长期 Memory、SSE 或 Canvas Document。
 
-能力可调用不等于可以匿名公开。同步 `/execute` 的应用本身不校验调用方身份；Agent Conversations 必须注入可信 caller identity，且每次创建和追加都要求 caller-scoped `Idempotency-Key`。仓库已有 PostgreSQL 权威 Store/Tool Ledger、BullMQ Dispatcher/Worker、Reconciler 和分批 Cleaner；正式公网开放前，部署方还必须完成 production 装配、容量、限流和费用门禁。
+能力可调用不等于可以匿名公开。同步 `/execute` 的应用本身不校验调用方身份；Agent Conversations 必须由入口网关完成用户鉴权、剥离外部 identity header，再向应用注入可信 caller identity，且每次创建和追加都要求 caller-scoped `Idempotency-Key`。部署方必须先完成容量与费用评审并按 [Agent Conversations Runbook](agent-conversations-runbook.md) 开启；调用方不能在请求中放宽任何门禁。
 
 ### 最短接入路径
 
@@ -55,13 +55,25 @@ curl --request POST 'https://pi.ganjiuwanshi.com/execute' \
 
 ## Agent Conversations（多轮文本与图片资源）
 
-本节记录代码当前实现，供受控开发环境联调；它不是 production 已开放声明。Application 只有显式注入 Agent Conversations Module、Agent Registry、Store、Queue 和 caller identity 后才挂载路由。开发测试可以使用内存 Adapter；持久路径使用 PostgreSQL 权威 Store 与 BullMQ 最小 Job，并由 Dispatcher/Worker/Reconciler 处理至少一次调度。当前 production Composition Root 尚未选择并装配它们。
+production Agent catalog 只登记 `design-assistant/v1`，没有默认 Agent、版本回退或请求时发现。它面向设计建议和模板图片创建；固定绑定 `design-assistant/v1` Runtime Skill、同一 Conversation 的成功公共历史、Conversation-scoped 派生摘要、请求级 Pi Session，以及以下准确 Process Tool：
+
+| Tool | Process | side effect |
+| --- | --- | --- |
+| `advise_design` | `content-processing/v1` | 无外部副作用 |
+| `create_zine_poster` | `minimal-zine-poster/v1` | 可能收费 |
+
+Registration 固定每 Turn 最多 6 次 Tool、其中最多 1 次付费 Tool，每 Conversation 最多尝试 10 次付费 Tool；最多 50 个 Turn、最近 16 个成功历史 Turn、32K Context token 与 4K Summary token。模型、provider、endpoint、Prompt、Skill 位置、Secret、预算、输出策略和保留策略均由服务端配置，产品请求不能读取或覆盖。行为配置的确定性 SHA-256 作为 `configRevision` 写入 Conversation；发布若未保留活动 Conversation 依赖的旧 revision，`/readyz` 会失败，避免静默漂移。
+
+路由仅在部署设置 `AGENT_CONVERSATIONS_ENABLED=true` 时挂载；默认返回 404。持久路径使用 PostgreSQL 权威 Store/Tool Ledger 与 BullMQ 最小 Job，并由 Dispatcher、Worker、Reconciler 和 Cleaner 处理至少一次调度。调用前应由部署方确认当前环境已开放。
+
+下列 HTTP 示例中的 `Authorization` 代表部署方发放的外部凭证。公网调用方不得自行发送 `X-Pipipi-Caller-Id` 或 `X-Pipipi-Gateway-Token`；入口网关必须剥离并重新注入这两个内部 header。
 
 创建 Conversation 必须包含第一轮 Turn：
 
 ```http
 POST /agent-conversations HTTP/1.1
 Content-Type: application/json
+Authorization: Bearer <deployment-issued-token>
 Idempotency-Key: design-request-001
 ```
 
@@ -82,7 +94,20 @@ Idempotency-Key: design-request-001
 }
 ```
 
-`content` 接受 1–16 个按原顺序处理的文本或图片引用块。文本块每段 trim 后为 1–12000 个字符；图片块只能提交 owned resource service 已存在的稳定 identity：
+可直接把部署方的地址和外部 token 放入环境变量后联调：
+
+```bash
+curl --request POST "${PIPIPI_BASE_URL}/agent-conversations" \
+  --header "authorization: Bearer ${PIPIPI_ACCESS_TOKEN}" \
+  --header 'content-type: application/json' \
+  --header 'idempotency-key: design-request-001' \
+  --data '{
+    "agent":{"id":"design-assistant","version":"v1"},
+    "input":{"content":[{"type":"text","text":"分析这个版式的视觉层级"}]}
+  }'
+```
+
+`content` 接受 1–16 个按原顺序处理的文本或图片引用块。文本块每段 trim 后为 1–12000 个字符；图片块只能提交部署方 owned resource service 已存在、属于当前 caller 的稳定 identity。图片上传是独立的未来 Interface，不属于这四个路由：
 
 ```json
 {
@@ -116,6 +141,7 @@ Agent 的 Tool 由服务端 Registration 固定。每项 Tool 指向 production 
 ```http
 POST /agent-conversations/conversation-0001/turns HTTP/1.1
 Content-Type: application/json
+Authorization: Bearer <deployment-issued-token>
 Idempotency-Key: design-request-002
 ```
 
@@ -139,6 +165,7 @@ Idempotency-Key: design-request-002
 
 ```http
 GET /agent-conversations/conversation-0001?limit=20 HTTP/1.1
+Authorization: Bearer <deployment-issued-token>
 ```
 
 ```json
@@ -148,7 +175,7 @@ GET /agent-conversations/conversation-0001?limit=20 HTTP/1.1
     "id": "design-assistant",
     "version": "v1"
   },
-  "configRevision": "test-revision-1",
+  "configRevision": "eabec15058155b7962848c1bbf0b38c38fda1eb4d47b9d840e2063dbb54b4c11",
   "status": "ready",
   "turnCount": 1,
   "lastTurnId": "turn-0001",
@@ -192,6 +219,7 @@ owner 可以请求删除整个 Conversation：
 
 ```http
 DELETE /agent-conversations/conversation-0001 HTTP/1.1
+Authorization: Bearer <deployment-issued-token>
 ```
 
 接受后返回 `202` 和 `Cache-Control: no-store`：
@@ -210,7 +238,7 @@ Cleaner 以短事务和 opaque cursor 分批清理；删除 Conversation 会级�
 
 后续 Turn 的 Context 只由服务端固定 Agent 配置、可重建 Working Summary、受预算限制的 succeeded 公共历史和当前输入组成。queued/running Turn、failed Turn 的不存在输出、隐藏推理、原始 provider 消息和内部异常不会进入 Context。完整 Session History 仍是权威记录；Working Summary 不能替代或改写历史。
 
-Resource Resolver 在接受图片输入时按 caller 校验归属、存在性、媒体类型、字节数和尺寸；不存在与其他 owner 所有得到相同 `INVALID_INPUT`。Worker 执行前再从 owned service 获取模型可访问内容，只在请求级 Pi Session 生命周期内持有，并在成功、失败或取消时释放。Agent 输出图片只提交 `resourceId`，且 Resolver 必须证明它由获准 Adapter 或本 Turn Tool 产生；模型虚构 URL 或 identity 会让 Turn 以 `INVALID_OUTPUT` 失败。
+Resource Resolver 在接受图片输入时按 caller 校验归属、存在性、媒体类型、字节数和尺寸；不存在与其他 owner 所有得到相同 `INVALID_INPUT`。Worker 执行前再从 owned service 获取模型可访问内容，只在请求级 Pi Session 生命周期内持有，并在成功、失败或取消时释放。priced Process Tool 成功返回业务图片后，Worker 让 owned service 将该图片登记为当前 owner/Turn 的稳定资源，再把 `resourceId` 暴露给 Agent；登记失败按 `DEPENDENCY_FAILURE_AFTER_COMMIT` 收敛，不重新执行可能收费的 Tool。Agent 输出图片只提交 `resourceId`，且 Resolver 必须证明它由获准 Adapter 或本 Turn Tool 产生；模型虚构 URL 或 identity 会让 Turn 以 `INVALID_OUTPUT` 失败。
 
 权威历史中的图片块只保存稳定资源元数据：
 
@@ -237,6 +265,8 @@ Resource Resolver 在接受图片输入时按 caller 校验归属、存在性、
 | 缺少或超长幂等键 | 400 | `IDEMPOTENCY_KEY_REQUIRED` / `INVALID_IDEMPOTENCY_KEY` |
 | 严格请求、文本或图片资源输入无效 | 400 | `INVALID_INPUT` |
 | Agent id/version 未登记 | 404 | `AGENT_NOT_FOUND` |
+| caller 活动 backlog 已满 | 429 + `Retry-After` | `CALLER_AGENT_BACKLOG_LIMIT_REACHED` |
+| 全局活动 backlog 已满 | 429 + `Retry-After` | `AGENT_BACKLOG_LIMIT_REACHED` |
 | 幂等键被不同请求复用 | 409 | `IDEMPOTENCY_CONFLICT` |
 | Conversation 不存在或不属于 caller | 404 | `CONVERSATION_NOT_FOUND` |
 | Conversation 已有活动 Turn | 409 | `CONVERSATION_BUSY` |
@@ -245,7 +275,7 @@ Resource Resolver 在接受图片输入时按 caller 校验归属、存在性、
 | cursor、limit 或额外 query 无效 | 400 | `INVALID_QUERY` |
 | Store、Queue 或 identity 依赖异常 | 503 | `AGENT_CONVERSATIONS_UNAVAILABLE` |
 
-Agent 异常收敛为 Turn 终态 `AGENT_FAILURE`，执行时资源不可访问收敛为 `RESOURCE_UNAVAILABLE`，不合法、超限或未获准图片输出收敛为 `INVALID_OUTPUT`。priced Process Tool 成功或进入结果不确定窗口后，如果 Turn 无法交付有效结果，则终态为 `DEPENDENCY_FAILURE_AFTER_COMMIT`；这表示费用可能已经发生，调用方不得自动重试。响应不透传 provider 错误、Prompt、隐藏推理、Tool 输入输出正文、资源服务细节或内部异常。PostgreSQL Adapter 能在 API/Worker 重启后保留 Conversation、幂等 identity 与 Tool invocation；BullMQ 提供可恢复的至少一次调度，但 production 装配、容量、限流和费用门禁完成前仍不能开放流量。
+Agent 异常收敛为 Turn 终态 `AGENT_FAILURE`，执行时资源不可访问收敛为 `RESOURCE_UNAVAILABLE`，不合法、超限或未获准图片输出收敛为 `INVALID_OUTPUT`。priced Process Tool 成功或进入结果不确定窗口后，如果 Turn 无法交付有效结果，则终态为 `DEPENDENCY_FAILURE_AFTER_COMMIT`；这表示费用可能已经发生，调用方不得自动重试。响应不透传 provider 错误、模型名或 endpoint、Prompt、隐藏推理、Tool 输入输出正文、资源服务细节、Secret、原始响应或内部异常。PostgreSQL Adapter 能在 API/Worker 重启后保留 Conversation、幂等 identity 与 Tool invocation；BullMQ 提供可恢复的至少一次调度。caller/global admission 都按 queued/running Turn 计数并返回 HTTP 429；同 caller、同 key、同请求的重放先于容量判断，不会被门禁变成新请求。
 
 ## Agent 读取入口
 
@@ -260,10 +290,10 @@ Agent 先读取 [`https://pi.ganjiuwanshi.com/llms.txt`](https://pi.ganjiuwanshi
 | Base URL | `https://pi.ganjiuwanshi.com` |
 | Agent 入口 | `GET /llms.txt`；兼容 `GET /llm.txt` |
 | 完整 Markdown | `GET /docs/api.md` |
-| 业务入口 | `POST /execute`；受控开发环境可选 `POST /agent-conversations`、`GET/DELETE /agent-conversations/{conversationId}` |
+| 业务入口 | `POST /execute`；部署启用后提供 `POST /agent-conversations`、`POST /agent-conversations/{id}/turns`、`GET/DELETE /agent-conversations/{id}` |
 | 内部评测入口 | `POST /internal/eval/execute`；当前生产已开启 |
 | Content-Type | `application/json` |
-| 鉴权 | 应用不校验鉴权请求头；网关启用鉴权时，按网关要求携带凭证 |
+| 鉴权 | `/execute` 由部署网关决定；Agent Conversations 必须由网关鉴权并向应用注入可信 caller identity |
 | 字符编码 | UTF-8 |
 | 请求体上限 | 当前应用上限为 262144 UTF-8 bytes；入口网关可以设置更小的限制 |
 | 执行时限 | 当前 Process 上限为 240 秒；同步客户端应预留网络开销并使用至少 260 秒的读取超时 |
@@ -277,7 +307,7 @@ Agent 先读取 [`https://pi.ganjiuwanshi.com/llms.txt`](https://pi.ganjiuwanshi
 | --- | --- | --- |
 | `POST /execute` | 调用方需要在同一个 HTTP 请求中等待结果 | 不提供调用方幂等键。网络超时不代表 Process 未执行；付费图片调用不得自动重试 |
 | `POST /process-runs` | 异步入口已开放，或调用方需要可靠接受、轮询和安全重放 | 必须使用稳定的 `Idempotency-Key`；提交响应丢失时用同一 key 和同一请求重试 |
-| `POST /agent-conversations` / `POST /agent-conversations/{id}/turns` / `GET/DELETE /agent-conversations/{id}` | 受控开发环境显式挂载多轮文本/图片 Agent，且调用方需要 owner-scoped 分页轮询或删除 | 创建和追加各使用稳定且独立的 `Idempotency-Key`；图片先上传到部署方另行提供的 owned resource service，本接口只接收 `resourceId` |
+| `POST /agent-conversations` / `POST /agent-conversations/{id}/turns` / `GET/DELETE /agent-conversations/{id}` | 部署已开启 `design-assistant/v1`，且调用方需要 owner-scoped 多轮文本/图片、分页轮询或删除 | 创建和追加各使用稳定且独立的 `Idempotency-Key`；图片先上传到部署方另行提供的 owned resource service，本接口只接收 `resourceId` |
 
 `X-Request-Id` 只用于排查请求，不提供幂等性。调用方需要安全重放时选择异步入口。
 

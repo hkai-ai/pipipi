@@ -53,13 +53,13 @@ Business Processing Service 让产品调用方通过一个稳定的 HTTP Interfa
 
 默认 HTTP Interface 提供健康检查和同步 `POST /execute`。异步提交、owner 查询、PostgreSQL Store、BullMQ Worker、Webhook、恢复和保留已经实现，但入口默认关闭。精确行为见 [异步设计](docs/async-process-runs-design.md)。
 
-Agent Conversations Module 已实现可靠多轮文本、owner-scoped 图片资源、受控 Business Process Tool、PostgreSQL 权威状态和可恢复的 BullMQ 执行。调用方用准确 Agent id/version 和 `Idempotency-Key` 创建首轮，用最后接受的 `afterTurnId` 追加，并按 owner 分页查询或删除。PostgreSQL Store 在一个事务内写入 Turn、单调 sequence、幂等 fingerprint 与最小调度 Outbox；行锁和数据库约束保证单活动 Turn，API 重启后仍可查询和重放。Dispatcher 对 Outbox 做 claim、ack 和失败 release；Worker 只凭最小 Turn identity 从 Store 认领准确 revision，并用 lease、attempt、revision 和 fencing 提交终态；Reconciler 可恢复租期过期或 Redis 中缺失的 Job。图片块只接受稳定 `resourceId`；Agent Registration 固定准确 Process allow-list；PostgreSQL Tool Ledger 用稳定 invocation/子 Run、输入 fingerprint、execution token 和数据库锁实施 6/1/10 调用预算与重放。priced Tool 进入执行后若结果不确定，Turn 以 `DEPENDENCY_FAILURE_AFTER_COMMIT` 失败且不自动重试；最终输出仍必须来自本 Turn 成功 Tool 或获准图片资源。`design-assistant/v1` 的闲置期限为 30 天；删除或过期会立即提升 revision、废弃活动 Attempt、隐藏查询与新 Turn，并给出不超过 24 小时的物理清理期限。Cleaner 用短事务、`SKIP LOCKED` 和持久游标清除 Conversation 从属历史、Summary、幂等、Outbox、Tool Ledger 与 Agent 输出资源引用。该 Interface 只在 Application 显式注入依赖时挂载；production Composition Root 尚未装配，所以默认服务仍返回 404。
+production Agent catalog 精确登记 `design-assistant/v1`，Agent Conversations Module 提供可靠多轮文本、owner-scoped 图片资源、受控 Business Process Tool、PostgreSQL 权威状态和可恢复的 BullMQ 执行。Registration 固定指令、`design-assistant/v1` Runtime Skill 摘要、Conversation-scoped Context/Memory、请求级 Pi Session、准确 Tool allow-list、模型、6/1/10 Tool 预算、输出和 30 天保留，并把行为配置的确定性 `configRevision` 写入 Conversation。调用方用准确 Agent id/version 和 `Idempotency-Key` 创建首轮，用最后接受的 `afterTurnId` 追加，并按 owner 分页查询或删除。PostgreSQL Store 在一个事务内写入 Turn、单调 sequence、幂等 fingerprint 与最小调度 Outbox；行锁和数据库约束保证单活动 Turn，API 重启后仍可查询和重放。Dispatcher 对 Outbox 做 claim、ack 和失败 release；Worker 只凭最小 Turn identity 从 Store 认领准确 revision，并用 lease、attempt、revision 和 fencing 提交终态；Reconciler 可恢复租期过期或 Redis 中缺失的 Job。图片块只接受稳定 `resourceId`；priced Tool 进入结果不确定窗口后，Turn 以 `DEPENDENCY_FAILURE_AFTER_COMMIT` 失败且不自动重试。删除或过期会立即 fencing，并给出不超过 24 小时的物理清理期限；Cleaner 用短事务、`SKIP LOCKED` 和持久游标级联清理。production Composition Root 已装配 API、Dispatcher、Worker、Resource Resolver、revision drift readiness 和 Cleaner；`AGENT_CONVERSATIONS_ENABLED=false` 是默认发布门禁，所以默认服务仍返回 404。
 
 海报、CRT 和 Memene 新闻图片 Process 会调用模型并持久化图片。产品只接收图片引用；真实验收、证据与费用必须显式启用。CRT 和新闻图片上游来源的许可证仍是发布门禁。
 
 ## 运行与信任模型
 
-默认发布是受控、同步的 Node.js HTTP 服务；异步入口默认关闭。部署平台负责 TLS、私有入口、调用方认证、实例上限和 Secret 注入。生产形状、门禁与回滚由 [同步 Runbook](docs/mvp-release-runbook.md) 和 [异步 Runbook](docs/async-process-runs-runbook.md) 拥有。
+默认发布是受控、同步的 Node.js HTTP 服务；异步入口和 Agent Conversations 默认关闭。部署平台负责 TLS、私有入口、调用方认证、实例上限和 Secret 注入。生产形状、门禁与回滚由 [同步 Runbook](docs/mvp-release-runbook.md)、[异步 Runbook](docs/async-process-runs-runbook.md) 和 [Agent Conversations Runbook](docs/agent-conversations-runbook.md) 拥有。
 
 显式启用异步入口后，PostgreSQL 保存权威 Process Run，Redis/BullMQ 只负责调度。API、Dispatcher、Process Worker、Webhook Worker 和 Retention Cleaner 是独立角色。Queue 只承诺至少一次投递；Business Capability 使用稳定 `runId` 控制重复副作用。网关删除调用方伪造的身份头，并注入稳定 caller subject；查询、幂等和 Webhook 按 owner 隔离。
 
@@ -74,7 +74,7 @@ Agent 只获得 Registration 固定绑定的 Runtime Skill 与窄 Tool。文本 
 项目当前不提供：
 
 - 动态 Process Definition、运行时注册、自动发现、默认版本或版本回退；
-- 调用方定义的工作流、已开放的生产 Queue、跨 Conversation 长期记忆或调用方控制的重试；服务端只提供 `composed-task/v1` 对 allow-list Process 的受控组合，组合深度为一层；Agent Conversations 的多轮 Context 只来自同一 Conversation 的成功公共历史；
+- 调用方定义的工作流、已开放的生产 Queue、调用方自定义 Agent、跨 Conversation 长期记忆、SSE、Canvas Document 或调用方控制的重试；服务端只提供 `composed-task/v1` 对 allow-list Process 的受控组合，组合深度为一层；Agent Conversations 的多轮 Context 只来自同一 Conversation 的成功公共历史；
 - 应用内用户系统、RBAC、多租户、CORS 或公网匿名调用；
 - 运维控制台的应用内鉴权、按 caller 隔离的记录视图、聊天历史或通用幂等；
 - 允许 Agent 使用 Coding Tools 的通用 Skill 执行环境；
@@ -142,6 +142,11 @@ Startup Construction 是生产组装 Seam；Process Executor 是同步传输与 
 - **Webhook Delivery**：一个 Process Event 向一个已注册 Webhook Endpoint 的投递记录。重复 Delivery 是正常的至少一次语义。
 - **Run Record**：一次 Process Run 的派生观测元数据。它不参与状态转换或恢复，不是聊天记录，也不应默认保存业务内容或 Agent 内部过程。
 - **Process Run Activity Log**：一次 Process Attempt 的 best-effort 结构化观测时间线。活动名由 Process Registration 固定声明；它不是 Process Event、权威状态、业务审计或隐藏推理。
+- **Agent Registration**：一个准确 Agent id/version 的服务端行为定义，固定指令、Runtime Skill、Context/Memory、模型、Tool、预算、输出与保留。它不等于 Process Registration，也不能由产品请求创建。
+- **Agent Conversation**：属于一个 caller、创建时固定到准确 Agent Registration revision 的多轮交互聚合；它与 Business Process 并列，不覆盖 Process 内部请求级 Agent。
+- **Agent Turn**：Agent Conversation 中一次按 sequence 接受的用户增量输入及其单一公共终态。Queue Job 只唤醒执行，不是 Agent Turn 的事实来源。
+- **Conversation Memory**：同一 Conversation 的成功公共历史与可重建 Working Summary。它不是跨 Conversation 用户画像，也不包含 Prompt、隐藏推理或 provider 原始消息。
+- **Agent configRevision**：由 Registration 全部行为配置确定性计算的 SHA-256 identity。新 Conversation 使用当前 revision；既有 Conversation 继续使用显式保留的旧 revision，直到删除或过期。
 
 设计讨论统一使用 **Module**、**Interface**、**Implementation**、**Seam** 和 **Adapter**。Interface 包含调用方必须知道的全部约束，不只包含 TypeScript 类型。
 
@@ -164,6 +169,7 @@ Startup Construction 是生产组装 Seam；Process Executor 是同步传输与 
 | 从本地或远程来源集成 Skill | [`docs/integrating-runtime-skills.md`](docs/integrating-runtime-skills.md) |
 | 同步 MVP 部署、验收和回滚 | [`docs/mvp-release-runbook.md`](docs/mvp-release-runbook.md) |
 | 异步角色部署、验收和回滚 | [`docs/async-process-runs-runbook.md`](docs/async-process-runs-runbook.md) |
+| Agent catalog、revision、容量、资源与回滚 | [`docs/agent-conversations-runbook.md`](docs/agent-conversations-runbook.md) |
 | 配置键与示例值 | [`.env.example`](.env.example) 与配置解析测试 |
 
 若文档与代码行为冲突，先按测试确认当前事实，再在同一改动中更新受影响的文档。项目目的、范围或共同语言发生变化时，必须同时更新本文。
