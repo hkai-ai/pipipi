@@ -454,7 +454,8 @@ function textOutput(text: string) {
 }
 
 function textOf(request: InteractiveAgentRequest): string {
-    return request.input.content[0]?.text ?? "";
+    const block = request.input.content[0];
+    return block?.type === "text" ? block.text : "";
 }
 
 function open(url: string, callerId: string, key: string, text: string) {

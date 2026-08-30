@@ -69,7 +69,11 @@ describe("Agent Conversations HTTP Interface", () => {
                         content: [
                             {
                                 type: "text",
-                                text: `建议：${request.input.content[0]?.text}`,
+                                text:
+                                    "建议：" +
+                                    (request.input.content[0]?.type === "text"
+                                        ? request.input.content[0].text
+                                        : ""),
                             },
                         ],
                     };
@@ -357,7 +361,11 @@ async function startFixture(options: { agent?: InteractiveAgent } = {}) {
                         content: [
                             {
                                 type: "text",
-                                text: `processed:${turn.input.content[0]?.text}`,
+                                text:
+                                    "processed:" +
+                                    (turn.input.content[0]?.type === "text"
+                                        ? turn.input.content[0].text
+                                        : ""),
                             },
                         ],
                     }),

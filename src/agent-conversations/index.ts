@@ -2,8 +2,13 @@
 import { createHash, randomUUID } from "node:crypto";
 import { z } from "zod";
 import type { AgentTurnQueue } from "./queue.js";
-import { globalAgentLimits } from "./registration.js";
+import type {
+    AcceptedAgentTurnInput,
+    AgentTurnOutput,
+} from "./registration.js";
+import { globalAgentLimits, resolveAgentTurnInput } from "./registration.js";
 import type { AgentRegistry } from "./registry.js";
+import type { AgentResourceResolver } from "./resource.js";
 import type {
     AgentConversationStore,
     AgentTurnStatus,
@@ -140,6 +145,7 @@ export function createAgentConversations(options: {
     registry: AgentRegistry;
     store: AgentConversationStore;
     queue: AgentTurnQueue;
+    resourceResolver?: AgentResourceResolver;
     clock?: () => string;
     createConversationId?: () => string;
     createTurnId?: () => string;
@@ -166,6 +172,17 @@ export function createAgentConversations(options: {
             if (!acceptance.accepted) {
                 return rejected("INVALID_INPUT", "The Agent input is invalid");
             }
+            const acceptedInput = await resolveAgentTurnInput(
+                acceptance.acceptedInput,
+                {
+                    ownerId: context.callerId,
+                    resolver: options.resourceResolver,
+                    registration,
+                },
+            );
+            if (!acceptedInput) {
+                return rejected("INVALID_INPUT", "The Agent input is invalid");
+            }
 
             const result = await options.store.accept({
                 conversationId: createConversationId(),
@@ -175,11 +192,11 @@ export function createAgentConversations(options: {
                 requestFingerprint: fingerprint({
                     operation: "open",
                     agent: registration.identity,
-                    input: acceptance.acceptedInput,
+                    input: acceptedInput,
                 }),
                 agent: registration.identity,
                 configRevision: registration.revision,
-                acceptedInput: acceptance.acceptedInput,
+                acceptedInput,
                 createdAt: clock(),
             });
             if (result.outcome === "conflict") {
@@ -225,6 +242,17 @@ export function createAgentConversations(options: {
             if (!acceptance.accepted) {
                 return rejected("INVALID_INPUT", "The Agent input is invalid");
             }
+            const acceptedInput = await resolveAgentTurnInput(
+                acceptance.acceptedInput,
+                {
+                    ownerId: context.callerId,
+                    resolver: options.resourceResolver,
+                    registration,
+                },
+            );
+            if (!acceptedInput) {
+                return rejected("INVALID_INPUT", "The Agent input is invalid");
+            }
             const result = await options.store.acceptTurn({
                 conversationId,
                 turnId: createTurnId(),
@@ -234,10 +262,10 @@ export function createAgentConversations(options: {
                     operation: "continue",
                     conversationId,
                     afterTurnId: parsed.data.afterTurnId,
-                    input: acceptance.acceptedInput,
+                    input: acceptedInput,
                 }),
                 afterTurnId: parsed.data.afterTurnId,
-                acceptedInput: acceptance.acceptedInput,
+                acceptedInput,
                 maxTurns: registration.limits.maxTurns,
                 createdAt: clock(),
             });
@@ -326,7 +354,11 @@ export function createAgentConversations(options: {
             }
             return Object.freeze({
                 found: true,
-                conversation: toView(page),
+                conversation: await toView(
+                    page,
+                    context.callerId,
+                    options.resourceResolver,
+                ),
             });
         },
     });
@@ -366,7 +398,11 @@ function lookupRejected(
     });
 }
 
-function toView(page: StoredAgentConversationPage): AgentConversationView {
+async function toView(
+    page: StoredAgentConversationPage,
+    ownerId: string,
+    resolver: AgentResourceResolver | undefined,
+): Promise<AgentConversationView> {
     const conversation = page.conversation;
     return Object.freeze({
         conversationId: conversation.conversationId,
@@ -377,18 +413,26 @@ function toView(page: StoredAgentConversationPage): AgentConversationView {
         lastTurnId: conversation.lastTurnId,
         createdAt: conversation.createdAt,
         updatedAt: conversation.updatedAt,
-        turns: Object.freeze(page.turns.map(toTurnView)),
+        turns: Object.freeze(
+            await Promise.all(
+                page.turns.map((turn) => toTurnView(turn, ownerId, resolver)),
+            ),
+        ),
         ...(page.nextAfterSequence === undefined
             ? {}
             : { nextCursor: encodeCursor(page.nextAfterSequence) }),
     });
 }
 
-function toTurnView(turn: StoredAgentTurn): AgentTurnView {
+async function toTurnView(
+    turn: StoredAgentTurn,
+    ownerId: string,
+    resolver: AgentResourceResolver | undefined,
+): Promise<AgentTurnView> {
     const base = {
         turnId: turn.turnId,
         sequence: turn.sequence,
-        input: structuredClone(turn.input),
+        input: await projectContent(turn.input, ownerId, resolver),
         createdAt: turn.createdAt,
     };
     switch (turn.status) {
@@ -406,7 +450,7 @@ function toTurnView(turn: StoredAgentTurn): AgentTurnView {
                 status: "succeeded",
                 startedAt: turn.startedAt,
                 finishedAt: turn.finishedAt,
-                output: structuredClone(turn.output),
+                output: await projectContent(turn.output, ownerId, resolver),
             });
         case "failed":
             return Object.freeze({
@@ -417,6 +461,35 @@ function toTurnView(turn: StoredAgentTurn): AgentTurnView {
                 error: structuredClone(turn.error),
             });
     }
+}
+
+async function projectContent(
+    value: AcceptedAgentTurnInput | AgentTurnOutput,
+    ownerId: string,
+    resolver: AgentResourceResolver | undefined,
+): Promise<unknown> {
+    return Object.freeze({
+        content: Object.freeze(
+            await Promise.all(
+                value.content.map(async (block) => {
+                    if (block.type === "text") {
+                        return Object.freeze({ ...block });
+                    }
+                    const projection = resolver
+                        ? await resolver.project({
+                              ownerId,
+                              resource: block.resource,
+                          })
+                        : undefined;
+                    return Object.freeze({
+                        type: "image" as const,
+                        resource: structuredClone(block.resource),
+                        ...(projection ? structuredClone(projection) : {}),
+                    });
+                }),
+            ),
+        ),
+    });
 }
 
 async function enqueue(queue: AgentTurnQueue, turnId: string): Promise<void> {

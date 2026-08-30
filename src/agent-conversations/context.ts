@@ -121,7 +121,13 @@ function buildWorkingSummary(
 }
 
 function plainText(value: AcceptedAgentTurnInput): string {
-    return value.content.map((block) => block.text).join("\n");
+    return value.content
+        .map((block) =>
+            block.type === "text"
+                ? block.text
+                : `[image:${block.resource.resourceId}]`,
+        )
+        .join("\n");
 }
 
 function valueTokens(value: unknown): number {
