@@ -130,6 +130,64 @@ integrationDescribe("BullMQ Agent Turn runtime", () => {
         expect(calls).toBe(1);
     });
 
+    it("suppresses a Worker result that arrives after Conversation deletion", async () => {
+        let finishAgent: (() => void) | undefined;
+        const registry = registryWith(
+            async () =>
+                new Promise((resolve) => {
+                    finishAgent = () =>
+                        resolve({
+                            content: [
+                                { type: "text", text: "late agent result" },
+                            ],
+                        });
+                }),
+        );
+        const original = acceptedConversation(34);
+        await store.accept(original);
+        const queueRuntime = trackQueue();
+        await dispatcherFor(queueRuntime.queue).dispatchOnce();
+        const runtime = trackWorker(
+            createBullMqAgentTurnWorker({
+                redisUrl: redisUrl as string,
+                queueName: queueRuntime.name,
+                worker: createAgentTurnWorker({ registry, store }),
+            }),
+        );
+        await runtime.start();
+        await vi.waitFor(async () => {
+            expect(await turnStatus(original.turnId)).toBe("running");
+        });
+
+        const requestedAt = new Date().toISOString();
+        await store.deleteOwned({
+            conversationId: original.conversationId,
+            ownerId: original.ownerId,
+            requestedAt,
+            deleteBy: new Date(
+                new Date(requestedAt).getTime() + 60_000,
+            ).toISOString(),
+        });
+        finishAgent?.();
+        await vi.waitFor(async () => {
+            const row = await pool.query<{
+                status: string;
+                public_output: unknown | null;
+            }>(
+                `SELECT status, public_output
+                 FROM agent_conversation_turns WHERE turn_id = $1`,
+                [original.turnId],
+            );
+            expect(row.rows[0]).toEqual({
+                status: "failed",
+                public_output: null,
+            });
+        });
+        await expect(
+            store.findOwnedMetadata(original.conversationId, original.ownerId),
+        ).resolves.toBeUndefined();
+    });
+
     it("releases publication failure and restores a lost Queue from PostgreSQL", async () => {
         const original = acceptedConversation(31);
         await store.accept(original);

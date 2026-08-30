@@ -16,6 +16,7 @@ import { createPostgresAgentTurnOutbox } from "../src/agent-conversations/outbox
 import { createInMemoryAgentTurnQueue } from "../src/agent-conversations/queue.js";
 import { defineAgentRegistration } from "../src/agent-conversations/registration.js";
 import { createAgentRegistry } from "../src/agent-conversations/registry.js";
+import { createPostgresAgentConversationCleanup } from "../src/agent-conversations/retention.postgres.js";
 import type { AgentConversationStore } from "../src/agent-conversations/store.js";
 import {
     createPostgresAgentConversationStore,
@@ -194,6 +195,207 @@ postgresDescribe("PostgreSQL Agent Conversation Store", () => {
         ]);
     });
 
+    it("deletes immediately from the owner view and fences a late Worker", async () => {
+        const original = acceptedConversation(25);
+        await primaryStore.accept(original);
+        const claimed = await primaryStore.claim({
+            turnId: original.turnId,
+            claimToken: "claim-before-delete",
+            claimedAt: timestamp(1),
+        });
+        expect(claimed).toBeDefined();
+
+        await expect(
+            primaryStore.deleteOwned({
+                conversationId: original.conversationId,
+                ownerId: original.ownerId,
+                requestedAt: timestamp(2),
+                deleteBy: timestamp(4),
+            }),
+        ).resolves.toMatchObject({ outcome: "accepted" });
+        await expect(
+            secondaryStore.completeClaim({
+                turnId: original.turnId,
+                claimToken: "claim-before-delete",
+                completedAt: timestamp(3),
+                completion: {
+                    status: "succeeded",
+                    output: { content: [{ type: "text", text: "late" }] },
+                },
+            }),
+        ).resolves.toBe(false);
+        await expect(
+            primaryStore.findOwnedMetadata(
+                original.conversationId,
+                original.ownerId,
+            ),
+        ).resolves.toBeUndefined();
+
+        const state = await primaryPool.query<{
+            conversation_status: string;
+            conversation_revision: string;
+            turn_status: string;
+            turn_revision: string;
+            attempt_status: string;
+        }>(
+            `
+          SELECT
+            conversations.status AS conversation_status,
+            conversations.revision::text AS conversation_revision,
+            turns.status AS turn_status,
+            turns.revision::text AS turn_revision,
+            attempts.status AS attempt_status
+          FROM agent_conversations AS conversations
+          JOIN agent_conversation_turns AS turns USING (conversation_id)
+          JOIN agent_turn_attempts AS attempts USING (turn_id)
+          WHERE conversations.conversation_id = $1
+        `,
+            [original.conversationId],
+        );
+        expect(state.rows[0]).toEqual({
+            conversation_status: "deleting",
+            conversation_revision: "1",
+            turn_status: "failed",
+            turn_revision: "2",
+            attempt_status: "abandoned",
+        });
+    });
+
+    it("expires after 30 idle days and physically deletes within the grace window", async () => {
+        const original = acceptedConversation(26);
+        const expiresAt = new Date(
+            new Date(original.createdAt).getTime() + 30 * 24 * 60 * 60 * 1_000,
+        ).toISOString();
+        const asOf = new Date(new Date(expiresAt).getTime() + 1).toISOString();
+        const deleteBy = new Date(
+            new Date(expiresAt).getTime() + 24 * 60 * 60 * 1_000,
+        ).toISOString();
+        const expiryStore = createPostgresAgentConversationStore({
+            pool: primaryPool,
+            retentionMs: 30 * 24 * 60 * 60 * 1_000,
+            clock: () => asOf,
+        });
+        await expiryStore.accept(original);
+        await expiryStore.claim({
+            turnId: original.turnId,
+            claimToken: "claim-before-expiry",
+            claimedAt: timestamp(1),
+        });
+
+        await expect(
+            expiryStore.findOwnedMetadata(
+                original.conversationId,
+                original.ownerId,
+            ),
+        ).resolves.toBeUndefined();
+        await expect(
+            expiryStore.completeClaim({
+                turnId: original.turnId,
+                claimToken: "claim-before-expiry",
+                completedAt: asOf,
+                completion: {
+                    status: "succeeded",
+                    output: { content: [{ type: "text", text: "late" }] },
+                },
+            }),
+        ).resolves.toBe(false);
+        const tombstone = await primaryPool.query<{
+            status: string;
+            expires_at: Date;
+            delete_by: Date;
+        }>(
+            `SELECT status, expires_at, delete_by
+             FROM agent_conversations WHERE conversation_id = $1`,
+            [original.conversationId],
+        );
+        expect(tombstone.rows[0]).toMatchObject({ status: "expired" });
+        expect(tombstone.rows[0]?.expires_at.toISOString()).toBe(expiresAt);
+        expect(tombstone.rows[0]?.delete_by.toISOString()).toBe(deleteBy);
+
+        const cleanup = createPostgresAgentConversationCleanup({
+            pool: primaryPool,
+            createCleanupId: () => "cleanup-expired",
+        });
+        await expect(
+            cleanup.cleanupBatch({
+                asOf: deleteBy,
+                batchSize: 10,
+            }),
+        ).resolves.toMatchObject({ conversationsDeleted: 1 });
+        const remaining = await primaryPool.query(
+            "SELECT 1 FROM agent_conversations WHERE conversation_id = $1",
+            [original.conversationId],
+        );
+        expect(remaining.rowCount).toBe(0);
+    });
+
+    it("cleans tombstones by cursor and rolls a failed batch back safely", async () => {
+        const first = acceptedConversation(27, {
+            conversationId: "conversation-cleanup-a",
+            turnId: "turn-cleanup-a",
+        });
+        const second = acceptedConversation(28, {
+            conversationId: "conversation-cleanup-b",
+            turnId: "turn-cleanup-b",
+        });
+        for (const conversation of [first, second]) {
+            await primaryStore.accept(conversation);
+            await finishWithImage(conversation.turnId, primaryStore);
+            await primaryStore.deleteOwned({
+                conversationId: conversation.conversationId,
+                ownerId: conversation.ownerId,
+                requestedAt: timestamp(3),
+                deleteBy: timestamp(4),
+            });
+        }
+        const cleanup = createPostgresAgentConversationCleanup({
+            pool: primaryPool,
+            createCleanupId: () => "cleanup-cursor",
+        });
+        const firstBatch = await cleanup.cleanupBatch({
+            asOf: timestamp(5),
+            batchSize: 1,
+        });
+        expect(firstBatch).toMatchObject({
+            examined: 1,
+            conversationsDeleted: 1,
+            resourceReferencesDeleted: 1,
+            nextCursor: "conversation-cleanup-a",
+        });
+
+        const collision = createPostgresAgentConversationCleanup({
+            pool: primaryPool,
+            createCleanupId: () => "cleanup-cursor",
+        });
+        await expect(
+            collision.cleanupBatch({
+                asOf: timestamp(5),
+                batchSize: 1,
+                cursor: firstBatch.nextCursor,
+            }),
+        ).rejects.toMatchObject({ code: "23505" });
+        const afterRollback = await primaryPool.query(
+            "SELECT 1 FROM agent_conversations WHERE conversation_id = $1",
+            [second.conversationId],
+        );
+        expect(afterRollback.rowCount).toBe(1);
+
+        const resumed = createPostgresAgentConversationCleanup({
+            pool: primaryPool,
+            createCleanupId: () => "cleanup-resumed",
+        });
+        await expect(
+            resumed.cleanupBatch({
+                asOf: timestamp(5),
+                batchSize: 1,
+                cursor: firstBatch.nextCursor,
+            }),
+        ).resolves.toMatchObject({
+            conversationsDeleted: 1,
+            resourceReferencesDeleted: 1,
+        });
+    });
+
     it("releases, reclaims and acknowledges durable outbox messages", async () => {
         const original = acceptedConversation(22);
         await primaryStore.accept(original);
@@ -338,7 +540,7 @@ postgresDescribe("PostgreSQL Agent Conversation Store", () => {
     });
 
     it("rolls migration back without changing Process Run tables", async () => {
-        await migrate("down", 3);
+        await migrate("down", 4);
         const tables = await primaryPool.query<{
             process_runs: string | null;
             agent_conversations: string | null;
@@ -386,6 +588,36 @@ async function finish(
         completion: {
             status: "succeeded",
             output: { content: [{ type: "text", text: "done" }] },
+        },
+    });
+    if (!completed) throw new Error("Expected Agent Turn completion");
+}
+
+async function finishWithImage(
+    turnId: string,
+    store: AgentConversationStore,
+): Promise<void> {
+    const started = await store.start({ turnId, startedAt: timestamp(1) });
+    if (!started) throw new Error("Expected Agent Turn start");
+    const completed = await store.complete({
+        turnId,
+        completedAt: timestamp(2),
+        completion: {
+            status: "succeeded",
+            output: {
+                content: [
+                    {
+                        type: "image",
+                        resource: {
+                            resourceId: `resource-${turnId}`,
+                            mediaType: "image/png",
+                            byteSize: 100,
+                            width: 20,
+                            height: 10,
+                        },
+                    },
+                ],
+            },
         },
     });
     if (!completed) throw new Error("Expected Agent Turn completion");

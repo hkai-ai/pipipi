@@ -45,6 +45,7 @@ export type StoredAgentConversation = Readonly<{
     configRevision: string;
     createdAt: string;
     updatedAt: string;
+    expiresAt: string;
     turns: readonly StoredAgentTurn[];
 }>;
 
@@ -95,7 +96,8 @@ type AcceptedResult = Readonly<{
 
 export type AgentConversationAcceptance =
     | (Readonly<{ outcome: "created" | "replayed" }> & AcceptedResult)
-    | Readonly<{ outcome: "conflict" }>;
+    | Readonly<{ outcome: "conflict" }>
+    | Readonly<{ outcome: "deleted" }>;
 
 export type AgentTurnAcceptance =
     | (Readonly<{ outcome: "created" | "replayed" }> & AcceptedResult)
@@ -107,6 +109,14 @@ export type AgentTurnAcceptance =
               | "not_found"
               | "sequence_conflict";
       }>;
+
+export type AgentConversationDeletion =
+    | Readonly<{
+          outcome: "accepted" | "replayed";
+          conversationId: string;
+          deleteBy: string;
+      }>
+    | Readonly<{ outcome: "not_found" }>;
 
 export type StartedAgentTurn = Readonly<{
     conversationId: string;
@@ -141,6 +151,12 @@ export type AgentConversationStore = Readonly<{
         afterSequence?: number;
         limit: number;
     }) => Promise<StoredAgentConversationPage | undefined>;
+    deleteOwned: (request: {
+        conversationId: string;
+        ownerId: string;
+        requestedAt: string;
+        deleteBy: string;
+    }) => Promise<AgentConversationDeletion>;
     start: (request: {
         turnId: string;
         startedAt: string;
@@ -200,8 +216,19 @@ type IdempotencyRecord = Readonly<{
     turnId: string;
 }>;
 
-export function createInMemoryAgentConversationStore(): AgentConversationStore {
+export function createInMemoryAgentConversationStore(
+    options: { retentionMs?: number; clock?: () => string } = {},
+): AgentConversationStore {
+    const retentionMs = positiveInteger(
+        options.retentionMs ?? 30 * 24 * 60 * 60 * 1_000,
+        "Agent Conversation retention",
+    );
+    const clock = options.clock ?? (() => new Date().toISOString());
     const conversations = new Map<string, StoredAgentConversation>();
+    const deleted = new Map<
+        string,
+        Readonly<{ ownerId: string; deleteBy: string }>
+    >();
     const conversationIdsByTurn = new Map<string, string>();
     const idempotencyByOwner = new Map<
         string,
@@ -214,6 +241,7 @@ export function createInMemoryAgentConversationStore(): AgentConversationStore {
                 candidate.ownerId,
                 candidate.idempotencyKey,
                 candidate.requestFingerprint,
+                candidate.createdAt,
             );
             if (replay) return replay;
             if (conversations.has(candidate.conversationId)) {
@@ -236,6 +264,7 @@ export function createInMemoryAgentConversationStore(): AgentConversationStore {
                 configRevision: candidate.configRevision,
                 createdAt: candidate.createdAt,
                 updatedAt: candidate.createdAt,
+                expiresAt: addMilliseconds(candidate.createdAt, retentionMs),
                 turns: [turn],
             };
             storeAccepted(
@@ -257,10 +286,18 @@ export function createInMemoryAgentConversationStore(): AgentConversationStore {
                 candidate.ownerId,
                 candidate.idempotencyKey,
                 candidate.requestFingerprint,
+                candidate.createdAt,
             );
-            if (replay) return replay;
+            if (replay) {
+                return replay.outcome === "deleted"
+                    ? { outcome: "not_found" }
+                    : replay;
+            }
 
-            const conversation = conversations.get(candidate.conversationId);
+            const conversation = activeConversation(
+                candidate.conversationId,
+                candidate.createdAt,
+            );
             if (!conversation || conversation.ownerId !== candidate.ownerId) {
                 return { outcome: "not_found" };
             }
@@ -286,6 +323,7 @@ export function createInMemoryAgentConversationStore(): AgentConversationStore {
             const updated = clone({
                 ...conversation,
                 updatedAt: candidate.createdAt,
+                expiresAt: addMilliseconds(candidate.createdAt, retentionMs),
                 turns: [...conversation.turns, turn],
             });
             storeAccepted(
@@ -303,14 +341,17 @@ export function createInMemoryAgentConversationStore(): AgentConversationStore {
         },
 
         findOwnedMetadata: async (conversationId, ownerId) => {
-            const conversation = conversations.get(conversationId);
+            const conversation = activeConversation(conversationId, clock());
             return conversation?.ownerId === ownerId
                 ? metadata(conversation)
                 : undefined;
         },
 
         findOwnedPage: async (request) => {
-            const conversation = conversations.get(request.conversationId);
+            const conversation = activeConversation(
+                request.conversationId,
+                clock(),
+            );
             if (!conversation || conversation.ownerId !== request.ownerId) {
                 return undefined;
             }
@@ -330,10 +371,41 @@ export function createInMemoryAgentConversationStore(): AgentConversationStore {
             });
         },
 
+        deleteOwned: async (request) => {
+            assertDeletionWindow(request.requestedAt, request.deleteBy);
+            const tombstone = deleted.get(request.conversationId);
+            if (tombstone) {
+                return tombstone.ownerId === request.ownerId
+                    ? {
+                          outcome: "replayed",
+                          conversationId: request.conversationId,
+                          deleteBy: tombstone.deleteBy,
+                      }
+                    : { outcome: "not_found" };
+            }
+            const conversation = activeConversation(
+                request.conversationId,
+                request.requestedAt,
+            );
+            if (!conversation || conversation.ownerId !== request.ownerId) {
+                return { outcome: "not_found" };
+            }
+            purgeConversation(conversation);
+            deleted.set(request.conversationId, {
+                ownerId: request.ownerId,
+                deleteBy: request.deleteBy,
+            });
+            return {
+                outcome: "accepted",
+                conversationId: request.conversationId,
+                deleteBy: request.deleteBy,
+            };
+        },
+
         start: async (request) => {
             const conversationId = conversationIdsByTurn.get(request.turnId);
             const conversation = conversationId
-                ? conversations.get(conversationId)
+                ? activeConversation(conversationId, request.startedAt)
                 : undefined;
             const turn = conversation?.turns.find(
                 (candidate) => candidate.turnId === request.turnId,
@@ -365,7 +437,7 @@ export function createInMemoryAgentConversationStore(): AgentConversationStore {
         complete: async (request) => {
             const conversationId = conversationIdsByTurn.get(request.turnId);
             const conversation = conversationId
-                ? conversations.get(conversationId)
+                ? activeConversation(conversationId, request.completedAt)
                 : undefined;
             const turn = conversation?.turns.find(
                 (candidate) => candidate.turnId === request.turnId,
@@ -398,15 +470,19 @@ export function createInMemoryAgentConversationStore(): AgentConversationStore {
         ownerId: string,
         idempotencyKey: string,
         fingerprint: string,
+        asOf: string,
     ): AgentConversationAcceptance | undefined {
         const record = idempotencyByOwner.get(ownerId)?.get(idempotencyKey);
         if (!record) return undefined;
         if (record.fingerprint !== fingerprint) return { outcome: "conflict" };
-        const conversation = conversations.get(record.conversationId);
+        const conversation = activeConversation(record.conversationId, asOf);
         const turn = conversation?.turns.find(
             (candidate) => candidate.turnId === record.turnId,
         );
         if (!conversation || !turn) {
+            if (deleted.has(record.conversationId)) {
+                return { outcome: "deleted" };
+            }
             throw new Error(
                 "Agent Conversation idempotency index is inconsistent",
             );
@@ -416,6 +492,33 @@ export function createInMemoryAgentConversationStore(): AgentConversationStore {
             conversation: clone(conversation),
             turn: clone(turn),
         };
+    }
+
+    function activeConversation(
+        conversationId: string,
+        asOf: string,
+    ): StoredAgentConversation | undefined {
+        const conversation = conversations.get(conversationId);
+        if (!conversation) return undefined;
+        if (
+            timestampMilliseconds(conversation.expiresAt) >
+            timestampMilliseconds(asOf)
+        ) {
+            return conversation;
+        }
+        purgeConversation(conversation);
+        deleted.set(conversationId, {
+            ownerId: conversation.ownerId,
+            deleteBy: conversation.expiresAt,
+        });
+        return undefined;
+    }
+
+    function purgeConversation(conversation: StoredAgentConversation): void {
+        conversations.delete(conversation.conversationId);
+        for (const turn of conversation.turns) {
+            conversationIdsByTurn.delete(turn.turnId);
+        }
     }
 
     function assertFreshTurnId(turnId: string): void {
@@ -456,6 +559,7 @@ function metadata(
         configRevision: conversation.configRevision,
         createdAt: conversation.createdAt,
         updatedAt: conversation.updatedAt,
+        expiresAt: conversation.expiresAt,
         turnCount: conversation.turns.length,
         lastTurnId: lastTurn.turnId,
         busy: conversation.turns.some(isActive),
@@ -482,4 +586,39 @@ function replaceTurn(
 
 function clone<Value>(value: Value): Value {
     return structuredClone(value);
+}
+
+function addMilliseconds(timestamp: string, durationMs: number): string {
+    const value = timestampMilliseconds(timestamp);
+    return new Date(value + durationMs).toISOString();
+}
+
+function timestampMilliseconds(timestamp: string): number {
+    const value = new Date(timestamp).getTime();
+    if (!Number.isFinite(value)) {
+        throw new Error("Agent Conversation timestamp is invalid");
+    }
+    return value;
+}
+
+function positiveInteger(value: number, label: string): number {
+    if (!Number.isSafeInteger(value) || value < 1) {
+        throw new Error(`${label} must be a positive safe integer`);
+    }
+    return value;
+}
+
+function assertDeletionWindow(requestedAt: string, deleteBy: string): void {
+    const requested = new Date(requestedAt).getTime();
+    const deadline = new Date(deleteBy).getTime();
+    if (
+        !Number.isFinite(requested) ||
+        !Number.isFinite(deadline) ||
+        deadline < requested ||
+        deadline - requested > 24 * 60 * 60 * 1_000
+    ) {
+        throw new Error(
+            "Agent Conversation deleteBy must be within 24 hours of requestedAt",
+        );
+    }
 }

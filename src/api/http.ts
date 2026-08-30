@@ -423,6 +423,23 @@ async function handleRequest(
         return;
     }
 
+    const deletedAgentConversationId =
+        context.agentConversations && request.method === "DELETE"
+            ? agentConversationIdFromPath(request.url)
+            : undefined;
+    if (
+        context.agentConversations &&
+        deletedAgentConversationId !== undefined
+    ) {
+        await deleteAgentConversation(
+            request,
+            response,
+            deletedAgentConversationId,
+            context.agentConversations,
+        );
+        return;
+    }
+
     if (
         context.asyncProcessRuns &&
         request.method === "POST" &&
@@ -713,6 +730,42 @@ async function findAgentConversation(
         );
     }
     writeJson(response, 200, conversation);
+}
+
+async function deleteAgentConversation(
+    request: IncomingMessage,
+    response: ServerResponse,
+    conversationId: string,
+    options: AgentConversationsHttpOptions,
+): Promise<void> {
+    const caller = await resolveAgentCaller(request, response, options);
+    if (!caller) return;
+    if (new URL(request.url ?? "", "http://localhost").search.length > 0) {
+        writeFailureJson(response, 400, "INVALID_QUERY", "Query is invalid");
+        return;
+    }
+    let deletion: Awaited<ReturnType<AgentConversations["remove"]>>;
+    try {
+        deletion = await options.conversations.remove(conversationId, caller);
+    } catch {
+        writeAgentConversationsUnavailable(response, options);
+        return;
+    }
+    response.setHeader("cache-control", "no-store");
+    if (!deletion.accepted) {
+        writeFailureJson(
+            response,
+            404,
+            deletion.error.code,
+            deletion.error.message,
+        );
+        return;
+    }
+    writeJson(response, 202, {
+        conversationId: deletion.conversationId,
+        status: "deletion_accepted",
+        deleteBy: deletion.deleteBy,
+    });
 }
 
 async function resolveAgentCaller(

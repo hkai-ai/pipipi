@@ -53,7 +53,7 @@ Business Processing Service 让产品调用方通过一个稳定的 HTTP Interfa
 
 默认 HTTP Interface 提供健康检查和同步 `POST /execute`。异步提交、owner 查询、PostgreSQL Store、BullMQ Worker、Webhook、恢复和保留已经实现，但入口默认关闭。精确行为见 [异步设计](docs/async-process-runs-design.md)。
 
-Agent Conversations Module 已实现可靠多轮文本、owner-scoped 图片资源、受控 Business Process Tool、PostgreSQL 权威状态和可恢复的 BullMQ 执行。调用方用准确 Agent id/version 和 `Idempotency-Key` 创建首轮，用最后接受的 `afterTurnId` 追加，并按 owner 分页查询。PostgreSQL Store 在一个事务内写入 Turn、单调 sequence、幂等 fingerprint 与最小调度 Outbox；行锁和数据库约束保证单活动 Turn，API 重启后仍可查询和重放。Dispatcher 对 Outbox 做 claim、ack 和失败 release；Worker 只凭最小 Turn identity 从 Store 认领准确 revision，并用 lease、attempt、revision 和 fencing 提交终态；Reconciler 可恢复租期过期或 Redis 中缺失的 Job。图片块只接受稳定 `resourceId`；Agent Registration 固定准确 Process allow-list；PostgreSQL Tool Ledger 用稳定 invocation/子 Run、输入 fingerprint、execution token 和数据库锁实施 6/1/10 调用预算与重放。priced Tool 进入执行后若结果不确定，Turn 以 `DEPENDENCY_FAILURE_AFTER_COMMIT` 失败且不自动重试；最终输出仍必须来自本 Turn 成功 Tool 或获准图片资源。该 Interface 只在 Application 显式注入依赖时挂载；production Composition Root 尚未装配，所以默认服务仍返回 404。删除和 production `design-assistant/v1` 仍是后续阶段。
+Agent Conversations Module 已实现可靠多轮文本、owner-scoped 图片资源、受控 Business Process Tool、PostgreSQL 权威状态和可恢复的 BullMQ 执行。调用方用准确 Agent id/version 和 `Idempotency-Key` 创建首轮，用最后接受的 `afterTurnId` 追加，并按 owner 分页查询或删除。PostgreSQL Store 在一个事务内写入 Turn、单调 sequence、幂等 fingerprint 与最小调度 Outbox；行锁和数据库约束保证单活动 Turn，API 重启后仍可查询和重放。Dispatcher 对 Outbox 做 claim、ack 和失败 release；Worker 只凭最小 Turn identity 从 Store 认领准确 revision，并用 lease、attempt、revision 和 fencing 提交终态；Reconciler 可恢复租期过期或 Redis 中缺失的 Job。图片块只接受稳定 `resourceId`；Agent Registration 固定准确 Process allow-list；PostgreSQL Tool Ledger 用稳定 invocation/子 Run、输入 fingerprint、execution token 和数据库锁实施 6/1/10 调用预算与重放。priced Tool 进入执行后若结果不确定，Turn 以 `DEPENDENCY_FAILURE_AFTER_COMMIT` 失败且不自动重试；最终输出仍必须来自本 Turn 成功 Tool 或获准图片资源。`design-assistant/v1` 的闲置期限为 30 天；删除或过期会立即提升 revision、废弃活动 Attempt、隐藏查询与新 Turn，并给出不超过 24 小时的物理清理期限。Cleaner 用短事务、`SKIP LOCKED` 和持久游标清除 Conversation 从属历史、Summary、幂等、Outbox、Tool Ledger 与 Agent 输出资源引用。该 Interface 只在 Application 显式注入依赖时挂载；production Composition Root 尚未装配，所以默认服务仍返回 404。
 
 海报、CRT 和 Memene 新闻图片 Process 会调用模型并持久化图片。产品只接收图片引用；真实验收、证据与费用必须显式启用。CRT 和新闻图片上游来源的许可证仍是发布门禁。
 
@@ -97,8 +97,9 @@ Agent 只获得 Registration 固定绑定的 Runtime Skill 与窄 Tool。文本 
 | Process Registration | `identity`、`retryPolicy`、`accept(input)`、`run(acceptedInput, context)` | Schema、JSON-safe accepted input、Process Definition、依赖、服务端重试策略和输出验证 |
 | Process Attempt Runner | `run({ runId, registration, acceptedInput, attemptNumber? })` | 预分配 runId、超时、取消、公开错误净化和活动时间线 |
 | Process Tool Runtime | `createProcessToolRuntime({ specs, registry, attemptRunner, owner })` | 受限 Agent 共用的准确 Process allow-list、Tool Schema 推导、稳定子 Run identity、Attempt 执行和净化结果；调用方 Module 自己拥有预算与账本 |
-| Agent Conversations | `open`、`continue`、`find` | 准确 Agent Registration、多轮 Turn、caller ownership、操作级幂等、单活跃 Turn、游标分页和公共状态投影 |
-| Agent Conversation Store | `accept`、`acceptTurn`、`findOwnedPage`、`claim`、`completeClaim`、`releaseClaim`、`findRecoverable` | 提供内存与 PostgreSQL Adapter；PostgreSQL 原子保存权威 Turn、幂等、Outbox、Attempt、lease、revision 和 fencing |
+| Agent Conversations | `open`、`continue`、`find`、`remove` | 准确 Agent Registration、多轮 Turn、caller ownership、操作级幂等、单活跃 Turn、游标分页、删除和公共状态投影 |
+| Agent Conversation Store | `accept`、`acceptTurn`、`findOwnedPage`、`deleteOwned`、`claim`、`completeClaim`、`releaseClaim`、`findRecoverable` | 提供内存与 PostgreSQL Adapter；PostgreSQL 原子保存权威 Turn、幂等、Outbox、Attempt、lease、revision、删除/过期墓碑和 fencing |
+| Agent Conversation Cleaner | `runSweep()`、`cleanupBatch()` | 以持久审计、短事务、`SKIP LOCKED` 和 opaque cursor 分批冻结过期 Conversation，并级联清理到期墓碑 |
 | Agent Turn Outbox | `claim`、`markPublished`、`release` | 带租期的 PostgreSQL 最小 Turn Job，支持 Dispatcher 重启后重新 claim |
 | Agent Turn Dispatcher | `dispatchOnce()`、`ready()` | Outbox claim、BullMQ publish、ack/失败 release，以及数据库与 Redis readiness |
 | Agent Turn Reconciler | `reconcileOnce()` | 从 PostgreSQL 权威 queued/过期 running Turn 恢复 Redis 中缺失、终态或损坏的最小 Job |

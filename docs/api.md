@@ -10,9 +10,9 @@
 
 现有 Process 是否一定调用 Agent 由服务端 Registration 决定，调用方不应依赖内部实现。`minimal-zine-poster/v1`、`crt-interface-image/v1` 和三个新闻图片 Process 当前使用受限 Agent；`content-processing/v1` 可由部署选择 Direct 或 Agent 路径；`composed-task/v1` 使用 Planner Agent，但默认关闭。
 
-Agent Conversations 当前支持可靠多轮文本、owner-scoped 图片资源和 Registration 固定的受控 Business Process Tool：代码支持创建、追加与分页查询，但 production Composition Root 尚未装配，默认部署访问这些路由仍返回 404。当前阶段不提供图片上传、任意 URL 抓取、跨 Conversation 长期 Memory、SSE、删除或 production Agent catalog。
+Agent Conversations 当前支持可靠多轮文本、owner-scoped 图片资源、Registration 固定的受控 Business Process Tool，以及 owner 删除和 30 天闲置保留：代码支持创建、追加、分页查询与删除，但 production Composition Root 尚未装配，默认部署访问这些路由仍返回 404。当前阶段不提供图片上传、任意 URL 抓取、跨 Conversation 长期 Memory、SSE 或 production Agent catalog。
 
-能力可调用不等于可以匿名公开。同步 `/execute` 的应用本身不校验调用方身份；Agent Conversations 必须注入可信 caller identity，且每次创建和追加都要求 caller-scoped `Idempotency-Key`。仓库已有 PostgreSQL 权威 Store/Tool Ledger、BullMQ Dispatcher/Worker 和 Reconciler；正式公网开放前，部署方还必须完成 production 装配、容量、保留、限流和费用门禁。
+能力可调用不等于可以匿名公开。同步 `/execute` 的应用本身不校验调用方身份；Agent Conversations 必须注入可信 caller identity，且每次创建和追加都要求 caller-scoped `Idempotency-Key`。仓库已有 PostgreSQL 权威 Store/Tool Ledger、BullMQ Dispatcher/Worker、Reconciler 和分批 Cleaner；正式公网开放前，部署方还必须完成 production 装配、容量、限流和费用门禁。
 
 ### 最短接入路径
 
@@ -154,6 +154,7 @@ GET /agent-conversations/conversation-0001?limit=20 HTTP/1.1
   "lastTurnId": "turn-0001",
   "createdAt": "2026-08-30T08:00:00.000Z",
   "updatedAt": "2026-08-30T08:00:02.000Z",
+  "expiresAt": "2026-09-29T08:00:00.000Z",
   "turns": [
     {
       "turnId": "turn-0001",
@@ -185,6 +186,28 @@ GET /agent-conversations/conversation-0001?limit=20 HTTP/1.1
 
 当本页之后还有历史时，响应包含 `nextCursor`；下一页把它原样传给 `after`。`limit` 必须为 1–100，并可能被 Agent Registration 进一步收紧。Conversation 的公共状态为 `busy` 或 `ready`；Turn 状态为 `queued`、`running`、`succeeded` 或 `failed`。busy 查询携带 `Retry-After`。未知、其他 caller 所有或不可访问的 Conversation 都返回同一 HTTP 404 `CONVERSATION_NOT_FOUND`。
 
+`expiresAt` 是 Conversation 的权威闲置期限。`design-assistant/v1` 每次接受新 Turn 后都将它滑动到该 Turn 创建时间之后 30 天；只读查询不续期。到期后查询、新 Turn、恢复扫描和迟到 Worker 提交都按 Conversation 不存在处理。
+
+owner 可以请求删除整个 Conversation：
+
+```http
+DELETE /agent-conversations/conversation-0001 HTTP/1.1
+```
+
+接受后返回 `202` 和 `Cache-Control: no-store`：
+
+```json
+{
+  "conversationId": "conversation-0001",
+  "status": "deletion_accepted",
+  "deleteBy": "2026-08-31T08:00:00.000Z"
+}
+```
+
+删除不接受 query 或请求体，也不需要 `Idempotency-Key`。同一 owner 重复删除在物理清理前返回首次接受的同一个 `deleteBy`；其他 owner、未知、已过期或已物理清理的 identity 返回统一 404。请求被接受的事务会立即提升 fencing revision、废弃活动 Attempt、停止未发布 Outbox 并封住未完成 Tool，因此迟到 Worker 不能重新发布结果。此后查询和追加立即不可见，物理清理最迟在 `deleteBy` 前完成。
+
+Cleaner 以短事务和 opaque cursor 分批清理；删除 Conversation 会级联删除 Turn History、Working Summary、caller 幂等记录、Outbox、Attempt、Tool Ledger 和 Agent 输出的稳定资源引用。调用方提供的输入图片是 caller source，只删除 Conversation 内引用，不删除源资源；Process Tool 产生的业务 artifact 仍遵循对应 Process 或资源服务的保留策略。清理日志只包含批次 identity、deadline、cursor 和计数，不记录对话内容、Tool 内容或资源 URL。
+
 后续 Turn 的 Context 只由服务端固定 Agent 配置、可重建 Working Summary、受预算限制的 succeeded 公共历史和当前输入组成。queued/running Turn、failed Turn 的不存在输出、隐藏推理、原始 provider 消息和内部异常不会进入 Context。完整 Session History 仍是权威记录；Working Summary 不能替代或改写历史。
 
 Resource Resolver 在接受图片输入时按 caller 校验归属、存在性、媒体类型、字节数和尺寸；不存在与其他 owner 所有得到相同 `INVALID_INPUT`。Worker 执行前再从 owned service 获取模型可访问内容，只在请求级 Pi Session 生命周期内持有，并在成功、失败或取消时释放。Agent 输出图片只提交 `resourceId`，且 Resolver 必须证明它由获准 Adapter 或本 Turn Tool 产生；模型虚构 URL 或 identity 会让 Turn 以 `INVALID_OUTPUT` 失败。
@@ -206,7 +229,7 @@ Resource Resolver 在接受图片输入时按 caller 校验归属、存在性、
 }
 ```
 
-`url` 和 `expiresAt` 只在 owner 查询时临时投影，不写入 Conversation、Queue Job 或日志；模型 base64 和图片字节也不进入历史或响应。
+图片块里的 `url` 和图片 URL 的 `expiresAt` 只在 owner 查询时临时投影，不写入 Turn History、Queue Job 或日志；这与 Conversation 顶层的权威闲置 `expiresAt` 是两个不同字段。模型 base64 和图片字节也不进入历史或响应。
 
 | 情形 | HTTP | code |
 | --- | --- | --- |
@@ -222,7 +245,7 @@ Resource Resolver 在接受图片输入时按 caller 校验归属、存在性、
 | cursor、limit 或额外 query 无效 | 400 | `INVALID_QUERY` |
 | Store、Queue 或 identity 依赖异常 | 503 | `AGENT_CONVERSATIONS_UNAVAILABLE` |
 
-Agent 异常收敛为 Turn 终态 `AGENT_FAILURE`，执行时资源不可访问收敛为 `RESOURCE_UNAVAILABLE`，不合法、超限或未获准图片输出收敛为 `INVALID_OUTPUT`。priced Process Tool 成功或进入结果不确定窗口后，如果 Turn 无法交付有效结果，则终态为 `DEPENDENCY_FAILURE_AFTER_COMMIT`；这表示费用可能已经发生，调用方不得自动重试。响应不透传 provider 错误、Prompt、隐藏推理、Tool 输入输出正文、资源服务细节或内部异常。PostgreSQL Adapter 能在 API/Worker 重启后保留 Conversation、幂等 identity 与 Tool invocation；BullMQ 提供可恢复的至少一次调度，但 production 装配、容量和保留门禁完成前仍不能开放流量。
+Agent 异常收敛为 Turn 终态 `AGENT_FAILURE`，执行时资源不可访问收敛为 `RESOURCE_UNAVAILABLE`，不合法、超限或未获准图片输出收敛为 `INVALID_OUTPUT`。priced Process Tool 成功或进入结果不确定窗口后，如果 Turn 无法交付有效结果，则终态为 `DEPENDENCY_FAILURE_AFTER_COMMIT`；这表示费用可能已经发生，调用方不得自动重试。响应不透传 provider 错误、Prompt、隐藏推理、Tool 输入输出正文、资源服务细节或内部异常。PostgreSQL Adapter 能在 API/Worker 重启后保留 Conversation、幂等 identity 与 Tool invocation；BullMQ 提供可恢复的至少一次调度，但 production 装配、容量、限流和费用门禁完成前仍不能开放流量。
 
 ## Agent 读取入口
 
@@ -237,7 +260,7 @@ Agent 先读取 [`https://pi.ganjiuwanshi.com/llms.txt`](https://pi.ganjiuwanshi
 | Base URL | `https://pi.ganjiuwanshi.com` |
 | Agent 入口 | `GET /llms.txt`；兼容 `GET /llm.txt` |
 | 完整 Markdown | `GET /docs/api.md` |
-| 业务入口 | `POST /execute`；受控开发环境可选 `POST /agent-conversations`、`GET /agent-conversations/{conversationId}` |
+| 业务入口 | `POST /execute`；受控开发环境可选 `POST /agent-conversations`、`GET/DELETE /agent-conversations/{conversationId}` |
 | 内部评测入口 | `POST /internal/eval/execute`；当前生产已开启 |
 | Content-Type | `application/json` |
 | 鉴权 | 应用不校验鉴权请求头；网关启用鉴权时，按网关要求携带凭证 |
@@ -254,7 +277,7 @@ Agent 先读取 [`https://pi.ganjiuwanshi.com/llms.txt`](https://pi.ganjiuwanshi
 | --- | --- | --- |
 | `POST /execute` | 调用方需要在同一个 HTTP 请求中等待结果 | 不提供调用方幂等键。网络超时不代表 Process 未执行；付费图片调用不得自动重试 |
 | `POST /process-runs` | 异步入口已开放，或调用方需要可靠接受、轮询和安全重放 | 必须使用稳定的 `Idempotency-Key`；提交响应丢失时用同一 key 和同一请求重试 |
-| `POST /agent-conversations` / `POST /agent-conversations/{id}/turns` | 受控开发环境显式挂载多轮文本/图片 Agent，且调用方需要 owner-scoped 分页轮询 | 每个业务操作使用稳定且独立的 `Idempotency-Key`；图片先上传到部署方另行提供的 owned resource service，本接口只接收 `resourceId` |
+| `POST /agent-conversations` / `POST /agent-conversations/{id}/turns` / `GET/DELETE /agent-conversations/{id}` | 受控开发环境显式挂载多轮文本/图片 Agent，且调用方需要 owner-scoped 分页轮询或删除 | 创建和追加各使用稳定且独立的 `Idempotency-Key`；图片先上传到部署方另行提供的 owned resource service，本接口只接收 `resourceId` |
 
 `X-Request-Id` 只用于排查请求，不提供幂等性。调用方需要安全重放时选择异步入口。
 

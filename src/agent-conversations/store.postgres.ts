@@ -21,8 +21,10 @@ export function createPostgresAgentConversationStore(options: {
     pool: Pool;
     retentionMs: number;
     claimLeaseMs?: number;
+    deletionGraceMs?: number;
     createOutboxMessageId?: () => string;
     createClaimToken?: () => string;
+    clock?: () => string;
 }): PostgresAgentConversationStore {
     const retentionMs = positiveInteger(
         options.retentionMs,
@@ -34,12 +36,20 @@ export function createPostgresAgentConversationStore(options: {
         "Agent Turn claim lease",
     );
     const createClaimToken = options.createClaimToken ?? randomUUID;
+    const deletionGraceMs = boundedDeletionGrace(
+        options.deletionGraceMs ?? 24 * 60 * 60 * 1_000,
+    );
+    const clock = options.clock ?? (() => new Date().toISOString());
 
     return Object.freeze({
         accept: async (candidate) =>
             transaction(options.pool, async (client) => {
                 await lockOperation(client, candidate);
-                const replay = await replayFor(client, candidate);
+                const replay = await replayFor(
+                    client,
+                    candidate,
+                    deletionGraceMs,
+                );
                 if (replay) return replay;
 
                 const expiresAt = addMilliseconds(
@@ -88,8 +98,16 @@ export function createPostgresAgentConversationStore(options: {
         acceptTurn: async (candidate) =>
             transaction(options.pool, async (client) => {
                 await lockOperation(client, candidate);
-                const replay = await replayFor(client, candidate);
-                if (replay) return replay;
+                const replay = await replayFor(
+                    client,
+                    candidate,
+                    deletionGraceMs,
+                );
+                if (replay) {
+                    return replay.outcome === "deleted"
+                        ? { outcome: "not_found" }
+                        : replay;
+                }
 
                 const selected = await client.query<ConversationRow>(
                     `
@@ -105,6 +123,27 @@ export function createPostgresAgentConversationStore(options: {
                     !conversation ||
                     conversation.owner_id !== candidate.ownerId
                 ) {
+                    return { outcome: "not_found" };
+                }
+                if (
+                    !isActiveConversation(conversation) ||
+                    timestampMilliseconds(iso(conversation.expires_at)) <=
+                        timestampMilliseconds(candidate.createdAt)
+                ) {
+                    if (isActiveConversation(conversation)) {
+                        await fencePostgresAgentConversation(
+                            client,
+                            conversation,
+                            {
+                                status: "expired",
+                                timestamp: candidate.createdAt,
+                                deleteBy: addMilliseconds(
+                                    iso(conversation.expires_at),
+                                    deletionGraceMs,
+                                ),
+                            },
+                        );
+                    }
                     return { outcome: "not_found" };
                 }
                 if (conversation.status === "busy") {
@@ -158,46 +197,102 @@ export function createPostgresAgentConversationStore(options: {
                 );
             }),
 
-        findOwnedMetadata: async (conversationId, ownerId) => {
-            const row = await findMetadata(
-                options.pool,
-                conversationId,
-                ownerId,
-            );
-            return row ? metadataFromRow(row) : undefined;
-        },
+        findOwnedMetadata: async (conversationId, ownerId) =>
+            transaction(options.pool, async (client) => {
+                const active = await ensureOwnedActiveConversation(
+                    client,
+                    conversationId,
+                    ownerId,
+                    clock(),
+                    deletionGraceMs,
+                );
+                if (!active) return undefined;
+                const row = await findMetadata(client, conversationId, ownerId);
+                return row ? metadataFromRow(row) : undefined;
+            }),
 
-        findOwnedPage: async (request) => {
-            const row = await findMetadata(
-                options.pool,
-                request.conversationId,
-                request.ownerId,
-            );
-            if (!row) return undefined;
-            const result = await options.pool.query<TurnRow>(
-                `
+        findOwnedPage: async (request) =>
+            transaction(options.pool, async (client) => {
+                const active = await ensureOwnedActiveConversation(
+                    client,
+                    request.conversationId,
+                    request.ownerId,
+                    clock(),
+                    deletionGraceMs,
+                );
+                if (!active) return undefined;
+                const row = await findMetadata(
+                    client,
+                    request.conversationId,
+                    request.ownerId,
+                );
+                if (!row) return undefined;
+                const result = await client.query<TurnRow>(
+                    `
           SELECT *
           FROM agent_conversation_turns
           WHERE conversation_id = $1 AND sequence > $2
           ORDER BY sequence
           LIMIT $3
         `,
-                [
-                    request.conversationId,
-                    request.afterSequence ?? 0,
-                    request.limit + 1,
-                ],
-            );
-            const turns = result.rows.slice(0, request.limit).map(turnFromRow);
-            const last = turns.at(-1);
-            return Object.freeze({
-                conversation: metadataFromRow(row),
-                turns: Object.freeze(turns),
-                ...(result.rows.length > turns.length && last
-                    ? { nextAfterSequence: last.sequence }
-                    : {}),
-            });
-        },
+                    [
+                        request.conversationId,
+                        request.afterSequence ?? 0,
+                        request.limit + 1,
+                    ],
+                );
+                const turns = result.rows
+                    .slice(0, request.limit)
+                    .map(turnFromRow);
+                const last = turns.at(-1);
+                return Object.freeze({
+                    conversation: metadataFromRow(row),
+                    turns: Object.freeze(turns),
+                    ...(result.rows.length > turns.length && last
+                        ? { nextAfterSequence: last.sequence }
+                        : {}),
+                });
+            }),
+
+        deleteOwned: async (request) =>
+            transaction(options.pool, async (client) => {
+                assertDeletionWindow(request.requestedAt, request.deleteBy);
+                const selected = await client.query<ConversationRow>(
+                    `
+            SELECT *
+            FROM agent_conversations
+            WHERE conversation_id = $1
+            FOR UPDATE
+          `,
+                    [request.conversationId],
+                );
+                const row = selected.rows[0];
+                if (!row || row.owner_id !== request.ownerId) {
+                    return { outcome: "not_found" };
+                }
+                if (row.status === "deleting" || row.status === "expired") {
+                    if (!row.delete_by) {
+                        throw new Error(
+                            "Deleted Agent Conversation is inconsistent",
+                        );
+                    }
+                    return {
+                        outcome: "replayed",
+                        conversationId: row.conversation_id,
+                        deleteBy: iso(row.delete_by),
+                    };
+                }
+                await fencePostgresAgentConversation(client, row, {
+                    status: "deleting",
+                    timestamp: request.requestedAt,
+                    deleteBy: request.deleteBy,
+                });
+                return {
+                    outcome: "accepted",
+                    conversationId: row.conversation_id,
+                    deleteBy: request.deleteBy,
+                };
+            }),
 
         start: async (request) =>
             transaction(options.pool, async (client) => {
@@ -208,7 +303,9 @@ export function createPostgresAgentConversationStore(options: {
               conversations.owner_id,
               conversations.agent_id,
               conversations.agent_version,
-              conversations.config_revision
+              conversations.config_revision,
+              conversations.status AS conversation_status,
+              conversations.expires_at AS conversation_expires_at
             FROM agent_conversation_turns AS turns
             JOIN agent_conversations AS conversations
               ON conversations.conversation_id = turns.conversation_id
@@ -218,7 +315,18 @@ export function createPostgresAgentConversationStore(options: {
                     [request.turnId],
                 );
                 const row = selected.rows[0];
-                if (row?.status !== "queued") return undefined;
+                if (
+                    !row ||
+                    !(await ensureTurnConversationActive(
+                        client,
+                        row,
+                        request.startedAt,
+                        deletionGraceMs,
+                    )) ||
+                    row.status !== "queued"
+                ) {
+                    return undefined;
+                }
                 const claimToken = createClaimToken();
                 await client.query(
                     `
@@ -267,17 +375,37 @@ export function createPostgresAgentConversationStore(options: {
 
         complete: async (request) =>
             transaction(options.pool, async (client) => {
-                const selected = await client.query<TurnRow>(
+                const selected = await client.query<TurnWithConversationRow>(
                     `
-            SELECT *
-            FROM agent_conversation_turns
-            WHERE turn_id = $1
-            FOR UPDATE
+            SELECT
+              turns.*,
+              conversations.owner_id,
+              conversations.agent_id,
+              conversations.agent_version,
+              conversations.config_revision,
+              conversations.status AS conversation_status,
+              conversations.expires_at AS conversation_expires_at
+            FROM agent_conversation_turns AS turns
+            JOIN agent_conversations AS conversations
+              ON conversations.conversation_id = turns.conversation_id
+            WHERE turns.turn_id = $1
+            FOR UPDATE OF turns, conversations
           `,
                     [request.turnId],
                 );
                 const row = selected.rows[0];
-                if (row?.status !== "running") return false;
+                if (
+                    !row ||
+                    !(await ensureTurnConversationActive(
+                        client,
+                        row,
+                        request.completedAt,
+                        deletionGraceMs,
+                    )) ||
+                    row.status !== "running"
+                ) {
+                    return false;
+                }
                 await writeTerminalTurn(client, row, request);
                 await finishAttempt(client, {
                     turnId: row.turn_id,
@@ -304,7 +432,9 @@ export function createPostgresAgentConversationStore(options: {
               conversations.owner_id,
               conversations.agent_id,
               conversations.agent_version,
-              conversations.config_revision
+              conversations.config_revision,
+              conversations.status AS conversation_status,
+              conversations.expires_at AS conversation_expires_at
             FROM agent_conversation_turns AS turns
             JOIN agent_conversations AS conversations
               ON conversations.conversation_id = turns.conversation_id
@@ -316,6 +446,12 @@ export function createPostgresAgentConversationStore(options: {
                 const row = selected.rows[0];
                 if (
                     !row ||
+                    !(await ensureTurnConversationActive(
+                        client,
+                        row,
+                        request.claimedAt,
+                        deletionGraceMs,
+                    )) ||
                     (row.status !== "queued" &&
                         (row.status !== "running" ||
                             !row.claim_expires_at ||
@@ -397,6 +533,8 @@ export function createPostgresAgentConversationStore(options: {
                     client,
                     request.turnId,
                     request.claimToken,
+                    request.completedAt,
+                    deletionGraceMs,
                 );
                 if (!row) return false;
                 await writeTerminalTurn(client, row, request);
@@ -422,6 +560,8 @@ export function createPostgresAgentConversationStore(options: {
                     client,
                     request.turnId,
                     request.claimToken,
+                    request.releasedAt,
+                    deletionGraceMs,
                 );
                 if (!row) return false;
                 await client.query(
@@ -460,14 +600,24 @@ export function createPostgresAgentConversationStore(options: {
                 status: "queued" | "running";
             }>(
                 `
-          SELECT turn_id, status
-          FROM agent_conversation_turns
+          SELECT turns.turn_id, turns.status
+          FROM agent_conversation_turns AS turns
+          JOIN agent_conversations AS conversations
+            ON conversations.conversation_id = turns.conversation_id
           WHERE
-            (status = 'queued' AND created_at <= $1)
-            OR (status = 'running' AND claim_expires_at <= $2)
+            conversations.status IN ('busy', 'ready')
+            AND conversations.expires_at > $2
+            AND (
+              (turns.status = 'queued' AND turns.created_at <= $1)
+              OR (turns.status = 'running' AND turns.claim_expires_at <= $2)
+            )
           ORDER BY
-            CASE WHEN status = 'running' THEN claim_expires_at ELSE created_at END,
-            turn_id
+            CASE
+              WHEN turns.status = 'running'
+                THEN turns.claim_expires_at
+              ELSE turns.created_at
+            END,
+            turns.turn_id
           LIMIT $3
         `,
                 [request.queuedBefore, request.asOf, request.limit],
@@ -506,6 +656,10 @@ interface ConversationRow extends QueryResultRow {
     created_at: Date | string;
     updated_at: Date | string;
     expires_at: Date | string;
+    revision: number | string;
+    deletion_requested_at: Date | string | null;
+    expired_at: Date | string | null;
+    delete_by: Date | string | null;
 }
 
 interface TurnRow extends QueryResultRow {
@@ -532,6 +686,8 @@ interface TurnWithConversationRow extends TurnRow {
     agent_id: string;
     agent_version: string;
     config_revision: string;
+    conversation_status: string;
+    conversation_expires_at: Date | string;
 }
 
 interface MetadataRow extends ConversationRow {
@@ -561,7 +717,9 @@ async function replayFor(
         ownerId: string;
         idempotencyKey: string;
         requestFingerprint: string;
+        createdAt: string;
     },
+    deletionGraceMs: number,
 ): Promise<AgentConversationAcceptance | undefined> {
     const result = await client.query<OperationRow>(
         `
@@ -575,6 +733,36 @@ async function replayFor(
     if (!row) return undefined;
     if (row.request_fingerprint !== candidate.requestFingerprint) {
         return { outcome: "conflict" };
+    }
+    const conversationResult = await client.query<ConversationRow>(
+        `
+      SELECT *
+      FROM agent_conversations
+      WHERE conversation_id = $1
+      FOR UPDATE
+    `,
+        [row.conversation_id],
+    );
+    const persisted = conversationResult.rows[0];
+    if (!persisted) {
+        throw new Error("Agent Conversation operation is inconsistent");
+    }
+    if (
+        !isActiveConversation(persisted) ||
+        timestampMilliseconds(iso(persisted.expires_at)) <=
+            timestampMilliseconds(candidate.createdAt)
+    ) {
+        if (isActiveConversation(persisted)) {
+            await fencePostgresAgentConversation(client, persisted, {
+                status: "expired",
+                timestamp: candidate.createdAt,
+                deleteBy: addMilliseconds(
+                    iso(persisted.expires_at),
+                    deletionGraceMs,
+                ),
+            });
+        }
+        return { outcome: "deleted" };
     }
     const conversation = await loadConversation(client, row.conversation_id);
     const turn = conversation.turns.find(
@@ -726,22 +914,236 @@ async function finishAttempt(
     }
 }
 
+async function ensureOwnedActiveConversation(
+    client: PoolClient,
+    conversationId: string,
+    ownerId: string,
+    asOf: string,
+    deletionGraceMs: number,
+): Promise<boolean> {
+    const selected = await client.query<ConversationRow>(
+        `
+      SELECT *
+      FROM agent_conversations
+      WHERE conversation_id = $1 AND owner_id = $2
+      FOR UPDATE
+    `,
+        [conversationId, ownerId],
+    );
+    const row = selected.rows[0];
+    if (!row || !isActiveConversation(row)) return false;
+    const expiresAt = iso(row.expires_at);
+    if (timestampMilliseconds(expiresAt) > timestampMilliseconds(asOf)) {
+        return true;
+    }
+    await fencePostgresAgentConversation(client, row, {
+        status: "expired",
+        timestamp: expiresAt,
+        deleteBy: addMilliseconds(expiresAt, deletionGraceMs),
+    });
+    return false;
+}
+
+async function ensureTurnConversationActive(
+    client: PoolClient,
+    row: TurnWithConversationRow,
+    asOf: string,
+    deletionGraceMs: number,
+): Promise<boolean> {
+    if (
+        row.conversation_status !== "busy" &&
+        row.conversation_status !== "ready"
+    ) {
+        return false;
+    }
+    const expiresAt = iso(row.conversation_expires_at);
+    if (timestampMilliseconds(expiresAt) > timestampMilliseconds(asOf)) {
+        return true;
+    }
+    await fencePostgresAgentConversation(
+        client,
+        {
+            conversation_id: row.conversation_id,
+            status: row.conversation_status,
+            expires_at: row.conversation_expires_at,
+        },
+        {
+            status: "expired",
+            timestamp: expiresAt,
+            deleteBy: addMilliseconds(expiresAt, deletionGraceMs),
+        },
+    );
+    return false;
+}
+
+export async function fencePostgresAgentConversation(
+    client: PoolClient,
+    conversation: Readonly<{
+        conversation_id: string;
+        status: string;
+        expires_at: Date | string;
+    }>,
+    request: Readonly<{
+        status: "deleting" | "expired";
+        timestamp: string;
+        deleteBy: string;
+    }>,
+): Promise<boolean> {
+    if (!isActiveConversation(conversation)) return false;
+    timestampMilliseconds(request.timestamp);
+    timestampMilliseconds(request.deleteBy);
+    await client.query(
+        `
+      UPDATE agent_turn_attempts AS attempts
+      SET
+        status = 'abandoned',
+        finished_at = GREATEST($2::timestamptz, attempts.started_at),
+        result_code = $3
+      FROM agent_conversation_turns AS turns
+      WHERE
+        attempts.turn_id = turns.turn_id
+        AND turns.conversation_id = $1
+        AND attempts.status = 'running'
+    `,
+        [
+            conversation.conversation_id,
+            request.timestamp,
+            request.status === "deleting"
+                ? "CONVERSATION_DELETED"
+                : "CONVERSATION_EXPIRED",
+        ],
+    );
+    await client.query(
+        `
+      UPDATE agent_conversation_turns
+      SET
+        status = 'failed',
+        public_output = NULL,
+        error_code = 'INTERNAL_ERROR',
+        public_error_message = 'The Agent Turn is no longer available',
+        started_at = COALESCE(started_at, $2),
+        finished_at = GREATEST($2::timestamptz, COALESCE(started_at, $2)),
+        claim_token = NULL,
+        claim_expires_at = NULL,
+        revision = revision + 1
+      WHERE conversation_id = $1 AND status IN ('queued', 'running')
+    `,
+        [conversation.conversation_id, request.timestamp],
+    );
+    await client.query(
+        `
+      UPDATE agent_tool_invocations
+      SET
+        status = CASE
+          WHEN status = 'executing' AND side_effect = 'priced'
+            THEN 'uncertain'
+          ELSE 'failed'
+        END,
+        execution_token = NULL,
+        revision = revision + 1,
+        public_output = NULL,
+        error_code = CASE
+          WHEN status = 'executing' AND side_effect = 'priced'
+            THEN 'DEPENDENCY_FAILURE_AFTER_COMMIT'
+          ELSE 'INTERNAL_ERROR'
+        END,
+        public_error_message = CASE
+          WHEN status = 'executing' AND side_effect = 'priced'
+            THEN 'A priced Tool may have completed and will not be retried'
+          ELSE 'The Process Tool is no longer available'
+        END,
+        started_at = COALESCE(started_at, $2),
+        finished_at = GREATEST($2::timestamptz, COALESCE(started_at, $2)),
+        updated_at = GREATEST(updated_at, $2)
+      WHERE conversation_id = $1 AND status IN ('prepared', 'executing')
+    `,
+        [conversation.conversation_id, request.timestamp],
+    );
+    await client.query(
+        `
+      UPDATE agent_turn_outbox
+      SET
+        claim_token = NULL,
+        claim_expires_at = NULL,
+        published_at = COALESCE(published_at, $2)
+      WHERE turn_id IN (
+        SELECT turn_id
+        FROM agent_conversation_turns
+        WHERE conversation_id = $1
+      )
+    `,
+        [conversation.conversation_id, request.timestamp],
+    );
+    const updated = await client.query(
+        `
+      UPDATE agent_conversations
+      SET
+        status = $2,
+        revision = revision + 1,
+        deletion_requested_at = CASE
+          WHEN $2 = 'deleting' THEN $3::timestamptz
+          ELSE NULL
+        END,
+        expired_at = CASE
+          WHEN $2 = 'expired' THEN $3::timestamptz
+          ELSE NULL
+        END,
+        delete_by = $4::timestamptz,
+        updated_at = GREATEST(updated_at, $3::timestamptz)
+      WHERE conversation_id = $1 AND status IN ('busy', 'ready')
+    `,
+        [
+            conversation.conversation_id,
+            request.status,
+            request.timestamp,
+            request.deleteBy,
+        ],
+    );
+    return updated.rowCount === 1;
+}
+
+function isActiveConversation(conversation: { status: string }): boolean {
+    return conversation.status === "busy" || conversation.status === "ready";
+}
+
 async function selectClaimedTurn(
     client: PoolClient,
     turnId: string,
     claimToken: string,
-): Promise<TurnRow | undefined> {
-    const selected = await client.query<TurnRow>(
+    asOf: string,
+    deletionGraceMs: number,
+): Promise<TurnWithConversationRow | undefined> {
+    const selected = await client.query<TurnWithConversationRow>(
         `
-      SELECT *
-      FROM agent_conversation_turns
-      WHERE turn_id = $1
-      FOR UPDATE
+      SELECT
+        turns.*,
+        conversations.owner_id,
+        conversations.agent_id,
+        conversations.agent_version,
+        conversations.config_revision,
+        conversations.status AS conversation_status,
+        conversations.expires_at AS conversation_expires_at
+      FROM agent_conversation_turns AS turns
+      JOIN agent_conversations AS conversations
+        ON conversations.conversation_id = turns.conversation_id
+      WHERE turns.turn_id = $1
+      FOR UPDATE OF turns, conversations
     `,
         [turnId],
     );
     const row = selected.rows[0];
-    return row?.status === "running" && row.claim_token === claimToken
+    if (
+        !row ||
+        !(await ensureTurnConversationActive(
+            client,
+            row,
+            asOf,
+            deletionGraceMs,
+        ))
+    ) {
+        return undefined;
+    }
+    return row.status === "running" && row.claim_token === claimToken
         ? row
         : undefined;
 }
@@ -825,6 +1227,7 @@ async function findMetadata(
       WHERE
         conversations.conversation_id = $1
         AND conversations.owner_id = $2
+        AND conversations.status IN ('busy', 'ready')
       GROUP BY conversations.conversation_id
     `,
         [conversationId, ownerId],
@@ -882,6 +1285,7 @@ function conversationFromRows(
         configRevision: row.config_revision,
         createdAt: iso(row.created_at),
         updatedAt: iso(row.updated_at),
+        expiresAt: iso(row.expires_at),
         turns: Object.freeze(turnRows.map(turnFromRow)),
     });
 }
@@ -900,6 +1304,7 @@ function metadataFromRow(row: MetadataRow): StoredAgentConversationMetadata {
         configRevision: row.config_revision,
         createdAt: iso(row.created_at),
         updatedAt: iso(row.updated_at),
+        expiresAt: iso(row.expires_at),
         turnCount,
         lastTurnId: row.last_turn_id,
         busy: row.status === "busy",
@@ -1060,6 +1465,26 @@ function positiveInteger(value: number, label: string): number {
         throw new Error(`${label} must be a positive safe integer`);
     }
     return value;
+}
+
+function boundedDeletionGrace(value: number): number {
+    const maximum = 24 * 60 * 60 * 1_000;
+    if (!Number.isSafeInteger(value) || value < 1 || value > maximum) {
+        throw new Error(
+            "Agent Conversation deletion grace must be between 1 ms and 24 hours",
+        );
+    }
+    return value;
+}
+
+function assertDeletionWindow(requestedAt: string, deleteBy: string): void {
+    const duration =
+        timestampMilliseconds(deleteBy) - timestampMilliseconds(requestedAt);
+    if (duration < 0 || duration > 24 * 60 * 60 * 1_000) {
+        throw new Error(
+            "Agent Conversation deleteBy must be within 24 hours of requestedAt",
+        );
+    }
 }
 
 function safePositiveInteger(value: number | string, label: string): number {
