@@ -1,5 +1,6 @@
-/** 从最小 Agent Turn Job 认领 Turn，装配受预算 Context 并提交公共终态 */
+/** 从最小 Agent Turn Job 认领 Turn，以 lease 和 fencing 执行并提交公共终态 */
 
+import { randomUUID } from "node:crypto";
 import { assembleAgentConversationContext } from "./context.js";
 import { type AgentTurnSource, parseAgentTurnJob } from "./queue.js";
 import {
@@ -15,7 +16,12 @@ import type {
     AgentImageResource,
     AgentResourceResolver,
 } from "./resource.js";
-import type { AgentConversationStore, StartedAgentTurn } from "./store.js";
+import {
+    type AgentConversationStore,
+    type ClaimedAgentTurn,
+    isRecoverableAgentConversationStore,
+    type StartedAgentTurn,
+} from "./store.js";
 import {
     type AgentToolLedger,
     createInMemoryAgentToolLedger,
@@ -23,7 +29,11 @@ import {
 } from "./tools.js";
 
 export type AgentTurnWorker = Readonly<{
-    process: (job: unknown) => Promise<"processed" | "ignored" | "invalid-job">;
+    process: (
+        job: unknown,
+        context?: Readonly<{ signal?: AbortSignal }>,
+    ) => Promise<"processed" | "ignored" | "invalid-job">;
+    releaseActive: (request: { releasedAt: string }) => Promise<number>;
 }>;
 
 export function createAgentTurnWorker(options: {
@@ -32,35 +42,72 @@ export function createAgentTurnWorker(options: {
     resourceResolver?: AgentResourceResolver;
     toolLedger?: AgentToolLedger;
     clock?: () => string;
+    createClaimToken?: () => string;
 }): AgentTurnWorker {
     const clock = options.clock ?? (() => new Date().toISOString());
+    const createClaimToken = options.createClaimToken ?? randomUUID;
     const toolLedger = options.toolLedger ?? createInMemoryAgentToolLedger();
+    const activeClaims = new Map<
+        string,
+        Readonly<{ turnId: string; claimToken: string }>
+    >();
     return Object.freeze({
-        process: async (rawJob) => {
+        process: async (rawJob, context) => {
             const job = parseAgentTurnJob(rawJob);
             if (!job) return "invalid-job";
+            if (context?.signal?.aborted) return "ignored";
+            if (isRecoverableAgentConversationStore(options.store)) {
+                const claim = await options.store.claim({
+                    turnId: job.turnId,
+                    claimToken: createClaimToken(),
+                    claimedAt: clock(),
+                });
+                if (!claim) return "ignored";
+                activeClaims.set(claim.claimToken, {
+                    turnId: claim.turnId,
+                    claimToken: claim.claimToken,
+                });
+                try {
+                    if (context?.signal?.aborted) {
+                        await options.store.releaseClaim({
+                            turnId: claim.turnId,
+                            claimToken: claim.claimToken,
+                            releasedAt: clock(),
+                        });
+                        return "ignored";
+                    }
+                    const completion = await completionFor(
+                        claim,
+                        context?.signal ?? new AbortController().signal,
+                    );
+                    if (context?.signal?.aborted) {
+                        await options.store.releaseClaim({
+                            turnId: claim.turnId,
+                            claimToken: claim.claimToken,
+                            releasedAt: clock(),
+                        });
+                        return "ignored";
+                    }
+                    const completed = await options.store.completeClaim({
+                        turnId: claim.turnId,
+                        claimToken: claim.claimToken,
+                        completedAt: clock(),
+                        completion,
+                    });
+                    return completed ? "processed" : "ignored";
+                } finally {
+                    activeClaims.delete(claim.claimToken);
+                }
+            }
             const started = await options.store.start({
                 turnId: job.turnId,
                 startedAt: clock(),
             });
             if (!started) return "ignored";
-
-            const registration = options.registry.find(started.agent);
-            const completion: AgentTurnCompletion =
-                registration?.revision === started.configRevision
-                    ? await executeAgentTurn(
-                          started,
-                          registration,
-                          options.resourceResolver,
-                          toolLedger,
-                      )
-                    : {
-                          status: "failed" as const,
-                          error: {
-                              code: "INTERNAL_ERROR" as const,
-                              message: "The Agent Turn could not be completed",
-                          },
-                      };
+            const completion = await completionFor(
+                started,
+                context?.signal ?? new AbortController().signal,
+            );
             const completed = await options.store.complete({
                 turnId: started.turnId,
                 completedAt: clock(),
@@ -68,7 +115,43 @@ export function createAgentTurnWorker(options: {
             });
             return completed ? "processed" : "ignored";
         },
+        releaseActive: async (request) => {
+            if (!isRecoverableAgentConversationStore(options.store)) return 0;
+            const store = options.store;
+            const released = await Promise.all(
+                [...activeClaims.values()].map((claim) =>
+                    store.releaseClaim({
+                        turnId: claim.turnId,
+                        claimToken: claim.claimToken,
+                        releasedAt: request.releasedAt,
+                    }),
+                ),
+            );
+            return released.filter(Boolean).length;
+        },
     });
+
+    async function completionFor(
+        started: StartedAgentTurn | ClaimedAgentTurn,
+        signal: AbortSignal,
+    ): Promise<AgentTurnCompletion> {
+        const registration = options.registry.find(started.agent);
+        return registration?.revision === started.configRevision
+            ? executeAgentTurn(
+                  started,
+                  registration,
+                  options.resourceResolver,
+                  toolLedger,
+                  signal,
+              )
+            : {
+                  status: "failed",
+                  error: {
+                      code: "INTERNAL_ERROR",
+                      message: "The Agent Turn could not be completed",
+                  },
+              };
+    }
 }
 
 async function executeAgentTurn(
@@ -76,8 +159,8 @@ async function executeAgentTurn(
     registration: AgentRegistration,
     resolver: AgentResourceResolver | undefined,
     toolLedger: AgentToolLedger,
+    signal: AbortSignal,
 ): Promise<AgentTurnCompletion> {
-    const signal = new AbortController().signal;
     const acquired: AcquiredAgentImage[] = [];
     try {
         const context = assembleAgentConversationContext(

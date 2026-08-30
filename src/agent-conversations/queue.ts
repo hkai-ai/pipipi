@@ -9,11 +9,24 @@ export type AgentTurnQueue = Readonly<{
     close: () => Promise<void>;
 }>;
 
+export type AgentTurnJobInspection = Readonly<{
+    turnId: string;
+    state: "runnable" | "terminal" | "invalid" | "missing";
+}>;
+
+export type RecoverableAgentTurnQueue = AgentTurnQueue &
+    Readonly<{
+        inspectJobs: (
+            turnIds: readonly string[],
+        ) => Promise<readonly AgentTurnJobInspection[]>;
+    }>;
+
 export type AgentTurnSource = Readonly<{
     take: () => Promise<AgentTurnJob | undefined>;
 }>;
 
-export type InMemoryAgentTurnQueue = AgentTurnQueue & AgentTurnSource;
+export type InMemoryAgentTurnQueue = RecoverableAgentTurnQueue &
+    AgentTurnSource;
 
 export function createInMemoryAgentTurnQueue(): InMemoryAgentTurnQueue {
     const jobs: AgentTurnJob[] = [];
@@ -35,6 +48,15 @@ export function createInMemoryAgentTurnQueue(): InMemoryAgentTurnQueue {
             if (!job) return undefined;
             turnIds.delete(job.turnId);
             return structuredClone(job);
+        },
+        inspectJobs: async (requestedTurnIds) => {
+            assertInspectionTurnIds(requestedTurnIds);
+            return requestedTurnIds.map((turnId) =>
+                Object.freeze({
+                    turnId,
+                    state: turnIds.has(turnId) ? "runnable" : "missing",
+                }),
+            );
         },
         close: async () => {
             closed = true;
@@ -61,4 +83,24 @@ export function parseAgentTurnJob(value: unknown): AgentTurnJob | undefined {
 
 function assertAgentTurnJob(job: AgentTurnJob): void {
     if (!parseAgentTurnJob(job)) throw new Error("Agent Turn Job is invalid");
+}
+
+export function assertInspectionTurnIds(turnIds: readonly string[]): void {
+    if (turnIds.length < 1 || turnIds.length > 100) {
+        throw new Error(
+            "Agent Turn Queue inspection requires 1 to 100 Turn IDs",
+        );
+    }
+    const unique = new Set(turnIds);
+    if (
+        unique.size !== turnIds.length ||
+        turnIds.some(
+            (turnId) =>
+                typeof turnId !== "string" ||
+                turnId.trim().length === 0 ||
+                Buffer.byteLength(turnId, "utf8") > 256,
+        )
+    ) {
+        throw new Error("Agent Turn Queue inspection Turn IDs are invalid");
+    }
 }

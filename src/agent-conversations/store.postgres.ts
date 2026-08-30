@@ -6,25 +6,34 @@ import type {
     AcceptedAgentTurn,
     AgentConversationAcceptance,
     AgentConversationStore,
+    ClaimedAgentTurn,
+    RecoverableAgentConversationStore,
     StartedAgentTurn,
     StoredAgentConversation,
     StoredAgentConversationMetadata,
     StoredAgentTurn,
 } from "./store.js";
 
-export type PostgresAgentConversationStore = AgentConversationStore &
+export type PostgresAgentConversationStore = RecoverableAgentConversationStore &
     Readonly<{ ready: () => Promise<void> }>;
 
 export function createPostgresAgentConversationStore(options: {
     pool: Pool;
     retentionMs: number;
+    claimLeaseMs?: number;
     createOutboxMessageId?: () => string;
+    createClaimToken?: () => string;
 }): PostgresAgentConversationStore {
     const retentionMs = positiveInteger(
         options.retentionMs,
         "Agent Conversation retention",
     );
     const createOutboxMessageId = options.createOutboxMessageId ?? randomUUID;
+    const claimLeaseMs = positiveInteger(
+        options.claimLeaseMs ?? 60_000,
+        "Agent Turn claim lease",
+    );
+    const createClaimToken = options.createClaimToken ?? randomUUID;
 
     return Object.freeze({
         accept: async (candidate) =>
@@ -210,14 +219,32 @@ export function createPostgresAgentConversationStore(options: {
                 );
                 const row = selected.rows[0];
                 if (row?.status !== "queued") return undefined;
+                const claimToken = createClaimToken();
                 await client.query(
                     `
             UPDATE agent_conversation_turns
-            SET status = 'running', started_at = $2
+            SET
+              status = 'running',
+              started_at = $2,
+              claim_token = $3,
+              claim_expires_at = $4,
+              attempt_count = attempt_count + 1,
+              revision = revision + 1
             WHERE turn_id = $1 AND status = 'queued'
           `,
-                    [request.turnId, request.startedAt],
+                    [
+                        request.turnId,
+                        request.startedAt,
+                        claimToken,
+                        addMilliseconds(request.startedAt, claimLeaseMs),
+                    ],
                 );
+                await insertAttempt(client, {
+                    turnId: request.turnId,
+                    attemptNumber: Number(row.attempt_count) + 1,
+                    claimToken,
+                    startedAt: request.startedAt,
+                });
                 await client.query(
                     `
             UPDATE agent_conversations
@@ -251,52 +278,206 @@ export function createPostgresAgentConversationStore(options: {
                 );
                 const row = selected.rows[0];
                 if (row?.status !== "running") return false;
+                await writeTerminalTurn(client, row, request);
+                await finishAttempt(client, {
+                    turnId: row.turn_id,
+                    claimToken: requiredClaimToken(row),
+                    finishedAt: request.completedAt,
+                    status:
+                        request.completion.status === "succeeded"
+                            ? "succeeded"
+                            : "failed",
+                    resultCode:
+                        request.completion.status === "failed"
+                            ? request.completion.error.code
+                            : "SUCCEEDED",
+                });
+                return true;
+            }),
 
-                if (request.completion.status === "succeeded") {
-                    await client.query(
-                        `
-              UPDATE agent_conversation_turns
-              SET
-                status = 'succeeded',
-                public_output = $2::jsonb,
-                finished_at = $3
-              WHERE turn_id = $1 AND status = 'running'
-            `,
-                        [
-                            request.turnId,
-                            serializeJson(request.completion.output),
-                            request.completedAt,
-                        ],
-                    );
-                } else {
-                    await client.query(
-                        `
-              UPDATE agent_conversation_turns
-              SET
-                status = 'failed',
-                error_code = $2,
-                public_error_message = $3,
-                finished_at = $4
-              WHERE turn_id = $1 AND status = 'running'
-            `,
-                        [
-                            request.turnId,
-                            request.completion.error.code,
-                            request.completion.error.message,
-                            request.completedAt,
-                        ],
-                    );
+        claim: async (request) =>
+            transaction(options.pool, async (client) => {
+                const selected = await client.query<TurnWithConversationRow>(
+                    `
+            SELECT
+              turns.*,
+              conversations.owner_id,
+              conversations.agent_id,
+              conversations.agent_version,
+              conversations.config_revision
+            FROM agent_conversation_turns AS turns
+            JOIN agent_conversations AS conversations
+              ON conversations.conversation_id = turns.conversation_id
+            WHERE turns.turn_id = $1
+            FOR UPDATE OF turns, conversations
+          `,
+                    [request.turnId],
+                );
+                const row = selected.rows[0];
+                if (
+                    !row ||
+                    (row.status !== "queued" &&
+                        (row.status !== "running" ||
+                            !row.claim_expires_at ||
+                            new Date(row.claim_expires_at).getTime() >
+                                timestampMilliseconds(request.claimedAt)))
+                ) {
+                    return undefined;
                 }
+                if (row.status === "running") {
+                    await finishAttempt(client, {
+                        turnId: row.turn_id,
+                        claimToken: requiredClaimToken(row),
+                        finishedAt: request.claimedAt,
+                        status: "abandoned",
+                        resultCode: "CLAIM_EXPIRED",
+                    });
+                }
+                const claimExpiresAt = addMilliseconds(
+                    request.claimedAt,
+                    claimLeaseMs,
+                );
+                const updated = await client.query<TurnWithConversationRow>(
+                    `
+            UPDATE agent_conversation_turns
+            SET
+              status = 'running',
+              claim_token = $2,
+              claim_expires_at = $3,
+              started_at = COALESCE(started_at, $4),
+              attempt_count = attempt_count + 1,
+              revision = revision + 1
+            WHERE turn_id = $1
+            RETURNING *
+          `,
+                    [
+                        request.turnId,
+                        request.claimToken,
+                        claimExpiresAt,
+                        request.claimedAt,
+                    ],
+                );
+                const claimedRow = updated.rows[0];
+                if (!claimedRow) throw new Error("Agent Turn claim was lost");
+                Object.assign(claimedRow, {
+                    owner_id: row.owner_id,
+                    agent_id: row.agent_id,
+                    agent_version: row.agent_version,
+                    config_revision: row.config_revision,
+                });
+                await insertAttempt(client, {
+                    turnId: request.turnId,
+                    attemptNumber: Number(claimedRow.attempt_count),
+                    claimToken: request.claimToken,
+                    startedAt: request.claimedAt,
+                });
                 await client.query(
                     `
             UPDATE agent_conversations
-            SET status = 'ready', updated_at = $2
+            SET status = 'busy', updated_at = $2
             WHERE conversation_id = $1
           `,
-                    [row.conversation_id, request.completedAt],
+                    [row.conversation_id, request.claimedAt],
                 );
+                const prior = await client.query<TurnRow>(
+                    `
+            SELECT *
+            FROM agent_conversation_turns
+            WHERE conversation_id = $1 AND sequence < $2
+            ORDER BY sequence
+          `,
+                    [row.conversation_id, row.sequence],
+                );
+                return claimedTurnFromRow(claimedRow, prior.rows);
+            }),
+
+        completeClaim: async (request) =>
+            transaction(options.pool, async (client) => {
+                const row = await selectClaimedTurn(
+                    client,
+                    request.turnId,
+                    request.claimToken,
+                );
+                if (!row) return false;
+                await writeTerminalTurn(client, row, request);
+                await finishAttempt(client, {
+                    turnId: row.turn_id,
+                    claimToken: request.claimToken,
+                    finishedAt: request.completedAt,
+                    status:
+                        request.completion.status === "succeeded"
+                            ? "succeeded"
+                            : "failed",
+                    resultCode:
+                        request.completion.status === "failed"
+                            ? request.completion.error.code
+                            : "SUCCEEDED",
+                });
                 return true;
             }),
+
+        releaseClaim: async (request) =>
+            transaction(options.pool, async (client) => {
+                const row = await selectClaimedTurn(
+                    client,
+                    request.turnId,
+                    request.claimToken,
+                );
+                if (!row) return false;
+                await client.query(
+                    `
+            UPDATE agent_conversation_turns
+            SET
+              status = 'queued',
+              claim_token = NULL,
+              claim_expires_at = NULL,
+              revision = revision + 1
+            WHERE turn_id = $1 AND claim_token = $2 AND status = 'running'
+          `,
+                    [request.turnId, request.claimToken],
+                );
+                await client.query(
+                    `
+            UPDATE agent_conversations
+            SET status = 'busy', updated_at = $2
+            WHERE conversation_id = $1
+          `,
+                    [row.conversation_id, request.releasedAt],
+                );
+                await finishAttempt(client, {
+                    turnId: row.turn_id,
+                    claimToken: request.claimToken,
+                    finishedAt: request.releasedAt,
+                    status: "abandoned",
+                    resultCode: "CLAIM_RELEASED",
+                });
+                return true;
+            }),
+
+        findRecoverable: async (request) => {
+            const result = await options.pool.query<{
+                turn_id: string;
+                status: "queued" | "running";
+            }>(
+                `
+          SELECT turn_id, status
+          FROM agent_conversation_turns
+          WHERE
+            (status = 'queued' AND created_at <= $1)
+            OR (status = 'running' AND claim_expires_at <= $2)
+          ORDER BY
+            CASE WHEN status = 'running' THEN claim_expires_at ELSE created_at END,
+            turn_id
+          LIMIT $3
+        `,
+                [request.queuedBefore, request.asOf, request.limit],
+            );
+            return Object.freeze(
+                result.rows.map((row) =>
+                    Object.freeze({ turnId: row.turn_id, status: row.status }),
+                ),
+            );
+        },
 
         ready: async () => {
             const result = await options.pool.query<{
@@ -340,6 +521,10 @@ interface TurnRow extends QueryResultRow {
     created_at: Date | string;
     started_at: Date | string | null;
     finished_at: Date | string | null;
+    attempt_count: number;
+    revision: number | string;
+    claim_token: string | null;
+    claim_expires_at: Date | string | null;
 }
 
 interface TurnWithConversationRow extends TurnRow {
@@ -480,6 +665,146 @@ async function insertOutbox(
             serializeJson({ schemaVersion: 1, turnId }),
             createdAt,
         ],
+    );
+}
+
+async function insertAttempt(
+    client: PoolClient,
+    request: {
+        turnId: string;
+        attemptNumber: number;
+        claimToken: string;
+        startedAt: string;
+    },
+): Promise<void> {
+    await client.query(
+        `
+      INSERT INTO agent_turn_attempts (
+        turn_id,
+        attempt_number,
+        claim_token,
+        status,
+        started_at
+      )
+      VALUES ($1, $2, $3, 'running', $4)
+    `,
+        [
+            request.turnId,
+            request.attemptNumber,
+            request.claimToken,
+            request.startedAt,
+        ],
+    );
+}
+
+async function finishAttempt(
+    client: PoolClient,
+    request: {
+        turnId: string;
+        claimToken: string;
+        finishedAt: string;
+        status: "succeeded" | "failed" | "abandoned";
+        resultCode: string;
+    },
+): Promise<void> {
+    const result = await client.query(
+        `
+      UPDATE agent_turn_attempts
+      SET status = $3, finished_at = $4, result_code = $5
+      WHERE turn_id = $1 AND claim_token = $2 AND status = 'running'
+    `,
+        [
+            request.turnId,
+            request.claimToken,
+            request.status,
+            request.finishedAt,
+            request.resultCode,
+        ],
+    );
+    if (result.rowCount !== 1) {
+        throw new Error("Agent Turn Attempt claim is inconsistent");
+    }
+}
+
+async function selectClaimedTurn(
+    client: PoolClient,
+    turnId: string,
+    claimToken: string,
+): Promise<TurnRow | undefined> {
+    const selected = await client.query<TurnRow>(
+        `
+      SELECT *
+      FROM agent_conversation_turns
+      WHERE turn_id = $1
+      FOR UPDATE
+    `,
+        [turnId],
+    );
+    const row = selected.rows[0];
+    return row?.status === "running" && row.claim_token === claimToken
+        ? row
+        : undefined;
+}
+
+async function writeTerminalTurn(
+    client: PoolClient,
+    row: TurnRow,
+    request: {
+        turnId: string;
+        completedAt: string;
+        completion: Parameters<
+            AgentConversationStore["complete"]
+        >[0]["completion"];
+    },
+): Promise<void> {
+    if (request.completion.status === "succeeded") {
+        await client.query(
+            `
+        UPDATE agent_conversation_turns
+        SET
+          status = 'succeeded',
+          public_output = $2::jsonb,
+          finished_at = $3,
+          claim_token = NULL,
+          claim_expires_at = NULL,
+          revision = revision + 1
+        WHERE turn_id = $1 AND status = 'running'
+      `,
+            [
+                request.turnId,
+                serializeJson(request.completion.output),
+                request.completedAt,
+            ],
+        );
+    } else {
+        await client.query(
+            `
+        UPDATE agent_conversation_turns
+        SET
+          status = 'failed',
+          error_code = $2,
+          public_error_message = $3,
+          finished_at = $4,
+          claim_token = NULL,
+          claim_expires_at = NULL,
+          revision = revision + 1
+        WHERE turn_id = $1 AND status = 'running'
+      `,
+            [
+                request.turnId,
+                request.completion.error.code,
+                request.completion.error.message,
+                request.completedAt,
+            ],
+        );
+    }
+    await client.query(
+        `
+      UPDATE agent_conversations
+      SET status = 'ready', updated_at = $2
+      WHERE conversation_id = $1
+    `,
+        [row.conversation_id, request.completedAt],
     );
 }
 
@@ -654,6 +979,30 @@ function startedTurnFromRow(
     });
 }
 
+function claimedTurnFromRow(
+    row: TurnWithConversationRow,
+    priorRows: readonly TurnRow[],
+): ClaimedAgentTurn {
+    if (row.status !== "running" || !row.claim_token || !row.claim_expires_at) {
+        throw new Error("Claimed Agent Turn is inconsistent");
+    }
+    return Object.freeze({
+        ...startedTurnFromRow(row, priorRows),
+        claimToken: row.claim_token,
+        claimExpiresAt: iso(row.claim_expires_at),
+        attemptNumber: safePositiveInteger(
+            row.attempt_count,
+            "Agent Turn attempt count",
+        ),
+        revision: safePositiveInteger(row.revision, "Agent Turn revision"),
+    });
+}
+
+function requiredClaimToken(row: TurnRow): string {
+    if (!row.claim_token) throw new Error("Agent Turn claim is inconsistent");
+    return row.claim_token;
+}
+
 function assertConversationRow(row: ConversationRow): void {
     if (Number(row.schema_version) !== 1) {
         throw new Error("Persisted Agent Conversation schema is unsupported");
@@ -711,7 +1060,7 @@ function positiveInteger(value: number, label: string): number {
     return value;
 }
 
-function safePositiveInteger(value: number, label: string): number {
+function safePositiveInteger(value: number | string, label: string): number {
     const parsed = Number(value);
     if (!Number.isSafeInteger(parsed) || parsed < 1) {
         throw new Error(`${label} is outside the supported range`);
@@ -720,11 +1069,16 @@ function safePositiveInteger(value: number, label: string): number {
 }
 
 function addMilliseconds(timestamp: string, durationMs: number): string {
+    const milliseconds = timestampMilliseconds(timestamp);
+    return new Date(milliseconds + durationMs).toISOString();
+}
+
+function timestampMilliseconds(timestamp: string): number {
     const milliseconds = new Date(timestamp).getTime();
     if (!Number.isFinite(milliseconds)) {
         throw new Error("Agent Conversation timestamp is invalid");
     }
-    return new Date(milliseconds + durationMs).toISOString();
+    return milliseconds;
 }
 
 function iso(value: Date | string): string {

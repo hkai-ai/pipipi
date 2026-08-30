@@ -17,7 +17,10 @@ import { createInMemoryAgentTurnQueue } from "../src/agent-conversations/queue.j
 import { defineAgentRegistration } from "../src/agent-conversations/registration.js";
 import { createAgentRegistry } from "../src/agent-conversations/registry.js";
 import type { AgentConversationStore } from "../src/agent-conversations/store.js";
-import { createPostgresAgentConversationStore } from "../src/agent-conversations/store.postgres.js";
+import {
+    createPostgresAgentConversationStore,
+    type PostgresAgentConversationStore,
+} from "../src/agent-conversations/store.postgres.js";
 import { createProcessingApplication } from "../src/api/application.js";
 import type { CallerIdentityResolver } from "../src/api/identity.js";
 import {
@@ -39,8 +42,8 @@ const runningApplications: Array<{ close: () => Promise<void> }> = [];
 postgresDescribe("PostgreSQL Agent Conversation Store", () => {
     let primaryPool: Pool;
     let secondaryPool: Pool;
-    let primaryStore: AgentConversationStore;
-    let secondaryStore: AgentConversationStore;
+    let primaryStore: PostgresAgentConversationStore;
+    let secondaryStore: PostgresAgentConversationStore;
 
     beforeAll(async () => {
         assertTestDatabase(databaseUrl as string);
@@ -126,6 +129,69 @@ postgresDescribe("PostgreSQL Agent Conversation Store", () => {
                 original.ownerId,
             ),
         ).resolves.toMatchObject({ turnCount: 2, busy: true });
+    });
+
+    it("recovers an expired lease and fences the previous Worker", async () => {
+        const original = acceptedConversation(24);
+        await primaryStore.accept(original);
+        const first = await primaryStore.claim({
+            turnId: original.turnId,
+            claimToken: "claim-old",
+            claimedAt: timestamp(1),
+        });
+        expect(first).toMatchObject({ attemptNumber: 1, revision: 1 });
+        await expect(
+            secondaryStore.claim({
+                turnId: original.turnId,
+                claimToken: "claim-too-early",
+                claimedAt: timestamp(31),
+            }),
+        ).resolves.toBeUndefined();
+        const recovered = await secondaryStore.claim({
+            turnId: original.turnId,
+            claimToken: "claim-new",
+            claimedAt: timestamp(62),
+        });
+        expect(recovered).toMatchObject({ attemptNumber: 2, revision: 2 });
+        await expect(
+            primaryStore.completeClaim({
+                turnId: original.turnId,
+                claimToken: "claim-old",
+                completedAt: timestamp(63),
+                completion: {
+                    status: "succeeded",
+                    output: { content: [{ type: "text", text: "stale" }] },
+                },
+            }),
+        ).resolves.toBe(false);
+        await expect(
+            secondaryStore.completeClaim({
+                turnId: original.turnId,
+                claimToken: "claim-new",
+                completedAt: timestamp(64),
+                completion: {
+                    status: "succeeded",
+                    output: { content: [{ type: "text", text: "current" }] },
+                },
+            }),
+        ).resolves.toBe(true);
+
+        const attempts = await primaryPool.query<{
+            claim_token: string;
+            status: string;
+        }>(
+            `
+          SELECT claim_token, status
+          FROM agent_turn_attempts
+          WHERE turn_id = $1
+          ORDER BY attempt_number
+        `,
+            [original.turnId],
+        );
+        expect(attempts.rows).toEqual([
+            { claim_token: "claim-old", status: "abandoned" },
+            { claim_token: "claim-new", status: "succeeded" },
+        ]);
     });
 
     it("releases, reclaims and acknowledges durable outbox messages", async () => {
@@ -272,7 +338,7 @@ postgresDescribe("PostgreSQL Agent Conversation Store", () => {
     });
 
     it("rolls migration back without changing Process Run tables", async () => {
-        await migrate("down", 1);
+        await migrate("down", 2);
         const tables = await primaryPool.query<{
             process_runs: string | null;
             agent_conversations: string | null;
@@ -301,7 +367,7 @@ postgresDescribe("PostgreSQL Agent Conversation Store", () => {
     }
 });
 
-function postgresStore(pool: Pool): AgentConversationStore {
+function postgresStore(pool: Pool): PostgresAgentConversationStore {
     return createPostgresAgentConversationStore({
         pool,
         retentionMs: 30 * 24 * 60 * 60 * 1_000,
