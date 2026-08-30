@@ -152,7 +152,7 @@ curl --fail -X POST http://127.0.0.1:4300/execute \
 | `src/agent-runtime/catalog.ts`、`pi.ts`、`skills.ts` | 多个流程共用的启动期 Skill 完整性与版本 Catalog、Pi provider 配置和 Runtime Skill 精确加载 |
 | `src/agent-runtime/session.ts`、`structured.ts`、`tooled.ts` | 请求级 Pi Session 的共享支撑（选项校验、Skill 注入、模型选择、内存 Session），以及建立在它之上的无 Tool Structured Agent Session 与带 Tool 白名单和调用预算的 Tool-bearing Session |
 | `src/agent-runtime/process-tools.ts` | 受限 Agent 共用的精确 Process Tool allow-list、Schema 推导、稳定子 Run identity、Attempt 执行和净化结果；预算与账本留在调用方 Module |
-| `src/agent-conversations/` | Agent Registration/Registry、Conversation 与首轮 Turn 接受、caller 幂等、内存 Store、确定性 Queue、Worker 和公共状态投影 |
+| `src/agent-conversations/` | Agent Registration/Registry、多轮 Conversation/Turn、caller 操作级幂等、原子顺序、分页、Context Assembly、内存 Store、确定性 Queue、Worker 和公共状态投影 |
 | `src/processes/catalog.ts` | 显式 production catalog（`productionCatalog` 数组）和通用 Process Runtime 组装 |
 | `src/processes/production.ts` | Process 模块自带的生产装配契约：声明安装的 Runtime Skill、启用条件与依赖的 Member Process，并由 `buildProductionRegistrations` 两阶段构建 |
 | `src/processes/<module>/production.ts` | 各 Process 的生产装配：绑定自己的 Skill、Pi Agent 与 HTTP Capability Adapter，并在 `environment` 中声明自己读取的启动变量；新闻图片模块按三个固定风格各导出一项，`composed/` 另声明 `enabled` 与 `members` |
