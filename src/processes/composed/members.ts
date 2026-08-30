@@ -1,18 +1,14 @@
 /** composed-task/v1 允许 Planner 看到并调用的 Member Process 白名单：Tool 名、面向模型的描述和是否付费 */
+import type {
+    ProcessToolSideEffect,
+    ProcessToolSpec,
+} from "../../agent-runtime/process-tools.js";
 import type { ProcessIdentity } from "../../process-runtime/index.js";
 
 /** Whether one successful run of the Member spends money or persists an artefact. */
-export type MemberSideEffect = "none" | "priced";
+export type MemberSideEffect = ProcessToolSideEffect;
 
-export type MemberSpec = Readonly<{
-    process: string;
-    version: string;
-    /** The Tool name the Planner sees; lower snake case, unique in the list. */
-    toolName: string;
-    /** One or two sentences the model reads to decide when to call it. */
-    description: string;
-    sideEffect: MemberSideEffect;
-}>;
+export type MemberSpec = ProcessToolSpec;
 
 /**
  * The reviewed list. Adding a Member means the Planner may spend that

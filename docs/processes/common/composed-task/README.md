@@ -58,7 +58,8 @@ allow-list 位于 [`members.ts`](../../../../src/processes/composed/members.ts)�
 | 目标 | 文件 |
 | --- | --- |
 | 产品 Schema、预算、失败映射和 `result` 校验 | [`src/processes/composed/registration.ts`](../../../../src/processes/composed/registration.ts) |
-| Member allow-list、Step Tool 与 Step Run | [`members.ts`](../../../../src/processes/composed/members.ts)、[`tools.ts`](../../../../src/processes/composed/tools.ts)、[`steps.ts`](../../../../src/processes/composed/steps.ts) |
+| Member allow-list、Step Tool 与 Step 记账 | [`members.ts`](../../../../src/processes/composed/members.ts)、[`tools.ts`](../../../../src/processes/composed/tools.ts) |
+| composed 与 Interactive Agent 共用的 Process Tool 执行治理 | [`process-tools.ts`](../../../../src/agent-runtime/process-tools.ts) |
 | Planner Agent Port 与 Pi 实现 | [`agent.ts`](../../../../src/processes/composed/agent.ts)、[`agent.pi.ts`](../../../../src/processes/composed/agent.pi.ts)、[`src/agent-runtime/tooled.ts`](../../../../src/agent-runtime/tooled.ts) |
 | 生产装配与 Skill 绑定 | [`production.ts`](../../../../src/processes/composed/production.ts)、[`skills.ts`](../../../../src/processes/composed/skills.ts)、[`composed-task-planner`](../../../../.pi/skills/composed-task-planner/) |
 | 确定性测试 | [`test/composed-process.test.ts`](../../../../test/composed-process.test.ts)、[`test/production-catalog.test.ts`](../../../../test/production-catalog.test.ts)、[`test/agent-runtime.test.ts`](../../../../test/agent-runtime.test.ts)、[`test/startup-construction.test.ts`](../../../../test/startup-construction.test.ts) |

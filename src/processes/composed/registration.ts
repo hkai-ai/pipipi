@@ -8,8 +8,7 @@ import {
     type ProcessRegistration,
 } from "../../process-runtime/index.js";
 import type { ComposedAgent } from "./agent.js";
-import type { StepRecord } from "./steps.js";
-import type { ProcessToolSet, StepBudget } from "./tools.js";
+import type { ProcessToolSet, StepBudget, StepRecord } from "./tools.js";
 
 export const plannerActivity = "planner_session";
 

@@ -514,16 +514,14 @@ describe("composed-task/v1", () => {
                 registry,
                 attemptRunner,
             }),
-        ).toThrow(
-            'Member Process "absent/v1" is not available to composed-task',
-        );
+        ).toThrow('Process Tool "absent/v1" is not available');
         expect(() =>
             createProcessToolSet({
                 members: [members[0], { ...members[1], toolName: "run_text" }],
                 registry,
                 attemptRunner,
             }),
-        ).toThrow('Member Tool name "run_text" is duplicated');
+        ).toThrow('Process Tool name "run_text" is duplicated');
     });
 
     it("rejects the input a product caller cannot send", () => {

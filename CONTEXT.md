@@ -94,6 +94,7 @@ Agent 只获得 Registration 固定绑定的 Runtime Skill 与窄 Tool。文本 
 | Process Executor | `execute(request)` | 查找、超时、取消、错误转换和 Run Record |
 | Process Registration | `identity`、`retryPolicy`、`accept(input)`、`run(acceptedInput, context)` | Schema、JSON-safe accepted input、Process Definition、依赖、服务端重试策略和输出验证 |
 | Process Attempt Runner | `run({ runId, registration, acceptedInput, attemptNumber? })` | 预分配 runId、超时、取消、公开错误净化和活动时间线 |
+| Process Tool Runtime | `createProcessToolRuntime({ specs, registry, attemptRunner, owner })` | 受限 Agent 共用的准确 Process allow-list、Tool Schema 推导、稳定子 Run identity、Attempt 执行和净化结果；调用方 Module 自己拥有预算与账本 |
 | Process Run Activity Logging | `runActivity(name, operation)`、`ProcessRunLogSink` | 声明检查、Attempt 关联、顺序、耗时、结果净化，以及 Pino 与内存 Adapter |
 | Async Process Runs | `submit(request, context)`、`find(runId, context)` | 输入接受、owner、幂等摘要和公共状态投影 |
 | Console Process Run Client | `execute(request, options)`、`pending()`、`dismiss()` | 浏览器 transport、稳定幂等操作、请求摘要、本地恢复状态、轮询、运行时响应校验、同源结果地址与结构化页面结果 |

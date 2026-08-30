@@ -1,20 +1,36 @@
-/** composed-task/v1 的 Process Tool Set：把 Member Registration 包装成 Planner 可调用的 Step Tool，记账每个 Step 并执行预算 */
-import { z } from "zod";
+/** composed-task/v1 的 Process Tool Set：把共享 Process Tool Runtime 投影成 Planner Step，并执行预算和记账 */
+import type {
+    ProcessToolInvocation,
+    ProcessToolRuntime,
+} from "../../agent-runtime/process-tools.js";
+import { createProcessToolRuntime } from "../../agent-runtime/process-tools.js";
 import type {
     JsonValue,
     ProcessAttemptRunner,
-    ProcessRegistration,
+    ProcessErrorCode,
     ProcessRegistry,
     ProcessRunActivity,
 } from "../../process-runtime/index.js";
 import type { MemberSpec } from "./members.js";
-import { runStep, type StepRecord } from "./steps.js";
 
 export const stepActivity = "process_step";
 
 export type StepBudget = Readonly<{
     maxSteps: number;
     maxPricedSteps: number;
+}>;
+
+export type StepRecord = Readonly<{
+    step: number;
+    process: string;
+    version: string;
+    status: "succeeded" | "failed";
+    output?: JsonValue;
+    error?: Readonly<{
+        code: ProcessErrorCode;
+        message: string;
+    }>;
+    priced: boolean;
 }>;
 
 /** A Tool as the Planner Agent Port sees it; free of any model-runtime type. */
@@ -58,8 +74,6 @@ export type ProcessToolSetOptions = Readonly<{
     attemptRunner: ProcessAttemptRunner;
 }>;
 
-const toolNamePattern = /^[a-z][a-z0-9_]{0,63}$/;
-
 /**
  * Resolves every allow-listed Member against the Member Registry once, at
  * construction, and derives each Tool's parameter Schema from the Member's
@@ -68,38 +82,15 @@ const toolNamePattern = /^[a-z][a-z0-9_]{0,63}$/;
 export function createProcessToolSet(
     options: ProcessToolSetOptions,
 ): ProcessToolSet {
-    if (!Array.isArray(options.members) || options.members.length === 0) {
-        throw new Error("composed-task requires at least one Member");
-    }
-    const names = new Set<string>();
-    const resolved = options.members.map((member) => {
-        if (!toolNamePattern.test(member.toolName)) {
-            throw new Error(`Member Tool name "${member.toolName}" is invalid`);
-        }
-        if (names.has(member.toolName)) {
-            throw new Error(
-                `Member Tool name "${member.toolName}" is duplicated`,
-            );
-        }
-        names.add(member.toolName);
-        const registration = options.registry.find({
-            id: member.process,
-            version: member.version,
-        });
-        if (!registration) {
-            throw new Error(
-                `Member Process "${member.process}/${member.version}" is not available to composed-task`,
-            );
-        }
-        return Object.freeze({
-            member,
-            registration,
-            parameters: describeInput(registration),
-        });
+    const runtime = createProcessToolRuntime({
+        specs: options.members,
+        registry: options.registry,
+        attemptRunner: options.attemptRunner,
+        owner: { id: "composed-task", version: "v1" },
     });
 
     return Object.freeze({
-        members: Object.freeze(options.members.map((member) => member)),
+        members: runtime.specs,
         bind: (binding) => {
             const steps: StepRecord[] = [];
             let pricedSucceeded = 0;
@@ -112,12 +103,12 @@ export function createProcessToolSet(
                 return run;
             };
 
-            const tools = resolved.map(
-                ({ member, registration, parameters }): StepTool =>
+            const tools = runtime.descriptors.map(
+                (descriptor): StepTool =>
                     Object.freeze({
-                        name: member.toolName,
-                        description: member.description,
-                        parameters,
+                        name: descriptor.name,
+                        description: descriptor.description,
+                        parameters: descriptor.parameters,
                         execute: (input) =>
                             enqueue(async () => {
                                 if (steps.length >= binding.budget.maxSteps) {
@@ -127,7 +118,8 @@ export function createProcessToolSet(
                                     );
                                 }
                                 if (
-                                    member.sideEffect === "priced" &&
+                                    sideEffectFor(runtime, descriptor.name) ===
+                                        "priced" &&
                                     pricedSucceeded >=
                                         binding.budget.maxPricedSteps
                                 ) {
@@ -136,22 +128,18 @@ export function createProcessToolSet(
                                         "No further priced step is allowed in this run",
                                     );
                                 }
-                                const record = await binding.runActivity(
+                                const invocation = await binding.runActivity(
                                     stepActivity,
                                     () =>
-                                        runStep({
-                                            stepNumber: steps.length + 1,
-                                            member,
-                                            registration,
+                                        runtime.invoke({
+                                            toolName: descriptor.name,
                                             input,
-                                            attemptRunner:
-                                                options.attemptRunner,
-                                            parent: {
-                                                runId: binding.runId,
-                                                signal: binding.signal,
-                                            },
+                                            parentRunId: binding.runId,
+                                            invocation: steps.length + 1,
+                                            signal: binding.signal,
                                         }),
                                 );
+                                const record = toStepRecord(invocation);
                                 steps.push(record);
                                 if (
                                     record.priced &&
@@ -175,18 +163,40 @@ export function createProcessToolSet(
     });
 }
 
-function describeInput(
-    registration: ProcessRegistration,
-): Readonly<Record<string, unknown>> {
-    const { $schema: _ignored, ...schema } = z.toJSONSchema(
-        registration.inputSchema,
-        { io: "input" },
-    );
-    return Object.freeze(schema);
-}
-
 function refusal(code: string, message: string): JsonValue {
     return Object.freeze({ error: Object.freeze({ code, message }) });
+}
+
+function sideEffectFor(
+    runtime: ProcessToolRuntime,
+    toolName: string,
+): MemberSpec["sideEffect"] {
+    const spec = runtime.specs.find(
+        (candidate) => candidate.toolName === toolName,
+    );
+    if (!spec) throw new Error(`Process Tool "${toolName}" is not available`);
+    return spec.sideEffect;
+}
+
+function toStepRecord(invocation: ProcessToolInvocation): StepRecord {
+    const error =
+        invocation.error?.code === "INVALID_INPUT"
+            ? Object.freeze({
+                  code: invocation.error.code,
+                  message: "The step input is invalid",
+              })
+            : invocation.error;
+    return Object.freeze({
+        step: invocation.invocation,
+        process: invocation.process,
+        version: invocation.version,
+        status: invocation.status,
+        ...(invocation.output === undefined
+            ? {}
+            : { output: invocation.output }),
+        ...(error ? { error } : {}),
+        priced: invocation.sideEffect === "priced",
+    });
 }
 
 /** What the model reads back: the record without the internal priced flag. */
