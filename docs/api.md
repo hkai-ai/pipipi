@@ -10,9 +10,9 @@
 
 现有 Process 是否一定调用 Agent 由服务端 Registration 决定，调用方不应依赖内部实现。`minimal-zine-poster/v1`、`crt-interface-image/v1` 和三个新闻图片 Process 当前使用受限 Agent；`content-processing/v1` 可由部署选择 Direct 或 Agent 路径；`composed-task/v1` 使用 Planner Agent，但默认关闭。
 
-Agent Conversations 当前支持可靠多轮文本：代码支持 `POST /agent-conversations`、`POST /agent-conversations/{conversationId}/turns` 与 owner-scoped 分页查询，但 production Composition Root 尚未装配，默认部署访问这些路由仍返回 404。当前阶段不支持图片、跨 Conversation 长期 Memory、SSE、删除或 production Agent catalog；这些字段不会被静默接受。
+Agent Conversations 当前支持可靠多轮文本与 owner-scoped 图片资源：代码支持创建、追加与分页查询，但 production Composition Root 尚未装配，默认部署访问这些路由仍返回 404。当前阶段不提供图片上传、任意 URL 抓取、跨 Conversation 长期 Memory、SSE、删除或 production Agent catalog。
 
-能力可调用不等于可以匿名公开。同步 `/execute` 的应用本身不校验调用方身份；Agent Conversations 必须注入可信 caller identity，且每次创建要求 caller-scoped `Idempotency-Key`。正式公网开放前，部署方还必须完成 PostgreSQL、Queue、容量、恢复、保留、限流和费用门禁。
+能力可调用不等于可以匿名公开。同步 `/execute` 的应用本身不校验调用方身份；Agent Conversations 必须注入可信 caller identity，且每次创建和追加都要求 caller-scoped `Idempotency-Key`。正式公网开放前，部署方还必须完成 PostgreSQL、Queue、容量、恢复、保留、限流和费用门禁。
 
 ### 最短接入路径
 
@@ -53,7 +53,7 @@ curl --request POST 'https://pi.ganjiuwanshi.com/execute' \
 
 需要可靠接受、轮询和安全重放时，改用[异步执行](#异步执行)。异步入口默认关闭，并要求可信网关身份和稳定的 `Idempotency-Key`；调用方不能只根据仓库代码假定部署已经开放。
 
-## Agent Conversations（多轮文本）
+## Agent Conversations（多轮文本与图片资源）
 
 本节记录代码当前实现，供受控开发环境联调；它不是 production 已开放声明。Application 只有显式注入 Agent Conversations Module、Agent Registry、内存 Store、确定性 Queue 和 caller identity 后才挂载路由。
 
@@ -82,7 +82,18 @@ Idempotency-Key: design-request-001
 }
 ```
 
-只接受 1–16 个 `text` Content Block；每段 trim 后为 1–12000 个字符。请求是 strict object，不能增加 role、system、Prompt、Skill、Tool、模型、provider、Memory、预算、重试或远程地址。Agent id/version 必须准确匹配已注入的 Agent Registration，不提供默认版本或回退。Registration 还会收紧全局输入、输出、Turn、Context 和分页上限。
+`content` 接受 1–16 个按原顺序处理的文本或图片引用块。文本块每段 trim 后为 1–12000 个字符；图片块只能提交 owned resource service 已存在的稳定 identity：
+
+```json
+{
+  "content": [
+    { "type": "text", "text": "参考这张图调整版式" },
+    { "type": "image", "resourceId": "asset_01J..." }
+  ]
+}
+```
+
+请求是 strict object，不能增加 role、system、Prompt、Skill、Tool、模型、provider、Memory、预算、重试、`url`、`data`、base64、`path` 或 `file://`。Agent id/version 必须准确匹配 Registration，不提供默认版本或回退。默认全局图片上限是每 Turn 4 张、单图 10 MiB、合计 20 MiB、宽高各 8192 px，媒体类型只允许 JPEG、PNG、WebP；每个 Registration 可以继续收紧，不能扩大。
 
 服务完成 owner 与幂等检查并接受首轮 Turn 后返回 `202`：
 
@@ -174,11 +185,32 @@ GET /agent-conversations/conversation-0001?limit=20 HTTP/1.1
 
 后续 Turn 的 Context 只由服务端固定 Agent 配置、可重建 Working Summary、受预算限制的 succeeded 公共历史和当前输入组成。queued/running Turn、failed Turn 的不存在输出、隐藏推理、原始 provider 消息和内部异常不会进入 Context。完整 Session History 仍是权威记录；Working Summary 不能替代或改写历史。
 
+Resource Resolver 在接受图片输入时按 caller 校验归属、存在性、媒体类型、字节数和尺寸；不存在与其他 owner 所有得到相同 `INVALID_INPUT`。Worker 执行前再从 owned service 获取模型可访问内容，只在请求级 Pi Session 生命周期内持有，并在成功、失败或取消时释放。Agent 输出图片只提交 `resourceId`，且 Resolver 必须证明它由获准 Adapter 或本 Turn Tool 产生；模型虚构 URL 或 identity 会让 Turn 以 `INVALID_OUTPUT` 失败。
+
+权威历史中的图片块只保存稳定资源元数据：
+
+```json
+{
+  "type": "image",
+  "resource": {
+    "resourceId": "asset_01J...",
+    "mediaType": "image/png",
+    "byteSize": 245760,
+    "width": 1600,
+    "height": 1200
+  },
+  "url": "https://temporary-owned-resource.example/...",
+  "expiresAt": "2026-08-30T09:00:00.000Z"
+}
+```
+
+`url` 和 `expiresAt` 只在 owner 查询时临时投影，不写入 Conversation、Queue Job 或日志；模型 base64 和图片字节也不进入历史或响应。
+
 | 情形 | HTTP | code |
 | --- | --- | --- |
 | 未通过可信 caller identity | 401 | `CALLER_UNAUTHORIZED` |
 | 缺少或超长幂等键 | 400 | `IDEMPOTENCY_KEY_REQUIRED` / `INVALID_IDEMPOTENCY_KEY` |
-| 严格请求或文本输入无效 | 400 | `INVALID_INPUT` |
+| 严格请求、文本或图片资源输入无效 | 400 | `INVALID_INPUT` |
 | Agent id/version 未登记 | 404 | `AGENT_NOT_FOUND` |
 | 幂等键被不同请求复用 | 409 | `IDEMPOTENCY_CONFLICT` |
 | Conversation 不存在或不属于 caller | 404 | `CONVERSATION_NOT_FOUND` |
@@ -188,7 +220,7 @@ GET /agent-conversations/conversation-0001?limit=20 HTTP/1.1
 | cursor、limit 或额外 query 无效 | 400 | `INVALID_QUERY` |
 | Store、Queue 或 identity 依赖异常 | 503 | `AGENT_CONVERSATIONS_UNAVAILABLE` |
 
-Agent 异常收敛为 Turn 终态 `AGENT_FAILURE`，不合法或超限输出收敛为 `INVALID_OUTPUT`。响应不透传 provider 错误、Prompt、隐藏推理或内部异常。当前内存 Store 与确定性 Queue 只用于受控开发；进程重启不保留 Conversation，不能据此开放 production 流量。
+Agent 异常收敛为 Turn 终态 `AGENT_FAILURE`，执行时资源不可访问收敛为 `RESOURCE_UNAVAILABLE`，不合法、超限或未获准图片输出收敛为 `INVALID_OUTPUT`。响应不透传 provider 错误、Prompt、隐藏推理、资源服务细节或内部异常。当前内存 Store、Resource Resolver 与确定性 Queue 只用于受控开发；进程重启不保留 Conversation，不能据此开放 production 流量。
 
 ## Agent 读取入口
 
@@ -220,7 +252,7 @@ Agent 先读取 [`https://pi.ganjiuwanshi.com/llms.txt`](https://pi.ganjiuwanshi
 | --- | --- | --- |
 | `POST /execute` | 调用方需要在同一个 HTTP 请求中等待结果 | 不提供调用方幂等键。网络超时不代表 Process 未执行；付费图片调用不得自动重试 |
 | `POST /process-runs` | 异步入口已开放，或调用方需要可靠接受、轮询和安全重放 | 必须使用稳定的 `Idempotency-Key`；提交响应丢失时用同一 key 和同一请求重试 |
-| `POST /agent-conversations` / `POST /agent-conversations/{id}/turns` | 受控开发环境显式挂载多轮文本 Agent，且调用方需要 owner-scoped 分页轮询 | 每个业务操作必须使用稳定且独立的 `Idempotency-Key`；当前内存实现不具备进程重启恢复能力 |
+| `POST /agent-conversations` / `POST /agent-conversations/{id}/turns` | 受控开发环境显式挂载多轮文本/图片 Agent，且调用方需要 owner-scoped 分页轮询 | 每个业务操作使用稳定且独立的 `Idempotency-Key`；图片先上传到部署方另行提供的 owned resource service，本接口只接收 `resourceId` |
 
 `X-Request-Id` 只用于排查请求，不提供幂等性。调用方需要安全重放时选择异步入口。
 

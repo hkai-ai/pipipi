@@ -111,6 +111,7 @@ export type AgentTurnAcceptance =
 export type StartedAgentTurn = Readonly<{
     conversationId: string;
     turnId: string;
+    ownerId: string;
     agent: AgentIdentity;
     configRevision: string;
     input: AcceptedAgentTurnInput;
@@ -301,6 +302,7 @@ export function createInMemoryAgentConversationStore(): AgentConversationStore {
             return clone({
                 conversationId: conversation.conversationId,
                 turnId: turn.turnId,
+                ownerId: conversation.ownerId,
                 agent: conversation.agent,
                 configRevision: conversation.configRevision,
                 input: turn.input,

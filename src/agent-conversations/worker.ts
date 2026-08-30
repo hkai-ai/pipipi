@@ -2,8 +2,20 @@
 
 import { assembleAgentConversationContext } from "./context.js";
 import { type AgentTurnSource, parseAgentTurnJob } from "./queue.js";
+import {
+    type AcceptedAgentTurnInput,
+    type AgentConversationContext,
+    type AgentRegistration,
+    type AgentTurnCompletion,
+    resolveAgentTurnCompletion,
+} from "./registration.js";
 import type { AgentRegistry } from "./registry.js";
-import type { AgentConversationStore } from "./store.js";
+import type {
+    AcquiredAgentImage,
+    AgentImageResource,
+    AgentResourceResolver,
+} from "./resource.js";
+import type { AgentConversationStore, StartedAgentTurn } from "./store.js";
 
 export type AgentTurnWorker = Readonly<{
     process: (job: unknown) => Promise<"processed" | "ignored" | "invalid-job">;
@@ -12,6 +24,7 @@ export type AgentTurnWorker = Readonly<{
 export function createAgentTurnWorker(options: {
     registry: AgentRegistry;
     store: AgentConversationStore;
+    resourceResolver?: AgentResourceResolver;
     clock?: () => string;
 }): AgentTurnWorker {
     const clock = options.clock ?? (() => new Date().toISOString());
@@ -26,19 +39,13 @@ export function createAgentTurnWorker(options: {
             if (!started) return "ignored";
 
             const registration = options.registry.find(started.agent);
-            const completion =
+            const completion: AgentTurnCompletion =
                 registration?.revision === started.configRevision
-                    ? await registration.run({
-                          conversationId: started.conversationId,
-                          turnId: started.turnId,
-                          input: started.input,
-                          context: assembleAgentConversationContext(
-                              started.priorTurns,
-                              started.input,
-                              registration.limits,
-                          ),
-                          signal: new AbortController().signal,
-                      })
+                    ? await executeAgentTurn(
+                          started,
+                          registration,
+                          options.resourceResolver,
+                      )
                     : {
                           status: "failed" as const,
                           error: {
@@ -53,6 +60,103 @@ export function createAgentTurnWorker(options: {
             });
             return completed ? "processed" : "ignored";
         },
+    });
+}
+
+async function executeAgentTurn(
+    started: StartedAgentTurn,
+    registration: AgentRegistration,
+    resolver: AgentResourceResolver | undefined,
+): Promise<AgentTurnCompletion> {
+    const signal = new AbortController().signal;
+    const acquired: AcquiredAgentImage[] = [];
+    try {
+        const context = assembleAgentConversationContext(
+            started.priorTurns,
+            started.input,
+            registration.limits,
+        );
+        const resources = imageResources(started.input, context);
+        for (const resource of resources) {
+            const image = resolver
+                ? await resolver.acquire({
+                      ownerId: started.ownerId,
+                      resource,
+                      signal,
+                  })
+                : undefined;
+            if (!image) return resourceUnavailable();
+            acquired.push(image);
+        }
+        const draft = await registration.run({
+            conversationId: started.conversationId,
+            turnId: started.turnId,
+            input: started.input,
+            context,
+            imageAccess: Object.freeze(acquired.map((image) => image.access)),
+            signal,
+        });
+        return await resolveAgentTurnCompletion(draft, {
+            ownerId: started.ownerId,
+            turnId: started.turnId,
+            resolver,
+            registration,
+        });
+    } catch {
+        return resourceUnavailable();
+    } finally {
+        await Promise.allSettled(
+            acquired.reverse().map((image) => image.release()),
+        );
+    }
+}
+
+function imageResources(
+    input: AcceptedAgentTurnInput,
+    context: AgentConversationContext,
+): readonly AgentImageResource[] {
+    const resources = new Map<string, AgentImageResource>();
+    const collect = (value: AcceptedAgentTurnInput) => {
+        for (const block of value.content) {
+            if (block.type === "image") {
+                const existing = resources.get(block.resource.resourceId);
+                if (existing && !sameImageResource(existing, block.resource)) {
+                    throw new Error("Agent image resource metadata changed");
+                }
+                resources.set(block.resource.resourceId, block.resource);
+            }
+        }
+    };
+    collect(input);
+    for (const turn of context.history) {
+        collect(turn.input);
+        collect(turn.output);
+    }
+    return Object.freeze(
+        [...resources.values()].map((resource) => structuredClone(resource)),
+    );
+}
+
+function sameImageResource(
+    left: AgentImageResource,
+    right: AgentImageResource,
+): boolean {
+    return (
+        left.resourceId === right.resourceId &&
+        left.mediaType === right.mediaType &&
+        left.byteSize === right.byteSize &&
+        left.width === right.width &&
+        left.height === right.height
+    );
+}
+
+function resourceUnavailable(): AgentTurnCompletion {
+    return Object.freeze({
+        status: "failed",
+        error: Object.freeze({
+            code: "RESOURCE_UNAVAILABLE",
+            message: "An Agent resource was unavailable",
+        }),
     });
 }
 

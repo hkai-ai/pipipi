@@ -1,9 +1,15 @@
-/** 定义准确 Agent Registration、文本 Content Block、上下文与资源上限契约 */
+/** 定义准确 Agent Registration、多模态 Content Block、Context 与资源上限契约 */
 import { z } from "zod";
+import {
+    type AgentImageAccess,
+    type AgentImageMediaType,
+    type AgentImageResource,
+    type AgentResourceResolver,
+    agentImageMediaTypes,
+} from "./resource.js";
 
 export const agentRegistrationBrand: unique symbol =
     Symbol("AgentRegistration");
-
 const agentIdPattern = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const agentVersionPattern = /^v[0-9]+(?:\.[0-9]+){0,2}$/;
 
@@ -15,35 +21,50 @@ export const globalAgentLimits = Object.freeze({
     maxHistoryTurns: 32,
     maxSummaryTokens: 8_000,
     maxHistoryPageSize: 100,
+    maxImagesPerTurn: 4,
+    maxImageBytes: 10_485_760,
+    maxImageTotalBytes: 20_971_520,
+    maxImageWidth: 8_192,
+    maxImageHeight: 8_192,
 });
 
 const textContentSchema = z.strictObject({
     type: z.literal("text"),
     text: z.string().trim().min(1).max(12_000),
 });
-
-const turnInputSchema = z.strictObject({
-    content: z.array(textContentSchema).min(1).max(16),
+const imageReferenceSchema = z.strictObject({
+    type: z.literal("image"),
+    resourceId: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/),
 });
-
+const contentSchema = z.discriminatedUnion("type", [
+    textContentSchema,
+    imageReferenceSchema,
+]);
+const turnInputSchema = z.strictObject({
+    content: z.array(contentSchema).min(1).max(16),
+});
 const turnOutputSchema = z.strictObject({
-    content: z.array(textContentSchema).min(1).max(16),
+    content: z.array(contentSchema).min(1).max(16),
 });
 
 export type AgentIdentity = Readonly<{ id: string; version: string }>;
-
-export type AgentTextContent = Readonly<{
-    type: "text";
-    text: string;
+export type AgentTextContent = Readonly<{ type: "text"; text: string }>;
+export type AgentImageReferenceContent = Readonly<{
+    type: "image";
+    resourceId: string;
 }>;
-
+export type AgentImageContent = Readonly<{
+    type: "image";
+    resource: AgentImageResource;
+}>;
+export type AgentTurnInputCandidate = Readonly<{
+    content: readonly (AgentTextContent | AgentImageReferenceContent)[];
+}>;
 export type AcceptedAgentTurnInput = Readonly<{
-    content: readonly AgentTextContent[];
+    content: readonly (AgentTextContent | AgentImageContent)[];
 }>;
-
-export type AgentTurnOutput = Readonly<{
-    content: readonly AgentTextContent[];
-}>;
+export type AgentTurnOutputCandidate = AgentTurnInputCandidate;
+export type AgentTurnOutput = AcceptedAgentTurnInput;
 
 export type AgentRegistrationLimits = Readonly<{
     maxTurns: number;
@@ -53,54 +74,60 @@ export type AgentRegistrationLimits = Readonly<{
     maxHistoryTurns: number;
     maxSummaryTokens: number;
     historyPageSize: number;
+    maxImagesPerTurn: number;
+    maxImageBytes: number;
+    maxImageTotalBytes: number;
+    maxImageWidth: number;
+    maxImageHeight: number;
 }>;
-
 export type AgentPublicHistoryTurn = Readonly<{
     turnId: string;
     sequence: number;
     input: AcceptedAgentTurnInput;
     output: AgentTurnOutput;
 }>;
-
 export type AgentConversationContext = Readonly<{
     workingSummary?: string;
     history: readonly AgentPublicHistoryTurn[];
 }>;
-
 export type AgentTurnErrorCode =
     | "AGENT_FAILURE"
     | "INTERNAL_ERROR"
-    | "INVALID_OUTPUT";
-
+    | "INVALID_OUTPUT"
+    | "RESOURCE_UNAVAILABLE";
 export type AgentTurnCompletion =
     | Readonly<{ status: "succeeded"; output: AgentTurnOutput }>
     | Readonly<{
           status: "failed";
           error: Readonly<{ code: AgentTurnErrorCode; message: string }>;
       }>;
+export type AgentTurnDraftCompletion =
+    | Readonly<{ status: "succeeded"; output: AgentTurnOutputCandidate }>
+    | Extract<AgentTurnCompletion, { status: "failed" }>;
 
 export type InteractiveAgentRequest = Readonly<{
     conversationId: string;
     turnId: string;
     input: AcceptedAgentTurnInput;
     context: AgentConversationContext;
+    imageAccess: readonly AgentImageAccess[];
     signal: AbortSignal;
 }>;
-
 export type InteractiveAgent = Readonly<{
     respond: (request: InteractiveAgentRequest) => Promise<unknown>;
 }>;
-
 export type AgentRegistrationAcceptance =
-    | Readonly<{ accepted: true; acceptedInput: AcceptedAgentTurnInput }>
+    | Readonly<{ accepted: true; acceptedInput: AgentTurnInputCandidate }>
     | Readonly<{ accepted: false }>;
-
 export type AgentRegistration = Readonly<{
     identity: AgentIdentity;
     revision: string;
     limits: AgentRegistrationLimits;
+    imageMediaTypes: readonly AgentImageMediaType[];
     accept: (input: unknown) => AgentRegistrationAcceptance;
-    run: (request: InteractiveAgentRequest) => Promise<AgentTurnCompletion>;
+    run: (
+        request: InteractiveAgentRequest,
+    ) => Promise<AgentTurnDraftCompletion>;
     [agentRegistrationBrand]: true;
 }>;
 
@@ -110,6 +137,7 @@ export function defineAgentRegistration(options: {
     revision: string;
     agent: InteractiveAgent;
     limits?: Partial<AgentRegistrationLimits>;
+    imageMediaTypes?: readonly AgentImageMediaType[];
 }): AgentRegistration {
     assertAgentIdentity({ id: options.id, version: options.version });
     if (
@@ -129,18 +157,21 @@ export function defineAgentRegistration(options: {
         throw new Error("Interactive Agent is required");
     }
     const limits = defineLimits(options.limits);
-
+    const imageTypes = defineImageMediaTypes(options.imageMediaTypes);
     return Object.freeze({
         identity: Object.freeze({ id: options.id, version: options.version }),
         revision: options.revision,
         limits,
+        imageMediaTypes: imageTypes,
         accept: (input) => {
             const result = turnInputSchema.safeParse(input);
             return result.success &&
-                contentBytes(result.data.content) <= limits.maxInputBytes
+                textBytes(result.data.content) <= limits.maxInputBytes &&
+                imageReferenceCount(result.data.content) <=
+                    limits.maxImagesPerTurn
                 ? Object.freeze({
                       accepted: true,
-                      acceptedInput: freezeTurnInput(result.data),
+                      acceptedInput: freezeCandidate(result.data),
                   })
                 : Object.freeze({ accepted: false });
         },
@@ -150,7 +181,13 @@ export function defineAgentRegistration(options: {
                 response = await options.agent.respond(
                     Object.freeze({
                         ...request,
-                        input: freezeTurnInput(request.input),
+                        input: structuredClone(request.input),
+                        context: structuredClone(request.context),
+                        imageAccess: Object.freeze(
+                            request.imageAccess.map((item) =>
+                                Object.freeze({ ...item }),
+                            ),
+                        ),
                     }),
                 );
             } catch {
@@ -162,7 +199,9 @@ export function defineAgentRegistration(options: {
             const result = turnOutputSchema.safeParse(response);
             if (
                 !result.success ||
-                contentBytes(result.data.content) > limits.maxOutputBytes
+                textBytes(result.data.content) > limits.maxOutputBytes ||
+                imageReferenceCount(result.data.content) >
+                    limits.maxImagesPerTurn
             ) {
                 return failed(
                     "INVALID_OUTPUT",
@@ -171,17 +210,55 @@ export function defineAgentRegistration(options: {
             }
             return Object.freeze({
                 status: "succeeded",
-                output: freezeTurnOutput(result.data),
+                output: freezeCandidate(result.data),
             });
         },
         [agentRegistrationBrand]: true as const,
     });
 }
 
+export async function resolveAgentTurnInput(
+    candidate: AgentTurnInputCandidate,
+    request: {
+        ownerId: string;
+        resolver?: AgentResourceResolver;
+        registration: AgentRegistration;
+    },
+): Promise<AcceptedAgentTurnInput | undefined> {
+    return resolveContent(candidate, {
+        ownerId: request.ownerId,
+        resolver: request.resolver,
+        registration: request.registration,
+        purpose: "input",
+    });
+}
+
+export async function resolveAgentTurnCompletion(
+    draft: AgentTurnDraftCompletion,
+    request: {
+        ownerId: string;
+        turnId: string;
+        resolver?: AgentResourceResolver;
+        registration: AgentRegistration;
+    },
+): Promise<AgentTurnCompletion> {
+    if (draft.status === "failed") return draft;
+    const output = await resolveContent(draft.output, {
+        ownerId: request.ownerId,
+        turnId: request.turnId,
+        resolver: request.resolver,
+        registration: request.registration,
+        purpose: "output",
+    });
+    return output
+        ? Object.freeze({ status: "succeeded", output })
+        : failed("INVALID_OUTPUT", "The Agent produced an invalid output");
+}
+
 function defineLimits(
     requested: Partial<AgentRegistrationLimits> | undefined,
 ): AgentRegistrationLimits {
-    const limits = {
+    const limits: AgentRegistrationLimits = {
         maxTurns: requested?.maxTurns ?? globalAgentLimits.maxTurns,
         maxInputBytes:
             requested?.maxInputBytes ?? globalAgentLimits.maxInputBytes,
@@ -195,6 +272,17 @@ function defineLimits(
             requested?.maxSummaryTokens ?? globalAgentLimits.maxSummaryTokens,
         historyPageSize:
             requested?.historyPageSize ?? globalAgentLimits.maxHistoryPageSize,
+        maxImagesPerTurn:
+            requested?.maxImagesPerTurn ?? globalAgentLimits.maxImagesPerTurn,
+        maxImageBytes:
+            requested?.maxImageBytes ?? globalAgentLimits.maxImageBytes,
+        maxImageTotalBytes:
+            requested?.maxImageTotalBytes ??
+            globalAgentLimits.maxImageTotalBytes,
+        maxImageWidth:
+            requested?.maxImageWidth ?? globalAgentLimits.maxImageWidth,
+        maxImageHeight:
+            requested?.maxImageHeight ?? globalAgentLimits.maxImageHeight,
     };
     for (const [name, value] of Object.entries(limits)) {
         const globalName =
@@ -203,7 +291,10 @@ function defineLimits(
             globalAgentLimits[globalName as keyof typeof globalAgentLimits];
         if (!Number.isInteger(value) || value < 1 || value > globalLimit) {
             throw new Error(
-                `Agent Registration ${name} must be an integer between 1 and ${globalLimit}`,
+                "Agent Registration " +
+                    name +
+                    " must be an integer between 1 and " +
+                    globalLimit,
             );
         }
     }
@@ -217,14 +308,81 @@ function defineLimits(
             "Agent Registration maxInputBytes must leave Context envelope capacity",
         );
     }
+    if (limits.maxImageBytes > limits.maxImageTotalBytes) {
+        throw new Error(
+            "Agent Registration maxImageBytes must not exceed maxImageTotalBytes",
+        );
+    }
     return Object.freeze(limits);
 }
 
-function contentBytes(content: readonly AgentTextContent[]): number {
-    return content.reduce(
-        (total, block) => total + Buffer.byteLength(block.text, "utf8"),
-        0,
-    );
+function defineImageMediaTypes(
+    requested: readonly AgentImageMediaType[] | undefined,
+): readonly AgentImageMediaType[] {
+    const selected = requested ?? agentImageMediaTypes;
+    if (
+        !Array.isArray(selected) ||
+        selected.length === 0 ||
+        new Set(selected).size !== selected.length ||
+        selected.some((type) => !agentImageMediaTypes.includes(type))
+    ) {
+        throw new Error("Agent Registration image media types are invalid");
+    }
+    return Object.freeze([...selected]);
+}
+
+async function resolveContent(
+    candidate: AgentTurnInputCandidate,
+    request: {
+        ownerId: string;
+        turnId?: string;
+        resolver?: AgentResourceResolver;
+        registration: AgentRegistration;
+        purpose: "input" | "output";
+    },
+): Promise<AcceptedAgentTurnInput | undefined> {
+    const content: (AgentTextContent | AgentImageContent)[] = [];
+    let totalImageBytes = 0;
+    for (const block of candidate.content) {
+        if (block.type === "text") {
+            content.push(Object.freeze({ ...block }));
+            continue;
+        }
+        if (!request.resolver) return undefined;
+        const resource =
+            request.purpose === "input"
+                ? await request.resolver.inspectInput({
+                      ownerId: request.ownerId,
+                      resourceId: block.resourceId,
+                  })
+                : await request.resolver.inspectOutput({
+                      ownerId: request.ownerId,
+                      resourceId: block.resourceId,
+                      turnId: request.turnId ?? "",
+                  });
+        if (
+            !resource ||
+            !request.registration.imageMediaTypes.includes(
+                resource.mediaType,
+            ) ||
+            resource.byteSize > request.registration.limits.maxImageBytes ||
+            resource.width > request.registration.limits.maxImageWidth ||
+            resource.height > request.registration.limits.maxImageHeight
+        ) {
+            return undefined;
+        }
+        totalImageBytes += resource.byteSize;
+        if (totalImageBytes > request.registration.limits.maxImageTotalBytes) {
+            return undefined;
+        }
+        content.push(
+            Object.freeze({
+                type: "image",
+                resource: structuredClone(resource),
+            }),
+        );
+    }
+    return Object.freeze({ content: Object.freeze(content) });
 }
 
 export function assertAgentIdentity(identity: AgentIdentity): void {
@@ -238,26 +396,34 @@ export function assertAgentIdentity(identity: AgentIdentity): void {
     }
 }
 
-function freezeTurnInput(input: {
-    content: readonly AgentTextContent[];
-}): AcceptedAgentTurnInput {
+function textBytes(
+    content: readonly (AgentTextContent | AgentImageReferenceContent)[],
+): number {
+    return content.reduce(
+        (total, block) =>
+            total +
+            (block.type === "text" ? Buffer.byteLength(block.text, "utf8") : 0),
+        0,
+    );
+}
+function imageReferenceCount(
+    content: readonly (AgentTextContent | AgentImageReferenceContent)[],
+): number {
+    return content.filter((block) => block.type === "image").length;
+}
+function freezeCandidate(input: {
+    content: readonly (AgentTextContent | AgentImageReferenceContent)[];
+}): AgentTurnInputCandidate {
     return Object.freeze({
         content: Object.freeze(
             input.content.map((block) => Object.freeze({ ...block })),
         ),
     });
 }
-
-function freezeTurnOutput(output: {
-    content: readonly AgentTextContent[];
-}): AgentTurnOutput {
-    return freezeTurnInput(output);
-}
-
 function failed(
     code: AgentTurnErrorCode,
     message: string,
-): AgentTurnCompletion {
+): Extract<AgentTurnCompletion, { status: "failed" }> {
     return Object.freeze({
         status: "failed",
         error: Object.freeze({ code, message }),
