@@ -7,7 +7,6 @@ import type {
 import type {
     AgentConversationSubmission,
     AgentConversations,
-    AgentConversationView,
 } from "../agent-conversations/index.js";
 import type {
     AsyncProcessRuns,
@@ -393,6 +392,23 @@ async function handleRequest(
         return;
     }
 
+    const continuedAgentConversationId =
+        context.agentConversations && request.method === "POST"
+            ? agentConversationTurnIdFromPath(request.url)
+            : undefined;
+    if (
+        context.agentConversations &&
+        continuedAgentConversationId !== undefined
+    ) {
+        await continueAgentConversation(
+            request,
+            response,
+            continuedAgentConversationId,
+            context,
+        );
+        return;
+    }
+
     const agentConversationId =
         context.agentConversations && request.method === "GET"
             ? agentConversationIdFromPath(request.url)
@@ -548,20 +564,67 @@ async function openAgentConversation(
         return;
     }
     if (!submission.accepted) {
-        const status = {
-            INVALID_INPUT: 400,
-            AGENT_NOT_FOUND: 404,
-            IDEMPOTENCY_CONFLICT: 409,
-        }[submission.error.code];
-        writeFailureJson(
-            response,
-            status,
-            submission.error.code,
-            submission.error.message,
-        );
+        writeAgentConversationRejection(response, submission, options);
         return;
     }
 
+    writeAgentConversationAccepted(response, submission, options);
+}
+
+async function continueAgentConversation(
+    request: IncomingMessage,
+    response: ServerResponse,
+    conversationId: string,
+    context: RequestHandlingContext,
+): Promise<void> {
+    const options = context.agentConversations;
+    if (!options) throw new Error("Agent Conversations are not configured");
+    const caller = await resolveAgentCaller(request, response, options);
+    if (!caller) return;
+    const idempotencyKey = parseIdempotencyKey(
+        request.headers["idempotency-key"],
+        response,
+    );
+    if (!idempotencyKey) return;
+    if (!isJsonMediaType(request.headers["content-type"])) {
+        rejectRequest(response, unsupportedMediaTypeFailure, context.logging);
+        return;
+    }
+    const requestBody = await readRequestBody(
+        request,
+        context.maxRequestBodyBytes,
+    );
+    if (requestBody.kind === "too_large") {
+        rejectRequest(response, requestTooLargeFailure, context.logging);
+        return;
+    }
+
+    let submission: AgentConversationSubmission;
+    try {
+        submission = await options.conversations.continue(
+            conversationId,
+            requestBody.value,
+            {
+                callerId: caller.callerId,
+                idempotencyKey,
+            },
+        );
+    } catch {
+        writeAgentConversationsUnavailable(response, options);
+        return;
+    }
+    if (!submission.accepted) {
+        writeAgentConversationRejection(response, submission, options);
+        return;
+    }
+    writeAgentConversationAccepted(response, submission, options);
+}
+
+function writeAgentConversationAccepted(
+    response: ServerResponse,
+    submission: Extract<AgentConversationSubmission, { accepted: true }>,
+    options: AgentConversationsHttpOptions,
+): void {
     const retryAfter = agentRetryAfterSeconds(options);
     response.setHeader(
         "location",
@@ -578,6 +641,36 @@ async function openAgentConversation(
     });
 }
 
+function writeAgentConversationRejection(
+    response: ServerResponse,
+    submission: Extract<AgentConversationSubmission, { accepted: false }>,
+    options: AgentConversationsHttpOptions,
+): void {
+    const status = {
+        INVALID_INPUT: 400,
+        INVALID_QUERY: 400,
+        AGENT_NOT_FOUND: 404,
+        CONVERSATION_NOT_FOUND: 404,
+        IDEMPOTENCY_CONFLICT: 409,
+        CONVERSATION_BUSY: 409,
+        CONVERSATION_SEQUENCE_CONFLICT: 409,
+        CONVERSATION_TURN_LIMIT_REACHED: 409,
+    }[submission.error.code];
+    if (submission.error.code === "CONVERSATION_BUSY") {
+        response.setHeader(
+            "retry-after",
+            String(agentRetryAfterSeconds(options)),
+        );
+    }
+    response.setHeader("cache-control", "no-store");
+    writeFailureJson(
+        response,
+        status,
+        submission.error.code,
+        submission.error.message,
+    );
+}
+
 async function findAgentConversation(
     request: IncomingMessage,
     response: ServerResponse,
@@ -587,22 +680,31 @@ async function findAgentConversation(
     const caller = await resolveAgentCaller(request, response, options);
     if (!caller) return;
 
-    let conversation: AgentConversationView | undefined;
+    const query = parseAgentConversationPageQuery(request.url);
+    if (!query.valid) {
+        writeFailureJson(response, 400, "INVALID_QUERY", "Query is invalid");
+        return;
+    }
+    let lookup: Awaited<ReturnType<AgentConversations["find"]>>;
     try {
-        conversation = await options.conversations.find(conversationId, caller);
+        lookup = await options.conversations.find(conversationId, {
+            ...caller,
+            ...query.value,
+        });
     } catch {
         writeAgentConversationsUnavailable(response, options);
         return;
     }
-    if (!conversation) {
+    if (!lookup.found) {
         writeFailureJson(
             response,
-            404,
-            "CONVERSATION_NOT_FOUND",
-            "Agent Conversation not found",
+            lookup.error.code === "INVALID_QUERY" ? 400 : 404,
+            lookup.error.code,
+            lookup.error.message,
         );
         return;
     }
+    const conversation = lookup.conversation;
     response.setHeader("cache-control", "no-store");
     if (conversation.status === "busy") {
         response.setHeader(
@@ -686,12 +788,72 @@ function agentRetryAfterSeconds(
 function agentConversationIdFromPath(
     url: string | undefined,
 ): string | undefined {
-    const match = /^\/agent-conversations\/([^/?#]+)$/.exec(url ?? "");
-    if (!match?.[1]) return undefined;
+    const match = /^\/agent-conversations\/([^/]+)$/.exec(pathFromUrl(url));
+    return decodePathSegment(match?.[1]);
+}
+
+function agentConversationTurnIdFromPath(
+    url: string | undefined,
+): string | undefined {
+    const match = /^\/agent-conversations\/([^/]+)\/turns$/.exec(
+        pathFromUrl(url),
+    );
+    return decodePathSegment(match?.[1]);
+}
+
+function pathFromUrl(url: string | undefined): string {
     try {
-        return decodeURIComponent(match[1]);
+        return new URL(url ?? "", "http://localhost").pathname;
+    } catch {
+        return "";
+    }
+}
+
+function decodePathSegment(value: string | undefined): string | undefined {
+    if (!value) return undefined;
+    try {
+        return decodeURIComponent(value);
     } catch {
         return undefined;
+    }
+}
+
+function parseAgentConversationPageQuery(url: string | undefined):
+    | Readonly<{
+          valid: true;
+          value: Readonly<{ after?: string; limit?: number }>;
+      }>
+    | Readonly<{ valid: false }> {
+    try {
+        const search = new URL(url ?? "", "http://localhost").searchParams;
+        if (
+            [...search.keys()].some(
+                (key) => key !== "after" && key !== "limit",
+            ) ||
+            search.getAll("after").length > 1 ||
+            search.getAll("limit").length > 1
+        ) {
+            return { valid: false };
+        }
+        const after = search.get("after") ?? undefined;
+        const rawLimit = search.get("limit") ?? undefined;
+        if (after === "" || rawLimit === "") return { valid: false };
+        const limit =
+            rawLimit === undefined || !/^[1-9][0-9]*$/.test(rawLimit)
+                ? undefined
+                : Number(rawLimit);
+        if (rawLimit !== undefined && !Number.isSafeInteger(limit)) {
+            return { valid: false };
+        }
+        return {
+            valid: true,
+            value: {
+                ...(after === undefined ? {} : { after }),
+                ...(limit === undefined ? {} : { limit }),
+            },
+        };
+    } catch {
+        return { valid: false };
     }
 }
 

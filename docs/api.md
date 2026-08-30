@@ -10,7 +10,7 @@
 
 现有 Process 是否一定调用 Agent 由服务端 Registration 决定，调用方不应依赖内部实现。`minimal-zine-poster/v1`、`crt-interface-image/v1` 和三个新闻图片 Process 当前使用受限 Agent；`content-processing/v1` 可由部署选择 Direct 或 Agent 路径；`composed-task/v1` 使用 Planner Agent，但默认关闭。
 
-Agent Conversations 当前完成首轮文本 tracer bullet：代码支持 `POST /agent-conversations` 与 owner-scoped `GET /agent-conversations/{conversationId}`，但 production Composition Root 尚未装配，默认部署访问这两个路由仍返回 404。当前阶段不支持追加 Turn、图片、长期 Memory、SSE、删除或 production Agent catalog；这些字段不会被静默接受。
+Agent Conversations 当前支持可靠多轮文本：代码支持 `POST /agent-conversations`、`POST /agent-conversations/{conversationId}/turns` 与 owner-scoped 分页查询，但 production Composition Root 尚未装配，默认部署访问这些路由仍返回 404。当前阶段不支持图片、跨 Conversation 长期 Memory、SSE、删除或 production Agent catalog；这些字段不会被静默接受。
 
 能力可调用不等于可以匿名公开。同步 `/execute` 的应用本身不校验调用方身份；Agent Conversations 必须注入可信 caller identity，且每次创建要求 caller-scoped `Idempotency-Key`。正式公网开放前，部署方还必须完成 PostgreSQL、Queue、容量、恢复、保留、限流和费用门禁。
 
@@ -53,7 +53,7 @@ curl --request POST 'https://pi.ganjiuwanshi.com/execute' \
 
 需要可靠接受、轮询和安全重放时，改用[异步执行](#异步执行)。异步入口默认关闭，并要求可信网关身份和稳定的 `Idempotency-Key`；调用方不能只根据仓库代码假定部署已经开放。
 
-## Agent Conversations（首轮文本 tracer bullet）
+## Agent Conversations（多轮文本）
 
 本节记录代码当前实现，供受控开发环境联调；它不是 production 已开放声明。Application 只有显式注入 Agent Conversations Module、Agent Registry、内存 Store、确定性 Queue 和 caller identity 后才挂载路由。
 
@@ -82,7 +82,7 @@ Idempotency-Key: design-request-001
 }
 ```
 
-当前只接受 1–16 个 `text` Content Block；每段 trim 后为 1–12000 个字符。请求是 strict object，不能增加 role、system、Prompt、Skill、Tool、模型、provider、Memory、预算、重试或远程地址。Agent id/version 必须准确匹配已注入的 Agent Registration，不提供默认版本或回退。
+只接受 1–16 个 `text` Content Block；每段 trim 后为 1–12000 个字符。请求是 strict object，不能增加 role、system、Prompt、Skill、Tool、模型、provider、Memory、预算、重试或远程地址。Agent id/version 必须准确匹配已注入的 Agent Registration，不提供默认版本或回退。Registration 还会收紧全局输入、输出、Turn、Context 和分页上限。
 
 服务完成 owner 与幂等检查并接受首轮 Turn 后返回 `202`：
 
@@ -98,10 +98,34 @@ Idempotency-Key: design-request-001
 
 响应包含 `Location: /agent-conversations/{conversationId}`、`Retry-After` 和 `Cache-Control: no-store`。响应丢失时，调用方用同一 caller、同一 `Idempotency-Key` 和逐字段相同的规范化请求重试；服务返回原 identity 和实际状态。相同 key 提交不同请求返回 HTTP 409 `IDEMPOTENCY_CONFLICT`。
 
-查询只向 owner 返回 Conversation：
+首轮到达终态后，用响应或查询中的最后一个 `turnId` 作为 `afterTurnId` 追加增量 Turn：
 
 ```http
-GET /agent-conversations/conversation-0001 HTTP/1.1
+POST /agent-conversations/conversation-0001/turns HTTP/1.1
+Content-Type: application/json
+Idempotency-Key: design-request-002
+```
+
+```json
+{
+  "afterTurnId": "turn-0001",
+  "input": {
+    "content": [
+      {
+        "type": "text",
+        "text": "把刚才的建议改成适合移动端的方案"
+      }
+    ]
+  }
+}
+```
+
+接受后仍返回 `202`，其中新 Turn 的 `sequence` 为 2。一个 Conversation 同时最多有一个 queued/running Turn；busy 时返回 HTTP 409 `CONVERSATION_BUSY` 和 `Retry-After`。`afterTurnId` 不是最后接受的 Turn 时返回 `CONVERSATION_SEQUENCE_CONFLICT`。同 key、同规范化追加请求的重放优先于 busy、顺序和容量判断，因此会返回原 Turn 的当前状态，不会产生第二个 sequence 或 Queue Job。
+
+查询只向 owner 返回 Conversation，并使用 `after` opaque cursor 与 `limit` 分页：
+
+```http
+GET /agent-conversations/conversation-0001?limit=20 HTTP/1.1
 ```
 
 ```json
@@ -113,6 +137,8 @@ GET /agent-conversations/conversation-0001 HTTP/1.1
   },
   "configRevision": "test-revision-1",
   "status": "ready",
+  "turnCount": 1,
+  "lastTurnId": "turn-0001",
   "createdAt": "2026-08-30T08:00:00.000Z",
   "updatedAt": "2026-08-30T08:00:02.000Z",
   "turns": [
@@ -144,7 +170,9 @@ GET /agent-conversations/conversation-0001 HTTP/1.1
 }
 ```
 
-Conversation 的公共状态为 `busy` 或 `ready`；首轮 Turn 状态为 `queued`、`running`、`succeeded` 或 `failed`。busy 查询携带 `Retry-After`。未知、其他 caller 所有或不可访问的 Conversation 都返回同一 HTTP 404 `CONVERSATION_NOT_FOUND`。
+当本页之后还有历史时，响应包含 `nextCursor`；下一页把它原样传给 `after`。`limit` 必须为 1–100，并可能被 Agent Registration 进一步收紧。Conversation 的公共状态为 `busy` 或 `ready`；Turn 状态为 `queued`、`running`、`succeeded` 或 `failed`。busy 查询携带 `Retry-After`。未知、其他 caller 所有或不可访问的 Conversation 都返回同一 HTTP 404 `CONVERSATION_NOT_FOUND`。
+
+后续 Turn 的 Context 只由服务端固定 Agent 配置、可重建 Working Summary、受预算限制的 succeeded 公共历史和当前输入组成。queued/running Turn、failed Turn 的不存在输出、隐藏推理、原始 provider 消息和内部异常不会进入 Context。完整 Session History 仍是权威记录；Working Summary 不能替代或改写历史。
 
 | 情形 | HTTP | code |
 | --- | --- | --- |
@@ -154,9 +182,13 @@ Conversation 的公共状态为 `busy` 或 `ready`；首轮 Turn 状态为 `queu
 | Agent id/version 未登记 | 404 | `AGENT_NOT_FOUND` |
 | 幂等键被不同请求复用 | 409 | `IDEMPOTENCY_CONFLICT` |
 | Conversation 不存在或不属于 caller | 404 | `CONVERSATION_NOT_FOUND` |
+| Conversation 已有活动 Turn | 409 | `CONVERSATION_BUSY` |
+| `afterTurnId` 不是最后接受的 Turn | 409 | `CONVERSATION_SEQUENCE_CONFLICT` |
+| 达到 Registration Turn 上限 | 409 | `CONVERSATION_TURN_LIMIT_REACHED` |
+| cursor、limit 或额外 query 无效 | 400 | `INVALID_QUERY` |
 | Store、Queue 或 identity 依赖异常 | 503 | `AGENT_CONVERSATIONS_UNAVAILABLE` |
 
-Agent 异常收敛为 Turn 终态 `AGENT_FAILURE`，不合法输出收敛为 `INVALID_OUTPUT`。响应不透传 provider 错误、Prompt、隐藏推理或内部异常。当前内存 Store 与确定性 Queue 只用于 tracer bullet；进程重启不保留 Conversation，不能据此开放 production 流量。
+Agent 异常收敛为 Turn 终态 `AGENT_FAILURE`，不合法或超限输出收敛为 `INVALID_OUTPUT`。响应不透传 provider 错误、Prompt、隐藏推理或内部异常。当前内存 Store 与确定性 Queue 只用于受控开发；进程重启不保留 Conversation，不能据此开放 production 流量。
 
 ## Agent 读取入口
 
@@ -188,7 +220,7 @@ Agent 先读取 [`https://pi.ganjiuwanshi.com/llms.txt`](https://pi.ganjiuwanshi
 | --- | --- | --- |
 | `POST /execute` | 调用方需要在同一个 HTTP 请求中等待结果 | 不提供调用方幂等键。网络超时不代表 Process 未执行；付费图片调用不得自动重试 |
 | `POST /process-runs` | 异步入口已开放，或调用方需要可靠接受、轮询和安全重放 | 必须使用稳定的 `Idempotency-Key`；提交响应丢失时用同一 key 和同一请求重试 |
-| `POST /agent-conversations` | 受控开发环境显式挂载首轮文本 Agent，且调用方需要 owner-scoped 轮询 | 必须使用稳定的 `Idempotency-Key`；当前内存 tracer bullet 不具备进程重启恢复能力 |
+| `POST /agent-conversations` / `POST /agent-conversations/{id}/turns` | 受控开发环境显式挂载多轮文本 Agent，且调用方需要 owner-scoped 分页轮询 | 每个业务操作必须使用稳定且独立的 `Idempotency-Key`；当前内存实现不具备进程重启恢复能力 |
 
 `X-Request-Id` 只用于排查请求，不提供幂等性。调用方需要安全重放时选择异步入口。
 

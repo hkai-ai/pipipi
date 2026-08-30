@@ -1,5 +1,6 @@
-/** 从最小 Agent Turn Job 认领首轮 Turn，执行准确 Registration 并提交公共终态 */
+/** 从最小 Agent Turn Job 认领 Turn，装配受预算 Context 并提交公共终态 */
 
+import { assembleAgentConversationContext } from "./context.js";
 import { type AgentTurnSource, parseAgentTurnJob } from "./queue.js";
 import type { AgentRegistry } from "./registry.js";
 import type { AgentConversationStore } from "./store.js";
@@ -31,6 +32,11 @@ export function createAgentTurnWorker(options: {
                           conversationId: started.conversationId,
                           turnId: started.turnId,
                           input: started.input,
+                          context: assembleAgentConversationContext(
+                              started.priorTurns,
+                              started.input,
+                              registration.limits,
+                          ),
                           signal: new AbortController().signal,
                       })
                     : {

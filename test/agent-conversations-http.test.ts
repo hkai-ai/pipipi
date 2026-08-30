@@ -114,6 +114,8 @@ describe("Agent Conversations HTTP Interface", () => {
             agent: { id: "design-assistant", version: "v1" },
             configRevision: "test-revision-1",
             status: "ready",
+            turnCount: 1,
+            lastTurnId: turnId,
             createdAt: firstTimestamp,
             updatedAt: finishedTimestamp,
             turns: [
