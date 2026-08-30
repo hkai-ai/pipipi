@@ -67,6 +67,7 @@ curl --fail -X POST http://127.0.0.1:4300/execute \
 | `npm run typecheck` | 检查服务端与控制台 TypeScript | 无 |
 | `npm test` | 运行确定性测试 | 无 |
 | `npm run test:watch` | 监听并运行 Vitest | 无 |
+| `npm run test:integration:agent-postgres` | 验证 Agent Conversation migration、事务、重启和 Outbox | 写入专用 `_test` PostgreSQL 数据库 |
 | `npm run build` | 构建服务端与控制台 | 重建 `dist/` |
 
 修改异步执行、PostgreSQL、Redis、Queue、Webhook、恢复或控制台异步提交时，转到 [异步 Process Run 开发指南](async-process-runs-development.md)。真实 Agent、图片、模型、OSS 和已部署环境验证转到 [实验与真实集成](experiments.md)。生产配置检查、migration、恢复和发布操作按对应 Runbook 执行。
@@ -152,7 +153,7 @@ curl --fail -X POST http://127.0.0.1:4300/execute \
 | `src/agent-runtime/catalog.ts`、`pi.ts`、`skills.ts` | 多个流程共用的启动期 Skill 完整性与版本 Catalog、Pi provider 配置和 Runtime Skill 精确加载 |
 | `src/agent-runtime/session.ts`、`structured.ts`、`tooled.ts` | 请求级 Pi Session 的共享支撑（选项校验、Skill 注入、模型选择、内存 Session），以及建立在它之上的无 Tool Structured Agent Session 与带 Tool 白名单和调用预算的 Tool-bearing Session |
 | `src/agent-runtime/process-tools.ts` | 受限 Agent 共用的精确 Process Tool allow-list、Schema 推导、稳定子 Run identity、Attempt 执行和净化结果；预算与账本留在调用方 Module |
-| `src/agent-conversations/` | Agent Registration/Registry、多轮 Conversation/Turn、owner-scoped 图片 Resource Resolver、准确 Process Tool allow-list、串行预算与内存 Ledger、Pi Interactive Agent、caller 操作级幂等、原子顺序、分页、Context Assembly、内存 Store、确定性 Queue、Worker 和读取时资源投影 |
+| `src/agent-conversations/` | Agent Registration/Registry、多轮 Conversation/Turn、owner-scoped 图片 Resource Resolver、准确 Process Tool allow-list、串行预算与内存 Ledger、Pi Interactive Agent、caller 操作级幂等、原子顺序、分页、Context Assembly、内存/PostgreSQL Store、Turn Outbox、确定性 Queue、Worker 和读取时资源投影 |
 | `src/processes/catalog.ts` | 显式 production catalog（`productionCatalog` 数组）和通用 Process Runtime 组装 |
 | `src/processes/production.ts` | Process 模块自带的生产装配契约：声明安装的 Runtime Skill、启用条件与依赖的 Member Process，并由 `buildProductionRegistrations` 两阶段构建 |
 | `src/processes/<module>/production.ts` | 各 Process 的生产装配：绑定自己的 Skill、Pi Agent 与 HTTP Capability Adapter，并在 `environment` 中声明自己读取的启动变量；新闻图片模块按三个固定风格各导出一项，`composed/` 另声明 `enabled` 与 `members` |

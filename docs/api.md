@@ -12,7 +12,7 @@
 
 Agent Conversations 当前支持可靠多轮文本、owner-scoped 图片资源和 Registration 固定的受控 Business Process Tool：代码支持创建、追加与分页查询，但 production Composition Root 尚未装配，默认部署访问这些路由仍返回 404。当前阶段不提供图片上传、任意 URL 抓取、跨 Conversation 长期 Memory、SSE、删除或 production Agent catalog。
 
-能力可调用不等于可以匿名公开。同步 `/execute` 的应用本身不校验调用方身份；Agent Conversations 必须注入可信 caller identity，且每次创建和追加都要求 caller-scoped `Idempotency-Key`。正式公网开放前，部署方还必须完成 PostgreSQL、Queue、容量、恢复、保留、限流和费用门禁。
+能力可调用不等于可以匿名公开。同步 `/execute` 的应用本身不校验调用方身份；Agent Conversations 必须注入可信 caller identity，且每次创建和追加都要求 caller-scoped `Idempotency-Key`。仓库已有 PostgreSQL 权威 Store；正式公网开放前，部署方还必须完成 production 装配、BullMQ Worker、容量、恢复、保留、限流和费用门禁。
 
 ### 最短接入路径
 
@@ -55,7 +55,7 @@ curl --request POST 'https://pi.ganjiuwanshi.com/execute' \
 
 ## Agent Conversations（多轮文本与图片资源）
 
-本节记录代码当前实现，供受控开发环境联调；它不是 production 已开放声明。Application 只有显式注入 Agent Conversations Module、Agent Registry、内存 Store、确定性 Queue 和 caller identity 后才挂载路由。
+本节记录代码当前实现，供受控开发环境联调；它不是 production 已开放声明。Application 只有显式注入 Agent Conversations Module、Agent Registry、Store、Queue 和 caller identity 后才挂载路由。Store 可以使用内存或 PostgreSQL Adapter；当前 production Composition Root 尚未选择它们。
 
 创建 Conversation 必须包含第一轮 Turn：
 
@@ -222,7 +222,7 @@ Resource Resolver 在接受图片输入时按 caller 校验归属、存在性、
 | cursor、limit 或额外 query 无效 | 400 | `INVALID_QUERY` |
 | Store、Queue 或 identity 依赖异常 | 503 | `AGENT_CONVERSATIONS_UNAVAILABLE` |
 
-Agent 异常收敛为 Turn 终态 `AGENT_FAILURE`，执行时资源不可访问收敛为 `RESOURCE_UNAVAILABLE`，不合法、超限或未获准图片输出收敛为 `INVALID_OUTPUT`。响应不透传 provider 错误、Prompt、隐藏推理、资源服务细节或内部异常。当前内存 Store、Resource Resolver 与确定性 Queue 只用于受控开发；进程重启不保留 Conversation，不能据此开放 production 流量。
+Agent 异常收敛为 Turn 终态 `AGENT_FAILURE`，执行时资源不可访问收敛为 `RESOURCE_UNAVAILABLE`，不合法、超限或未获准图片输出收敛为 `INVALID_OUTPUT`。响应不透传 provider 错误、Prompt、隐藏推理、资源服务细节或内部异常。PostgreSQL Adapter 能在 API 重启后保留 Conversation 与幂等 identity；当前确定性 Queue 和 Worker 仍不提供生产恢复，不能据此开放 production 流量。
 
 ## Agent 读取入口
 
