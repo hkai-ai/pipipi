@@ -2,6 +2,31 @@
 
 本文件记录尚未实现的计划，不代表当前系统已经具备这些能力。
 
+## P0：先接入和启用 Agent Conversations v1
+
+Agent Conversations v1 已完成规格、拆票和代码实现：父 Spec 为 [#18](https://github.com/hkai-ai/pipipi/issues/18)，实施 Tickets 为 #19–#28，均已关闭。当前 production catalog 已登记 `design-assistant/v1`，但 `AGENT_CONVERSATIONS_ENABLED=false` 仍是默认值。因此下一步不是重新开发 v1，而是完成本站接入、部署验收和受控启用。
+
+### 本站后端接入
+
+- [ ] 由本站任务 Module 生成 `taskId`，持久化 `taskId`、`conversationId` 和 `turnId` 的映射；Agent Conversations 不增加含义重复的通用 `taskId`。
+- [ ] 先保存本站任务，再用由 `taskId` 派生的稳定 `Idempotency-Key` 创建 Conversation；响应丢失或超时时用相同 key 和相同请求重放。
+- [ ] 接入 Conversation 创建、轮询查询、追加 Turn 和删除，并正确处理 `Retry-After`、busy、sequence conflict、终态错误和 404 owner 隔离。
+- [ ] 本站前端只调用本站后端。外部调用使用部署方签发的凭证，不自行构造 `X-Pipipi-Caller-Id` 或 `X-Pipipi-Gateway-Token`。
+- [ ] 第一阶段使用轮询观察 Turn 的 `queued → running → succeeded | failed` 状态；浏览器断线不触发取消。
+
+### 部署与验收
+
+- [ ] 先完成纯文本 Conversation 的创建、轮询、续聊、幂等重放和删除闭环。
+- [ ] 接通 PostgreSQL、Redis/BullMQ、Dispatcher、Worker、Reconciler、Cleaner、Pi 模型和可信网关身份，并通过 readiness。
+- [ ] 接通 owned resource service 后，用已有 `resourceId` 验证图片输入输出、owner 隔离、媒体限制和临时读取 URL。v1 不提供图片上传入口。
+- [ ] 验证 API 或 Worker 重启后任务继续、Queue 重建、重复 Job、迟到 Worker fencing 和 30 天闲置保留。
+- [ ] 验证 caller/global backlog、费用预算和 `DEPENDENCY_FAILURE_AFTER_COMMIT`；付费 Tool 进入 after-commit 后不得自动重试。
+- [ ] 在测试环境显式设置 `AGENT_CONVERSATIONS_ENABLED=true`，完成真实模型和图片 smoke 后再灰度生产；默认关闭状态保持不变。
+
+### v2 后续
+
+- [ ] 只有 v1 完成产品接入与部署验收后，才拆分并实施 [#29 Agent Conversations v2](https://github.com/hkai-ai/pipipi/issues/29)。v2 补充 OpenAPI、持久 Agent Event、SSE 重连与补发、单 Turn 取消和两阶段图片上传，不作为 v1 上线前置条件。
+
 ## P1：运维控制台的后续项
 
 控制台已经落地：Run Record 与活动时间线持久化到 PostgreSQL（本地开发用 JSONL），

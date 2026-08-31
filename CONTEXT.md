@@ -55,6 +55,8 @@ Business Processing Service 让产品调用方通过一个稳定的 HTTP Interfa
 
 production Agent catalog 精确登记 `design-assistant/v1`，Agent Conversations Module 提供可靠多轮文本、owner-scoped 图片资源、受控 Business Process Tool、PostgreSQL 权威状态和可恢复的 BullMQ 执行。Registration 固定指令、`design-assistant/v1` Runtime Skill 摘要、Conversation-scoped Context/Memory、请求级 Pi Session、准确 Tool allow-list、模型、6/1/10 Tool 预算、输出和 30 天保留，并把行为配置的确定性 `configRevision` 写入 Conversation。调用方用准确 Agent id/version 和 `Idempotency-Key` 创建首轮，用最后接受的 `afterTurnId` 追加，并按 owner 分页查询或删除。PostgreSQL Store 在一个事务内写入 Turn、单调 sequence、幂等 fingerprint 与最小调度 Outbox；行锁和数据库约束保证单活动 Turn，API 重启后仍可查询和重放。Dispatcher 对 Outbox 做 claim、ack 和失败 release；Worker 只凭最小 Turn identity 从 Store 认领准确 revision，并用 lease、attempt、revision 和 fencing 提交终态；Reconciler 可恢复租期过期或 Redis 中缺失的 Job。图片块只接受稳定 `resourceId`；priced Tool 进入结果不确定窗口后，Turn 以 `DEPENDENCY_FAILURE_AFTER_COMMIT` 失败且不自动重试。删除或过期会立即 fencing，并给出不超过 24 小时的物理清理期限；Cleaner 用短事务、`SKIP LOCKED` 和持久游标级联清理。production Composition Root 已装配 API、Dispatcher、Worker、Resource Resolver、revision drift readiness 和 Cleaner；`AGENT_CONVERSATIONS_ENABLED=false` 是默认发布门禁，所以默认服务仍返回 404。
 
+调用方本地开发可以使用 `npm run dev:agent` 启动只绑定回环地址的单进程文本契约服务。它复用正式 HTTP Interface 与内存 Store、Queue、Worker，以确定性 Scripted Agent 完成 Turn；不访问模型、资源服务或外部基础设施，退出即清空，因此不代表生产持久化和恢复形状。
+
 海报、CRT 和 Memene 新闻图片 Process 会调用模型并持久化图片。产品只接收图片引用；真实验收、证据与费用必须显式启用。CRT 和新闻图片上游来源的许可证仍是发布门禁。
 
 ## 运行与信任模型

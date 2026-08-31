@@ -73,6 +73,8 @@ cp .env.example .env
 
 生产预检、Compose 形状、异步发布和付费 smoke 不属于快速开始。部署前分别阅读 [同步发布手册](docs/mvp-release-runbook.md)、[异步发布手册](docs/async-process-runs-runbook.md) 与 [Agent Conversations Runbook](docs/agent-conversations-runbook.md)。
 
+只开发调用方的多轮文本接入时，运行 `npm run dev:agent` 即可在 `127.0.0.1:4300` 获得四个正式 v1 Conversation 路由。该开发入口使用固定 Scripted Agent 和内存 Adapter，不需要 PostgreSQL、Redis 或模型凭证；默认 Bearer Token、请求示例和限制见[开发指南](docs/development.md#本地开发)。
+
 在第一个终端启动演示 Business Capability：
 
 ```bash
