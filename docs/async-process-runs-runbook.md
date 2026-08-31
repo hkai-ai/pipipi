@@ -221,7 +221,7 @@ docker compose \
   up -d api
 ```
 
-API 使用 4300，内部 CRT Business API 使用 4400，Dispatcher、Process Worker、Webhook Worker 和 Retention Cleaner 的检查端口依次为 4310–4340。所有容器使用 host network；防火墙不得向公网开放这些应用端口，外部流量只能经过可信网关。
+API 使用 4300，内部 CRT Business API 使用 4400；Dispatcher、Process Worker、Retention Cleaner 和 Webhook Worker 的检查端口依次为 4310、4320、4340 和 4350。所有容器使用 host network；防火墙不得向公网开放这些应用端口，外部流量只能经过可信网关。
 
 从异步形状退回同步默认形状时，先关闭新异步提交并按回滚章节处理已经接受的 Run，再沿用同一个 `pipipi` project 只加载基础文件。`--remove-orphans` 会停止并删除四个异步角色容器；省略它会让旧 Worker 在默认 API 已关闭异步入口后继续运行：
 

@@ -70,6 +70,7 @@
 | [`mvp-release-runbook.md`](mvp-release-runbook.md) | 给出受控 Business Process MVP 的部署、验收、观测和回滚步骤 | 发布范围、平台约束、配置或门禁变化 |
 | [`async-process-runs-runbook.md`](async-process-runs-runbook.md) | 给出异步角色的 migration、容量、观测、故障演练、灰度与回滚步骤 | 异步部署、容量、告警、恢复或发布门禁变化 |
 | [`agent-conversations-runbook.md`](agent-conversations-runbook.md) | 给出 production Agent catalog、revision 保留、资源服务、容量、灰度与回滚步骤 | Agent 部署、Registration 配置、资源、容量、保留或发布门禁变化 |
+| [`production-release-handoff.md`](production-release-handoff.md) | 汇总当前生产候选、后端确认项和 internal 发布交接 | 候选 commit、生产形状、发布前置条件或发布结论变化 |
 
 Runbook 必须可按顺序执行。每一步都应说明前置条件、成功信号和失败后的安全动作。
 
