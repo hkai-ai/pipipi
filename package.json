@@ -6,6 +6,7 @@
     "scripts": {
         "dev": "node --env-file-if-exists=.env --watch --import tsx src/bin/api.ts",
         "dev:api": "node --env-file-if-exists=.env --watch --import tsx src/bin/api.ts",
+        "dev:agent": "node --env-file-if-exists=.env --watch --import tsx src/bin/local-agent.ts",
         "dev:dispatcher": "node --env-file-if-exists=.env --watch --import tsx src/bin/dispatcher.ts",
         "dev:worker": "node --env-file-if-exists=.env --watch --import tsx src/bin/process-worker.ts",
         "dev:webhook-worker": "node --env-file-if-exists=.env --watch --import tsx src/bin/webhook-worker.ts",

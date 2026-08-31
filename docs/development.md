@@ -21,6 +21,29 @@ cp .env.example .env
 
 ## 本地开发
 
+只联调 Agent Conversations HTTP 契约时运行单进程文本服务：
+
+```bash
+npm run dev:agent
+```
+
+该入口只监听 `127.0.0.1:4300`，使用内存 Store、Queue、Worker 和确定性 Scripted Agent；默认 Bearer Token 是 `pipipi-local-development-token`。可用 `PIPIPI_LOCAL_AGENT_PORT`、`PIPIPI_LOCAL_AGENT_ACCESS_TOKEN` 和 `PIPIPI_LOCAL_AGENT_CALLER_ID` 覆盖本地值。它提供正式的四个 v1 Conversation 路由，但只接受文本；不启动 PostgreSQL、Redis、Dispatcher、Cleaner 或资源服务，不访问模型，不执行 Process Tool，退出后清空所有 Conversation。它不能替代持久化、图片、真实 Agent 或故障恢复验收，也禁止在 `NODE_ENV=production` 下启动。
+
+创建首轮后按 `Location` 轮询：
+
+```bash
+curl --fail -X POST http://127.0.0.1:4300/agent-conversations \
+  -H 'authorization: Bearer pipipi-local-development-token' \
+  -H 'content-type: application/json' \
+  -H 'idempotency-key: local-design-001' \
+  -d '{
+    "agent": { "id": "design-assistant", "version": "v1" },
+    "input": { "content": [{ "type": "text", "text": "分析这个版式" }] }
+  }'
+```
+
+Memebuy 等调用方通过 BFF 把该 Base URL 和 Token 作为本地外部服务配置；浏览器仍不应直连。需要验证 owner 隔离、PostgreSQL 权威状态、BullMQ 恢复、图片和真实 Tool 时，再使用 Agent Conversations Runbook 的完整形状。
+
 终端一启动仓库内的演示 Business Capability：
 
 ```bash
@@ -60,6 +83,7 @@ curl --fail -X POST http://127.0.0.1:4300/execute \
 | 命令 | 用途 | 外部影响 |
 | --- | --- | --- |
 | `npm run dev` | 监听源码并启动同步 API | 请求时访问配置的 Business Capability |
+| `npm run dev:agent` | 单进程启动文本 Agent Conversations 联调 API | 无；进程退出后清空内存数据 |
 | `npm run dev:business-api` | 启动确定性的本地演示 Capability | 无 |
 | `npm run dev:console` | 启动 Vite 控制台 | 需要另行启动 API |
 | `npm run check` | 只读检查格式、lint 和 import 顺序 | 无 |
