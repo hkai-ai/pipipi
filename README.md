@@ -173,6 +173,6 @@ curl http://127.0.0.1:4300/healthz
 
 ## 照片海报模板
 
-Mono Color 支持同一 `v1` 下的五个可编辑预设，供 Memebuy 的单个 C 类模板调用。未提供新参数的调用保持原行为；字段见 [Mono Color API](docs/api.md#mono-color-可编辑预设)。
+Mono Color 支持同一 `v1` 下的五个可编辑预设，供 Memebuy 的五个固定预设 C 类模板调用。`black_red_statement` 默认使用黑色标题与红色局部点缀；未提供新参数的调用保持原行为。字段见 [Mono Color API](docs/api.md#mono-color-可编辑预设)。
 
 新增六个准确 v1：多巴胺、双色油墨、旅行抽象、彩色蜡笔、黑白蜡笔、木刻。一次请求处理一张公网 HTTPS 照片，返回持久化 PNG 引用；调用方式见 [照片海报 API](docs/api.md#照片海报)，来源与适配见 [通用 Process](docs/processes/common/)。六项均只返回完整风格化成品，不附原图或上下对照；旅行抽象仅由代码补充档案字样。本批尚未部署。

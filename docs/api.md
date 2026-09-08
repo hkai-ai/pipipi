@@ -710,11 +710,11 @@ if (!response.ok || result.status !== "succeeded") {
 
 ### Mono Color 可编辑预设
 
-`mono-color-photo-poster/v1` 在上述输入之外接受以下可选业务参数。旧请求不传这些参数时，保持 Skill 自动搭配。只要提供设计参数而未指定 `preset`，基于 `within_reach` 补齐默认值。显式设置优先于预设；`preset` 字符串作为调整项的值时表示跟随当前预设。
+`mono-color-photo-poster/v1` 在上述输入之外接受以下可选业务参数。旧请求不传这些参数时，保持 Skill 自动搭配。只要提供设计参数而未指定 `preset`，基于 `blue_orange_overlap` 补齐默认值。显式设置优先于预设；`preset` 字符串作为调整项的值时表示跟随当前预设。
 
 | 字段 | 允许值 |
 | --- | --- |
-| `preset` | `within_reach`（伸手穿字）、`half_hidden`（斜切窥视）、`your_move`（正面宣言）、`hold_still`（手势取景框）、`look_again`（侧身斜排） |
+| `preset` | `blue_orange_overlap`（伸手穿字）、`blue_orange_diagonal_crop`（斜切窥视）、`black_red_statement`（正面宣言）、`black_red_frame`（手势取景框）、`black_red_diagonal_type`（侧身斜排） |
 | `palette` | `preset`、`cobalt_terracotta`、`charcoal_red`、`green_oxblood` |
 | `typography` | `preset`、`literary`、`condensed` |
 | `composition` | `preset`、`editorial_cover`、`diagonal_crop`、`statement`、`frame`、`diagonal_type` |
@@ -723,8 +723,12 @@ if (!response.ok || result.status !== "succeeded") {
 | `designNotes` | 1–500 字符的设计偏好；不覆盖结构化设置、主体保持、文字和输出规则 |
 
 ```json
-{"process":"mono-color-photo-poster","version":"v1","input":{"sourceImageUrl":"https://assets.example.com/photo.png","preset":"half_hidden","palette":"charcoal_red","typography":"preset","text":"MY CAT","designNotes":"注释放左下角"}}
+{"process":"mono-color-photo-poster","version":"v1","input":{"sourceImageUrl":"https://assets.example.com/photo.png","preset":"blue_orange_diagonal_crop","palette":"charcoal_red","typography":"preset","text":"MY CAT","designNotes":"注释放左下角"}}
 ```
+
+`black_red_statement` 默认以炭黑印刷标题、注释、主体线稿和阴影，红色用于头发、眼睛等现有主体细节，背景保留纸白，不铺大块红色底板。手动覆盖配色时，仍由第一色承担标题和线稿、第二色承担局部点缀。
+
+旧 `preset` 值仍兼容：`within_reach` → `blue_orange_overlap`、`half_hidden` → `blue_orange_diagonal_crop`、`your_move` → `black_red_statement`、`hold_still` → `black_red_frame`、`look_again` → `black_red_diagonal_type`。只在输入校验时转换，复用相同设计规则；新调用使用新标识，Process 仍为 `v1`。
 
 五个预设来自样图的设计归纳，不是作者公开的精确配方。它们调整版式和印刷处理，保留输入图主体、数量、动作及核心关系；不会为匹配示例额外制造伸手或手势。`text` 留空时按实际参考图提炼短英文，不把预设名印在画面上。只返回单张 1200×1600 PNG，不提供可编辑图层。其他五种照片 Process 不接受这些新增字段。
 

@@ -228,6 +228,42 @@ describe("照片海报的六个准确版本", () => {
 });
 
 describe("Mono Color 可编辑预设", () => {
+    it.each([
+        ["within_reach", "blue_orange_overlap"],
+        ["half_hidden", "blue_orange_diagonal_crop"],
+        ["your_move", "black_red_statement"],
+        ["hold_still", "black_red_frame"],
+        ["look_again", "black_red_diagonal_type"],
+    ])("旧名 %s 与新名 %s 经 HTTP 生成相同设计指令", async (legacy, preset) => {
+        const { executor, compile, render } = runtime("mono-color");
+        const app = createProcessingApplication({ executor });
+        const { url } = await app.listen();
+        cleanups.push(() => app.close());
+        for (const name of [legacy, preset]) {
+            const response = await fetch(`${url}/execute`, {
+                method: "POST",
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({
+                    process: "mono-color-photo-poster",
+                    version: "v1",
+                    input: { sourceImageUrl, preset: name },
+                }),
+            });
+            expect(response.status).toBe(200);
+            expect(await response.json()).toMatchObject({
+                status: "succeeded",
+            });
+        }
+        expect(compile).toHaveBeenCalledTimes(2);
+        expect(render).toHaveBeenCalledTimes(2);
+        expect(compile.mock.calls[0]?.[0].design).toBe(
+            compile.mock.calls[1]?.[0].design,
+        );
+        expect(render.mock.calls[0]?.[0].prompt).toBe(
+            render.mock.calls[1]?.[0].prompt,
+        );
+    });
+
     it.each(monoColorPresets)(
         "%s 经正式 HTTP 将默认搭配送到同一次图片调用",
         async (preset) => {
@@ -252,20 +288,22 @@ describe("Mono Color 可编辑预设", () => {
             expect(render).toHaveBeenCalledOnce();
             expect(compile.mock.calls[0]?.[0]).toEqual({
                 signal: expect.any(AbortSignal),
+                design: expect.stringContaining("Use exactly two inks:"),
             });
             const finalPrompt = render.mock.calls[0]?.[0].prompt;
             expect(finalPrompt).toContain(
-                preset === "within_reach" || preset === "half_hidden"
+                preset === "blue_orange_overlap" ||
+                    preset === "blue_orange_diagonal_crop"
                     ? "#2148B8"
                     : "#30343A",
             );
             expect(finalPrompt).toContain(
                 {
-                    within_reach: "Editorial cover:",
-                    half_hidden: "Diagonal crop:",
-                    your_move: "Frontal statement:",
-                    hold_still: "Typographic viewfinder:",
-                    look_again: "Rising diagonal title:",
+                    blue_orange_overlap: "Editorial cover:",
+                    blue_orange_diagonal_crop: "Diagonal crop:",
+                    black_red_statement: "Frontal statement:",
+                    black_red_frame: "Typographic viewfinder:",
+                    black_red_diagonal_type: "Rising diagonal title:",
                 }[preset],
             );
             expect(finalPrompt).toContain("do not invent reaching hands");
@@ -276,10 +314,10 @@ describe("Mono Color 可编辑预设", () => {
     );
 
     it("显式编辑覆盖预设，恢复跟随预设后按新预设解析", async () => {
-        const { executor, render } = runtime("mono-color");
+        const { executor, render, compile } = runtime("mono-color");
         const edited = {
             sourceImageUrl,
-            preset: "half_hidden",
+            preset: "blue_orange_diagonal_crop",
             palette: "green_oxblood",
             typography: "condensed",
             composition: "frame",
@@ -305,15 +343,71 @@ describe("Mono Color 可编辑预设", () => {
         ])
             expect(finalPrompt).toContain(fragment);
         expect(finalPrompt).not.toContain("#2148B8");
+        const compilerInput = JSON.stringify(compile.mock.calls[0]?.[0]);
+        expect(compilerInput).toContain("#008A4B");
+        expect(compilerInput).not.toContain("MY CAT");
+        expect(compilerInput).not.toContain("Keep more space");
+        expect(compilerInput).not.toContain(sourceImageUrl);
         await executor.execute({
             process: "mono-color-photo-poster",
             version: "v1",
-            input: { ...edited, preset: "your_move", palette: "preset" },
+            input: {
+                ...edited,
+                preset: "black_red_statement",
+                palette: "preset",
+            },
         });
         expect(render.mock.calls[1]?.[0].prompt).toContain("#30343A");
         expect(render.mock.calls[1]?.[0].prompt).toContain(
             "Typographic viewfinder:",
         );
+    });
+
+    it("black_red_statement 在编译前固定黑标题与红色点缀，最终图片指令保留颜色分工", async () => {
+        const { executor, compile, render } = runtime("mono-color");
+        await executor.execute({
+            ...requestFor("mono-color"),
+            input: {
+                sourceImageUrl,
+                preset: "black_red_statement",
+                palette: "preset",
+                text: "YOUR MOVE",
+            },
+        });
+        const design = compile.mock.calls[0]?.[0].design;
+        expect(design).toContain(
+            "all main headline letters and small annotations use solid charcoal #30343A",
+        );
+        expect(design).toContain(
+            "Use signal red #C83232 only for limited accents",
+        );
+        expect(design).toContain("without a large accent-colored panel");
+        expect(design).toContain(
+            "No blue, cobalt, cyan, orange or terracotta ink",
+        );
+        expect(render.mock.calls[0]?.[0].prompt).toContain(design);
+    });
+
+    it("black_red_statement 手动换色仍保留主色标题与辅色点缀", async () => {
+        const { executor, compile, render } = runtime("mono-color");
+        await executor.execute({
+            ...requestFor("mono-color"),
+            input: {
+                sourceImageUrl,
+                preset: "black_red_statement",
+                palette: "green_oxblood",
+            },
+        });
+        const design = compile.mock.calls[0]?.[0].design;
+        expect(design).toContain(
+            "all main headline letters and small annotations use solid green #008A4B",
+        );
+        expect(design).toContain(
+            "Use oxblood #8F3434 only for limited accents",
+        );
+        expect(design).not.toContain("#30343A");
+        expect(design).not.toContain("#C83232");
+        expect(render.mock.calls[0]?.[0].prompt).toContain(design);
     });
 
     it("旧输入不增加预设约束，非法参数在调用 Agent 前拒绝", async () => {
@@ -351,7 +445,7 @@ describe("Mono Color 可编辑预设", () => {
         expect(
             await other.executor.execute({
                 ...requestFor("dopamine"),
-                input: { sourceImageUrl, preset: "within_reach" },
+                input: { sourceImageUrl, preset: "blue_orange_overlap" },
             }),
         ).toMatchObject({ error: { code: "INVALID_INPUT" } });
         expect(other.compile).not.toHaveBeenCalled();
