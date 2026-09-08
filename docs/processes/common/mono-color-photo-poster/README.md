@@ -8,6 +8,12 @@
 
 公网 HTTPS 原图 URL 原样交给 FAL，服务端不下载原图。输出为 1200×1600 PNG。完整画面采用双色网点、主体和大字穿插，不做上下分屏。
 
+## 可编辑预设
+
+同一 `v1` 兼容增加五个可选预设：伸手穿字、斜切窥视、正面宣言、手势取景框、侧身斜排。默认搭配与结构化覆盖由 [mono-color.ts](../../../../src/processes/photo-poster/mono-color.ts) 拥有；Registration 在固定 Skill 编译后追加解析后的设计约束。请求没有新增设计参数时保留旧行为，不修改冻结 Runtime Skill 的字节或版本。
+
+Memebuy 以一个 C 类模板绑定 `gallery.mono_color`；配色、字体、构图、强度、质感可独立覆盖，也可恢复跟随预设。补充说明只作为受限设计数据，不能选择执行配置。预设适应真实参考图的主体和动作，输出依然是完整平面成品；不是可编辑文字或分层文件。
+
 ## 来源与适配
 
 来源、固定 revision、哈希、许可和适配差异见 [SOURCE.md](../../../../.pi/skills/mono-color-photo-poster-prompt/SOURCE.md)。本地 Runtime 不运行第三方脚本，也不下载或更新远程 Skill。

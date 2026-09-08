@@ -708,6 +708,28 @@ if (!response.ok || result.status !== "succeeded") {
 
 除旅行抽象外，input 为 `{ sourceImageUrl, text? }`。sourceImageUrl 必须为公网 HTTPS URL（最大 2048 字符，无凭据、片段、自定义端口或 IP 字面量）；text 为 1–200 字符的海报原文，不参与模型或风格选择。
 
+### Mono Color 可编辑预设
+
+`mono-color-photo-poster/v1` 在上述输入之外接受以下可选业务参数。旧请求不传这些参数时，保持 Skill 自动搭配。只要提供设计参数而未指定 `preset`，基于 `within_reach` 补齐默认值。显式设置优先于预设；`preset` 字符串作为调整项的值时表示跟随当前预设。
+
+| 字段 | 允许值 |
+| --- | --- |
+| `preset` | `within_reach`（伸手穿字）、`half_hidden`（斜切窥视）、`your_move`（正面宣言）、`hold_still`（手势取景框）、`look_again`（侧身斜排） |
+| `palette` | `preset`、`cobalt_terracotta`、`charcoal_red`、`green_oxblood` |
+| `typography` | `preset`、`literary`、`condensed` |
+| `composition` | `preset`、`editorial_cover`、`diagonal_crop`、`statement`、`frame`、`diagonal_type` |
+| `emphasis` | `preset`、`gentle`、`balanced`、`bold` |
+| `texture` | `preset`、`light`、`standard`、`strong` |
+| `designNotes` | 1–500 字符的设计偏好；不覆盖结构化设置、主体保持、文字和输出规则 |
+
+```json
+{"process":"mono-color-photo-poster","version":"v1","input":{"sourceImageUrl":"https://assets.example.com/photo.png","preset":"half_hidden","palette":"charcoal_red","typography":"preset","text":"MY CAT","designNotes":"注释放左下角"}}
+```
+
+五个预设来自样图的设计归纳，不是作者公开的精确配方。它们调整版式和印刷处理，保留输入图主体、数量、动作及核心关系；不会为匹配示例额外制造伸手或手势。`text` 留空时按实际参考图提炼短英文，不把预设名印在画面上。只返回单张 1200×1600 PNG，不提供可编辑图层。其他五种照片 Process 不接受这些新增字段。
+
+### 其他照片海报示例
+
 ```json
 {"process":"dopamine-photo-poster","version":"v1","input":{"sourceImageUrl":"https://assets.example.com/photo.png","text":"SUMMER DAYS"}}
 ```

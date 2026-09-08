@@ -57,6 +57,8 @@ Business Processing Service 让产品调用方通过一个稳定的 HTTP Interfa
 
 照片海报正式输出只包含完整 1200×1600 风格化成品，原图仅作参考输入；旅行抽象只叠加档案字样，不拼接原图。
 
+Mono Color 支持五个可编辑预设，供 Memebuy 的单个 C 类模板复用，保留旧调用行为；参数契约见 [API 文档](docs/api.md#mono-color-可编辑预设)。
+
 生产 Composition Root 通过 Installed Skill Catalog 校验默认启用的十三个 Runtime Skill 的准确名称、版本和 SHA-256。Process 只绑定通过校验的准确版本；Catalog 不发现、下载或更新 Skill。
 
 默认 HTTP Interface 提供健康检查和同步 `POST /execute`。异步提交、owner 查询、PostgreSQL Store、BullMQ Worker、Webhook、恢复和保留已经实现，但入口默认关闭。精确行为见 [异步设计](docs/async-process-runs-design.md)。

@@ -17,6 +17,7 @@ import {
 } from "../src/process-runtime/index.js";
 import { HttpPhotoPosterRenderingCapability } from "../src/processes/photo-poster/capability.http.js";
 import { PhotoPosterRenderingUnavailable } from "../src/processes/photo-poster/capability.js";
+import { monoColorPresets } from "../src/processes/photo-poster/mono-color.js";
 import { createPhotoPosterRegistration } from "../src/processes/photo-poster/registration.js";
 import {
     type PhotoPosterStyle,
@@ -223,6 +224,137 @@ describe("照片海报的六个准确版本", () => {
                 version: "v1",
             }),
         ).toBeUndefined();
+    });
+});
+
+describe("Mono Color 可编辑预设", () => {
+    it.each(monoColorPresets)(
+        "%s 经正式 HTTP 将默认搭配送到同一次图片调用",
+        async (preset) => {
+            const { executor, compile, render } = runtime("mono-color");
+            const app = createProcessingApplication({ executor });
+            const { url } = await app.listen();
+            cleanups.push(() => app.close());
+            const response = await fetch(`${url}/execute`, {
+                method: "POST",
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({
+                    process: "mono-color-photo-poster",
+                    version: "v1",
+                    input: { sourceImageUrl, preset, palette: "preset" },
+                }),
+            });
+            expect(response.status).toBe(200);
+            expect(await response.json()).toMatchObject({
+                status: "succeeded",
+                output: { style: "mono-color", image },
+            });
+            expect(render).toHaveBeenCalledOnce();
+            expect(compile.mock.calls[0]?.[0]).toEqual({
+                signal: expect.any(AbortSignal),
+            });
+            const finalPrompt = render.mock.calls[0]?.[0].prompt;
+            expect(finalPrompt).toContain(
+                preset === "within_reach" || preset === "half_hidden"
+                    ? "#2148B8"
+                    : "#30343A",
+            );
+            expect(finalPrompt).toContain(
+                {
+                    within_reach: "Editorial cover:",
+                    half_hidden: "Diagonal crop:",
+                    your_move: "Frontal statement:",
+                    hold_still: "Typographic viewfinder:",
+                    look_again: "Rising diagonal title:",
+                }[preset],
+            );
+            expect(finalPrompt).toContain("do not invent reaching hands");
+            expect(finalPrompt).toContain(
+                "never include an original-photo region",
+            );
+        },
+    );
+
+    it("显式编辑覆盖预设，恢复跟随预设后按新预设解析", async () => {
+        const { executor, render } = runtime("mono-color");
+        const edited = {
+            sourceImageUrl,
+            preset: "half_hidden",
+            palette: "green_oxblood",
+            typography: "condensed",
+            composition: "frame",
+            emphasis: "gentle",
+            texture: "strong",
+            text: "MY CAT",
+            designNotes: "Keep more space around the subject.",
+        };
+        await executor.execute({
+            process: "mono-color-photo-poster",
+            version: "v1",
+            input: edited,
+        });
+        const finalPrompt = render.mock.calls[0]?.[0].prompt;
+        for (const fragment of [
+            "#008A4B",
+            "heavy condensed",
+            "Typographic viewfinder:",
+            "quiet scale contrast",
+            "coarser halftone",
+            '"MY CAT"',
+            "Keep more space",
+        ])
+            expect(finalPrompt).toContain(fragment);
+        expect(finalPrompt).not.toContain("#2148B8");
+        await executor.execute({
+            process: "mono-color-photo-poster",
+            version: "v1",
+            input: { ...edited, preset: "your_move", palette: "preset" },
+        });
+        expect(render.mock.calls[1]?.[0].prompt).toContain("#30343A");
+        expect(render.mock.calls[1]?.[0].prompt).toContain(
+            "Typographic viewfinder:",
+        );
+    });
+
+    it("旧输入不增加预设约束，非法参数在调用 Agent 前拒绝", async () => {
+        const { executor, compile, render } = runtime("mono-color");
+        await executor.execute(requestFor("mono-color"));
+        expect(render.mock.calls[0]?.[0].prompt).not.toContain(
+            "resolved design settings",
+        );
+        compile.mockClear();
+        render.mockClear();
+        for (const extra of [
+            { preset: "unknown" },
+            { palette: "#123456" },
+            { typography: "unknown" },
+            { composition: "unknown" },
+            { emphasis: "unknown" },
+            { texture: "unknown" },
+            { designNotes: "x".repeat(501) },
+            { text: "x".repeat(201) },
+            { prompt: "arbitrary" },
+        ]) {
+            expect(
+                await executor.execute({
+                    ...requestFor("mono-color"),
+                    input: { sourceImageUrl, ...extra },
+                }),
+            ).toMatchObject({
+                status: "failed",
+                error: { code: "INVALID_INPUT" },
+            });
+        }
+        expect(compile).not.toHaveBeenCalled();
+        expect(render).not.toHaveBeenCalled();
+        const other = runtime("dopamine");
+        expect(
+            await other.executor.execute({
+                ...requestFor("dopamine"),
+                input: { sourceImageUrl, preset: "within_reach" },
+            }),
+        ).toMatchObject({ error: { code: "INVALID_INPUT" } });
+        expect(other.compile).not.toHaveBeenCalled();
     });
 });
 

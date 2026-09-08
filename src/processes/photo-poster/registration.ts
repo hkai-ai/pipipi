@@ -12,6 +12,10 @@ import {
     photoPosterImageSchema,
     sourcePhotoSchema,
 } from "./capability.js";
+import {
+    monoColorDesignInstructions,
+    monoColorInputSchema,
+} from "./mono-color.js";
 import { type PhotoPosterStyle, photoPosterProcessId } from "./style.js";
 
 const inputSchema = z.strictObject({
@@ -49,7 +53,11 @@ export function createPhotoPosterRegistration(
         id: photoPosterProcessId(style),
         version: "v1",
         inputSchema:
-            style === "travel-abstraction" ? travelInputSchema : inputSchema,
+            style === "travel-abstraction"
+                ? travelInputSchema
+                : style === "mono-color"
+                  ? monoColorInputSchema
+                  : inputSchema,
         outputSchema: z.strictObject({
             style: z.literal(style),
             image: photoPosterImageSchema,
@@ -73,6 +81,11 @@ export function createPhotoPosterRegistration(
             context.signal.throwIfAborted();
             const travel = "phrase" in input ? input : undefined;
             const text = "text" in input ? input.text : undefined;
+            if (style === "mono-color") {
+                prompt += monoColorDesignInstructions(
+                    monoColorInputSchema.parse(input),
+                );
+            }
             // 字段只承载要印刷的文字，不能改变风格、模型或 Tool。
             prompt +=
                 "\nOutput one standalone 1200x1600 PNG, exactly 3:4. Use the entire canvas for the stylized artwork. The reference photograph is input only: never include an original-photo region, split-screen, before/after comparison or collage.";
