@@ -29,6 +29,10 @@ import {
     parseNewsImageRenderingResult,
 } from "../processes/news-image/capability.js";
 import {
+    photoPosterImageSchema,
+    photoPosterRenderSchema,
+} from "../processes/photo-poster/capability.js";
+import {
     type CrtEvidencePolicy,
     type CrtEvidenceResult,
     saveCrtEvidence,
@@ -43,6 +47,7 @@ import {
     type GptImageQuality,
     OpenAIImageGenerationError,
 } from "./openai-image-generation.js";
+import { finalizeTravelPhoto } from "./photo-poster.js";
 
 type ImageEditClient = Readonly<{
     edit: (request: EditImageRequest) => Promise<GeneratedImage>;
@@ -117,12 +122,16 @@ export async function startCrtBusinessApi(
     listenOptions: { host?: string; port?: number } = {},
 ): Promise<CrtBusinessApi> {
     const directory = options.directory;
+    const photoOutputDirectory = join(directory, "photo-posters");
+    const photoResultDirectory = join(directory, "photo-poster-results");
     const outputDirectory = join(directory, "images");
     const resultDirectory = join(directory, "results");
     const rawDirectory = join(directory, "raw-images");
     const newsOutputDirectory = join(directory, "news-images");
     const newsResultDirectory = join(directory, "news-results");
     await Promise.all([
+        mkdir(photoOutputDirectory, { recursive: true }),
+        mkdir(photoResultDirectory, { recursive: true }),
         mkdir(outputDirectory, { recursive: true }),
         mkdir(resultDirectory, { recursive: true }),
         mkdir(rawDirectory, { recursive: true }),
@@ -191,6 +200,31 @@ export async function startCrtBusinessApi(
         }
         if (request.method === "POST" && request.url === "/news-images") {
             await generateNewsAsset(request, response);
+            return;
+        }
+        if (request.method === "POST" && request.url === "/photo-posters") {
+            await generatePhotoPoster(request, response);
+            return;
+        }
+        const photoMatch =
+            request.method === "GET"
+                ? /^\/photo-posters\/([A-Za-z0-9_-]+)\.png$/u.exec(
+                      request.url ?? "",
+                  )
+                : null;
+        if (photoMatch) {
+            try {
+                const bytes = await readFile(
+                    join(photoOutputDirectory, `${photoMatch[1]}.png`),
+                );
+                response.writeHead(200, {
+                    "content-type": "image/png",
+                    "content-length": bytes.length,
+                });
+                response.end(bytes);
+            } catch {
+                writeJson(response, 404, { error: { code: "NOT_FOUND" } });
+            }
             return;
         }
         const imageMatch =
@@ -348,6 +382,121 @@ export async function startCrtBusinessApi(
             );
         } finally {
             request.off("aborted", abort);
+        }
+    }
+
+    async function generatePhotoPoster(
+        request: IncomingMessage,
+        response: ServerResponse,
+    ): Promise<void> {
+        let input: ReturnType<typeof photoPosterRenderSchema.parse>;
+        let key: string;
+        try {
+            input = photoPosterRenderSchema.parse(
+                JSON.parse((await readBody(request, 65_536)).toString("utf8")),
+            );
+            key = parseIdempotencyKey(
+                singleHeader(request.headers["idempotency-key"]),
+            );
+        } catch {
+            writeJson(response, 400, {
+                error: { code: "PHOTO_POSTER_REJECTED" },
+            });
+            return;
+        }
+        const digest = sha256(JSON.stringify(input));
+        const controller = new AbortController();
+        const abort = () => {
+            if (!response.writableEnded) controller.abort();
+        };
+        response.once("close", abort);
+        let dispatched = false;
+        try {
+            const claim = await claimTransform(
+                photoResultDirectory,
+                key,
+                digest,
+                (value) => photoPosterImageSchema.parse(value),
+                "photo poster",
+            );
+            if (claim.kind === "conflict") {
+                writeJson(response, 409, {
+                    error: { code: "IDEMPOTENCY_CONFLICT" },
+                });
+                return;
+            }
+            if (claim.kind === "pending") {
+                writeJson(response, 503, {
+                    error: { code: "PHOTO_POSTER_INCOMPLETE" },
+                });
+                return;
+            }
+            if (claim.kind === "complete") {
+                writeJson(response, 200, claim.result);
+                return;
+            }
+            const signal = controller.signal;
+            signal.throwIfAborted();
+            // 先记录占位再付费；请求一旦发出，任何不确定结果都保留 pending。
+            dispatched = true;
+            const generated = await options.imageClient.edit({
+                imageUrl: input.sourceImageUrl,
+                prompt: input.prompt,
+                model,
+                quality,
+                size: "1200x1600",
+                outputFormat: "png",
+                signal,
+            });
+            const metadata = await sharp(generated.bytes).metadata();
+            if (
+                generated.mimeType !== "image/png" ||
+                metadata.format !== "png" ||
+                metadata.width !== 1_200 ||
+                metadata.height !== 1_600
+            ) {
+                throw new Error("照片海报生成尺寸或格式不正确");
+            }
+            const bytes = input.archive
+                ? await finalizeTravelPhoto(generated.bytes, input.archive)
+                : generated.bytes;
+            const final = await sharp(bytes).metadata();
+            signal.throwIfAborted();
+            const stored = options.storage
+                ? await options.storage.upload(
+                      {
+                          objectKey: `photo-poster/${input.style}/${key}.png`,
+                          bytes,
+                          contentType: "image/png",
+                          cacheControl: "private, max-age=31536000, immutable",
+                      },
+                      { signal },
+                  )
+                : undefined;
+            const result = photoPosterImageSchema.parse({
+                url: stored?.url ?? `${serviceUrl}/photo-posters/${key}.png`,
+                contentType: "image/png",
+                width: final.width,
+                height: final.height,
+                ...(stored?.urlExpiresAt
+                    ? { expiresAt: stored.urlExpiresAt }
+                    : {}),
+            });
+            await writeFile(join(photoOutputDirectory, `${key}.png`), bytes, {
+                mode: 0o600,
+            });
+            await completeTransform(photoResultDirectory, key, digest, result);
+            writeJson(response, 200, result);
+        } catch {
+            writeJson(response, 503, {
+                error: {
+                    code: dispatched
+                        ? "PHOTO_POSTER_INCOMPLETE"
+                        : "PHOTO_POSTER_REJECTED",
+                },
+            });
+        } finally {
+            response.off("close", abort);
         }
     }
 

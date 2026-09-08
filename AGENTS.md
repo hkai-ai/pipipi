@@ -61,3 +61,8 @@
 ### Domain docs
 
 项目使用 single-context 领域文档布局：根目录 `CONTEXT.md` 与 `docs/decisions/`。详见 `docs/agents/domain.md`。
+
+## 照片海报
+
+- 六个照片海报风格的精确身份与顺序由 `src/processes/photo-poster/style.ts` 拥有，复用同一受控 Rendering Capability。正式输出只包含完整风格化成品，不附原图、不做上下对照；所有参考图保持 URL 直传，原图对照仅用于验收报告，不扩大 Agent 权限。
+- 新增固定 SHA-256 的 Runtime Skill 时，同步在 `.gitattributes` 锁定其 `SKILL.md` 为 LF，避免 Windows checkout 改写已校验字节。

@@ -169,7 +169,7 @@ Activity Log 只允许 `runId`、Process identity、Attempt、固定 activity、
 ## Composition 与依赖
 
 [`constructProcessingService`](../src/app/api.ts) 拥有 API 的生产 Composition Root。
-它先校验通用配置，创建 Pino Process Run Log Adapter，再组装 catalog 中启用的精确 Registration（七个常开项，以及默认关闭的 `composed-task/v1`）。`CONTENT_PROCESSING_MODE` 只在文本流程中
+它先校验通用配置，创建 Pino Process Run Log Adapter，再组装 catalog 中启用的精确 Registration（十三个常开项，以及默认关闭的 `composed-task/v1`）。`CONTENT_PROCESSING_MODE` 只在文本流程中
 选择 `direct` 或 `agent`；海报、CRT 与新闻图片流程始终构造无 Tool Agent，并复用 Structured Agent Session Module；`composed-task/v1` 构造只挂 Process Tool 的 Planner Agent，复用 Tool-bearing Structured Agent Session。共享的 provider/model 与 OpenAI API
 mode 在启动时成组校验；Installed Skill Catalog 在监听端口前读取本地 `SKILL.md`，校验准确名称、版本和 SHA-256。模型与远程 Business Capability 仍保持惰性，不影响 liveness。配置或本地 Skill 错误会在
 Application 监听端口前抛出。
@@ -296,3 +296,7 @@ Runtime registration、自动发现、动态 Process Definition 和版本回退�
 
 删除这些 Module 会让复杂度扩散到多个调用方，因此它们通过 deletion test，并为当前
 Interface 提供足够 Depth。
+
+## 照片海报 Registration
+
+六个准确风格共用 Photo Poster Module，Registration 绑定单个固定 Skill 与图片 Capability。无 Tool Agent 编译通用图像规则，不接收照片、URL 或产品文字；图片模型负责观察原图。用户文字由代码原样追加。图片服务复用持久化 claim/complete 幂等记录，请求摘要含固定 style、Prompt 和原图引用，磁盘只保留摘要与输出。已派发的失败或不确定状态返回付费后失败，禁止自动重试。全部风格使用 URL 直传参考图，只交付 1200×1600 独立风格化作品；旅行抽象仅追加档案字样，不拼接原图。图案质量由独立视觉验收确认。

@@ -1,6 +1,6 @@
 # 业务接口文档
 
-本文面向业务调用方和调用 Agent，记录七个 Business Process 的请求、响应、重试与通知契约，以及临时开放的内部评测接口。场景列帮助产品找到契约；请求仍只提交准确 Process 和版本。
+本文面向业务调用方和调用 Agent，记录十四个 Business Process（默认启用十三个）的请求、响应、重试与通知契约，以及临时开放的内部评测接口。场景列帮助产品找到契约；请求仍只提交准确 Process 和版本。
 
 ## Agent 读取入口
 
@@ -490,7 +490,7 @@ Webhook 是至少一次投递，不保证跨 Run 的全局顺序。网络错误�
 | `material` | object | 否 | 至多 16 个条目；键匹配 `^[a-z][a-zA-Z0-9]{0,31}$`，值为 1–12000 个字符的字符串。这是 Planner 能转交给各步骤的全部业务素材 |
 | `constraints.maxSteps` | integer | 否 | 1–8，只能收紧服务端上限，不能放宽 |
 
-调用方不能指定步骤、Process 顺序、Skill、模型或 Tool。服务端 Planner 从固定 allow-list（当前为其余七个 Process）中选择步骤，每个步骤仍按该 Process 自己的输入契约校验，并受服务端 `COMPOSED_TASK_MAX_STEPS`（默认 6）与 `COMPOSED_TASK_MAX_PRICED_STEPS`（默认 2，限制成功的图片步骤数）约束。
+调用方不能指定步骤、Process 顺序、Skill、模型或 Tool。服务端 Planner 从固定 allow-list（七个 Process，不含照片海报）中选择步骤，每个步骤仍按该 Process 自己的输入契约校验，并受服务端 `COMPOSED_TASK_MAX_STEPS`（默认 6）与 `COMPOSED_TASK_MAX_PRICED_STEPS`（默认 2，限制成功的图片步骤数）约束。
 
 响应 `output`：
 
@@ -692,3 +692,34 @@ if (!response.ok || result.status !== "succeeded") {
   throw new Error(`${result.error?.code ?? response.status}: request failed`);
 }
 ```
+
+## 照片海报
+
+以下六个 Process 均使用 `POST /execute`，版本固定为 `v1`。每次处理一张照片；批量由调用方逐张提交，不能上传流程、Skill、模型或运行参数。
+
+| process | style | 输出规格 |
+| --- | --- | --- |
+| `dopamine-photo-poster` | `dopamine` | 1200×1600 PNG |
+| `mono-color-photo-poster` | `mono-color` | 1200×1600 PNG |
+| `travel-abstraction-photo-poster` | `travel-abstraction` | 1200×1600 PNG |
+| `crayon-photo-poster` | `crayon` | 1200×1600 PNG |
+| `monochrome-photo-poster` | `monochrome` | 1200×1600 PNG |
+| `woodcut-photo-poster` | `woodcut` | 1200×1600 PNG |
+
+除旅行抽象外，input 为 `{ sourceImageUrl, text? }`。sourceImageUrl 必须为公网 HTTPS URL（最大 2048 字符，无凭据、片段、自定义端口或 IP 字面量）；text 为 1–200 字符的海报原文，不参与模型或风格选择。
+
+```json
+{"process":"dopamine-photo-poster","version":"v1","input":{"sourceImageUrl":"https://assets.example.com/photo.png","text":"SUMMER DAYS"}}
+```
+
+旅行抽象 input 为 `{ sourceImageUrl, phrase, archiveNumber?, capturedOn? }`。phrase 是用户根据照片提供的 1–3 个大写英文单词，最多 60 字符；archiveNumber 为 1–999，默认 1，无跨请求计数；capturedOn 为 YYYY-MM-DD，缺省采用服务端 UTC 创建日期，不猜测拍摄日期。
+
+```json
+{"process":"travel-abstraction-photo-poster","version":"v1","input":{"sourceImageUrl":"https://assets.example.com/photo.png","phrase":"QUIET PAWS","archiveNumber":1,"capturedOn":"2026-09-07"}}
+```
+
+成功 output 为 `{ style, image: { url, contentType: "image/png", width, height, expiresAt? } }`。正式输出不返回 Prompt、原图 URL、模型、Skill、供应商或存储配置。六项输出均为独立风格化成品，不附原照片、不分上下对照。旅行抽象的档案字样直接绘制在抽象成品上。
+
+输入或额外字段不合法返回 INVALID_INPUT；版本不匹配返回 PROCESS_NOT_FOUND；编译失败返回 AGENT_FAILURE；明确未发起图片调用时失败返回 DEPENDENCY_FAILURE；已发出图片调用、响应丢失、保存失败或内部 pending 返回 DEPENDENCY_FAILURE_AFTER_COMMIT。禁止对后者自动重试，先核对执行记录。Process 超时仍按统一 PROCESS_TIMEOUT 契约处理，图片费用可能已产生。
+
+内部图片服务 `POST /photo-posters` 是受控 Capability 协议，不供产品直连；使用 `CRT_BUSINESS_API_BASE_URL`，连接超时由服务端 `PHOTO_POSTER_API_TIMEOUT_MS` 配置，默认 180000 ms。

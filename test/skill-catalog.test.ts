@@ -138,11 +138,17 @@ describe("console Skill catalog", () => {
         expect(skills.map((skill) => skill.name)).toEqual([
             "content-integrity",
             "content-optimization",
+            "crayon-photo-poster-prompt",
+            "dopamine-photo-poster-prompt",
             "minimal-zine-poster-prompt",
+            "mono-color-photo-poster-prompt",
+            "monochrome-photo-poster-prompt",
             "news-image-narrative-monument-prompt",
             "news-image-pale-watercolor-prompt",
             "news-image-raw-humanism-prompt",
             "tait-crt-interface-prompt",
+            "travel-abstraction-photo-poster-prompt",
+            "woodcut-photo-poster-prompt",
         ]);
         for (const skill of skills) {
             expect(skill.version).toMatch(/^v\d+/);

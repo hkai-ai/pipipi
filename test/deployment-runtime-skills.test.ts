@@ -23,6 +23,14 @@ describe("production Runtime Skill bindings", () => {
                 ]),
             ),
         ).toEqual({
+            "dopamine-photo-poster": ["dopamine-photo-poster-prompt@v1"],
+            "mono-color-photo-poster": ["mono-color-photo-poster-prompt@v1"],
+            "travel-abstraction-photo-poster": [
+                "travel-abstraction-photo-poster-prompt@v1",
+            ],
+            "crayon-photo-poster": ["crayon-photo-poster-prompt@v1"],
+            "monochrome-photo-poster": ["monochrome-photo-poster-prompt@v1"],
+            "woodcut-photo-poster": ["woodcut-photo-poster-prompt@v1"],
             "content-processing": [
                 "content-optimization@v1",
                 "content-integrity@v1",

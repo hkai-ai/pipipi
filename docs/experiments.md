@@ -266,3 +266,38 @@ npm run smoke:staging
 - 部署平台的认证、容量、观测和回滚方式。
 
 新的实验能力仍须通过 Process Registration 显式进入 catalog；实验命令不能注册或改写生产流程。
+
+## 照片海报业务验收
+
+`npm run accept:photo-poster-business` 按表格顺序验证六个固定风格，跳过猫猫绘本。需要设置 `PHOTO_POSTER_SOURCE_IMAGE_URL` 为可使用的公网 HTTPS 照片。它使用本地 .env 中的 Pi 文本模型、FAL GPT Image 2 和 OSS 配置，临时监听回环端口并关闭异步入口、Worker 和共享 Run Record。
+
+验收最多六次图片调用与六次结果 OSS PUT；每项正式 POST /execute 后下载 output.image.url，验证 PNG、尺寸、文件哈希和单次图片调用。全部风格校验 1200×1600 独立成品，是否夹带原图区域通过人工视觉检查。结果与图片写入 `artifacts/photo-poster-acceptance/<本次时间戳>/`，报告不保存原图 URL、Prompt 或凭据。失败不自动重绘。
+
+```powershell
+$env:PHOTO_POSTER_SOURCE_IMAGE_URL = 'https://assets.example.com/photo.png'
+npm run accept:photo-poster-business
+```
+
+默认质量 low、模型 gpt-image-2；有界 HTTP 超时设为 240 秒。下载仅接受当前 OSS 配置生成的同源 URL，拒绝重定向。源码通过不等于生产已发布；风格、主体和文字还需要人工视觉检查。
+
+### 2026-09-07 照片海报实测
+
+以下为需求修正前的首轮对照图历史结果，不能作为当前独立成品的验收证据。
+
+按多巴胺、双色油墨、旅行抽象、彩色蜡笔、黑白蜡笔、限色木刻顺序完成一次本地正式 `POST /execute` 验收，全部成功；每项一次 FAL GPT Image 2 编辑与一次 OSS 结果写入，耗时约 27–39 秒。图片回读、尺寸与存储文件 SHA-256 一致；旅行抽象另通过原图 960×587 RGB 像素比较，成品 960×1350，其余为 1200×1600。文本模型为本地配置的 gpt-5.4-mini，图片质量 low。
+
+这次链路验证 6/6 通过，视觉验收未全部通过：多巴胺偏低饱和、分割约为 46:54；彩色蜡笔分割约为 47.5:52.5；旅行抽象下部仍偏具象并出现背景色差。双色油墨、黑白蜡笔、木刻在本样图中呈现主要风格特征，不代表多样本质量保证。未自动重绘或部署。
+
+样图为 Alvesgaspar 的 [Cat August 2010-4](https://commons.wikimedia.org/wiki/File:Cat_August_2010-4.jpg)，采用 [CC BY-SA 3.0](https://creativecommons.org/licenses/by-sa/3.0/)，报告内改编图按同许可分享。本机直连 Wikimedia 超时、OSS 域名解析到 Fake-IP；开发期用 curl 取得样图并上传测试 OSS（另一次样图 PUT），验收进程仅对该域名采用阿里 DoH 返回的真实公网地址。生产公网检查与 DNS pinning 保持启用，未改变系统 DNS 或代理配置。
+
+图片与脱敏报告位于 `artifacts/photo-poster-acceptance/1788775403611/`（不纳入 Git）。相关 200 项测试、六个 Skill 结构校验、类型检查及构建通过；全量门禁仍受工作区 CRLF 格式和 Windows/WSL 部署脚本测试影响，不能据此声明全仓库验证通过。飞书八条需求的描述及来源文字已在完成前复核，无变化、未回写。
+
+全量 `npm test` 最终为 783 通过、130 失败、65 跳过，失败集中在 12 个部署脚本测试文件；`npm run check` 有 247 个 CRLF 格式问题。本次 18 个相关代码文件的 Biome 检查和 `git diff --check` 通过。
+
+当前验收可用 `PHOTO_POSTER_ACCEPTANCE_STYLES` 指定逗号分隔的固定风格子集，默认六项全跑；用于只重测发生变化的风格，避免重复付费。
+
+### 2026-09-07 独立成品复测
+
+用户修正输出目标后，移除五个 Skill 的上下对照规则及旅行抽象的原图拼接。以相同样图、文本模型、FAL GPT Image 2 low 和 OSS 链路依次重测多巴胺、旅行抽象、彩色蜡笔、黑白蜡笔、木刻；五次图片调用与五次结果存储全部成功，回读均为 1200×1600 PNG。逐张视觉检查确认仅含风格化作品，没有附加原照片或上下对照。本轮只确认输出形态修正，不代表全部风格细节已严格达标。双色整版未改动，未重复付费验证。
+
+当前图片与报告：`artifacts/photo-poster-acceptance/1788776174357/`。相关 200 项测试、五个变更 Skill 校验、类型检查、构建及 11 个相关代码文件的 Biome 检查通过。全量 check 仍有 247 个 CRLF 问题；全量测试本次为 782 通过、131 失败、65 跳过，包含原有 Windows/WSL 脚本失败和并发负载下 CRT finalizer 超时；后者单独复测 3/3 通过。未提交或部署。

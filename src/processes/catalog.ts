@@ -17,6 +17,14 @@ import {
     paleWatercolorProduction,
     rawHumanismProduction,
 } from "./news-image/production.js";
+import {
+    crayonProduction,
+    dopamineProduction,
+    monoColorProduction,
+    monochromeProduction,
+    travelAbstractionProduction,
+    woodcutProduction,
+} from "./photo-poster/production.js";
 import { posterProduction } from "./poster/production.js";
 import type { ProductionProcess } from "./production.js";
 import { titledContentProduction } from "./titled-content/production.js";
@@ -35,6 +43,12 @@ export const productionCatalog: readonly ProductionProcess[] = Object.freeze([
     paleWatercolorProduction,
     rawHumanismProduction,
     narrativeMonumentProduction,
+    dopamineProduction,
+    monoColorProduction,
+    travelAbstractionProduction,
+    crayonProduction,
+    monochromeProduction,
+    woodcutProduction,
     composedProduction,
 ]);
 

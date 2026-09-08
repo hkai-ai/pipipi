@@ -134,11 +134,17 @@ describe("operator console construction", () => {
         expect(catalog.skills.map((skill) => skill.name)).toEqual([
             "content-integrity",
             "content-optimization",
+            "crayon-photo-poster-prompt",
+            "dopamine-photo-poster-prompt",
             "minimal-zine-poster-prompt",
+            "mono-color-photo-poster-prompt",
+            "monochrome-photo-poster-prompt",
             "news-image-narrative-monument-prompt",
             "news-image-pale-watercolor-prompt",
             "news-image-raw-humanism-prompt",
             "tait-crt-interface-prompt",
+            "travel-abstraction-photo-poster-prompt",
+            "woodcut-photo-poster-prompt",
         ]);
         const poster = catalog.skills.find(
             (skill) => skill.name === "minimal-zine-poster-prompt",

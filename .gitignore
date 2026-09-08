@@ -5,5 +5,7 @@ artifacts/skill-ab/
 artifacts/gpt-image-2/
 artifacts/crt-interface-image/
 artifacts/object-storage/
+artifacts/photo-poster-acceptance/
+artifacts/*photo*
 .DS_Store
 .pg-server.crt

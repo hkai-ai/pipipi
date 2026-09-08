@@ -36,7 +36,7 @@ Business Processing Service 让产品调用方通过一个稳定的 HTTP Interfa
 
 ## 当前能力
 
-生产 catalog 当前登记八个精确版本，其中 `composed-task/v1` 默认关闭：
+生产 catalog 当前登记十四个精确版本，其中 `composed-task/v1` 默认关闭：
 
 | 场景 | Business Process | 输入 | 输出 | 实现选择 |
 | --- | --- | --- | --- | --- |
@@ -48,8 +48,16 @@ Business Processing Service 让产品调用方通过一个稳定的 HTTP Interfa
 | `memene` | `news-image-pale-watercolor/v1` | `{ title, summary }` | `{ style, image }` | 固定淡彩绘本 Runtime Skill |
 | `memene` | `news-image-raw-humanism/v1` | `{ title, summary }` | `{ style, image }` | 固定原质人文主义 Runtime Skill |
 | `common` | `composed-task/v1` | `{ goal, material?, constraints? }` | `{ summary, steps, result }` | 默认关闭；Planner Agent 只获得 allow-list 中其他 Process 的 Step Tool，在服务端预算内组合它们 |
+| `common` | `dopamine-photo-poster/v1` | `{ sourceImageUrl, text? }` | `{ style, image }` | 多巴胺摄影插画海报；固定无 Tool Skill，单次编辑与存储 |
+| `common` | `mono-color-photo-poster/v1` | `{ sourceImageUrl, text? }` | `{ style, image }` | 双色油墨图文海报；固定无 Tool Skill，单次编辑与存储 |
+| `common` | `travel-abstraction-photo-poster/v1` | `{ sourceImageUrl, phrase, archiveNumber?, capturedOn? }` | `{ style, image }` | 摄影抽象记忆海报；固定无 Tool Skill，单次编辑与存储 |
+| `common` | `crayon-photo-poster/v1` | `{ sourceImageUrl, text? }` | `{ style, image }` | 彩色蜡笔抽象海报；固定无 Tool Skill，单次编辑与存储 |
+| `common` | `monochrome-photo-poster/v1` | `{ sourceImageUrl, text? }` | `{ style, image }` | 黑白蜡笔摄影海报；固定无 Tool Skill，单次编辑与存储 |
+| `common` | `woodcut-photo-poster/v1` | `{ sourceImageUrl, text? }` | `{ style, image }` | 限色木刻摄影海报；固定无 Tool Skill，单次编辑与存储 |
 
-生产 Composition Root 通过 Installed Skill Catalog 校验七个 Runtime Skill 的准确名称、版本和 SHA-256。Process 只绑定通过校验的准确版本；Catalog 不发现、下载或更新 Skill。
+照片海报正式输出只包含完整 1200×1600 风格化成品，原图仅作参考输入；旅行抽象只叠加档案字样，不拼接原图。
+
+生产 Composition Root 通过 Installed Skill Catalog 校验默认启用的十三个 Runtime Skill 的准确名称、版本和 SHA-256。Process 只绑定通过校验的准确版本；Catalog 不发现、下载或更新 Skill。
 
 默认 HTTP Interface 提供健康检查和同步 `POST /execute`。异步提交、owner 查询、PostgreSQL Store、BullMQ Worker、Webhook、恢复和保留已经实现，但入口默认关闭。精确行为见 [异步设计](docs/async-process-runs-design.md)。
 

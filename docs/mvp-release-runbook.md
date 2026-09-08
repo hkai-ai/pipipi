@@ -78,7 +78,7 @@ npm run check:deployment-env -- api
 npm run check:deployment-env -- crt-business-api
 ```
 
-同步 API 的无默认必填项是 `BUSINESS_API_BASE_URL`；设置 `PI_PROVIDER=openai` 时还必须提供 `OPENAI_API_KEY`。API 与 Process Worker 预检还会读取镜像内七个 Runtime Skill，校验目录、`SKILL.md`、精确名称与版本、固定哈希和快照内容；失败时只输出脱敏事件并返回非零状态。生产部署在数据库迁移和容器切换前执行该预检，因此旧 `.env` 中失效的 Skill 路径覆盖不会进入活动服务。CRT Business API 预检要求 FAL、存储供应商和 OSS 凭证；Compose 固定供应商为 `fal` 与 `aliyun-oss`。若目标环境设置 `ASYNC_PROCESS_RUNS_ENABLED=true`，API 预检还会检查异步角色变量。缺少任一项时，命令一次列出全部变量名并返回非零状态；它不输出值，也不连接外部系统。
+同步 API 的无默认必填项是 `BUSINESS_API_BASE_URL`；设置 `PI_PROVIDER=openai` 时还必须提供 `OPENAI_API_KEY`。API 与 Process Worker 预检还会读取镜像内十三个 Runtime Skill，校验目录、`SKILL.md`、精确名称与版本、固定哈希和快照内容；失败时只输出脱敏事件并返回非零状态。生产部署在数据库迁移和容器切换前执行该预检，因此旧 `.env` 中失效的 Skill 路径覆盖不会进入活动服务。CRT Business API 预检要求 FAL、存储供应商和 OSS 凭证；Compose 固定供应商为 `fal` 与 `aliyun-oss`。若目标环境设置 `ASYNC_PROCESS_RUNS_ENABLED=true`，API 预检还会检查异步角色变量。缺少任一项时，命令一次列出全部变量名并返回非零状态；它不输出值，也不连接外部系统。
 
 实际生产启动会在创建 Adapter 前重复同一检查，再校验 URL、正整数、枚举和跨字段约束。预检通过不证明 Secret 有效或依赖可达。`PI_PROVIDER` 与 `PI_MODEL`、模型凭证、Business Capability 契约和图片持久化仍按本手册的 smoke 与发布门禁验证。
 
@@ -92,7 +92,7 @@ Vercel Functions、Netlify Functions 和 Cloudflare Workers 不能直接运行�
 
 仓库通过 [production CI/CD](../.github/workflows/production-ci-cd.yml) 把同步 API 发布到一台 Linux Docker 服务器。Pull Request 并行执行确定性的 `Check and build` 与真实依赖的 `Async durable acceptance`；后者在隔离 PostgreSQL/Redis 中按固定顺序验证 Store、BullMQ/跨 Seam 和构建控制台的浏览器旅程，并始终执行 Compose 清理。新闻图片付费验收默认关闭，不影响非 Pull Request 候选；启用后，相关路径命中时必须先由 required reviewer 批准 `news-image-acceptance` Environment，并让准确 `github.sha` 完成三个真实 Process Run。`main` 推送和手动触发只有免费检查与已启用且需要的付费验收都成功后，才把镜像归档与生产 Compose 上传服务器并激活。生产 Job 使用 GitHub `production` Environment，并与新闻图片验收及异步 internal 发布共享 `pipipi-production-release` 并发组；服务器的 `shared/deployment.lock` 还会拒绝 Actions 之外的并发发布。
 
-生产镜像固定 Node.js 24、编译产物、生产依赖和七个 Runtime Skill，不包含源码、`.env` 或凭证。服务器加载 `pipipi:<commit>` 镜像，再通过 [`compose.production.yaml`](../compose.production.yaml) 以同一镜像重建 `pipipi` 和 `pipipi-business-api` 两个容器。部署脚本校验两个容器的 image tag、revision label、liveness 和 readiness；失败时恢复部署前的镜像与 Compose 形状。release artifact 同时携带 `pipipi-<commit>.compose.async.yaml`，但自动部署不上传或激活它；该文件只供通过异步 Runbook 门禁后的显式叠加部署使用。若服务器存在任一异步角色容器，默认同步流水线会拒绝继续；发布人员必须先按异步手册停流、处理已接受 Run，并执行显式回退，不能借普通发布隐式删除 Worker。
+生产镜像固定 Node.js 24、编译产物、生产依赖和十三个 Runtime Skill，不包含源码、`.env` 或凭证。服务器加载 `pipipi:<commit>` 镜像，再通过 [`compose.production.yaml`](../compose.production.yaml) 以同一镜像重建 `pipipi` 和 `pipipi-business-api` 两个容器。部署脚本校验两个容器的 image tag、revision label、liveness 和 readiness；失败时恢复部署前的镜像与 Compose 形状。release artifact 同时携带 `pipipi-<commit>.compose.async.yaml`，但自动部署不上传或激活它；该文件只供通过异步 Runbook 门禁后的显式叠加部署使用。若服务器存在任一异步角色容器，默认同步流水线会拒绝继续；发布人员必须先按异步手册停流、处理已接受 Run，并执行显式回退，不能借普通发布隐式删除 Worker。
 
 异步 `internal` 使用独立的手动 [`Async internal release`](../.github/workflows/async-internal-release.yml)，不属于本同步流水线的自动步骤。它由 `async-internal` Environment 授权并复用本流水线产出的候选 artifact；完整配置、证据和回退要求见[异步发布手册](async-process-runs-runbook.md#受控-internal-发布入口)。
 
@@ -540,3 +540,7 @@ npm run accept:crt-business
 ## 本次不发布
 
 本次 MVP 不增加应用用户系统、RBAC、多租户、数据库、持久化或跨实例执行历史、Run Record 查询接口、通用幂等、队列、自动重试、CORS、生成后自动视觉质检、自动重绘或全量基础设施即代码。CRT 产品请求只提交公网 HTTPS `sourceImageUrl`；FAL 和 OSS 配置由服务端拥有。两个图片流程都有模型费用和图片持久化副作用，必须保持调用权限、`runId` 幂等、并发和费用门禁。
+
+## 照片海报发布检查
+
+本批六个照片海报 Process 尚未部署。发布前核对六个固定 Skill 的 LICENSE/SOURCE、用户补充的 Travel 授权范围及原帖提示词使用许可；镜像预检必须包含十三个 Runtime Skill。主 API 与内部图片服务使用同一镜像，`PHOTO_POSTER_API_TIMEOUT_MS` 默认 180000；图片服务需要供应商出站连接和工作目录容量。回滚恢复上一镜像及对应 catalog。真实验收见 [照片海报实验](experiments.md#照片海报业务验收)。

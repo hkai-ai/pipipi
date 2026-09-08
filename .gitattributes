@@ -1,0 +1,7 @@
+# 固定本次 Runtime Skill 的字节，避免 Windows 换行转换破坏 SHA-256。
+.pi/skills/dopamine-photo-poster-prompt/SKILL.md text eol=lf
+.pi/skills/mono-color-photo-poster-prompt/SKILL.md text eol=lf
+.pi/skills/travel-abstraction-photo-poster-prompt/SKILL.md text eol=lf
+.pi/skills/crayon-photo-poster-prompt/SKILL.md text eol=lf
+.pi/skills/monochrome-photo-poster-prompt/SKILL.md text eol=lf
+.pi/skills/woodcut-photo-poster-prompt/SKILL.md text eol=lf

@@ -12,6 +12,25 @@ const registry: ProcessRegistry = createProductionRuntime({
  * honest: a Schema change that these no longer satisfy is a contract change.
  */
 const validInputs: Readonly<Record<string, Record<string, unknown>>> = {
+    "dopamine-photo-poster": {
+        sourceImageUrl: "https://assets.example.com/source.png",
+    },
+    "mono-color-photo-poster": {
+        sourceImageUrl: "https://assets.example.com/source.png",
+    },
+    "travel-abstraction-photo-poster": {
+        sourceImageUrl: "https://assets.example.com/source.png",
+        phrase: "QUIET PAWS",
+    },
+    "crayon-photo-poster": {
+        sourceImageUrl: "https://assets.example.com/source.png",
+    },
+    "monochrome-photo-poster": {
+        sourceImageUrl: "https://assets.example.com/source.png",
+    },
+    "woodcut-photo-poster": {
+        sourceImageUrl: "https://assets.example.com/source.png",
+    },
     "content-processing": { content: "整理这段业务内容" },
     "titled-content-processing": {
         title: "季度业务简报",
@@ -42,12 +61,18 @@ describe("Process catalog description", () => {
             catalog.map((entry) => `${entry.process}/${entry.version}`),
         ).toEqual([
             "content-processing/v1",
+            "crayon-photo-poster/v1",
             "crt-interface-image/v1",
+            "dopamine-photo-poster/v1",
             "minimal-zine-poster/v1",
+            "mono-color-photo-poster/v1",
+            "monochrome-photo-poster/v1",
             "news-image-narrative-monument/v1",
             "news-image-pale-watercolor/v1",
             "news-image-raw-humanism/v1",
             "titled-content-processing/v1",
+            "travel-abstraction-photo-poster/v1",
+            "woodcut-photo-poster/v1",
         ]);
     });
 

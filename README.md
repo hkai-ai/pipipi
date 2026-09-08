@@ -4,7 +4,7 @@
 
 ## 当前能力
 
-生产 catalog 登记八个 Business Process，其中 `composed-task/v1` 默认关闭。文档先按产品场景分组，运行时仍通过统一的 Process identity 和 HTTP Interface 执行：
+生产 catalog 登记十四个 Business Process，其中 `composed-task/v1` 默认关闭。文档先按产品场景分组，运行时仍通过统一的 Process identity 和 HTTP Interface 执行：
 
 | 场景 | Process | 输入 | 输出 |
 | --- | --- | --- | --- |
@@ -16,10 +16,16 @@
 | `memene` | `news-image-pale-watercolor/v1` | `{ "title", "summary" }` | `{ "style", "image" }` |
 | `memene` | `news-image-raw-humanism/v1` | `{ "title", "summary" }` | `{ "style", "image" }` |
 | `common` | `composed-task/v1`（默认关闭） | `{ "goal", "material"?, "constraints"? }` | `{ "summary", "steps", "result" }` |
+| `common` | [`dopamine-photo-poster/v1`](docs/processes/common/dopamine-photo-poster/README.md) | 公网参考图与可选文案 | `{ style, image }` |
+| `common` | [`mono-color-photo-poster/v1`](docs/processes/common/mono-color-photo-poster/README.md) | 公网参考图与可选文案 | `{ style, image }` |
+| `common` | [`travel-abstraction-photo-poster/v1`](docs/processes/common/travel-abstraction-photo-poster/README.md) | 公网参考图与可选文案（必填 phrase） | `{ style, image }` |
+| `common` | [`crayon-photo-poster/v1`](docs/processes/common/crayon-photo-poster/README.md) | 公网参考图与可选文案 | `{ style, image }` |
+| `common` | [`monochrome-photo-poster/v1`](docs/processes/common/monochrome-photo-poster/README.md) | 公网参考图与可选文案 | `{ style, image }` |
+| `common` | [`woodcut-photo-poster/v1`](docs/processes/common/woodcut-photo-poster/README.md) | 公网参考图与可选文案 | `{ style, image }` |
 
 Memebuy 已建立独立文档边界，但当前没有明确归属的 production Process。场景入口和归属规则见 [`docs/processes/README.md`](docs/processes/README.md)。
 
-`composed-task/v1` 由 `COMPOSED_TASK_ENABLED=true` 开启：一个 Planner Agent 在服务端预算内组合上面七个 Process，每一步仍走对应 Process 自己的校验与治理，调用方只提交目标与素材。
+`composed-task/v1` 由 `COMPOSED_TASK_ENABLED=true` 开启：一个 Planner Agent 在服务端预算内组合固定 allow-list 中的七个 Process（不含照片海报），每一步仍走对应 Process 自己的校验与治理，调用方只提交目标与素材。
 
 全部流程共享同一个 `POST /execute` Interface。每个明确版本由 Process Registration 绑定业务定义、Schema、依赖、运行活动和策略，再进入不可变 Process Registry。Process Runner 统一处理 `runId`、精确版本查找、超时、取消、错误净化和可选 Run Record。
 
@@ -164,3 +170,7 @@ curl http://127.0.0.1:4300/healthz
 | [`docs/mvp-release-runbook.md`](docs/mvp-release-runbook.md) | 发布与运维人员 | 受控 Business Process MVP 的部署门禁、验收和回滚 |
 
 先读 [`CONTEXT.md`](CONTEXT.md) 建立项目语境；准备改代码时再读 [`docs/development.md`](docs/development.md)。
+
+## 照片海报模板
+
+新增六个准确 v1：多巴胺、双色油墨、旅行抽象、彩色蜡笔、黑白蜡笔、木刻。一次请求处理一张公网 HTTPS 照片，返回持久化 PNG 引用；调用方式见 [照片海报 API](docs/api.md#照片海报)，来源与适配见 [通用 Process](docs/processes/common/)。六项均只返回完整风格化成品，不附原图或上下对照；旅行抽象仅由代码补充档案字样。本批尚未部署。

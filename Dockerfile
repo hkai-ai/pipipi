@@ -37,6 +37,18 @@ COPY --chown=node:node .pi/skills/news-image-pale-watercolor-prompt ./.pi/skills
 COPY --chown=node:node .pi/skills/news-image-raw-humanism-prompt ./.pi/skills/news-image-raw-humanism-prompt
 COPY --chown=node:node .pi/skills/composed-task-planner ./.pi/skills/composed-task-planner
 
+COPY --chown=node:node .pi/skills/dopamine-photo-poster-prompt ./.pi/skills/dopamine-photo-poster-prompt
+
+COPY --chown=node:node .pi/skills/mono-color-photo-poster-prompt ./.pi/skills/mono-color-photo-poster-prompt
+
+COPY --chown=node:node .pi/skills/travel-abstraction-photo-poster-prompt ./.pi/skills/travel-abstraction-photo-poster-prompt
+
+COPY --chown=node:node .pi/skills/crayon-photo-poster-prompt ./.pi/skills/crayon-photo-poster-prompt
+
+COPY --chown=node:node .pi/skills/monochrome-photo-poster-prompt ./.pi/skills/monochrome-photo-poster-prompt
+
+COPY --chown=node:node .pi/skills/woodcut-photo-poster-prompt ./.pi/skills/woodcut-photo-poster-prompt
+
 USER node
 EXPOSE 4300
 
