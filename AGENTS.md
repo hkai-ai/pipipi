@@ -45,6 +45,7 @@
 ## 单服务器发布
 
 - 标准单服务器发布入口是 `.github/workflows/production-ci-cd.yml`。CI 构建不可变的 `pipipi:<commit>` 镜像，生产 Job 通过 SSH 上传镜像归档，再用 `compose.production.yaml` 重建主 API 与内部 CRT Business API；不要恢复 PM2 或 release 目录作为日常发布路径。
+- 日常发布在锁内保留服务器当前同步或异步形状；已有异步部署由 `ops/update-async-release.sh` 更新六个角色，保留阶段、队列与角色环境。普通更新不执行数据库迁移，迁移文件变化仍走带备份审查的显式发布；禁止借普通发布退回同步或重置灰度阶段。
 - 两个容器都使用 host 网络；主 API 监听 `0.0.0.0:4300`，内部 CRT Business API 只监听 `127.0.0.1:4400`。服务器防火墙不得向公网开放应用端口。基础 Compose 保持 `ASYNC_PROCESS_RUNS_ENABLED=false`，不包含 PostgreSQL、Redis 或异步角色。
 - 服务器环境变量保存在 `REMOTE_PATH/shared/.env`，不得写入 GitHub Actions 日志、镜像或仓库。部署必须校验两个容器的 image tag、`com.pipipi.revision` label、`/healthz` 和 `/readyz`；任一失败都恢复上一镜像和 Compose 形状。
 

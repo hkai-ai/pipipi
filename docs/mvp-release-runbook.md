@@ -92,7 +92,9 @@ Vercel Functions、Netlify Functions 和 Cloudflare Workers 不能直接运行�
 
 仓库通过 [production CI/CD](../.github/workflows/production-ci-cd.yml) 把同步 API 发布到一台 Linux Docker 服务器。Pull Request 并行执行确定性的 `Check and build` 与真实依赖的 `Async durable acceptance`；后者在隔离 PostgreSQL/Redis 中按固定顺序验证 Store、BullMQ/跨 Seam 和构建控制台的浏览器旅程，并始终执行 Compose 清理。新闻图片付费验收默认关闭，不影响非 Pull Request 候选；启用后，相关路径命中时必须先由 required reviewer 批准 `news-image-acceptance` Environment，并让准确 `github.sha` 完成三个真实 Process Run。`main` 推送和手动触发只有免费检查与已启用且需要的付费验收都成功后，才把镜像归档与生产 Compose 上传服务器并激活。生产 Job 使用 GitHub `production` Environment，并与新闻图片验收及异步 internal 发布共享 `pipipi-production-release` 并发组；服务器的 `shared/deployment.lock` 还会拒绝 Actions 之外的并发发布。
 
-生产镜像固定 Node.js 24、编译产物、生产依赖和十三个 Runtime Skill，不包含源码、`.env` 或凭证。服务器加载 `pipipi:<commit>` 镜像，再通过 [`compose.production.yaml`](../compose.production.yaml) 以同一镜像重建 `pipipi` 和 `pipipi-business-api` 两个容器。部署脚本校验两个容器的 image tag、revision label、liveness 和 readiness；失败时恢复部署前的镜像与 Compose 形状。release artifact 同时携带 `pipipi-<commit>.compose.async.yaml`，但自动部署不上传或激活它；该文件只供通过异步 Runbook 门禁后的显式叠加部署使用。若服务器存在任一异步角色容器，默认同步流水线会拒绝继续；发布人员必须先按异步手册停流、处理已接受 Run，并执行显式回退，不能借普通发布隐式删除 Worker。
+生产镜像固定 Node.js 24、编译产物、生产依赖和 Runtime Skill，不包含源码、`.env` 或凭证。服务器加载 `pipipi:<commit>` 镜像。发布锁内按当前容器选择更新路径：同步部署继续用 [`compose.production.yaml`](../compose.production.yaml) 更新 API 与 Business API；已有异步角色则调用 [`update-async-release.sh`](../ops/update-async-release.sh)，叠加异步 Compose 更新全部六个容器，保留原阶段、Queue identity 和角色环境文件。不完整的异步形状会拒绝发布，不会被当作同步部署覆盖。artifact 同时携带两份 Compose 与更新脚本，均来自本次 CI 的候选 commit。
+
+异步日常更新先核对现有角色版本、候选迁移文件摘要与逐角色环境预检，再暂停新异步提交，最多等待 300 秒排空已接受的 Run，随后切换镜像。它不执行数据库迁移、不执行 Queue Recovery，也不改变灰度流量。迁移文件变化需要按异步手册完成带备份审查的发布。切换后校验全部角色的 image tag、image ID、revision label、healthz 与 readyz；失败或收到终止信号时恢复原镜像和两份 Compose。只有更新成功或回滚验证成功才解除本次停流；人工已有的停流标记始终保留，回滚失败则保留快照与停流标记等待修复。
 
 异步 `internal` 使用独立的手动 [`Async internal release`](../.github/workflows/async-internal-release.yml)，不属于本同步流水线的自动步骤。它由 `async-internal` Environment 授权并复用本流水线产出的候选 artifact；完整配置、证据和回退要求见[异步发布手册](async-process-runs-runbook.md#受控-internal-发布入口)。
 
