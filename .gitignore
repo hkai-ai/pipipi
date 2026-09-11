@@ -9,3 +9,4 @@ artifacts/photo-poster-acceptance/
 artifacts/*photo*
 .DS_Store
 .pg-server.crt
+artifacts/memebuy-uat-template-updates-*/
