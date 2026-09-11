@@ -714,7 +714,7 @@ if (!response.ok || result.status !== "succeeded") {
 
 | 字段 | 允许值 |
 | --- | --- |
-| `preset` | `blue_orange_overlap`（伸手穿字）、`blue_orange_diagonal_crop`（斜切窥视）、`black_red_statement`（正面宣言）、`black_red_frame`（手势取景框）、`black_red_diagonal_type`（侧身斜排） |
+| `preset` | `blue_orange_overlap`（蓝橙穿字）、`blue_orange_diagonal_crop`（蓝橙斜切）、`black_red_statement`（黑红宣言）、`black_red_frame`（黑红取景框）、`black_red_diagonal_type`（黑红斜排） |
 | `palette` | `preset`、`cobalt_terracotta`、`charcoal_red`、`green_oxblood` |
 | `typography` | `preset`、`literary`、`condensed` |
 | `composition` | `preset`、`editorial_cover`、`diagonal_crop`、`statement`、`frame`、`diagonal_type` |
@@ -726,7 +726,17 @@ if (!response.ok || result.status !== "succeeded") {
 {"process":"mono-color-photo-poster","version":"v1","input":{"sourceImageUrl":"https://assets.example.com/photo.png","preset":"blue_orange_diagonal_crop","palette":"charcoal_red","typography":"preset","text":"MY CAT","designNotes":"注释放左下角"}}
 ```
 
-`black_red_statement` 默认以炭黑印刷标题、注释、主体线稿和阴影，红色用于头发、眼睛等现有主体细节，背景保留纸白，不铺大块红色底板。手动覆盖配色时，仍由第一色承担标题和线稿、第二色承担局部点缀。
+五个预设的默认设计如下；标题占比随 `emphasis` 调整，用户原文优先于分行要求，单词或长文案会适应版式，不补词或删词。
+
+| 预设 | 标题与版式 |
+| --- | --- |
+| `blue_orange_overlap` | 蓝色衬线大标题分两行占下部约 35–45%，与原有主体轮廓穿插，橙色仅点缀主体细节 |
+| `blue_orange_diagonal_crop` | 上部蓝色主标题与斜向裁切边界结合，短引导词可用橙色，露出主体焦点 |
+| `black_red_statement` | 炭黑大标题在下部紧密堆叠两行、约占 35–45%，红色点缀现有主体细节，不退化成底部单行字幕 |
+| `black_red_frame` | 上部较小红色标题、下部更大炭黑标题围合主体；仅保留原图已有的取景手势 |
+| `black_red_diagonal_type` | 炭黑两行大字从左下向中部上扬，与右侧主体穿插，深色交叠处留纸白轮廓，红色局部点缀 |
+
+五个预设默认使用接近白色的干净纸底、阴影细网点和清晰轮廓，不强制泛黄、粗网点或动漫化。线稿和阴影使用主色，背景留白，不铺大块辅色底板。显式覆盖配色或版式后，标题颜色分工跟随最终解析的配色与版式；显式 `texture: "strong"` 仍可使用粗网点。设计规则在编译前传入，并在最终图片指令中覆盖通用 Skill 的复古印刷要求。
 
 旧 `preset` 值仍兼容：`within_reach` → `blue_orange_overlap`、`half_hidden` → `blue_orange_diagonal_crop`、`your_move` → `black_red_statement`、`hold_still` → `black_red_frame`、`look_again` → `black_red_diagonal_type`。只在输入校验时转换，复用相同设计规则；新调用使用新标识，Process 仍为 `v1`。
 

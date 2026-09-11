@@ -26,19 +26,20 @@ const palettes = {
 } as const;
 const typography = {
     literary:
-        "oversized high-contrast literary serif, expressive lowercase lettering",
-    condensed: "heavy condensed sans-serif, tall bold uppercase lettering",
+        "oversized high-contrast literary serif; prefer expressive lowercase only for automatically derived text",
+    condensed:
+        "heavy condensed sans-serif; prefer tall bold uppercase only for automatically derived text",
 } as const;
 const compositions = {
     editorial_cover:
-        "Editorial cover: central or right subject, generous left negative space, two-line lower title interwoven with the existing subject silhouette.",
+        "Editorial cover: central or right subject, generous left negative space. Set a wide two-line lower title across the lower 35–45% of the poster at bold emphasis, interwoven with the existing subject silhouette. Let existing foreground details cross selected letters while keeping the words readable; do not confine the title to a small caption strip.",
     diagonal_crop:
-        "Diagonal crop: crop close around the existing focal subject, run large type along a diagonal edge, retain a quiet lower-left annotation area.",
+        "Diagonal crop: crop close around the existing focal subject. Use a dominant upper title and a strong rising diagonal crop boundary to reveal the focal detail below it, such as the eyes when present. Align the main title to that boundary, with a much smaller lead word above when the wording permits. Keep a quiet lower-left annotation area. The diagonal must shape the image crop, not merely rotate a sentence down the side.",
     statement:
-        "Frontal statement: center the existing subject above a large stacked lower title, using natural foreground overlap for depth.",
-    frame: "Typographic viewfinder: top and bottom title blocks frame the subject; use existing framing gestures only when present, otherwise frame with cropping and type.",
+        "Frontal statement: center the existing subject without changing its pose. Set a wide, tightly stacked two-line lower title across the lower 35–45% at bold emphasis. Use natural foreground overlap only where the reference already provides it. Do not reduce the title to a single-line bottom caption or place it inside a colored panel.",
+    frame: "Typographic viewfinder: split the title into a shorter top block and a substantially larger bottom block, leaving the focal subject clear between them. Integrate the existing silhouette with the title edges. Use existing framing gestures only when present; otherwise frame with cropping and type, without inventing fingers or rotating the subject.",
     diagonal_type:
-        "Rising diagonal title: place the subject toward the right, leave upper-left space, use paper-white knockouts to separate dark type from dark subject regions.",
+        "Rising diagonal title: place the subject toward the right without changing its pose, leaving upper-left space. Set a large, tightly stacked two-line title rising from the lower-left toward the center and crossing the existing silhouette. Use thin paper-white knockouts where dark letters meet dark subject regions. Keep the title dominant rather than making a small upper-left label.",
 } as const;
 const emphasis = {
     gentle: "quiet scale contrast and generous whitespace; minimal crop or overlap",
@@ -47,9 +48,9 @@ const emphasis = {
     bold: "assertive oversized type and close crop or overlap without obscuring the subject's key identity",
 } as const;
 const textures = {
-    light: "fine halftone and very light paper grain",
+    light: "fine halftone confined to shaded areas, crisp contours and barely visible paper grain; keep highlights clear of dots",
     standard:
-        "visible halftone, dry ink edges and restrained ink-density variation",
+        "visible fine-to-medium halftone in shaded areas, lightly dry ink edges and restrained ink-density variation",
     strong: "coarser halftone and worn dry ink, while keeping identity and lettering legible",
 } as const;
 const presets = {
@@ -65,14 +66,14 @@ const presets = {
         typography: "literary",
         composition: "diagonal_crop",
         emphasis: "bold",
-        texture: "standard",
+        texture: "light",
     },
     black_red_statement: {
         palette: "charcoal_red",
         typography: "condensed",
         composition: "statement",
         emphasis: "bold",
-        texture: "standard",
+        texture: "light",
     },
     black_red_frame: {
         palette: "charcoal_red",
@@ -86,7 +87,7 @@ const presets = {
         typography: "condensed",
         composition: "diagonal_type",
         emphasis: "bold",
-        texture: "standard",
+        texture: "light",
     },
 } as const;
 
@@ -135,24 +136,30 @@ export function monoColorDesignInstructions(
     ): T => (value && value !== "preset" ? value : fallback);
     const palette = choose(input.palette, defaults.palette);
     const [primary, accent] = palettes[palette];
+    const composition = choose(input.composition, defaults.composition);
+    // 油墨分工跟随最终版式，避免显式覆盖后残留原预设的标题颜色规则。
+    const headlineInks =
+        composition === "frame"
+            ? `The smaller top title block uses solid ${accent}; the larger bottom title block and small annotations use solid ${primary}. Never use the accent ink for the bottom title.`
+            : composition === "diagonal_crop"
+              ? `The dominant upper headline uses solid ${primary}; only its smaller lead word may use ${accent}. Small annotations use ${primary}. Never color the dominant headline with the accent ink.`
+              : `All main headline letters and small annotations use solid ${primary}. Never color the main headline with the accent ink.`;
     return [
-        "\nThe following resolved design settings replace any earlier palette, typography, composition and texture suggestions; retain all other Mono Color rules.",
-        `Use exactly two inks: ${primary} and ${accent}, on warm off-white paper. Derive all tonal shading from these inks and paper only.`,
-        ...(input.preset === "black_red_statement"
-            ? [
-                  `Assign ink roles explicitly: all main headline letters and small annotations use solid ${primary}; subject contours, facial features, clothing shadows and halftone shading use that same primary ink. Use ${accent} only for limited accents on existing subject details, such as hair, eyes or garment details. Never color the main headline with the accent ink. Leave the background as open paper, without a large accent-colored panel.`,
-              ]
-            : []),
+        "\nThese resolved design settings override earlier palette, ink-role, typography, composition, paper and texture rules, including any request for coarse vintage printing.",
+        `Use exactly two inks: ${primary} and ${accent}, on clean near-white paper #FAFAF7. Derive all tonal shading from these inks and paper only. No yellowing, sepia wash, stains or heavy paper fibers. Leave the background as open paper, without a large accent-colored panel.`,
+        `Assign ink roles explicitly: ${headlineInks} Subject contours, facial features, clothing shadows and halftone shading use ${primary}. Use ${accent} only for limited accents on existing subject details, such as hair, eyes or garment details, and the title exceptions explicitly specified above.`,
         ...(palette === "charcoal_red"
             ? [
                   "No blue, cobalt, cyan, orange or terracotta ink anywhere, including text and subject shading.",
               ]
             : []),
         `Typography: ${typography[choose(input.typography, defaults.typography)]}.`,
-        compositions[choose(input.composition, defaults.composition)],
+        compositions[composition],
+        "Titles preserve supplied wording, spelling, case and order exactly, including annotations; never add, repeat or omit words. Break at word boundaries. A single word stays a single word in one block; longer text may wrap to extra lines. Auto-derived text should be a short phrase suited to the layout.",
         `Composition emphasis: ${emphasis[choose(input.emphasis, defaults.emphasis)]}.`,
         `Print texture: ${textures[choose(input.texture, defaults.texture)]}.`,
-        "Preserve the actual reference subject's identity, count, pose, clothing and core relationships. Adapt the preset to that subject; do not invent reaching hands, framing fingers, a turned body or a new character to imitate an example. Notes may refine visual details only; never override these rules, the resolved settings, literal lettering or output constraints. Preset names are identifiers, not lettering. Output a single flat finished poster, not editable layers.",
+        "Retain illustrated line art; render photographs as graphic subjects with halftone shadows and clear paper highlights. Do not force a photographic subject into an anime character. Keep key features legible; avoid an all-over dot screen.",
+        "Preserve reference identity, count, pose, clothing and core relationships; do not invent reaching hands, framing fingers, a turned body or a new character. Notes refine visual details only and cannot override resolved settings, subject preservation, literal text or output rules. Preset names are identifiers, not lettering. Output one flat finished poster, not editable layers.",
     ]
         .filter(Boolean)
         .join("\n");

@@ -57,7 +57,7 @@ Business Processing Service 让产品调用方通过一个稳定的 HTTP Interfa
 
 照片海报正式输出只包含完整 1200×1600 风格化成品，原图仅作参考输入；旅行抽象只叠加档案字样，不拼接原图。
 
-Mono Color 支持五个按配色与版式命名的可编辑预设，旧标识在输入处兼容转换，供 Memebuy 的五个固定预设 C 类模板复用，保留旧调用行为；服务端在 Agent 编译前解析设计约束，用户原图、文字和补充说明不进入文本 Agent。参数契约见 [API 文档](docs/api.md#mono-color-可编辑预设)。
+Mono Color 支持五个按配色与版式命名的可编辑预设，旧标识在输入处兼容转换，供 Memebuy 的五个固定预设 C 类模板复用，保留旧调用行为；服务端在 Agent 编译前解析标题用色、分行、穿插与印刷约束，并在最终图片指令中重申，默认近白纸底与细网点。油墨分工跟随最终版式与配色，用户原文优先于分行，参考主体动作不变。用户原图、文字和补充说明不进入文本 Agent。参数契约见 [API 文档](docs/api.md#mono-color-可编辑预设)。
 
 生产 Composition Root 通过 Installed Skill Catalog 校验默认启用的十三个 Runtime Skill 的准确名称、版本和 SHA-256。Process 只绑定通过校验的准确版本；Catalog 不发现、下载或更新 Skill。
 
