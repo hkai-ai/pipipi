@@ -31,6 +31,8 @@
 
 ## 完成与验证
 
+- 保留期、过期与时间窗口测试使用固定日期时，必须为读写两端显式注入同一时钟；不得依赖真实当前日期，也不得用可选链让记录缺失误判为通过。
+
 - 新增 Business Process、接入 Runtime Skill 或改变公开行为时，同步更新测试、`README.md`、`CONTEXT.md`、所属场景入口和受影响的 `docs/` 页面。
 - `POST /internal/eval/execute` 只用于受控内部新闻图片评测，由 `INTERNAL_EVAL_ENABLED` 挂载。它必须复用同一次 Process 执行，只在响应中投影实际 Prompt、模型和非敏感图片参数；不得把这些内容写入正式输出、日志或 Run Record。该入口不实现独立鉴权，鉴权与 `/execute` 一并后续统一处理。
 - 面向产品调用方的全部业务 HTTP Interface 统一维护在 `docs/api.md`；健康检查等运维 Interface 留在 Runbook，Process 专题文档只保留业务行为与实现说明。
