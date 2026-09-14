@@ -5,6 +5,10 @@ import { Ajv2020 } from "ajv/dist/2020.js";
 import { fullFormats } from "ajv-formats/dist/formats.js";
 import { z } from "zod";
 import { isPublicSourceImageUrl } from "../crt/capability.js";
+import {
+    type TemplateValidationDiagnostic,
+    validationDiagnostics,
+} from "./diagnostics.js";
 import { type TemplateImage, templateImageSize } from "./image.js";
 import {
     analysisIssues,
@@ -152,13 +156,17 @@ export function readTemplateCandidate(value: unknown): TemplateCandidate {
                     (issue) =>
                         `analysis: ${issue.path.join(".")} ${issue.message}`,
                 ),
+            validationDiagnostics(parsed.error.issues),
         );
     const draft = readTemplateDraft(parsed.data.draft);
     return { draft, analysis: parsed.data.analysis };
 }
 
 export class TemplateContractError extends Error {
-    constructor(readonly issues: readonly string[]) {
+    constructor(
+        readonly issues: readonly string[],
+        readonly diagnostics: readonly TemplateValidationDiagnostic[] = [],
+    ) {
         super("模板候选未通过校验");
     }
 }
@@ -180,6 +188,23 @@ export function readTemplateDraft(value: unknown): TemplateDraft {
                     (issue) =>
                         `${issue.instancePath || "/"}: ${issue.keyword}${issue.keyword === "required" ? ` ${issue.params.missingProperty}` : ""}`,
                 ),
+            validationDiagnostics(
+                (validateDraft.errors ?? []).map((issue) => ({
+                    path: [
+                        "draft",
+                        ...issue.instancePath
+                            .split("/")
+                            .filter(Boolean)
+                            .map((part) =>
+                                /^\d+$/.test(part) ? Number(part) : part,
+                            ),
+                        ...(issue.keyword === "required"
+                            ? [issue.params.missingProperty]
+                            : []),
+                    ],
+                    code: issue.keyword,
+                })),
+            ),
         );
     }
     return value;

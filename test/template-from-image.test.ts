@@ -4,12 +4,14 @@ import { parseAgentJson } from "../src/agent-runtime/pi.js";
 import { createProcessingApplication } from "../src/api/application.js";
 import { createProcessExecutor } from "../src/processes/catalog.js";
 import type { TemplateAgent } from "../src/processes/template-from-image/agent.js";
+import { expandTemplatePlan } from "../src/processes/template-from-image/compact.js";
 import {
     compileTemplateResult,
     parseTemplateDraft,
     templateInputSchema,
     templateOutputSchema,
 } from "../src/processes/template-from-image/contract.js";
+import type { TemplateDiagnostic } from "../src/processes/template-from-image/diagnostics.js";
 import {
     decodeTemplateImage,
     type TemplateImage,
@@ -219,6 +221,7 @@ async function start(
         return { ...value, review: reviewFor(value) };
     }),
     loadImage = vi.fn(async () => image),
+    onDiagnostic?: (record: TemplateDiagnostic) => void,
 ) {
     const app = createProcessingApplication({
         executor: createProcessExecutor({
@@ -226,6 +229,7 @@ async function start(
                 createTemplateRegistration({
                     agent: { compile, review },
                     loadImage,
+                    onDiagnostic,
                 }),
             ],
             runLogSink: () => {},
@@ -252,6 +256,77 @@ async function start(
 }
 
 describe("模板真实 HTTP 生成与独立复核", () => {
+    it("两次结构失败留下关联诊断，不记录动态键、模型正文或校验消息", async () => {
+        const diagnostics: TemplateDiagnostic[] = [];
+        const compile = vi.fn<TemplateAgent["compile"]>(async () =>
+            expandTemplatePlan({
+                analysis: {
+                    slotEvidence: {
+                        "secret-user-content": {
+                            featureAuthority: "private-body",
+                        },
+                    },
+                },
+                draft: {},
+            }),
+        );
+        const service = await start(compile, undefined, undefined, (record) =>
+            diagnostics.push(record),
+        );
+        const response = await service.execute();
+        const result = await response.json();
+        expect(response.status).toBe(502);
+        expect(compile).toHaveBeenCalledTimes(2);
+        expect(service.review).not.toHaveBeenCalled();
+        expect(diagnostics).toMatchObject([
+            {
+                event: "template_diagnostic",
+                runId: result.runId,
+                stage: "compilation",
+                attempt: 1,
+                category: "structure",
+            },
+            {
+                event: "template_diagnostic",
+                runId: result.runId,
+                stage: "correction",
+                attempt: 2,
+                category: "structure",
+            },
+        ]);
+        expect(diagnostics[0].issues.length).toBeGreaterThan(0);
+        expect(JSON.stringify(diagnostics)).not.toMatch(
+            /secret-user-content|private-body|private-test|Invalid input|https:/,
+        );
+        expect(JSON.stringify(result)).not.toContain("template_diagnostic");
+    });
+    it("JSON 错误可区分，诊断 Sink 抛错也不阻止一次修正和独立复核", async () => {
+        const compile = vi.fn<TemplateAgent["compile"]>(async () =>
+            toTemplatePlan(candidate()),
+        );
+        compile.mockImplementationOnce(async () =>
+            parseAgentJson([
+                {
+                    role: "assistant",
+                    content: [{ type: "text", text: "private invalid JSON" }],
+                },
+            ]),
+        );
+        const diagnostic = vi.fn(() => {
+            throw new Error("sink unavailable");
+        });
+        const service = await start(compile, undefined, undefined, diagnostic);
+        expect((await service.execute()).status).toBe(200);
+        expect(diagnostic).toHaveBeenCalledWith(
+            expect.objectContaining({
+                category: "json_syntax",
+                stage: "compilation",
+                issues: [],
+            }),
+        );
+        expect(compile).toHaveBeenCalledTimes(2);
+        expect(service.review).toHaveBeenCalledOnce();
+    });
     it("合格首轮也必须独立复核，公开结果不含分析和报告", async () => {
         const service = await start();
         const response = await service.execute();

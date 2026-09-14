@@ -1,5 +1,6 @@
 /** 将模型的紧凑分析和复核无损还原为原校验合同，不推断或补填结论。 */
 import { z } from "zod";
+import { validationDiagnostics } from "./diagnostics.js";
 import { templateInspectionSchema } from "./inspection.js";
 import {
     TemplateProjectionError,
@@ -120,6 +121,7 @@ export function expandTemplatePlan(value: unknown) {
             parsed.error.issues
                 .slice(0, 16)
                 .map((issue) => `/${issue.path.join("/")}: ${issue.message}`),
+            validationDiagnostics(parsed.error.issues),
         );
     const { analysis: a, draft } = parsed.data;
     return {
@@ -191,6 +193,7 @@ export function expandTemplateInspection(value: unknown) {
             parsed.error.issues
                 .slice(0, 16)
                 .map((issue) => `/${issue.path.join("/")}: ${issue.message}`),
+            validationDiagnostics(parsed.error.issues),
         );
     return parsed.data;
 }

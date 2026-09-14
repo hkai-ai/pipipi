@@ -224,6 +224,16 @@ server {
 
 以上片段不包含证书和身份认证。生产入口必须按“发布边界”接入现有可信网关、mTLS 或 `auth_request`，不能直接匿名开放。只允许外部访问 SSH、HTTP 跳转和 HTTPS；阻止公网访问 `4300` 以及 Business API 的内部端口。
 
+#### 同步模板请求的网关超时
+
+`template-from-image/v1` 的 Registration 执行上限为 480 秒，Memebuy 模板调用等待 600 秒。承载该流程的 `location = /execute` 显式设置 `proxy_read_timeout 540s;`，让 Process 先结束，再由网关、调用方依次兜底。上面的 300 秒通用示例不能直接用于模板请求；调整流程预算时同步检查整条链路。
+
+新增精确匹配时，从现有代理保留完整的上游、身份头、鉴权和转发配置，只改变路径匹配与读取超时。生产 1Panel 配置位于 `/opt/1panel/www/sites/pi.ganjiuwanshi.com/proxy/10-pipipi-execute-timeout.conf`；它与 `root.conf` 共享代理行为，后续修改身份头或上游时须同步检查两个 location。
+
+变更前把原配置备份到 include 目录之外。配置检查通过后平滑重载，并检查有效配置、内外网 `/healthz` 和 `/readyz`、`/execute` 非法输入拒绝以及 Console 匿名访问限制。失败时恢复原配置，再检查并重载。重新创建 1Panel 反代后也须核对该超时覆盖。
+
+网关 504 不代表 Process 已停止，晚到的同步结果也不会自动回填调用方。已有失败记录先核对 Run Record；付费提取复测与结果恢复单独执行，避免重复生成。需要可靠接受和结果查询时，使用异步 Interface。
+
 ### 首次发布与日常发布
 
 首次发布前，在服务器确认以下命令成功：

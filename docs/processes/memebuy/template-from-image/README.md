@@ -31,6 +31,8 @@
 
 Process 总时限 480 秒，取消复用共享 Runner 和 Session。运行活动为 `template_image_loading`、`template_compilation`、`template_correction`、`template_review`、`template_validation`，日志不含图片 URL、字节、Prompt 或完整候选。需要真实视觉模型和可访问参考图；不需要 FAL、OSS 写入、Python、注册表或 Memebuy 服务。
 
+生产日志的 `template_diagnostic` 按 `runId` 关联编译、修正、复核和校验问题；包含阶段内尝试次数，以及 JSON 语法、结构、业务合同或执行异常分类。结构问题额外记录最多 16 条固定错误类型及字段路径；仅保留静态合同字段和有界数组索引，动态槽位、标签与未知键替换为 `*`，不记录原始错误消息或模型内容。诊断写入失败不影响结果或修正预算；该事件只进入运维日志，不加入公开输出或 Run Record。
+
 ## 调用与验证
 
 通过主 API 的 `POST /execute` 调用本 Process，输入与输出见 [API 文档](../../../api.md)。本地独立测试页和专用验收脚本已移除。

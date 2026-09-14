@@ -16,6 +16,10 @@ import {
     templateInputSchema,
     templateOutputSchema,
 } from "./contract.js";
+import {
+    type TemplateDiagnostic,
+    validationDiagnostics,
+} from "./diagnostics.js";
 import { templateExecutionFailure } from "./failure.js";
 import { loadTemplateImage, type TemplateImageLoader } from "./image.js";
 import {
@@ -27,6 +31,7 @@ import {
 export function createTemplateRegistration(options: {
     agent: TemplateAgent;
     loadImage?: TemplateImageLoader;
+    onDiagnostic?: (record: TemplateDiagnostic) => void;
 }): ProcessRegistration {
     if (
         typeof options.agent?.compile !== "function" ||
@@ -48,6 +53,46 @@ export function createTemplateRegistration(options: {
             "template_validation",
         ],
         execute: async (input, context) => {
+            const diagnose = (
+                stage: TemplateDiagnostic["stage"],
+                attempt: number,
+                error: unknown,
+            ) => {
+                try {
+                    options.onDiagnostic?.({
+                        event: "template_diagnostic",
+                        runId: context.runId,
+                        stage,
+                        attempt,
+                        category:
+                            error instanceof AgentJsonSyntaxError
+                                ? "json_syntax"
+                                : error instanceof TemplateProjectionError
+                                  ? "structure"
+                                  : error instanceof TemplateContractError
+                                    ? "contract"
+                                    : "execution",
+                        issues:
+                            error instanceof TemplateContractError
+                                ? validationDiagnostics(
+                                      error.diagnostics.map((issue) => ({
+                                          path: issue.path
+                                              .split("/")
+                                              .filter(Boolean)
+                                              .map((part) =>
+                                                  /^\d+$/.test(part)
+                                                      ? Number(part)
+                                                      : part,
+                                              ),
+                                          code: issue.code,
+                                      })),
+                                  )
+                                : [],
+                    });
+                } catch {
+                    // 诊断失败不消耗修正预算，也不改变业务结果。
+                }
+            };
             let image: Awaited<ReturnType<TemplateImageLoader>>;
             try {
                 image = await context.runActivity(
@@ -85,6 +130,11 @@ export function createTemplateRegistration(options: {
                             }),
                     );
                 } catch (error) {
+                    diagnose(
+                        attempt === 0 ? "compilation" : "correction",
+                        attempt + 1,
+                        error,
+                    );
                     if (
                         error instanceof TemplateProjectionError &&
                         (JSON.stringify(error.previous)?.length ?? Infinity) <=
@@ -124,6 +174,11 @@ export function createTemplateRegistration(options: {
                     break;
                 } catch (error) {
                     if (!(error instanceof TemplateContractError)) throw error;
+                    diagnose(
+                        attempt === 0 ? "compilation" : "correction",
+                        attempt + 1,
+                        error,
+                    );
                     correction = { previous: output, issues: error.issues };
                 }
             }
@@ -139,6 +194,7 @@ export function createTemplateRegistration(options: {
                 parseTemplateCandidate(materializeTemplatePlan(plan));
             } catch (error) {
                 if (!(error instanceof TemplateContractError)) throw error;
+                diagnose("validation", 1, error);
                 issues = error.issues;
             }
             let reviewed: unknown;
@@ -153,6 +209,7 @@ export function createTemplateRegistration(options: {
                     }),
                 );
             } catch (error) {
+                diagnose("review", 1, error);
                 if (error instanceof TemplateContractError) {
                     return failProcess(
                         "AGENT_FAILURE",
@@ -185,6 +242,7 @@ export function createTemplateRegistration(options: {
                     ),
                 };
             } catch (error) {
+                diagnose("validation", 2, error);
                 if (error instanceof TemplateContractError) {
                     return failProcess(
                         "AGENT_FAILURE",

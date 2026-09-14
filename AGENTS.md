@@ -47,6 +47,8 @@
 
 ## 单服务器发布
 
+- 修改同步 Process 执行预算或重建网关反代时，按 `docs/mvp-release-runbook.md` 的“同步模板请求的网关超时”核对 Process、网关和调用方的等待余量，并保留精确 location 的鉴权与身份头。
+
 - 标准单服务器发布入口是 `.github/workflows/production-ci-cd.yml`。CI 构建不可变的 `pipipi:<commit>` 镜像，生产 Job 通过 SSH 上传镜像归档，再用 `compose.production.yaml` 重建主 API 与内部 CRT Business API；不要恢复 PM2 或 release 目录作为日常发布路径。
 - 日常发布在锁内保留服务器当前同步或异步形状；已有异步部署由 `ops/update-async-release.sh` 更新六个角色，保留阶段、队列与角色环境。普通更新不执行数据库迁移，迁移文件变化仍走带备份审查的显式发布；禁止借普通发布退回同步或重置灰度阶段。
 - 两个容器都使用 host 网络；主 API 监听 `0.0.0.0:4300`，内部 CRT Business API 只监听 `127.0.0.1:4400`。服务器防火墙不得向公网开放应用端口。基础 Compose 保持 `ASYNC_PROCESS_RUNS_ENABLED=false`，不包含 PostgreSQL、Redis 或异步角色。
@@ -76,6 +78,8 @@
 - 新增固定 SHA-256 的 Runtime Skill 时，同步在 `.gitattributes` 锁定其 `SKILL.md` 为 LF，避免 Windows checkout 改写已校验字节。
 
 ## 图片模板编译
+
+- 模板失败诊断只记录运行关联、阶段和净化后的结构问题；动态键隐藏为 `*`，不记录原始错误消息或候选正文。诊断 Sink 失败不得改变业务结果与调用预算，详见 Memebuy 模板专题。
 
 - `template-from-image/v1` 通过受控下载与解码向无 Tool Agent 传入真实图片附件。返回草稿必须通过固定 Gallery Schema 和业务语义校验；状态、图片引用与尺寸由服务端拥有，Agent 不访问 key 注册表或模板库。修改固定 Schema 时同时更新摘要和 LF 约束。
 

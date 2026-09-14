@@ -5,6 +5,10 @@ import {
     readTemplateDraft,
     TemplateContractError,
 } from "./contract.js";
+import {
+    type TemplateValidationDiagnostic,
+    validationDiagnostics,
+} from "./diagnostics.js";
 import { type TemplateCandidate, templateAnalysisSchema } from "./quality.js";
 
 const fields = [
@@ -82,8 +86,9 @@ export class TemplateProjectionError extends TemplateContractError {
     constructor(
         readonly previous: unknown,
         issues: readonly string[],
+        diagnostics?: readonly TemplateValidationDiagnostic[],
     ) {
-        super(issues);
+        super(issues, diagnostics);
         this.message = issues.join("; ");
     }
 }
@@ -96,6 +101,7 @@ export function readTemplatePlan(value: unknown) {
             parsed.error.issues
                 .slice(0, 16)
                 .map((issue) => `/${issue.path.join("/")}: ${issue.message}`),
+            validationDiagnostics(parsed.error.issues),
         );
     try {
         return {
@@ -104,7 +110,11 @@ export function readTemplatePlan(value: unknown) {
         };
     } catch (error) {
         if (error instanceof TemplateContractError)
-            throw new TemplateProjectionError(value, error.issues);
+            throw new TemplateProjectionError(
+                value,
+                error.issues,
+                error.diagnostics,
+            );
         throw error;
     }
 }
