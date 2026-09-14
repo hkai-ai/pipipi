@@ -39,22 +39,6 @@ export function compactPlan(plan = toTemplatePlan(candidate())) {
                     k,
                     {
                         ...x,
-                        featureAuthority:
-                            x.featureAuthority === null
-                                ? null
-                                : Object.fromEntries(
-                                      Object.entries(x.featureAuthority).map(
-                                          ([axis, f]) => [
-                                              axis,
-                                              [
-                                                  f.owner,
-                                                  f.basis,
-                                                  f.evidence,
-                                                  f.runtimeFactRef,
-                                              ],
-                                          ],
-                                      ),
-                                  ),
                         substitutions: x.substitutions.map((s) => [
                             s.value,
                             s.evidence,
@@ -86,16 +70,5 @@ export function compactInspection<
         };
     },
 >(value: T) {
-    return {
-        ...value,
-        review: {
-            issues: value.review.issues,
-            checks: Object.fromEntries(
-                Object.entries(value.review.checks).map(([k, c]) => [
-                    k,
-                    [c.passed, c.evidence.map((e) => [e.path, e.observation])],
-                ]),
-            ),
-        },
-    };
+    return structuredClone(value);
 }

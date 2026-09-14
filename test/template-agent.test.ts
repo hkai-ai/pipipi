@@ -159,6 +159,14 @@ describe("模板生成与独立视觉复核", () => {
                 }),
             );
             expect(prompts[1]).toContain(planDigest(plan));
+            const reviewInput = JSON.parse(
+                prompts[1].slice(prompts[1].indexOf("\n") + 1),
+            );
+            expect(reviewInput.repairContext.slotConstraints[0]).toMatchObject({
+                slotId: "subject",
+                requiresFeatureAuthority: true,
+                suggestions: plan.draft.inputSchema.slots[0].text.suggestions,
+            });
             expect(prompts[1]).not.toContain("previousReview");
         },
     );

@@ -32,18 +32,22 @@ describe("模板事实投影", () => {
     });
     it("修正上下文定位缺失关系，并呈现推荐值不能依赖的模板特征", () => {
         const value = candidate();
-        value.analysis.spatialRelations[0].runtimeFact = "抬下巴而非向上看";
         const hair = value.analysis.slotEvidence.subject.featureAuthority?.hair;
         if (!hair) throw new Error("测试缺少头发权限");
         hair.owner = "template";
         hair.runtimeFact = "头发转换为火焰";
-        const context = templateRepairContext(value);
-        expect(context?.unresolvedRelations[0]).toMatchObject({
-            path: "/analysis/spatialRelations/0/runtimeFact",
-            expected: "抬下巴而非向上看",
+        value.draft.runtimeSemantics.visualContract.styleTraits.push(
+            hair.runtimeFact,
+        );
+        const plan = toTemplatePlan(value);
+        plan.analysis.spatialRelations[0].relationIndex = 63;
+        const context = templateRepairContext(plan);
+        expect(context.unresolvedRelations[0]).toMatchObject({
+            path: "/analysis/spatialRelations/0/relationIndex",
+            targetPath: "/draft/runtimeSemantics/visualContract/relations/63",
             actual: value.draft.runtimeSemantics.visualContract.relations,
         });
-        expect(context?.slotConstraints[0].templateOwnedFeatures).toEqual([
+        expect(context.slotConstraints[0].templateOwnedFeatures).toEqual([
             expect.objectContaining({
                 axis: "hair",
                 runtimeFact: "头发转换为火焰",

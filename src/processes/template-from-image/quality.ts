@@ -61,7 +61,7 @@ const gateNames = [
     "modelControllable",
     "mechanismPreserved",
 ] as const;
-const text = z.string().trim().min(4).max(1000);
+const text = z.string().trim().min(1).max(1000);
 const fact = z.string().trim().min(1).max(500);
 const ids = z.array(z.string().min(1)).max(64);
 const facts = z.array(fact).max(64);

@@ -17,7 +17,7 @@ const gateNames = [
     "modelControllable",
     "mechanismPreserved",
 ] as const;
-const brief = z.string().trim().min(4).max(96);
+const brief = z.string().trim().min(1).max(96);
 const slot = shape.slotEvidence.valueType;
 const authority = slot.shape.featureAuthority.unwrap().valueType;
 const component = shape.componentGraph.element.shape;
@@ -61,16 +61,11 @@ export const compactAnalysisSchema = templatePlanAnalysisSchema.extend({
             featureAuthority: z
                 .record(
                     slot.shape.featureAuthority.unwrap().keyType,
-                    z.tuple([
-                        authority.shape.owner,
-                        authority.shape.basis,
-                        brief,
-                        authority.shape.runtimeFactRef,
-                    ]),
+                    authority.extend({ evidence: brief }),
                 )
                 .nullable()
                 .describe(
-                    "每轴 [owner, basis, 图像证据, runtimeFactRef]，九轴不能省略",
+                    "仅 replace_identity 需要九轴具名权限 {owner,basis,evidence,runtimeFactRef}；其他槽位为 null",
                 ),
             substitutions: z
                 .array(
@@ -95,21 +90,21 @@ const compactReviewSchema = z.strictObject({
     checks: z
         .record(
             z.enum(reviewChecks),
-            z.tuple([
-                z.boolean(),
-                z
+            z.strictObject({
+                passed: z.boolean(),
+                evidence: z
                     .array(
-                        z.tuple([
-                            z.string().regex(/^\/(draft|analysis)\//),
-                            brief,
-                        ]),
+                        z.strictObject({
+                            path: z.string().regex(/^\/(draft|analysis)\//),
+                            observation: brief,
+                        }),
                     )
                     .min(1)
                     .max(8),
-            ]),
+            }),
         )
         .describe(
-            "每项 [passed, [[实际字段路径, 具体观察], ...]]，十九项全部返回；路径指向展开后的候选",
+            "每项 {passed,evidence:[{path,observation}]}，十九项全部返回；路径指向展开后的候选",
         ),
     issues: z.array(brief).max(19),
 });
@@ -170,30 +165,6 @@ export function expandTemplatePlan(value: unknown) {
                     key,
                     {
                         ...item,
-                        featureAuthority:
-                            item.featureAuthority === null
-                                ? null
-                                : Object.fromEntries(
-                                      Object.entries(item.featureAuthority).map(
-                                          ([
-                                              axis,
-                                              [
-                                                  owner,
-                                                  basis,
-                                                  evidence,
-                                                  runtimeFactRef,
-                                              ],
-                                          ]) => [
-                                              axis,
-                                              {
-                                                  owner,
-                                                  basis,
-                                                  evidence,
-                                                  runtimeFactRef,
-                                              },
-                                          ],
-                                      ),
-                                  ),
                         substitutions: item.substitutions.map(
                             ([value, evidence]) => ({ value, evidence }),
                         ),
@@ -221,24 +192,5 @@ export function expandTemplateInspection(value: unknown) {
                 .slice(0, 16)
                 .map((issue) => `/${issue.path.join("/")}: ${issue.message}`),
         );
-    return {
-        ...parsed.data,
-        review: {
-            issues: parsed.data.review.issues,
-            checks: Object.fromEntries(
-                Object.entries(parsed.data.review.checks).map(
-                    ([key, [passed, evidence]]) => [
-                        key,
-                        {
-                            passed,
-                            evidence: evidence.map(([path, observation]) => ({
-                                path,
-                                observation,
-                            })),
-                        },
-                    ],
-                ),
-            ),
-        },
-    };
+    return parsed.data;
 }

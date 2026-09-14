@@ -38,7 +38,10 @@ const planSlot = slot
                     .omit({ runtimeFact: true })
                     .extend({ runtimeFactRef: visualRef.nullable() }),
             )
-            .nullable(),
+            .nullable()
+            .describe(
+                "仅 replace_identity 槽位填写完整九轴具名权限；其他槽位为 null",
+            ),
     });
 export const templatePlanAnalysisSchema = templateAnalysisSchema
     .omit({

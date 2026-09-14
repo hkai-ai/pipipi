@@ -8,9 +8,11 @@
 
 ## Runtime 边界
 
-v1.6 仅压缩模型传输：组件、空间关系、覆盖审查、六门禁、特征权限、推荐项和标签证据使用固定顺序行；十九项复核各为 `[passed, [[path, observation], ...]]`。`compact.ts` 逐字段无损展开，不合并或推断任何判断；缺项、错位类型及过长证据均拒绝，仍执行 v1.5 的两轮编排和原合同。证据通常 10–35 个汉字，最多 96 字符，正式 visualContract 的事实不受该证据上限约束。第二轮输入与补丁仍是展开格式，以免修改数组槽位时混淆业务路径。
+v1.7 保留组件、空间关系、覆盖审查、六门禁、推荐项与标签的紧凑行；将易错的特征权限恢复为 {owner,basis,evidence,runtimeFactRef} 具名对象，owner 对应来源 authority，复核报告改为 {passed,evidence:[{path,observation}]}。仅 replace_identity 槽位要求完整九轴，其他槽位明确为 null。证据按来源要求非空且具体，取消适配层额外的四字符下限，模型证据仍最多 96 字符；正式 visualContract 不受此上限约束。编译、复核输入及补丁共用同一套权限字段，不自动填充判断或证据。
 
-当前 Runtime Skill 为 `v1.6`：开发期完整嵌入原目录的 product-model、approved-image-analysis、slot-decision-cases、authoring-fields、tags、visual-contract、gallery-v2、返修与读回校验八份业务文档，不再用约 3300 字符摘要替代。仅换行统一为 LF，规则正文保留原文。原始 SKILL.md 的阶段顺序由 Runtime 入口说明和代码编排承接。
+修正上下文直接读取引用计划，即使关系或特征事实引用失效也保留其他槽位约束，避免把计划误按完整候选解析后丢弃上下文。仍使用独立复核、输入摘要、有界补丁和最终完整校验，调用预算及公开 Gallery 合同不变。
+
+当前 Runtime Skill 为 `v1.7`：开发期完整嵌入原目录的 product-model、approved-image-analysis、slot-decision-cases、authoring-fields、tags、visual-contract、gallery-v2、返修与读回校验八份业务文档，不再用约 3300 字符摘要替代。仅换行统一为 LF，规则正文保留原文。原始 SKILL.md 的阶段顺序由 Runtime 入口说明和代码编排承接。
 
 沿用 v1.3 的内部引用计划：正式 visualContract 是唯一事实文本来源，空间关系用 relationIndex，后端事实和特征执行规则用 {field,index} 引用已有条目。服务端生成 semanticModel、mediumComposition、backendOnlyFacts、runtimeFact、slotEvidence.defaultValue 和 substitutions.prompt，再执行既有完整候选校验与独立复核报告校验。槽位选择、事实本身、特征权限、推荐项语义证据仍由模型判断，不能用引用有效冒充图像正确。补丁修改计划后重新投影；引用错误定位具体字段并计入原有一次修正预算，不拼接冲突句子。修正上下文单独列出缺失关系与槽位特征约束，仅传给模型，不写入日志或产品响应。
 
