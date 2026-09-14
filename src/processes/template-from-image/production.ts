@@ -17,7 +17,9 @@ export const templateProduction = defineProductionProcess({
             agent: new PiTemplateAgent({
                 ...pi,
                 skills,
-                model: environment.TEMPLATE_MODEL?.trim() || pi.model,
+                model:
+                    environment.TEMPLATE_MODEL?.trim() ||
+                    (pi.provider === "openai" ? "gpt-5.4" : pi.model),
             }),
         }),
 });

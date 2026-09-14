@@ -1,12 +1,13 @@
 /** 将模型的紧凑分析和复核无损还原为原校验合同，不推断或补填结论。 */
 import { z } from "zod";
+import { templateCorrectionPaths } from "./correction.js";
 import { validationDiagnostics } from "./diagnostics.js";
 import { templateInspectionSchema } from "./inspection.js";
 import {
     TemplateProjectionError,
     templatePlanAnalysisSchema,
 } from "./projection.js";
-import { reviewChecks } from "./quality.js";
+import { reviewChecks, templateAnalysisSchema } from "./quality.js";
 
 const shape = templatePlanAnalysisSchema.shape;
 const candidate = shape.editableCandidates.element;
@@ -87,22 +88,33 @@ const compactPlanSchema = z.strictObject({
     draft: z.unknown(),
     analysis: compactAnalysisSchema,
 });
+const compactCheckSchema = z.strictObject({
+    passed: z.boolean(),
+    evidence: z
+        .array(
+            z.strictObject({
+                path: z
+                    .string()
+                    .regex(
+                        new RegExp(
+                            `^/(draft/|analysis/(${Object.keys(templateAnalysisSchema.shape).join("|")})(/|$))`,
+                        ),
+                    ),
+                observation: brief,
+            }),
+        )
+        .min(1)
+        .max(8),
+});
 const compactReviewSchema = z.strictObject({
     checks: z
-        .record(
-            z.enum(reviewChecks),
-            z.strictObject({
-                passed: z.boolean(),
-                evidence: z
-                    .array(
-                        z.strictObject({
-                            path: z.string().regex(/^\/(draft|analysis)\//),
-                            observation: brief,
-                        }),
-                    )
-                    .min(1)
-                    .max(8),
-            }),
+        .strictObject(
+            Object.fromEntries(
+                reviewChecks.map((name) => [name, compactCheckSchema]),
+            ) as Record<
+                (typeof reviewChecks)[number],
+                typeof compactCheckSchema
+            >,
         )
         .describe(
             "每项 {passed,evidence:[{path,observation}]}，十九项全部返回；路径指向展开后的候选",
@@ -110,8 +122,62 @@ const compactReviewSchema = z.strictObject({
     issues: z.array(brief).max(19),
 });
 export const compactInspectionSchema = templateInspectionSchema.extend({
+    // 任意 JSON 值不能作为严格输出对象的开放属性，用字符串传输后再走原合同。
+    changes: z
+        .array(
+            z.strictObject({
+                path: templateInspectionSchema.shape.changes.element.shape.path,
+                valueJson: z
+                    .string()
+                    .min(1)
+                    .max(100_000)
+                    .describe(
+                        "替换值的合法 JSON 编码；字符串含双引号，数组和对象也完整编码",
+                    ),
+            }),
+        )
+        .max(64),
     review: compactReviewSchema,
 });
+
+export function templateInspectionResponseSchema(plan: object, digest: string) {
+    const paths = templateCorrectionPaths(plan);
+    const evidencePaths = paths.filter(
+        (path) =>
+            compactCheckSchema.shape.evidence.element.shape.path.safeParse(path)
+                .success &&
+            !/\/(targetScopes|backendFactRefs|relationIndex|runtimeFactRef)(\/|$)/.test(
+                path,
+            ),
+    );
+    const check = compactCheckSchema.extend({
+        evidence: z
+            .array(
+                compactCheckSchema.shape.evidence.element.extend({
+                    path: z.enum(evidencePaths),
+                }),
+            )
+            .min(1)
+            .max(8),
+    });
+    return compactInspectionSchema.extend({
+        reviewedPlanSha256: z.literal(digest),
+        changes: z
+            .array(
+                compactInspectionSchema.shape.changes.element.extend({
+                    path: z.enum(paths),
+                }),
+            )
+            .max(64),
+        review: compactReviewSchema.extend({
+            checks: z.strictObject(
+                Object.fromEntries(
+                    reviewChecks.map((name) => [name, check]),
+                ) as Record<(typeof reviewChecks)[number], typeof check>,
+            ),
+        }),
+    });
+}
 
 export function expandTemplatePlan(value: unknown) {
     const parsed = compactPlanSchema.safeParse(value);
@@ -195,5 +261,23 @@ export function expandTemplateInspection(value: unknown) {
                 .map((issue) => `/${issue.path.join("/")}: ${issue.message}`),
             validationDiagnostics(parsed.error.issues),
         );
-    return parsed.data;
+    return {
+        ...parsed.data,
+        changes: parsed.data.changes.map(({ path, valueJson }, index) => {
+            try {
+                return { path, value: JSON.parse(valueJson) as unknown };
+            } catch {
+                throw new TemplateProjectionError(
+                    value,
+                    [`/changes/${index}/valueJson: 必须是合法 JSON`],
+                    [
+                        {
+                            path: `/changes/${index}/valueJson`,
+                            code: "invalid_format",
+                        },
+                    ],
+                );
+            }
+        }),
+    };
 }

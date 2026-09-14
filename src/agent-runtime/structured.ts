@@ -10,7 +10,13 @@ import {
 export type PiStructuredAgentSessionFactory = PiSessionFactory;
 
 export type PiStructuredAgentOptions = PiSessionOptions &
-    Readonly<{ jsonMode?: boolean }>;
+    Readonly<{
+        jsonMode?: boolean;
+        jsonSchema?: Readonly<{
+            name: string;
+            schema: Record<string, unknown>;
+        }>;
+    }>;
 
 export type StructuredAgentRequest = Readonly<{
     prompt: string;
@@ -27,10 +33,14 @@ export type StructuredAgentResult = Readonly<{
 export class PiStructuredAgent {
     readonly #support: PiSessionSupport;
     readonly #jsonMode: boolean;
+    readonly #jsonSchema: PiStructuredAgentOptions["jsonSchema"];
 
     constructor(options: PiStructuredAgentOptions) {
         this.#support = new PiSessionSupport(options);
         this.#jsonMode = options.jsonMode ?? false;
+        this.#jsonSchema = options.jsonSchema
+            ? structuredClone(options.jsonSchema)
+            : undefined;
     }
 
     async run(request: StructuredAgentRequest): Promise<StructuredAgentResult> {
@@ -44,7 +54,17 @@ export class PiStructuredAgent {
             tools: [],
         });
         return withAbortableSession(session, request.signal, async () => {
-            if (this.#jsonMode && session.model?.api === "openai-completions") {
+            const api = session.model?.api;
+            if (
+                this.#jsonSchema &&
+                api !== "openai-completions" &&
+                api !== "openai-responses"
+            )
+                throw new Error("当前模型协议不支持 JSON Schema 输出");
+            if (
+                this.#jsonSchema ||
+                (this.#jsonMode && api === "openai-completions")
+            ) {
                 const previous = session.agent.onPayload;
                 session.agent.onPayload = async (payload, model) => {
                     const next = (await previous?.(payload, model)) ?? payload;
@@ -54,9 +74,33 @@ export class PiStructuredAgent {
                         Array.isArray(next)
                     )
                         throw new Error("JSON 请求载荷必须为对象");
+                    if (this.#jsonSchema && api === "openai-responses")
+                        return {
+                            ...next,
+                            text: {
+                                ...("text" in next &&
+                                next.text &&
+                                typeof next.text === "object"
+                                    ? next.text
+                                    : {}),
+                                format: {
+                                    type: "json_schema",
+                                    ...this.#jsonSchema,
+                                    strict: true,
+                                },
+                            },
+                        };
                     return {
                         ...next,
-                        response_format: { type: "json_object" },
+                        response_format: this.#jsonSchema
+                            ? {
+                                  type: "json_schema",
+                                  json_schema: {
+                                      ...this.#jsonSchema,
+                                      strict: true,
+                                  },
+                              }
+                            : { type: "json_object" },
                     };
                 };
             }

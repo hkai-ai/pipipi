@@ -339,11 +339,66 @@ function sameValues(a: readonly string[], b: readonly string[]): boolean {
     );
 }
 
+/** 不依赖派生字段的检查先运行，避免引用错误掩盖其他可修正问题。 */
+export function sourceAnalysisIssues(
+    draft: TemplateDraft,
+    analysis: {
+        componentGraph: readonly { id: string }[];
+        slotCoverageReview: Record<
+            (typeof reviewAxes)[number],
+            { componentIds: string[] }
+        >;
+        slotEvidence: Record<
+            string,
+            {
+                featureAuthority: Record<
+                    string,
+                    Pick<z.infer<typeof authority>, "owner" | "basis">
+                > | null;
+            }
+        >;
+    },
+): string[] {
+    const issues = analysis.componentGraph.flatMap((component) =>
+        reviewAxes.some((axis) =>
+            analysis.slotCoverageReview[axis].componentIds.includes(
+                component.id,
+            ),
+        )
+            ? []
+            : [`${component.id}: 组件遗漏八轴审查`],
+    );
+    for (const slot of draft.inputSchema.slots) {
+        if (
+            draft.runtimeSemantics.inputBindings[slot.id]?.operation !==
+            "replace_identity"
+        )
+            continue;
+        const features = analysis.slotEvidence[slot.id]?.featureAuthority;
+        if (!features) continue;
+        for (const axis of featureAxes) {
+            const feature = features[axis];
+            if (!feature) continue;
+            const allowed =
+                feature.owner === "template"
+                    ? [
+                          "core_mechanism",
+                          "composition_dependency",
+                          "explicit_transformation",
+                      ]
+                    : ["identity_fidelity", "appearance_continuity"];
+            if (!allowed.includes(feature.basis))
+                issues.push(`${slot.id}/${axis}: 特征权限依据不匹配`);
+        }
+    }
+    return issues;
+}
+
 export function analysisIssues({
     draft,
     analysis: a,
 }: TemplateCandidate): string[] {
-    const issues: string[] = [];
+    const issues: string[] = sourceAnalysisIssues(draft, a).slice(0, 24);
     const check = (ok: boolean, message: string) => {
         if (!ok && issues.length < 24) issues.push(message);
     };
@@ -420,12 +475,6 @@ export function analysisIssues({
         check(
             component.targetIds.every((id) => targetIds.includes(id)),
             `${component.id}: 引用未知目标`,
-        );
-        check(
-            reviewAxes.some((axis) =>
-                a.slotCoverageReview[axis].componentIds.includes(component.id),
-            ),
-            `${component.id}: 组件遗漏八轴审查`,
         );
     }
     check(
@@ -601,19 +650,6 @@ export function analysisIssues({
                 for (const axis of featureAxes) {
                     const authority = evidence.featureAuthority[axis];
                     const templateOwns = authority.owner === "template";
-                    check(
-                        templateOwns
-                            ? [
-                                  "core_mechanism",
-                                  "composition_dependency",
-                                  "explicit_transformation",
-                              ].includes(authority.basis)
-                            : [
-                                  "identity_fidelity",
-                                  "appearance_continuity",
-                              ].includes(authority.basis),
-                        `${slot.id}/${axis}: 特征权限依据不匹配`,
-                    );
                     check(
                         authority.runtimeFact === null
                             ? !templateOwns

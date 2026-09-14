@@ -2,6 +2,7 @@ import {
     type CreateAgentSessionResult,
     ModelRuntime,
 } from "@earendil-works/pi-coding-agent";
+import { Ajv2020 } from "ajv/dist/2020.js";
 import { describe, expect, it, vi } from "vitest";
 import type { PiStructuredAgentOptions } from "../src/agent-runtime/structured.js";
 import { PiTemplateAgent } from "../src/processes/template-from-image/agent.pi.js";
@@ -38,9 +39,14 @@ function inspection(plan = toTemplatePlan(candidate())) {
         review,
     };
 }
-async function agentFor(texts: string[], supportsImage = true) {
+async function agentFor(
+    texts: string[],
+    supportsImage = true,
+    api = "openai-completions",
+) {
     const prompts: string[] = [];
-    const prompt = vi.fn(async (text: string) => {
+    const payloads: unknown[] = [];
+    const prompt = vi.fn(async (text: string, _options?: unknown) => {
         prompts.push(text);
     });
     const dispose = vi.fn();
@@ -65,13 +71,26 @@ async function agentFor(texts: string[], supportsImage = true) {
             expect(options.resourceLoader?.getSystemPrompt()).toContain(
                 "团队纪念照的专业图标",
             );
+            const model = {
+                id: "test-vision",
+                api,
+                input: supportsImage ? ["text", "image"] : ["text"],
+            };
+            const control = {
+                onPayload: undefined as
+                    | undefined
+                    | ((payload: unknown, model: unknown) => Promise<unknown>),
+            };
             return {
                 session: {
-                    model: {
-                        id: "test-vision",
-                        input: supportsImage ? ["text", "image"] : ["text"],
+                    model,
+                    agent: control,
+                    prompt: async (text: string, options?: unknown) => {
+                        payloads.push(
+                            await control.onPayload?.({ messages: [] }, model),
+                        );
+                        await prompt(text, options);
                     },
-                    prompt,
                     abort: async () => {},
                     dispose,
                     messages: [
@@ -93,10 +112,95 @@ async function agentFor(texts: string[], supportsImage = true) {
         }),
         sessionFactory,
     });
-    return { agent, prompt, prompts, dispose, sessionFactory };
+    return { agent, prompt, prompts, payloads, dispose, sessionFactory };
 }
 
 describe("模板生成与独立视觉复核", () => {
+    it("复核补丁受请求级 Schema 约束，首轮仍沿用 JSON 模式", async () => {
+        const plan = toTemplatePlan(candidate());
+        const service = await agentFor([
+            JSON.stringify(compactPlan(plan)),
+            JSON.stringify(compactInspection(inspection(plan))),
+        ]);
+        const signal = new AbortController().signal;
+        await service.agent.compile({ image, signal });
+        await service.agent.review({ image, plan, issues: [], signal });
+        expect(service.payloads[0]).toMatchObject({
+            response_format: { type: "json_object" },
+        });
+        expect(service.payloads[1]).toMatchObject({
+            response_format: {
+                type: "json_schema",
+                json_schema: {
+                    strict: true,
+                },
+            },
+        });
+        const payload = service.payloads[1] as {
+            response_format: { json_schema: { schema: object } };
+        };
+        expect(
+            JSON.stringify(payload.response_format.json_schema.schema),
+        ).not.toContain('"propertyNames"');
+        const validate = new Ajv2020().compile(
+            payload.response_format.json_schema.schema,
+        );
+        const response = compactInspection(inspection(plan));
+        expect(validate(response)).toBe(true);
+        expect(
+            validate({ ...response, changes: [["/draft/title", "标题"]] }),
+        ).toBe(false);
+        expect(
+            validate({ ...response, changes: [{ path: "/draft/title" }] }),
+        ).toBe(false);
+        expect(
+            validate({
+                ...response,
+                changes: [{ path: "/draft/missing", valueJson: "null" }],
+            }),
+        ).toBe(false);
+        expect(
+            validate({ ...response, reviewedPlanSha256: "0".repeat(64) }),
+        ).toBe(false);
+        const invalidEvidence = structuredClone(response);
+        invalidEvidence.review.checks.slotScopeMinimal.evidence[0].path =
+            "/analysis/targetScopes/main_subject";
+        expect(validate(invalidEvidence)).toBe(false);
+        invalidEvidence.review.checks.slotScopeMinimal.evidence[0].path =
+            "/analysis/editableCandidates/0/selectionReason";
+        expect(validate(invalidEvidence)).toBe(false);
+        expect(
+            validate({
+                ...response,
+                changes: [{ path: "/draft/title", valueJson: '"新标题"' }],
+            }),
+        ).toBe(true);
+    });
+    it("Responses 协议也传递严格 Schema，不支持的协议在请求前拒绝", async () => {
+        const plan = toTemplatePlan(candidate());
+        const response = JSON.stringify(compactInspection(inspection(plan)));
+        const request = {
+            image,
+            plan,
+            issues: [],
+            signal: new AbortController().signal,
+        };
+        const responses = await agentFor([response], true, "openai-responses");
+        await responses.agent.review(request);
+        expect(responses.payloads[0]).toMatchObject({
+            text: { format: { type: "json_schema", strict: true } },
+        });
+        const unsupported = await agentFor(
+            [response],
+            true,
+            "anthropic-messages",
+        );
+        await expect(unsupported.agent.review(request)).rejects.toThrow(
+            "不支持 JSON Schema",
+        );
+        expect(unsupported.prompt).not.toHaveBeenCalled();
+        expect(unsupported.dispose).toHaveBeenCalledOnce();
+    });
     it.each(["正常 JSON", "末尾多余括号", "Markdown 包裹"])(
         "%s：两次独立会话均传入真实附件",
         async (format) => {

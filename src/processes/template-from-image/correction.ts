@@ -17,6 +17,26 @@ export const templateCorrectionSchema = z.strictObject({
         .max(64),
 });
 
+/** 优先列出父容器，路径较多时仍可通过替换父容器完成修正。 */
+export function templateCorrectionPaths(plan: object): string[] {
+    const paths: string[] = [];
+    const pending = [{ value: plan, path: "" }];
+    for (const item of pending) {
+        if (!item.value || typeof item.value !== "object") continue;
+        for (const [key, value] of Object.entries(item.value)) {
+            if (!key || ["__proto__", "constructor", "prototype"].includes(key))
+                continue;
+            const path = `${item.path}/${key.replace(/~/g, "~0").replace(/\//g, "~1")}`;
+            if (path.length > 500) continue;
+            if (item.path && /^\/(analysis|draft)\//.test(path))
+                paths.push(path);
+            if (paths.length === 250) return paths;
+            pending.push({ value, path });
+        }
+    }
+    return paths;
+}
+
 export function applyTemplateCorrection(
     previous: object,
     value: unknown,

@@ -15,6 +15,7 @@ import {
     TemplateContractError,
     templateInputSchema,
     templateOutputSchema,
+    templateSemanticIssues,
 } from "./contract.js";
 import {
     type TemplateDiagnostic,
@@ -27,6 +28,7 @@ import {
     readTemplatePlan,
     TemplateProjectionError,
 } from "./projection.js";
+import { sourceAnalysisIssues } from "./quality.js";
 
 export function createTemplateRegistration(options: {
     agent: TemplateAgent;
@@ -189,13 +191,16 @@ export function createTemplateRegistration(options: {
                 );
 
             // 可读取计划的全部问题交给唯一的独立复核，避免单项错误先消耗一次修正。
-            let issues: readonly string[] = [];
+            const issues = [
+                ...templateSemanticIssues(plan.draft),
+                ...sourceAnalysisIssues(plan.draft, plan.analysis),
+            ];
             try {
                 parseTemplateCandidate(materializeTemplatePlan(plan));
             } catch (error) {
                 if (!(error instanceof TemplateContractError)) throw error;
                 diagnose("validation", 1, error);
-                issues = error.issues;
+                issues.push(...error.issues);
             }
             let reviewed: unknown;
             try {
@@ -204,7 +209,7 @@ export function createTemplateRegistration(options: {
                         image,
                         note: input.note,
                         plan,
-                        issues,
+                        issues: [...new Set(issues)],
                         signal: context.signal,
                     }),
                 );

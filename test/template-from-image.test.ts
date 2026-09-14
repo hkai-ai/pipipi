@@ -379,6 +379,37 @@ describe("模板真实 HTTP 生成与独立复核", () => {
             }),
         );
     });
+    it("引用错误不掩盖槽位、覆盖和权限问题，一次交给独立复核", async () => {
+        const plan = toTemplatePlan(candidate());
+        plan.analysis.spatialRelations[0].relationIndex = 63;
+        plan.draft.inputSchema.slots[0].required = true;
+        for (const axis of Object.values(plan.analysis.slotCoverageReview))
+            axis.componentIds = [];
+        const slotId = plan.draft.inputSchema.slots[0].id;
+        const features = plan.analysis.slotEvidence[slotId].featureAuthority;
+        expect(features).not.toBeNull();
+        if (!features) throw new Error("fixture 必须包含特征权限");
+        features.clothing.owner = "source";
+        features.clothing.basis = "composition_dependency";
+        const compile = vi.fn<TemplateAgent["compile"]>(async () => plan);
+        const review = vi.fn<TemplateAgent["review"]>(async () => ({
+            ...candidate(),
+            review: reviewFor(candidate()),
+        }));
+        const service = await start(compile, review);
+        expect((await service.execute()).status).toBe(200);
+        expect(compile).toHaveBeenCalledOnce();
+        expect(review).toHaveBeenCalledExactlyOnceWith(
+            expect.objectContaining({
+                issues: expect.arrayContaining([
+                    expect.stringContaining("必须可选"),
+                    expect.stringContaining("组件遗漏八轴"),
+                    expect.stringContaining("特征权限依据不匹配"),
+                    expect.stringContaining("引用了不存在"),
+                ]),
+            }),
+        );
+    });
     it("失效引用仍交给唯一复核补丁修复，最终必须重新投影", async () => {
         const plan = toTemplatePlan(candidate());
         const index = plan.analysis.spatialRelations[0].relationIndex;

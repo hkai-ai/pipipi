@@ -1,8 +1,32 @@
 import { describe, expect, it } from "vitest";
-import { applyTemplateCorrection } from "../src/processes/template-from-image/correction.js";
+import {
+    applyTemplateCorrection,
+    templateCorrectionPaths,
+} from "../src/processes/template-from-image/correction.js";
 import { candidate } from "./fixtures/template-candidate.js";
 
 describe("模板字段补丁", () => {
+    it("请求路径只包含现有安全字段，保留转义且超限时可替换父容器", () => {
+        const previous = {
+            draft: {
+                items: Array.from({ length: 300 }, (_, index) => ({ index })),
+            },
+            analysis: JSON.parse('{"a/b~c":1,"__proto__":{},"constructor":{}}'),
+        };
+        const paths = templateCorrectionPaths(previous);
+        expect(paths).toHaveLength(250);
+        expect(paths).toContain("/draft/items");
+        expect(paths).toContain("/analysis/a~1b~0c");
+        expect(paths.some((path) => /__proto__|constructor/.test(path))).toBe(
+            false,
+        );
+        for (const path of paths)
+            expect(() =>
+                applyTemplateCorrection(previous, {
+                    changes: [{ path, value: null }],
+                }),
+            ).not.toThrow();
+    });
     it("替换关联数组并移除临时标记，原候选和未改字段不变", () => {
         const original = candidate();
         Object.assign(original.draft.metadata, { needsReview: "等待复核" });

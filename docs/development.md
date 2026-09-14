@@ -430,5 +430,5 @@ npm run check:deployment-env -- api
 
 图片转模板保留完整来源业务规则，内部执行“生成分析与草稿 → 独立看图复核并返回必要补丁 → 程序投影与完整校验”。正常两次模型调用；仅首轮 JSON 或候选结构无法读取时允许一次重新编译，最多三次，不追加模型复核。公开 Gallery v2 草稿合同保持不变。实现与边界见 [图片转模板](processes/memebuy/template-from-image/README.md)。
 
-模板可用服务端启动变量 `TEMPLATE_MODEL` 独立覆盖 `PI_MODEL`；沿用共享供应商与凭证，不改变其他 Process 的模型。
+模板可用服务端启动变量 `TEMPLATE_MODEL` 独立指定模型；未设置时 OpenAI 模板默认使用 `gpt-5.4`，其他供应商沿用 `PI_MODEL`。模板复用共享供应商与凭证，不改变其他 Process 的模型。
 异步部署的 API、Process Worker 环境预检允许该变量，角色环境生成脚本将它从共享配置传入这两个角色。模板时限为 480 秒；未显式配置租约时，Worker 按已启用目录的最长时限加 30 秒计算，显式租约必须严格大于最长时限。

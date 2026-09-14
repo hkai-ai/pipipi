@@ -15,7 +15,7 @@ export type TemplateDiagnostic = Readonly<{
 
 // 只保留固定合同字段；槽位、标签、组件等模型生成的键统一隐藏。
 const fields = new Set(
-    `analysis draft review checks changes path value
+    `analysis draft review checks changes path value valueJson
     templateValue fixedMechanism backendFactRefs field index
     componentGraph id visualFields spatialRelations componentIds relationIndex
     editableCandidates gates userMotivation independentUserChoice meaningfulVariation

@@ -15,6 +15,37 @@ import { candidate, reviewFor } from "./fixtures/template-candidate.js";
 import { compactInspection, compactPlan } from "./fixtures/template-compact.js";
 
 describe("紧凑模板传输", () => {
+    it("补丁值按 JSON 无损读回，格式错误不得被补填或忽略", () => {
+        const plan = toTemplatePlan(candidate());
+        const { reviewedDraftSha256: _, ...review } = reviewFor(
+            materializeTemplatePlan(plan),
+        );
+        const full = {
+            reviewedPlanSha256: planDigest(plan),
+            changes: [
+                { path: "/draft/title", value: '你好"世界' },
+                {
+                    path: "/analysis/targetScopes",
+                    value: { a: [1, false, null] },
+                },
+            ],
+            review,
+        };
+        const wire = compactInspection(full);
+        expect(expandTemplateInspection(wire)).toEqual(full);
+        expect(() =>
+            expandTemplateInspection({
+                ...wire,
+                changes: [{ path: "/draft/title", valueJson: "not JSON" }],
+            }),
+        ).toThrow();
+        expect(() =>
+            expandTemplateInspection({
+                ...wire,
+                changes: [["/draft/title", '"你好"']],
+            }),
+        ).toThrow();
+    });
     it("全部分析逐值还原，包括否定门禁和空权限，不更改正式草稿", () => {
         const plan = toTemplatePlan(candidate());
         plan.analysis.editableCandidates[0].gates.visuallyVisible.passed = false;

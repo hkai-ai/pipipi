@@ -58,6 +58,7 @@ export function compactPlan(plan = toTemplatePlan(candidate())) {
 
 export function compactInspection<
     T extends {
+        changes: readonly { path: string; value: unknown }[];
         review: {
             checks: Record<
                 string,
@@ -70,5 +71,11 @@ export function compactInspection<
         };
     },
 >(value: T) {
-    return structuredClone(value);
+    return {
+        ...structuredClone(value),
+        changes: value.changes.map(({ path, value }) => ({
+            path,
+            valueJson: JSON.stringify(value),
+        })),
+    };
 }

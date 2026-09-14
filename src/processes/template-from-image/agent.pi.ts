@@ -15,6 +15,7 @@ import {
     compactInspectionSchema,
     expandTemplateInspection,
     expandTemplatePlan,
+    templateInspectionResponseSchema,
 } from "./compact.js";
 import { templateDraftJsonSchema } from "./contract.js";
 import { applyTemplateInspection, planDigest } from "./inspection.js";
@@ -26,7 +27,7 @@ const schemaText = (schema: z.ZodType) =>
 
 export class PiTemplateAgent implements TemplateAgent {
     readonly #agent: PiStructuredAgent;
-    readonly #reviewer: PiStructuredAgent;
+    readonly #reviewer: PiStructuredAgentOptions;
     constructor(options: Omit<PiStructuredAgentOptions, "instructions">) {
         const sessionFactory: PiStructuredAgentOptions["sessionFactory"] =
             async (sessionOptions) =>
@@ -46,6 +47,7 @@ export class PiTemplateAgent implements TemplateAgent {
             "featureAuthority 使用具名对象 {owner,basis,evidence,runtimeFactRef}。仅 inputBindings.operation=replace_identity 的槽位需要完整九轴权限；其他槽位返回 null，不为文字或物件内容编造身份权限。身份权限的 owner 对应来源规范的 authority。",
             "templateValue.fixedMechanism 是非空字符串数组；只有 backendFactRefs 和 runtimeFactRef 使用 {field,index} 引用，不把引用对象写入 fixedMechanism。",
             "componentGraph.visualFields 合计必须覆盖 medium、styleTraits、composition、relations、colorAndLight；将 medium 标在确实体现画面媒介的组件上，不能因为它是全局属性而漏记。分析证据只写支持当前判断的具体图像事实，避免重复定义规则或复述整个画面。",
+            "字段读回要求：每个正式槽位 required=false；slotCoverageReview 八轴的 componentIds 合计覆盖 componentGraph 全部组件，包括媒介与风格组件。featureAuthority 的 source 依据仅为 identity_fidelity 或 appearance_continuity，template 依据仅为 core_mechanism、composition_dependency 或 explicit_transformation；依据必须支持实际权限取舍。",
             "review.evidence 指向实际 draft 或 analysis 的保留字段；不要引用计划专用的 targetScopes、backendFactRefs、relationIndex、runtimeFactRef。无文字或群组也说明图像依据，合法 null 可作为否定观察；可选字段不存在时引用已有父对象。",
             "slotRecallComplete 的 evidence 逐一引用 /analysis/slotCoverageReview/ 下八个轴并说明取舍；原 defaultLanguageReview 由 defaultsNaturalAndIdentitySpecific 的证据承接。reviewedPlanSha256 原样回传服务端输入摘要；最终候选摘要由程序计算。",
             "按本次 Schema 输出 JSON，证据须非空并具体，最多 96 字符，不设四字符下限；只记支持当前判定的图像事实或替换结果，禁止复述规则、字段定义和整幅画面。正式 visualContract 仍完整保留事实，不受证据字数约束。先确定模板接管的特征再设计推荐项；身份未识别则用简洁可见描述，不猜专名。metadata 仅含 tags。",
@@ -61,20 +63,21 @@ export class PiTemplateAgent implements TemplateAgent {
                 "只返回 {analysis,draft}，不输出 review、selfReview 或通过结论；独立复核由下一次调用执行。",
             ],
         });
-        this.#reviewer = new PiStructuredAgent({
+        this.#reviewer = {
             ...options,
             sessionFactory,
             thinkingLevel: "medium",
             jsonMode: true,
             instructions: [
                 ...common,
-                `输入计划和 changes 使用展开格式：${schemaText(templatePlanAnalysisSchema)}。`,
+                `输入计划和补丁解码后的值使用展开格式：${schemaText(templatePlanAnalysisSchema)}。`,
                 `独立看图检查上一份计划，只返回摘要、必要补丁及针对补丁后完整候选的复核。响应 Schema：${schemaText(compactInspectionSchema)}。`,
                 "首先重新观察原图，再对照候选核验八轴、细节、映射和推荐项，不能只复述生成者结论；没有编译者的自评供你沿用。",
                 "changes 只修正明确违规及必要依赖；通过时返回空数组，不改写整份分析或草稿。使用已有字段 JSON Pointer，增删元素替换父容器，视觉数组变动同步引用索引；禁止删除证据逃避校验。",
+                'changes 每项固定为 {"path":"/draft/title","valueJson":"\\"新标题\\""} 对象，不能使用位置数组；valueJson 必须是替换值完整的 JSON 编码。程序解析后得到原值，字符串、数组、对象、数字、布尔与 null 按各自 JSON 类型编码，不改业务含义。',
                 "先在内部应用补丁并核验最终完整版本，再填写十九项 review 和实际字段证据。无法安全修正则标记 passed=false 并说明未解决问题；不得为了成功假称通过，也不新增条件式要求。",
             ],
-        });
+        };
     }
 
     async compile(request: TemplateAgentRequest): Promise<unknown> {
@@ -103,7 +106,18 @@ export class PiTemplateAgent implements TemplateAgent {
         request: Parameters<TemplateAgent["review"]>[0],
     ): Promise<unknown> {
         const plan = readTemplatePlan(request.plan);
-        const output = await this.#run(this.#reviewer, {
+        const responseSchema = templateInspectionResponseSchema(
+            plan,
+            planDigest(plan),
+        );
+        const reviewer = new PiStructuredAgent({
+            ...this.#reviewer,
+            jsonSchema: {
+                name: "template_review",
+                schema: z.toJSONSchema(responseSchema, { reused: "ref" }),
+            },
+        });
+        const output = await this.#run(reviewer, {
             prompt:
                 "独立对照附件核验候选并直接返回必要补丁：\n" +
                 JSON.stringify({
