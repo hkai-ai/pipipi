@@ -152,3 +152,7 @@ CRT Runtime Skill 是 `TaiT-tt/tait-crt-interface-skill` 在 commit `972a99bc85f
 Skill 更新按依赖升级处理：解析新的不可变版本，比较目录差异，重新做安全和能力审查，更新 `skills.ts` 中的版本与 SHA-256，运行确定性测试与明确需要的真实集成或业务验收，再发布新的应用制品。出现回归时回滚应用制品或恢复上一个固定快照；不要在运行实例上原地拉取旧分支。
 
 业界实现与这一判断的官方资料摘要见 [`research/skill-source-patterns.md`](research/skill-source-patterns.md)。
+
+## 图片模板编译适配
+
+`meme-template-json-compiler@v1.6` 从用户指定的本地仓库固定 commit 适配为无 Tool Runtime Skill，绑定 `template-from-image/v1`。开发期完整打包八份业务文档；原 Python 脚本、key 注册表和磁盘侧车不进入运行路径。模型先生成分析和草稿，下一次独立视觉调用核对输入计划摘要并直接交付必要补丁及十九项最终报告，服务端合并、投影并校验全部结构、语义和固定 Gallery Schema，直接传入受控图片附件。来源许可证记录为 `NOASSERTION`，授权范围为本地实现与测试。来源摘要、适配差异和权限见 [SOURCE.md](../.pi/skills/meme-template-json-compiler/SOURCE.md)，执行和验收见 [Process 文档](processes/memebuy/template-from-image/README.md)。

@@ -12,6 +12,9 @@ const registry: ProcessRegistry = createProductionRuntime({
  * honest: a Schema change that these no longer satisfy is a contract change.
  */
 const validInputs: Readonly<Record<string, Record<string, unknown>>> = {
+    "template-from-image": {
+        imageUrl: "https://assets.example.com/source.png",
+    },
     "dopamine-photo-poster": {
         sourceImageUrl: "https://assets.example.com/source.png",
     },
@@ -70,6 +73,7 @@ describe("Process catalog description", () => {
             "news-image-narrative-monument/v1",
             "news-image-pale-watercolor/v1",
             "news-image-raw-humanism/v1",
+            "template-from-image/v1",
             "titled-content-processing/v1",
             "travel-abstraction-photo-poster/v1",
             "woodcut-photo-poster/v1",

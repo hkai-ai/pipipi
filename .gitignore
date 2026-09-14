@@ -7,6 +7,7 @@ artifacts/crt-interface-image/
 artifacts/object-storage/
 artifacts/photo-poster-acceptance/
 artifacts/*photo*
+artifacts/template-*
 .DS_Store
 .pg-server.crt
 artifacts/memebuy-uat-template-updates-*/

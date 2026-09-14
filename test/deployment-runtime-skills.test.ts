@@ -23,6 +23,7 @@ describe("production Runtime Skill bindings", () => {
                 ]),
             ),
         ).toEqual({
+            "template-from-image": ["meme-template-json-compiler@v1.6"],
             "dopamine-photo-poster": ["dopamine-photo-poster-prompt@v1"],
             "mono-color-photo-poster": ["mono-color-photo-poster-prompt@v1"],
             "travel-abstraction-photo-poster": [

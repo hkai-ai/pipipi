@@ -1,4 +1,4 @@
-﻿# Business Processing 项目上下文
+# Business Processing 项目上下文
 
 本文记录项目长期稳定的业务背景、范围和共同语言。它帮助产品、开发者和自动化工具在修改代码前建立同一套理解；安装命令、实现细节和发布步骤分别放在对应专题文档中。
 
@@ -10,7 +10,7 @@ Business Processing Service 让产品调用方通过一个稳定的 HTTP Interfa
 
 ## 产品场景
 
-仓库服务多个产品场景。Memene 当前拥有三个新闻图片 Business Process；Memebuy 是独立产品边界，当前尚无明确归属的 production Process；跨产品原样复用或契约本身与产品无关的 Process 归入 `common`。场景归属组织代码阅读与文档，不改变 Process identity、版本或统一 HTTP Interface。
+仓库服务多个产品场景。Memene 当前拥有三个新闻图片 Business Process；Memebuy 拥有图片转模板 `template-from-image/v1` 的产品合同，当前通过模板素材箱提取 Worker 对接，候选经人工确认后保存为投稿人的草稿；部署与真实页面验收另行完成；跨产品原样复用或契约本身与产品无关的 Process 归入 `common`。场景归属组织代码阅读与文档，不改变 Process identity、版本或统一 HTTP Interface。
 
 新增 Process 时先确认调用产品。产品专属契约进入 `docs/processes/<product>/`；多个产品共享同一准确契约时进入 `docs/processes/common/`。当前归属以 [`docs/processes/README.md`](docs/processes/README.md) 为入口。
 
@@ -36,10 +36,11 @@ Business Processing Service 让产品调用方通过一个稳定的 HTTP Interfa
 
 ## 当前能力
 
-生产 catalog 当前登记十四个精确版本，其中 `composed-task/v1` 默认关闭：
+生产 catalog 当前登记十五个精确版本，其中 `composed-task/v1` 默认关闭：
 
 | 场景 | Business Process | 输入 | 输出 | 实现选择 |
 | --- | --- | --- | --- | --- |
+| `memebuy` | `template-from-image/v1` | `{ imageUrl, note? }` | `{ template }` | 受控下载与真实视觉附件；无 Tool Agent 编译并验证 Gallery v2 草稿，不生图、不入库 |
 | `common` | `content-processing/v1` | `{ content: string }` | `{ content: string }` | 服务端可选择 Direct 或绑定多个 Runtime Skill 的 Agent 路径 |
 | `common` | `titled-content-processing/v1` | `{ title: string, body: string }` | `{ title: string, content: string }` | 复用 Content Processing Capability |
 | `common` | `minimal-zine-poster/v1` | `{ brief: string, text?: string }` | `{ prompt, recipe, interpretation, image }` | 无 Tool Agent 编译固定 Runtime Skill；Poster Rendering Capability 生成并持久化图片 |
@@ -59,7 +60,7 @@ Business Processing Service 让产品调用方通过一个稳定的 HTTP Interfa
 
 Mono Color 支持五个按配色与版式命名的可编辑预设，旧标识在输入处兼容转换，供 Memebuy 的五个固定预设 C 类模板复用，保留旧调用行为；服务端在 Agent 编译前解析标题用色、分行、穿插与印刷约束，并在最终图片指令中重申，默认近白纸底与细网点。油墨分工跟随最终版式与配色，用户原文优先于分行，参考主体动作不变。用户原图、文字和补充说明不进入文本 Agent。参数契约见 [API 文档](docs/api.md#mono-color-可编辑预设)。
 
-生产 Composition Root 通过 Installed Skill Catalog 校验默认启用的十三个 Runtime Skill 的准确名称、版本和 SHA-256。Process 只绑定通过校验的准确版本；Catalog 不发现、下载或更新 Skill。
+生产 Composition Root 通过 Installed Skill Catalog 校验默认启用的十四个 Runtime Skill 的准确名称、版本和 SHA-256。Process 只绑定通过校验的准确版本；Catalog 不发现、下载或更新 Skill。
 
 默认 HTTP Interface 提供健康检查和同步 `POST /execute`。异步提交、owner 查询、PostgreSQL Store、BullMQ Worker、Webhook、恢复和保留已经实现，但入口默认关闭。精确行为见 [异步设计](docs/async-process-runs-design.md)。
 
@@ -164,3 +165,7 @@ Startup Construction 是生产组装 Seam；Process Executor 是同步传输与 
 | 配置键与示例值 | [`.env.example`](.env.example) 与配置解析测试 |
 
 若文档与代码行为冲突，先按测试确认当前事实，再在同一改动中更新受影响的文档。项目目的、范围或共同语言发生变化时，必须同时更新本文。
+
+图片转模板的 `promptTemplate` 是用户可编辑的草稿业务内容，可以随正式结果返回；内部编译指令、复核证据和模型配置仍不返回。
+
+图片转模板保留完整来源业务规则，槽位取舍直接复用来源原文并复核未入选候选，重复事实由服务端引用投影，内部执行“生成分析与草稿 → 独立看图复核并返回必要补丁 → 程序投影与完整校验”。正常两次模型调用，仅首轮 JSON 或候选结构无法读取时允许一次重新编译，最多三次；独立复核不重写完整候选，也不默认追加模型复核，模型分析与复核采用固定顺序的紧凑行，程序无损展开后执行原校验；证据短写，判断项不减少。公开 Gallery v2 草稿合同保持不变；执行失败区分编译、独立复核和本地校验阶段，仅返回安全归类提示。实现与边界见 [图片转模板](docs/processes/memebuy/template-from-image/README.md)。

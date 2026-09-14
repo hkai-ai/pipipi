@@ -1,6 +1,6 @@
 # 业务接口文档
 
-本文面向业务调用方和调用 Agent，记录十四个 Business Process（默认启用十三个）的请求、响应、重试与通知契约，以及临时开放的内部评测接口。场景列帮助产品找到契约；请求仍只提交准确 Process 和版本。
+本文面向业务调用方和调用 Agent，记录十五个 Business Process（默认启用十四个）的请求、响应、重试与通知契约，以及临时开放的内部评测接口。场景列帮助产品找到契约；请求仍只提交准确 Process 和版本。
 
 ## Agent 读取入口
 
@@ -21,7 +21,7 @@ Agent 先读取 [`https://pi.ganjiuwanshi.com/llms.txt`](https://pi.ganjiuwanshi
 | 鉴权 | 应用不校验鉴权请求头；网关启用鉴权时，按网关要求携带凭证 |
 | 字符编码 | UTF-8 |
 | 请求体上限 | 当前应用上限为 262144 UTF-8 bytes；入口网关可以设置更小的限制 |
-| 执行时限 | 当前 Process 上限为 240 秒；同步客户端应预留网络开销并使用至少 260 秒的读取超时 |
+| 执行时限 | 图片转模板上限 480 秒，建议客户端读取超时至少 500 秒；其他 Process 上限 240 秒，建议至少 260 秒。网关超时也需相应配置 |
 | `X-Request-Id` | 可选。调用方自己的 trace id，会写入本次请求的每一条运行日志，包括没有 `runId` 的传输层拒绝。限 1–200 个字符，字符集 `A-Za-z0-9_.:-`；不合规的取值被忽略，不影响执行，也不回显 |
 
 请求使用严格 Schema。多余字段、错误类型、未知 Process 和未知版本都会被拒绝。
@@ -66,6 +66,7 @@ Content-Type: application/json
 
 | 场景 | process | 用途 |
 | --- | --- | --- |
+| `memebuy` | `template-from-image` | 从参考图编译可编辑模板草稿；对接 Memebuy 素材箱提取 Worker，保留 Pipipi 本地测试，尚未部署 |
 | `common` | `content-processing` | 处理一段业务文本 |
 | `common` | `titled-content-processing` | 处理标题和正文 |
 | `common` | `minimal-zine-poster` | 生成极简 Zine 海报 |
@@ -75,9 +76,49 @@ Content-Type: application/json
 | `memene` | `news-image-raw-humanism` | 生成原质人文主义新闻图片 |
 | `common` | `composed-task` | 由服务端 Planner 在预算内组合上述 Process 完成一个目标；部署默认关闭，未开启时返回 `PROCESS_NOT_FOUND` |
 
-Memebuy 当前没有已登记 Process。完整场景归属见 [Business Process 场景目录](processes/README.md)。
+Memebuy 场景的图片转模板返回 Gallery v2 草稿，不直接写入 Memebuy。完整场景归属见 [Business Process 场景目录](processes/README.md)。
 
 调用方不能提交 Skill、Prompt、模型、Tool、图片供应商或存储配置。新闻图片风格由 `process` 固定，接口不接收 `style` 字段。
+
+## 图片转模板
+
+`template-from-image/v1` 当前对接 Memebuy 素材箱提取 Worker，候选需人工确认后导入；尚未部署，真实页面验收另行完成。主 API 启动后通过统一的 `/execute` 调用。
+
+```json
+{
+  "process": "template-from-image",
+  "version": "v1",
+  "input": {
+    "imageUrl": "https://your-public-assets.example/reference.png",
+    "note": "保留构图，让用户替换主角和文字"
+  }
+}
+```
+
+`imageUrl` 必填，公网 HTTPS、最多 2048 字符，无用户名密码。服务端下载一次，禁止私网和重定向，下载最多 20 MB / 30 秒；图片必须是静态 PNG/JPEG/WebP、宽高至少 64、最多 4000 万像素。`note` 可选，去首尾空格后 1–500 字符；它是编辑意图，不是运行配置。
+
+地址保护或 DNS 解析失败仍返回 `DEPENDENCY_FAILURE`，错误说明会区分受限地址、DNS 问题和图片读取问题；不会回显原图 URL。这些失败均发生在模型调用前。
+
+成功沿用统一响应壳：`{ runId, process, version, status: "succeeded", output: { template } }`。`template` 是完整 Gallery v2 对象：
+
+| 字段 | 返回值与含义 |
+| --- | --- |
+| `key`、`title`、`description` | 建议玩法名、中文标题和说明；key 尚未做业务注册表去重 |
+| `kind`、`status` | 固定 `PROMPT`、`DRAFT` |
+| `cover`、`referenceImage` | 原样引用本次输入地址；不会转存，短期 URL 会到期 |
+| `imageSize`、`imageN`、`preprocessSteps` | 根据原图比例选择固定尺寸；数量固定 1，预处理固定空数组 |
+| `promptTemplate` | 带默认值占位符的模板内容；属于草稿业务输出，不包含内部编译 Prompt |
+| `inputSchema` | version 2，1–4 个可选编辑槽位，每槽支持文字和三个推荐值；身份替换还支持私有图片输入 |
+| `runtimeSemantics` | version 2，明确目标、输入绑定、身份替换策略、服装归属和视觉约束 |
+| `metadata.tags` | 5–8 个发现标签，包含至少一个正式大类 |
+
+Process 最长 480 秒，成功前进行 Schema 与语义校验，先生成分析和草稿，再独立看图复核并返回必要字段补丁，程序合并后统一校验。正常两次视觉模型调用；仅首轮 JSON 或候选结构无法读取时允许一次重新编译，最多三次，之后仍须独立复核。复核或补丁未通过校验则失败，不自动追加模型请求。不向调用方返回内部 analysis、review、图片字节、模型或 Skill 配置。不生成成品、不入库、不发布。JSON 结构正确不代表视觉理解已经人工确认。
+
+已完成响应中的 JSON 语法错误与合同错误共用这一次修正预算。模型输入合同与服务端校验均将标题和描述限制为 20 字；单个多余末尾闭括号或 Markdown 包裹可被去除，但不补造草稿字段，且仍需完整校验。
+
+错误沿用统一错误壳：非法输入为 `INVALID_INPUT`；图片获取或解码失败为 `DEPENDENCY_FAILURE`；模型不支持视觉、执行失败或两次候选校验失败为 `AGENT_FAILURE`；超时返回 `PROCESS_TIMEOUT`；取消沿用共享 Runner 的 `INTERNAL_ERROR`，已断开的客户端可能收不到响应。同步调用无调用方幂等保证，网络失败不自动重试；图像下载失败不会调用模型。鉴权沿用部署平台策略。
+
+执行异常的提示区分编译、修正与复核阶段，并按可识别原因显示连接中断、限流、鉴权、超时或空响应；无法识别时只报告执行异常，不推定模型配置错误。调用方按错误码处理，不解析提示文案；原始异常、供应商地址和凭据不会返回。
 
 ## 内部新闻图片评测
 

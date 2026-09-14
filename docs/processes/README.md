@@ -7,7 +7,7 @@
 | 场景 | 何时读取 | 当前 Process |
 | --- | --- | --- |
 | [`memene/`](memene/) | 修改 Memene 的新闻图片能力 | 3 个新闻图片 Process |
-| [`memebuy/`](memebuy/) | 修改 Memebuy 独有的业务能力 | 暂无已登记 Process |
+| [`memebuy/`](memebuy/) | 修改 Memebuy 独有的业务能力 | 图片转可编辑模板 Process |
 | [`common/`](common/) | 修改跨产品复用或契约与产品无关的能力 | 文本处理、海报、CRT 图片和组合任务 Process |
 
 先确定调用产品。一个 Process 只放在一个场景目录中；多个产品调用同一准确版本时，把文档放入 `common/`，各产品场景只记录采用关系和产品限制。

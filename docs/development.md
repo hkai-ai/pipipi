@@ -427,3 +427,7 @@ npm run check:deployment-env -- api
 照片 URL 和用户文字均不交给文本 Agent；URL 只用于图片编辑，文字由 Registration 追加为待印刷内容。不能把新增风格做成请求可选 Skill 路径。验证入口见 [实验](experiments.md#照片海报业务验收)。
 
 照片海报的原图只作参考输入。正式成品为完整风格化画布，禁止把验收用原图对照拼进产品输出；对应约束已写入 AGENTS.md。
+
+图片转模板保留完整来源业务规则，内部执行“生成分析与草稿 → 独立看图复核并返回必要补丁 → 程序投影与完整校验”。正常两次模型调用；仅首轮 JSON 或候选结构无法读取时允许一次重新编译，最多三次，不追加模型复核。公开 Gallery v2 草稿合同保持不变。实现与边界见 [图片转模板](processes/memebuy/template-from-image/README.md)。
+
+模板可用服务端启动变量 `TEMPLATE_MODEL` 独立覆盖 `PI_MODEL`；沿用共享供应商与凭证，不改变其他 Process 的模型。

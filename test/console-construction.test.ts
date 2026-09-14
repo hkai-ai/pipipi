@@ -136,6 +136,7 @@ describe("operator console construction", () => {
             "content-optimization",
             "crayon-photo-poster-prompt",
             "dopamine-photo-poster-prompt",
+            "meme-template-json-compiler",
             "minimal-zine-poster-prompt",
             "mono-color-photo-poster-prompt",
             "monochrome-photo-poster-prompt",

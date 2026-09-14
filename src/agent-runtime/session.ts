@@ -32,6 +32,7 @@ export type PiSessionOptions = Readonly<{
     model?: string;
     openAIBaseUrl?: string;
     openAIApiMode?: OpenAIApiMode;
+    thinkingLevel?: "off" | "minimal" | "low" | "medium" | "high";
     modelRuntime?: ModelRuntime;
     sessionFactory?: PiSessionFactory;
 }>;
@@ -58,6 +59,7 @@ export class PiSessionSupport {
     readonly #openAIBaseUrl: string | undefined;
     readonly #openAIApiMode: OpenAIApiMode;
     readonly #models: ModelRuntime | undefined;
+    readonly #thinkingLevel: PiSessionOptions["thinkingLevel"];
     readonly #sessionFactory: PiSessionFactory;
     #modelsPromise: Promise<ModelRuntime> | undefined;
 
@@ -104,6 +106,7 @@ export class PiSessionSupport {
             );
         }
         this.#models = options.modelRuntime;
+        this.#thinkingLevel = options.thinkingLevel;
         this.#sessionFactory = options.sessionFactory ?? createAgentSession;
     }
 
@@ -142,9 +145,11 @@ export class PiSessionSupport {
             agentDir: this.#agentDir,
             modelRuntime: models,
             ...(selectedModel ? { model: selectedModel } : {}),
-            ...(selectedModel?.api === "openai-completions"
-                ? { thinkingLevel: "off" as const }
-                : {}),
+            ...(this.#thinkingLevel
+                ? { thinkingLevel: this.#thinkingLevel }
+                : selectedModel?.api === "openai-completions"
+                  ? { thinkingLevel: "off" as const }
+                  : {}),
             resourceLoader,
             sessionManager: SessionManager.inMemory(this.#cwd),
             ...toolSurface,

@@ -1,17 +1,4 @@
-/**
- * 海报、CRT 与新闻图片共用的无 Tool Structured Agent Session。
- *
- * 这三条流程都只需要「把 prompt 发给模型，拿回一段 JSON」，不需要模型读写文件、
- * 执行命令或调用任何工具。`PiStructuredAgent` 在共享的 `PiSessionSupport` 之上
- * 固定这件事：
- *
- * - 无 Tool：创建 Pi Session 时关掉全部工具（`noTools: "all"`，工具列表清空），
- *   模型只能输出文本，不会产生工具调用回合，因此单轮就能结束。
- * - Structured：约定模型的回答是 JSON，`run()` 返回前用 `parseAgentJson` 从消息里
- *   解析出结构化结果；各调用方再按自己的 Schema 校验 `output`。
- * - Request-local：每次 `run()` 都新建一个 in-memory Session，结束后释放；传入的
- *   `AbortSignal` 会直接中止该 Session。
- */
+/** 为文本或受控图片附件创建请求级无 Tool Session，并解析模型的 JSON 结果。 */
 import { parseAgentJson } from "./pi.js";
 import {
     type PiSessionFactory,
@@ -22,11 +9,13 @@ import {
 
 export type PiStructuredAgentSessionFactory = PiSessionFactory;
 
-export type PiStructuredAgentOptions = PiSessionOptions;
+export type PiStructuredAgentOptions = PiSessionOptions &
+    Readonly<{ jsonMode?: boolean }>;
 
 export type StructuredAgentRequest = Readonly<{
     prompt: string;
     signal: AbortSignal;
+    images?: readonly Readonly<{ data: string; mimeType: "image/png" }>[];
 }>;
 
 export type StructuredAgentResult = Readonly<{
@@ -37,9 +26,11 @@ export type StructuredAgentResult = Readonly<{
 /** Runs one request-local, no-Tool Pi session and returns its parsed JSON. */
 export class PiStructuredAgent {
     readonly #support: PiSessionSupport;
+    readonly #jsonMode: boolean;
 
     constructor(options: PiStructuredAgentOptions) {
         this.#support = new PiSessionSupport(options);
+        this.#jsonMode = options.jsonMode ?? false;
     }
 
     async run(request: StructuredAgentRequest): Promise<StructuredAgentResult> {
@@ -53,7 +44,36 @@ export class PiStructuredAgent {
             tools: [],
         });
         return withAbortableSession(session, request.signal, async () => {
-            await session.prompt(request.prompt);
+            if (this.#jsonMode && session.model?.api === "openai-completions") {
+                const previous = session.agent.onPayload;
+                session.agent.onPayload = async (payload, model) => {
+                    const next = (await previous?.(payload, model)) ?? payload;
+                    if (
+                        !next ||
+                        typeof next !== "object" ||
+                        Array.isArray(next)
+                    )
+                        throw new Error("JSON 请求载荷必须为对象");
+                    return {
+                        ...next,
+                        response_format: { type: "json_object" },
+                    };
+                };
+            }
+            if (request.images?.length) {
+                if (!session.model?.input.includes("image")) {
+                    throw new Error("当前模型不支持图片输入");
+                }
+                await session.prompt(request.prompt, {
+                    images: request.images.map((image) => ({
+                        type: "image",
+                        ...image,
+                    })),
+                    expandPromptTemplates: false,
+                });
+            } else {
+                await session.prompt(request.prompt);
+            }
             return Object.freeze({
                 output: parseAgentJson(session.messages),
                 ...(session.model?.id ? { modelId: session.model.id } : {}),

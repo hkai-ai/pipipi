@@ -169,7 +169,7 @@ Activity Log 只允许 `runId`、Process identity、Attempt、固定 activity、
 ## Composition 与依赖
 
 [`constructProcessingService`](../src/app/api.ts) 拥有 API 的生产 Composition Root。
-它先校验通用配置，创建 Pino Process Run Log Adapter，再组装 catalog 中启用的精确 Registration（十三个常开项，以及默认关闭的 `composed-task/v1`）。`CONTENT_PROCESSING_MODE` 只在文本流程中
+它先校验通用配置，创建 Pino Process Run Log Adapter，再组装 catalog 中启用的精确 Registration（十四个常开项，以及默认关闭的 `composed-task/v1`）。`CONTENT_PROCESSING_MODE` 只在文本流程中
 选择 `direct` 或 `agent`；海报、CRT 与新闻图片流程始终构造无 Tool Agent，并复用 Structured Agent Session Module；`composed-task/v1` 构造只挂 Process Tool 的 Planner Agent，复用 Tool-bearing Structured Agent Session。共享的 provider/model 与 OpenAI API
 mode 在启动时成组校验；Installed Skill Catalog 在监听端口前读取本地 `SKILL.md`，校验准确名称、版本和 SHA-256。模型与远程 Business Capability 仍保持惰性，不影响 liveness。配置或本地 Skill 错误会在
 Application 监听端口前抛出。
@@ -300,3 +300,9 @@ Interface 提供足够 Depth。
 ## 照片海报 Registration
 
 六个准确风格共用 Photo Poster Module，Registration 绑定单个固定 Skill 与图片 Capability。无 Tool Agent 编译通用图像规则，不接收照片、URL 或产品文字；图片模型负责观察原图。用户文字由代码原样追加。图片服务复用持久化 claim/complete 幂等记录，请求摘要含固定 style、Prompt 和原图引用，磁盘只保留摘要与输出。已派发的失败或不确定状态返回付费后失败，禁止自动重试。全部风格使用 URL 直传参考图，只交付 1200×1600 独立风格化作品；旅行抽象仅追加档案字样，不拼接原图。图案质量由独立视觉验收确认。
+
+## 图片转模板的视觉输入
+
+`template-from-image/v1` 复用 Structured Agent 的无 Tool Session，通过受控图片下载与解码提供真实 PNG 附件。固定 Gallery Schema 与语义规则在服务端验证，Agent 不能选择服务器字段或写入模板库；最多一次候选修正不改变 Registration 的单次 Attempt 策略。过程和测试见 [图片转模板](processes/memebuy/template-from-image/README.md)。
+
+图片转模板保留完整来源业务规则，内部执行“生成分析与草稿 → 独立看图复核并返回必要补丁 → 程序投影与完整校验”。正常两次模型调用；仅首轮 JSON 或候选结构无法读取时允许一次重新编译，最多三次，不追加模型复核。公开 Gallery v2 草稿合同保持不变。实现与边界见 [图片转模板](processes/memebuy/template-from-image/README.md)。

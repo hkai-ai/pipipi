@@ -1,13 +1,14 @@
-﻿# Business Processing Service
+# Business Processing Service
 
 一个轻量的版本化业务处理服务。产品调用方只提交 Business Process、准确版本和业务输入；服务端用代码绑定 Schema、业务行为、获准依赖和稳定策略。流程内部可以使用本地逻辑、远程 Business Capability 或受限 Agent，产品契约不随实现方式变化。
 
 ## 当前能力
 
-生产 catalog 登记十四个 Business Process，其中 `composed-task/v1` 默认关闭。文档先按产品场景分组，运行时仍通过统一的 Process identity 和 HTTP Interface 执行：
+生产 catalog 登记十五个 Business Process，其中 `composed-task/v1` 默认关闭。文档先按产品场景分组，运行时仍通过统一的 Process identity 和 HTTP Interface 执行：
 
 | 场景 | Process | 输入 | 输出 |
 | --- | --- | --- | --- |
+| `memebuy` | `template-from-image/v1` | `{ imageUrl, note? }` | `{ template }`，Gallery v2 草稿 |
 | `common` | `content-processing/v1` | `{ "content": string }` | `{ "content": string }` |
 | `common` | `titled-content-processing/v1` | `{ "title": string, "body": string }` | `{ "title": string, "content": string }` |
 | `common` | `minimal-zine-poster/v1` | `{ "brief": string, "text"?: string }` | `{ "prompt", "recipe", "interpretation", "image" }` |
@@ -23,7 +24,7 @@
 | `common` | [`monochrome-photo-poster/v1`](docs/processes/common/monochrome-photo-poster/README.md) | 公网参考图与可选文案 | `{ style, image }` |
 | `common` | [`woodcut-photo-poster/v1`](docs/processes/common/woodcut-photo-poster/README.md) | 公网参考图与可选文案 | `{ style, image }` |
 
-Memebuy 已建立独立文档边界，但当前没有明确归属的 production Process。场景入口和归属规则见 [`docs/processes/README.md`](docs/processes/README.md)。
+Memebuy 场景已登记 `template-from-image/v1`，可在 Pipipi 独立编译图片模板草稿；Memebuy 改由模板素材箱的提取 Worker 接入，候选需人工确认后保存草稿，部署与真实页面验收另行完成。Pipipi 独立测试与 JSON 下载保留。场景入口和归属规则见 [`docs/processes/README.md`](docs/processes/README.md)。
 
 `composed-task/v1` 由 `COMPOSED_TASK_ENABLED=true` 开启：一个 Planner Agent 在服务端预算内组合固定 allow-list 中的七个 Process（不含照片海报），每一步仍走对应 Process 自己的校验与治理，调用方只提交目标与素材。
 
@@ -43,7 +44,7 @@ Memebuy 已建立独立文档边界，但当前没有明确归属的 production 
 | --- | --- | --- |
 | [`common`](docs/processes/common/) | 文本处理、海报与 CRT 图片 | [`src/processes/`](src/processes) |
 | [`memene`](docs/processes/memene/) | 三个新闻图片 Process | [`src/processes/news-image/registration.ts`](src/processes/news-image/registration.ts) |
-| [`memebuy`](docs/processes/memebuy/) | 暂无已登记 Process | — |
+| [`memebuy`](docs/processes/memebuy/) | 图片转可编辑模板 | [`src/processes/template-from-image/registration.ts`](src/processes/template-from-image/registration.ts) |
 
 总目录和新 Process 的放置规则见 [`docs/processes/README.md`](docs/processes/README.md)。production catalog 的准确清单由 [`src/processes/catalog.ts`](src/processes/catalog.ts) 和 [`src/app/business-processes.ts`](src/app/business-processes.ts) 决定。
 
@@ -176,3 +177,7 @@ curl http://127.0.0.1:4300/healthz
 Mono Color 支持同一 `v1` 下的五个可编辑预设，供 Memebuy 的五个固定预设 C 类模板调用。每种版式明确标题用色、分行与穿插关系，默认干净近白纸底和细网点，保留参考主体与动作；未提供新参数的调用保持原行为。字段见 [Mono Color API](docs/api.md#mono-color-可编辑预设)。
 
 新增六个准确 v1：多巴胺、双色油墨、旅行抽象、彩色蜡笔、黑白蜡笔、木刻。一次请求处理一张公网 HTTPS 照片，返回持久化 PNG 引用；调用方式见 [照片海报 API](docs/api.md#照片海报)，来源与适配见 [通用 Process](docs/processes/common/)。六项均只返回完整风格化成品，不附原图或上下对照；旅行抽象仅由代码补充档案字样。本批尚未部署。
+
+图片转模板的 `promptTemplate` 是用户可编辑的草稿业务内容，可以随正式结果返回；内部编译指令、复核证据和模型配置仍不返回。
+
+图片转模板保留完整来源业务规则，槽位取舍直接复用来源原文并复核未入选候选，重复事实由服务端引用投影，内部执行“生成分析与草稿 → 独立看图复核并返回必要补丁 → 程序投影与完整校验”。正常两次模型调用，仅首轮 JSON 或候选结构无法读取时允许一次重新编译，最多三次；独立复核不重写完整候选，也不默认追加模型复核，模型分析与复核采用固定顺序的紧凑行，程序无损展开后执行原校验；证据短写，判断项不减少。公开 Gallery v2 草稿合同保持不变；执行失败区分编译、独立复核和本地校验阶段，仅返回安全归类提示。实现与边界见 [图片转模板](docs/processes/memebuy/template-from-image/README.md)。
