@@ -1099,7 +1099,7 @@ integrationDescribe("BullMQ Process Runtime", () => {
                 PROCESS_RUN_RECORD_STORE: "postgres",
                 PROCESS_RUN_RECORD_CONTENT: "omit",
                 PROCESS_TIMEOUT_MS: "2000",
-                PROCESS_RUN_CLAIM_LEASE_MS: "5000",
+                // 租约沿用 Worker 按完整目录计算的默认值，覆盖各流程独立时限。
                 ASYNC_POSTGRES_CONNECTION_TIMEOUT_MS: "500",
                 ASYNC_REDIS_CONNECTION_TIMEOUT_MS: "500",
                 RUNTIME_ROLE_READINESS_TIMEOUT_MS: "1000",

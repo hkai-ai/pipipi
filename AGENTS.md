@@ -37,6 +37,7 @@
 - `POST /internal/eval/execute` 只用于受控内部新闻图片评测，由 `INTERNAL_EVAL_ENABLED` 挂载。它必须复用同一次 Process 执行，只在响应中投影实际 Prompt、模型和非敏感图片参数；不得把这些内容写入正式输出、日志或 Run Record。该入口不实现独立鉴权，鉴权与 `/execute` 一并后续统一处理。
 - 面向产品调用方的全部业务 HTTP Interface 统一维护在 `docs/api.md`；健康检查等运维 Interface 留在 Runbook，Process 专题文档只保留业务行为与实现说明。
 - 默认运行 `npm run check`、`npm run typecheck`、`npm test` 和 `npm run build`。需要网络、凭证、费用或外部写入的 smoke 必须单独说明，不把它混入确定性验证。
+- 新增 Process 启动变量时，同步异步环境预检的 API/Worker 允许清单与生成脚本的 `agent_keys`；新增独立执行时限时，验证完整生产目录的 Worker 构造，集成测试默认使用 Worker 按目录计算的租约。
 - 文档以中文为主，遵循 `docs/README.md` 的分类、事实来源和写作规范。
 
 ## CRT 图片输入
