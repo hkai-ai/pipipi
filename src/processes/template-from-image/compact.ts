@@ -146,7 +146,7 @@ export function templateInspectionResponseSchema(plan: object, digest: string) {
         (path) =>
             compactCheckSchema.shape.evidence.element.shape.path.safeParse(path)
                 .success &&
-            !/\/(targetScopes|backendFactRefs|relationIndex|runtimeFactRef)(\/|$)/.test(
+            !/\/(targetScopes|backendFactRefs|relationIndex|runtimeFactRef|layoutRefs)(\/|$)/.test(
                 path,
             ),
     );

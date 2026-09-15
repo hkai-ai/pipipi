@@ -22,6 +22,7 @@ const fields = new Set(
     visuallyVisible modelControllable mechanismPreserved
     slotEvidence slotCoverageReview tagEvidence targetScopes substitutions
     featureAuthority owner basis evidence runtimeFactRef
+    textRegions layout layoutRefs lineShape baseline glyphStyle spacing alignment placement
     visualEvidence searchIntent category
     subjectIdentity species bodyForm pose expression clothing accessories color material
     key title description promptTemplate inputSchema version slots type text image

@@ -5,6 +5,19 @@ export function templateRepairContext(value: unknown) {
     const { draft, analysis } = readTemplatePlan(value);
     const visual = draft.runtimeSemantics.visualContract;
     return {
+        unresolvedTextLayouts: analysis.textRegions.flatMap((region, index) =>
+            Object.entries(region.layoutRefs ?? {}).flatMap(([axis, ref]) =>
+                visual[ref.field][ref.index] === undefined
+                    ? [
+                          {
+                              path: `/analysis/textRegions/${index}/layoutRefs/${axis}`,
+                              targetPath: `/draft/runtimeSemantics/visualContract/${ref.field}/${ref.index}`,
+                              actual: visual[ref.field],
+                          },
+                      ]
+                    : [],
+            ),
+        ),
         unresolvedRelations: analysis.spatialRelations.flatMap(
             (relation, index) =>
                 visual.relations[relation.relationIndex] === undefined

@@ -1,4 +1,4 @@
-/** 校验图片分析到正式草稿的对应关系，并验证最终候选的自复核摘要与字段证据。 */
+/** 校验图片分析到正式草稿的对应关系，并验证独立复核的摘要与字段证据。 */
 import { createHash } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
 import { z } from "zod";
@@ -138,6 +138,16 @@ export const templateAnalysisSchema = z.strictObject({
                 componentId: z.string().min(1),
                 semanticUnitId: z.string().min(1),
                 exactText: fact,
+                layout: z
+                    .strictObject({
+                        lineShape: fact,
+                        baseline: fact,
+                        glyphStyle: fact,
+                        spacing: fact,
+                        alignment: fact,
+                        placement: fact,
+                    })
+                    .nullable(),
                 action: z.enum([
                     "open_slot",
                     "free_editable",
@@ -688,6 +698,26 @@ export function analysisIssues({
         "文字区域 ID 不能重复",
     );
     for (const region of a.textRegions) {
+        const retained =
+            region.action !== "remove" && region.action !== "review";
+        check(
+            retained ? region.layout !== null : region.layout === null,
+            `${region.id}: 保留文字须记录排版，删除或待辨识文字不得虚构排版约束`,
+        );
+        if (region.layout) {
+            const facts = [
+                ...draft.runtimeSemantics.visualContract.styleTraits,
+                ...draft.runtimeSemantics.visualContract.composition,
+                ...draft.runtimeSemantics.visualContract.relations,
+                ...draft.runtimeSemantics.visualContract.colorAndLight,
+            ];
+            check(
+                Object.values(region.layout).every((fact) =>
+                    facts.includes(fact),
+                ),
+                `${region.id}: 文字排版必须准确对应正式视觉约束`,
+            );
+        }
         check(
             componentIds.includes(region.componentId),
             `${region.id}: 文字区域引用未知组件`,
@@ -747,6 +777,25 @@ export function reviewIssues(
     if (review.issues.length)
         issues.push(...review.issues.map((issue) => `review.issues: ${issue}`));
     const observations = new Set<string>();
+    if (
+        candidate.analysis.textRegions.some((region) => region.layout !== null)
+    ) {
+        const evidence = review.checks.textEditLayersComplete.evidence;
+        for (const path of [
+            "/analysis/textRegions",
+            "/draft/runtimeSemantics/visualContract",
+        ]) {
+            if (
+                !evidence.some(
+                    (item) =>
+                        item.path === path || item.path.startsWith(`${path}/`),
+                )
+            )
+                issues.push(
+                    `review.textEditLayersComplete: 缺少 ${path} 的独立文字排版观察`,
+                );
+        }
+    }
     for (const name of reviewChecks) {
         const item = review.checks[name];
         if (!item.passed) issues.push(`review.${name} 未通过`);

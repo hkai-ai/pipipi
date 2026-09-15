@@ -55,8 +55,25 @@ export const templatePlanAnalysisSchema = templateAnalysisSchema
         spatialRelations: true,
         slotEvidence: true,
         componentGraph: true,
+        textRegions: true,
     })
     .extend({
+        textRegions: z
+            .array(
+                shape.textRegions.element.omit({ layout: true }).extend({
+                    layoutRefs: z
+                        .strictObject({
+                            lineShape: visualRef,
+                            baseline: visualRef,
+                            glyphStyle: visualRef,
+                            spacing: visualRef,
+                            alignment: visualRef,
+                            placement: visualRef,
+                        })
+                        .nullable(),
+                }),
+            )
+            .max(64),
         templateValue: shape.templateValue
             .omit({ backendOnlyFacts: true })
             .extend({ backendFactRefs: z.array(visualRef).min(1).max(64) }),
@@ -156,6 +173,23 @@ export function materializeTemplatePlan(value: unknown): TemplateCandidate {
     }
     const analysis = {
         ...sourceAnalysis,
+        textRegions: sourceAnalysis.textRegions.map(
+            ({ layoutRefs, ...region }, index) => ({
+                ...region,
+                layout:
+                    layoutRefs === null
+                        ? null
+                        : Object.fromEntries(
+                              Object.entries(layoutRefs).map(([axis, ref]) => [
+                                  axis,
+                                  resolve(
+                                      ref,
+                                      `/analysis/textRegions/${index}/layoutRefs/${axis}`,
+                                  ),
+                              ]),
+                          ),
+            }),
+        ),
         componentGraph: sourceAnalysis.componentGraph.map((component) => ({
             ...component,
             targetIds: targetIds.filter((id) =>
@@ -289,6 +323,18 @@ export function toTemplatePlan(candidate: TemplateCandidate) {
         draft,
         analysis: {
             ...rest,
+            textRegions: rest.textRegions.map(({ layout, ...region }) => ({
+                ...region,
+                layoutRefs:
+                    layout === null
+                        ? null
+                        : Object.fromEntries(
+                              Object.entries(layout).map(([axis, fact]) => [
+                                  axis,
+                                  reference(fact),
+                              ]),
+                          ),
+            })),
             componentGraph: rest.componentGraph.map(
                 ({ targetIds: _targets, ...component }) => component,
             ),

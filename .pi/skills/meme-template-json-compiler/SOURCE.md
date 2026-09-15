@@ -8,13 +8,15 @@
 
 ## Runtime 边界
 
-复核 Adapter 在模型请求中启用严格 JSON Schema，固定本次摘要、现有补丁路径及保留字段的证据路径；补丁传输为 `{path,valueJson}`，解码后仍使用原 `{path,value}` 与完整校验。不依赖引用投影的既有检查提前聚合，避免单个引用错误掩盖其他问题。不修改下述 v1.7 Skill 字节或来源业务文档，不新增模型调用或放宽业务门禁。
+v1.8 恢复 approved-image-analysis 中 textRegions 必须记录的排版信息：整行形态、基线、字形、间距、对齐层级与位置分别引用正式 visualContract，程序投影为 layout。保留或可编辑文字不可省略；删除或未解决文字为 null。独立 textEditLayersComplete 同时核对文字区域及正式约束，比较行起端、中段、末端的位置后判断基线；不能把横向阅读当作基线水平，也不能把单字歪斜当作整行弧度，不从前序方案推测成图。新增字段仅属内部计划，公开 Gallery Schema 与两轮调用预算不变；结构对应不等于视觉正确。
+
+复核 Adapter 在模型请求中启用严格 JSON Schema，固定本次摘要、现有补丁路径及保留字段的证据路径；补丁传输为 `{path,valueJson}`，解码后仍使用原 `{path,value}` 与完整校验。不依赖引用投影的既有检查提前聚合，避免单个引用错误掩盖其他问题。不修改来源业务文档，不新增模型调用或放宽业务门禁。
 
 v1.7 保留组件、空间关系、覆盖审查、六门禁、推荐项与标签的紧凑行；将易错的特征权限恢复为 {owner,basis,evidence,runtimeFactRef} 具名对象，owner 对应来源 authority，复核报告改为 {passed,evidence:[{path,observation}]}。仅 replace_identity 槽位要求完整九轴，其他槽位明确为 null。证据按来源要求非空且具体，取消适配层额外的四字符下限，模型证据仍最多 96 字符；正式 visualContract 不受此上限约束。编译、复核输入及补丁共用同一套权限字段，不自动填充判断或证据。
 
 修正上下文直接读取引用计划，即使关系或特征事实引用失效也保留其他槽位约束，避免把计划误按完整候选解析后丢弃上下文。仍使用独立复核、输入摘要、有界补丁和最终完整校验，调用预算及公开 Gallery 合同不变。
 
-当前 Runtime Skill 为 `v1.7`：开发期完整嵌入原目录的 product-model、approved-image-analysis、slot-decision-cases、authoring-fields、tags、visual-contract、gallery-v2、返修与读回校验八份业务文档，不再用约 3300 字符摘要替代。仅换行统一为 LF，规则正文保留原文。原始 SKILL.md 的阶段顺序由 Runtime 入口说明和代码编排承接。
+当前 Runtime Skill 为 `v1.8`：开发期完整嵌入原目录的 product-model、approved-image-analysis、slot-decision-cases、authoring-fields、tags、visual-contract、gallery-v2、返修与读回校验八份业务文档，不再用约 3300 字符摘要替代。仅换行统一为 LF，规则正文保留原文。原始 SKILL.md 的阶段顺序由 Runtime 入口说明和代码编排承接。
 
 沿用 v1.3 的内部引用计划：正式 visualContract 是唯一事实文本来源，空间关系用 relationIndex，后端事实和特征执行规则用 {field,index} 引用已有条目。服务端生成 semanticModel、mediumComposition、backendOnlyFacts、runtimeFact、slotEvidence.defaultValue 和 substitutions.prompt，再执行既有完整候选校验与独立复核报告校验。槽位选择、事实本身、特征权限、推荐项语义证据仍由模型判断，不能用引用有效冒充图像正确。补丁修改计划后重新投影；引用错误定位具体字段并计入原有一次修正预算，不拼接冲突句子。修正上下文单独列出缺失关系与槽位特征约束，仅传给模型，不写入日志或产品响应。
 

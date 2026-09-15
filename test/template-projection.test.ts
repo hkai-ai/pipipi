@@ -4,11 +4,87 @@ import {
     materializeTemplatePlan,
     toTemplatePlan,
 } from "../src/processes/template-from-image/projection.js";
-import { analysisIssues } from "../src/processes/template-from-image/quality.js";
+import {
+    analysisIssues,
+    reviewIssues,
+} from "../src/processes/template-from-image/quality.js";
 import { templateRepairContext } from "../src/processes/template-from-image/repair-context.js";
-import { candidate } from "./fixtures/template-candidate.js";
+import { candidate, reviewFor } from "./fixtures/template-candidate.js";
 
 describe("模板事实投影", () => {
+    it.each([
+        "主标题中间高两端低，基线呈浅拱形",
+        "副标题保持水平直线",
+        "文字自上而下竖排",
+    ])("文字排版从正式事实投影：%s", (geometry) => {
+        const plan = toTemplatePlan(candidate());
+        plan.draft.runtimeSemantics.visualContract.composition.push(geometry);
+        const ref = {
+            field: "composition",
+            index:
+                plan.draft.runtimeSemantics.visualContract.composition.length -
+                1,
+        };
+        const region = {
+            id: "caption",
+            componentId: "pet",
+            semanticUnitId: "caption",
+            exactText: "你好",
+            action: "preserve",
+            slotId: null,
+            evidence: "画面中可见文字",
+            layoutRefs: Object.fromEntries(
+                [
+                    "lineShape",
+                    "baseline",
+                    "glyphStyle",
+                    "spacing",
+                    "alignment",
+                    "placement",
+                ].map((axis) => [axis, ref]),
+            ),
+        };
+        const input = {
+            ...plan,
+            analysis: { ...plan.analysis, textRegions: [region] },
+        };
+        const result = materializeTemplatePlan(input);
+        expect(result.analysis.textRegions[0]).toMatchObject({
+            layout: { baseline: geometry, lineShape: geometry },
+        });
+        expect(toTemplatePlan(result)).toEqual(input);
+        const review = reviewFor(result);
+        expect(reviewIssues(result, review).join()).toContain(
+            "独立文字排版观察",
+        );
+        review.checks.textEditLayersComplete.evidence = [
+            { path: "/analysis/textRegions", observation: "逐区核对文字排版" },
+            {
+                path: "/draft/runtimeSemantics/visualContract/composition",
+                observation: geometry,
+            },
+        ];
+        expect(reviewIssues(result, review)).toEqual([]);
+        const missing = structuredClone(result);
+        missing.analysis.textRegions[0].layout = null;
+        expect(analysisIssues(missing).join()).toContain("保留文字须记录排版");
+        missing.analysis.textRegions[0].action = "remove";
+        expect(analysisIssues(missing).join()).not.toContain("排版");
+        region.layoutRefs.baseline = { field: "composition", index: 63 };
+        expect(() => materializeTemplatePlan(input)).toThrow(
+            /textRegions\/0\/layoutRefs\/baseline/,
+        );
+        expect(
+            templateRepairContext(input).unresolvedTextLayouts[0],
+        ).toMatchObject({
+            path: "/analysis/textRegions/0/layoutRefs/baseline",
+        });
+        const incomplete = structuredClone(input);
+        delete incomplete.analysis.textRegions[0].layoutRefs.spacing;
+        expect(() => materializeTemplatePlan(incomplete)).toThrow(
+            /layoutRefs\/spacing/,
+        );
+    });
     it("目标范围只声明一次，同时生成组件关联和槽位范围", () => {
         const plan = toTemplatePlan(candidate());
         plan.analysis.componentGraph.push({

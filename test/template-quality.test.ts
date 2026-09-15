@@ -138,6 +138,7 @@ describe("模板质量回归", () => {
                     componentId: "pet",
                     semanticUnitId: "caption",
                     exactText: "抱抱我吧",
+                    layout: null,
                     action: "preserve",
                     slotId: null,
                     evidence: "文字在画面底部清晰可见",
