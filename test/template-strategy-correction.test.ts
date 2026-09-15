@@ -3,6 +3,7 @@ import {
     ModelRuntime,
 } from "@earendil-works/pi-coding-agent";
 import { Ajv2020 } from "ajv/dist/2020.js";
+import sharp from "sharp";
 import { expect, it, vi } from "vitest";
 import { createProcessAttemptRunner } from "../src/process-runtime/index.js";
 import { PiTemplateStrategyAgent } from "../src/processes/template-from-source/agent.pi.js";
@@ -118,7 +119,18 @@ it("校验汇总所有冲突，只返回规则和固定字段，不包含候选�
 
 it("真实 Agent 修正请求使用严格字段 Schema、原图和无 Tool 会话", async () => {
     const image = {
-        data: "cG5n",
+        data: (
+            await sharp({
+                create: {
+                    width: 64,
+                    height: 64,
+                    channels: 3,
+                    background: "white",
+                },
+            })
+                .png()
+                .toBuffer()
+        ).toString("base64"),
         mimeType: "image/png" as const,
         width: 1024,
         height: 1024,
@@ -188,6 +200,13 @@ it("真实 Agent 修正请求使用严格字段 Schema、原图和无 Tool 会�
     expect(prompts[0]).toMatchObject({
         input: { images: [{ type: "image", data: image.data }] },
     });
+    const correctionInput = JSON.parse((prompts[0] as { text: string }).text);
+    expect(Object.keys(correctionInput.fieldSchemas)).toEqual(["targetCanvas"]);
+    expect(
+        new Ajv2020().compile(correctionInput.fieldSchemas.targetCanvas)(
+            imageStrategy().targetCanvas,
+        ),
+    ).toBe(true);
     expect(payloads[0]).toMatchObject({
         response_format: { type: "json_schema", json_schema: { strict: true } },
     });
@@ -207,4 +226,72 @@ it("真实 Agent 修正请求使用严格字段 Schema、原图和无 Tool 会�
     expect(
         strategyCorrectionSchema(issues).safeParse({ changes }).success,
     ).toBe(true);
+    await agent.plan(image, new AbortController().signal);
+    const planPayload = payloads[1] as {
+        response_format: {
+            json_schema: { schema: { properties: Record<string, unknown> } };
+        };
+    };
+    expect(
+        planPayload.response_format.json_schema.schema.properties,
+    ).toMatchObject({
+        textActions: {
+            items: {
+                properties: {
+                    layout: { description: expect.stringContaining("原图") },
+                },
+            },
+        },
+        frozenSet: {
+            items: {
+                properties: {
+                    instruction: {
+                        description: expect.stringContaining("可核对事实"),
+                    },
+                },
+            },
+        },
+        visualFeatures: {
+            properties: {
+                visualHook: {
+                    description: expect.stringContaining("具体视觉特征"),
+                },
+            },
+        },
+    });
+    expect(
+        planPayload.response_format.json_schema.schema.properties,
+    ).toMatchObject({
+        textActions: {
+            items: {
+                properties: {
+                    layout: {
+                        type: "object",
+                        properties: {
+                            lineContour: {
+                                description:
+                                    expect.stringContaining("起始、中部、末端"),
+                            },
+                            baseline: {
+                                description: expect.stringContaining("落点"),
+                            },
+                        },
+                    },
+                },
+            },
+        },
+    });
+    const fieldOrder = Object.keys(
+        planPayload.response_format.json_schema.schema.properties,
+    );
+    expect(fieldOrder.indexOf("mechanismAnalysis")).toBeLessThan(
+        fieldOrder.indexOf("replacementTarget"),
+    );
+    expect(fieldOrder.indexOf("visualFeatures")).toBeLessThan(
+        fieldOrder.indexOf("replacementValue"),
+    );
+    expect(prompts[1]).toMatchObject({
+        input: { images: [{ type: "image", data: image.data }] },
+    });
+    expect(dispose).toHaveBeenCalledTimes(2);
 });

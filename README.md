@@ -187,4 +187,4 @@ Mono Color 支持同一 `v1` 下的五个可编辑预设，供 Memebuy 的五个
 
 图片替换方案在原 240 秒预算内允许一次字段补丁修正，完整复验后才交给人工确认；失败阶段和固定规则可诊断。详见 [方案校验与修正](docs/processes/memebuy/template-image-plan/README.md)。
 
-图片预处理以结构化方案生成并固定生图指令，保留两次人工审核；明确拒绝与未知提交分别保存，批准不可复用。旧方案兼容与审核展示见 [模板图片预处理](docs/processes/memebuy/template-from-source/README.md)。
+图片预处理在同一次请求中结合原图总览与有界局部细节，先逐区观察文字几何再决定替换；按原 Producer 的排版、冻结与特征权限生成并固定十二段简洁生图指令，字段修正携带目标 Schema，保留两次人工审核；明确拒绝与未知提交分别保存，批准不可复用。旧方案兼容与审核展示见 [模板图片预处理](docs/processes/memebuy/template-from-source/README.md)。
