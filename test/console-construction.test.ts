@@ -144,6 +144,7 @@ describe("operator console construction", () => {
             "news-image-pale-watercolor-prompt",
             "news-image-raw-humanism-prompt",
             "tait-crt-interface-prompt",
+            "template-image-preparer",
             "travel-abstraction-photo-poster-prompt",
             "woodcut-photo-poster-prompt",
         ]);
