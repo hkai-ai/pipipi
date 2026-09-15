@@ -20,19 +20,19 @@ import {
 import { imageStrategy } from "./fixtures/template-image-strategy.js";
 
 const issues: StrategyIssue[] = [
-    { code: "intentional_imperfections", fields: ["promptSections"] },
+    { code: "canvas_exclusions", fields: ["targetCanvas"] },
 ];
 const changes = [
     {
-        field: "promptSections",
-        valueJson: JSON.stringify(imageStrategy().promptSections),
+        field: "targetCanvas",
+        valueJson: JSON.stringify(imageStrategy().targetCanvas),
     },
 ];
 
 it("修正期间取消请求，即使模型随后返回也不会保存方案", async () => {
     const controller = new AbortController();
     const candidate = imageStrategy();
-    candidate.promptSections.visualFeatures = "缺少缺陷描述";
+    candidate.targetCanvas.excludedScopes = [];
     const savePlan = vi.fn();
     const repair = vi.fn(async () => {
         controller.abort();
@@ -67,7 +67,7 @@ it("修正期间取消请求，即使模型随后返回也不会保存方案", a
 
 it("修正保留所有未涉及字段，拒绝越界、重复字段及错误 JSON", () => {
     const candidate = imageStrategy();
-    candidate.promptSections.visualFeatures = "缺少缺陷描述";
+    candidate.targetCanvas.excludedScopes = [];
     const before = structuredClone(candidate);
     expect(applyStrategyCorrection(candidate, issues, { changes })).toEqual(
         imageStrategy(),
@@ -77,8 +77,8 @@ it("修正保留所有未涉及字段，拒绝越界、重复字段及错误 JSO
         { changes: [{ field: "__proto__", valueJson: "{}" }] },
         { changes: [{ field: "replacementValue", valueJson: '"新的身份"' }] },
         { changes: [...changes, ...changes] },
-        { changes: [{ field: "promptSections", valueJson: "not-json" }] },
-        { changes: [{ field: "promptSections", valueJson: "{}" }] },
+        { changes: [{ field: "targetCanvas", valueJson: "not-json" }] },
+        { changes: [{ field: "targetCanvas", valueJson: "{}" }] },
     ])
         expect(() =>
             applyStrategyCorrection(candidate, issues, patch),
@@ -89,7 +89,7 @@ it("校验汇总所有冲突，只返回规则和固定字段，不包含候选�
     const candidate = imageStrategy();
     candidate.selectedIdentityFingerprint = candidate.sourceIdentityFingerprint;
     candidate.operations[0].targetComponentIds = ["PRIVATE-COMPONENT"];
-    candidate.promptSections.visualFeatures = "PRIVATE-TEXT";
+    candidate.targetCanvas.excludedScopes = [];
     try {
         parseReplacementStrategy(candidate);
         expect.fail("必须拒绝不完整策略");
@@ -99,7 +99,7 @@ it("校验汇总所有冲突，只返回规则和固定字段，不包含候选�
         expect(diagnostic.map((issue) => issue.code)).toEqual([
             "different_identity",
             "operation_coverage",
-            "intentional_imperfections",
+            "canvas_exclusions",
         ]);
         expect(JSON.stringify(diagnostic)).not.toContain("PRIVATE-");
     }

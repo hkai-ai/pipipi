@@ -1,7 +1,4 @@
-import {
-    promptLabels,
-    type ReplacementStrategy,
-} from "../../src/processes/template-from-source/strategy.js";
+import type { ReplacementStrategy } from "../../src/processes/template-from-source/strategy.js";
 export function imageStrategy(): ReplacementStrategy {
     const facts = {
         roleFunction: "被抱住的宠物",
@@ -14,6 +11,7 @@ export function imageStrategy(): ReplacementStrategy {
     return {
         replacementTarget: "中央灰猫",
         replacementValue: "橘白猫",
+        replacementComponentIds: ["body"],
         sourceCategory: "cat",
         selectedCategory: "cat",
         replacementIdentityOrigin: null,
@@ -88,9 +86,14 @@ export function imageStrategy(): ReplacementStrategy {
         targetCanvas: {
             route: "standalone_design",
             targetRegion: "整图",
+            carrierRole: "none",
+            reason: "画面本身为独立手绘设计",
+            excludedScopes: ["carrier", "environment"],
             excludedRegions: [],
         },
-        frozenSet: ["双臂拥抱接触"],
+        frozenSet: [
+            { scope: "design", regionId: "arms", instruction: "双臂拥抱接触" },
+        ],
         mechanismAnalysis: {
             whyInteresting: observation,
             observableHookFeatures: ["环抱"],
@@ -108,14 +111,6 @@ export function imageStrategy(): ReplacementStrategy {
         },
         spatialRelations: ["双手在猫身前方"],
         risks: [],
-        promptSections: Object.fromEntries(
-            Object.keys(promptLabels).map((key) => [
-                key,
-                key === "visualFeatures"
-                    ? "手绘纸面；未观察到有价值的刻意缺陷"
-                    : observation,
-            ]),
-        ) as ReplacementStrategy["promptSections"],
         image_size: "1024x1024",
     };
 }

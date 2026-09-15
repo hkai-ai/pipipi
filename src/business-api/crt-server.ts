@@ -32,6 +32,7 @@ import {
     photoPosterImageSchema,
     photoPosterRenderSchema,
 } from "../processes/photo-poster/capability.js";
+import { TemplateImagePreparationError } from "../processes/template-from-source/capability.js";
 import {
     type CrtEvidencePolicy,
     type CrtEvidenceResult,
@@ -233,9 +234,15 @@ export async function startCrtBusinessApi(
                     controller.signal,
                 );
                 writeJson(response, 200, result);
-            } catch {
+            } catch (error) {
                 writeJson(response, 503, {
-                    error: { code: "TEMPLATE_PRODUCTION_INCOMPLETE" },
+                    error: {
+                        code: "TEMPLATE_PRODUCTION_INCOMPLETE",
+                        reason:
+                            error instanceof TemplateImagePreparationError
+                                ? error.reason
+                                : "incomplete",
+                    },
                 });
             }
             return;

@@ -12,6 +12,7 @@ import {
     imageApprovalSchema,
     preparedTemplateImageSchema,
     productionIdSchema,
+    TemplateImagePreparationError,
 } from "../processes/template-from-source/capability.js";
 import {
     compileReplacementPrompt,
@@ -20,7 +21,10 @@ import {
 } from "../processes/template-from-source/strategy.js";
 import type { ObjectStorageCapability } from "./object-storage.js";
 import { downloadSourcePhoto } from "./source-photo.js";
-import type { TemplateImageRenderer } from "./template-image-fal.js";
+import {
+    type TemplateImageRenderer,
+    TemplateImageSubmissionError,
+} from "./template-image-fal.js";
 
 const hash = (value: string | Buffer) =>
     createHash("sha256").update(value).digest("hex");
@@ -35,15 +39,21 @@ type Plan = z.infer<typeof planSchema> & {
     sourceImageSha256: string;
     strategySha256: string;
     sourceMime: string;
+    execution?: { version: "v2"; prompt: string; promptSha256: string };
 };
 type Attempt = {
     state:
+        | "provider_rejected"
         | "approved"
         | "submission_unknown"
         | "provider_pending"
         | "image_ready";
     approval: z.infer<typeof approvalSchema> & { decidedAt: string };
     requestId?: string;
+    failure?: {
+        type: "provider_rejected" | "submission_unknown";
+        httpStatus?: number;
+    };
 };
 export class TemplateImageProduction {
     constructor(
@@ -117,12 +127,19 @@ export class TemplateImageProduction {
             throw new Error("分析后源图已变化，请重新规划");
         const metadata = await sharp(bytes).metadata();
         const sourceImageSha256 = hash(bytes);
+        const prompt = compileReplacementPrompt(strategy);
+        const execution = {
+            version: "v2" as const,
+            prompt,
+            promptSha256: hash(prompt),
+        };
         const strategySha256 = hash(
             JSON.stringify({
                 strategy,
                 sourceImageSha256,
                 ruleVersion: "image-producer-a52c876",
-                revision: 1,
+                revision: 2,
+                execution,
             }),
         );
         const plan: Plan = {
@@ -130,6 +147,7 @@ export class TemplateImageProduction {
             strategy,
             sourceImageSha256,
             strategySha256,
+            execution,
             sourceMime:
                 "image/" +
                 (metadata.format === "jpeg" ? "jpeg" : metadata.format),
@@ -149,6 +167,7 @@ export class TemplateImageProduction {
             strategySha256,
             sourceImageSha256,
             strategy,
+            execution,
         };
     }
     private async render(
@@ -167,6 +186,11 @@ export class TemplateImageProduction {
             if (!this.options.storage)
                 throw new Error("未配置模板公读对象存储，禁止提交生图");
             let attempt = await this.optional<Attempt>(id, "attempt.json");
+            if ((!attempt || attempt.state === "approved") && !plan.execution)
+                throw new TemplateImagePreparationError(
+                    false,
+                    "reapproval_required",
+                );
             if (!attempt) {
                 attempt = {
                     state: "approved",
@@ -175,8 +199,34 @@ export class TemplateImageProduction {
                 await this.save(id, "attempt.json", attempt);
             }
             if (attempt.state === "submission_unknown")
-                throw new Error("提交结果未知，必须核对供应商记录");
+                throw new TemplateImagePreparationError(
+                    true,
+                    "submission_unknown",
+                );
+            if (attempt.state === "provider_rejected")
+                throw new TemplateImagePreparationError(
+                    true,
+                    "provider_rejected",
+                );
             if (attempt.state === "approved") {
+                const execution = plan.execution;
+                if (
+                    execution?.version !== "v2" ||
+                    hash(execution.prompt) !== execution.promptSha256 ||
+                    hash(
+                        JSON.stringify({
+                            strategy: plan.strategy,
+                            sourceImageSha256: plan.sourceImageSha256,
+                            ruleVersion: "image-producer-a52c876",
+                            revision: 2,
+                            execution,
+                        }),
+                    ) !== plan.strategySha256
+                )
+                    throw new TemplateImagePreparationError(
+                        false,
+                        "reapproval_required",
+                    );
                 const source = await readFile(this.path(id, "source"));
                 if (hash(source) !== plan.sourceImageSha256)
                     throw new Error("源图摘要不匹配");
@@ -188,14 +238,33 @@ export class TemplateImageProduction {
                 signal.throwIfAborted();
                 attempt.state = "submission_unknown";
                 await this.save(id, "attempt.json", attempt);
-                const requestId = await renderer.submit(
-                    url,
-                    compileReplacementPrompt(
-                        parseReplacementStrategy(plan.strategy),
-                    ),
-                    plan.strategy.image_size,
-                    signal,
-                );
+                let requestId: string;
+                try {
+                    requestId = await renderer.submit(
+                        url,
+                        execution.prompt,
+                        plan.strategy.image_size,
+                        signal,
+                    );
+                } catch (error) {
+                    const failure =
+                        error instanceof TemplateImageSubmissionError
+                            ? error
+                            : new TemplateImageSubmissionError(
+                                  "submission_unknown",
+                              );
+                    attempt.state = failure.type;
+                    attempt.failure = {
+                        type: failure.type,
+                        ...(failure.httpStatus &&
+                        failure.httpStatus >= 300 &&
+                        failure.httpStatus <= 599
+                            ? { httpStatus: failure.httpStatus }
+                            : {}),
+                    };
+                    await this.save(id, "attempt.json", attempt);
+                    throw new TemplateImagePreparationError(true, failure.type);
+                }
                 attempt = { ...attempt, state: "provider_pending", requestId };
                 await this.save(id, "attempt.json", attempt);
             }

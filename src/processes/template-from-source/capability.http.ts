@@ -2,6 +2,7 @@
 import {
     finalizedTemplateImageSchema,
     type ImageApproval,
+    preparationFailureSchema,
     type StrategyApproval,
     type TemplateImagePreparation,
     TemplateImagePreparationError,
@@ -38,8 +39,18 @@ export class HttpTemplateImagePreparation implements TemplateImagePreparation {
                     ]),
                 },
             );
-            if (!response.ok)
-                throw new TemplateImagePreparationError(path !== "plans");
+            if (!response.ok) {
+                const payload = (await response.json()) as {
+                    error?: { reason?: unknown };
+                };
+                const parsed = preparationFailureSchema.safeParse(
+                    payload.error?.reason,
+                );
+                throw new TemplateImagePreparationError(
+                    path !== "plans",
+                    parsed.success ? parsed.data : "incomplete",
+                );
+            }
             return await response.json();
         } catch (error) {
             if (error instanceof TemplateImagePreparationError) throw error;

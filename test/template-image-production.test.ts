@@ -1,10 +1,11 @@
 import { createHash } from "node:crypto";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import sharp from "sharp";
 import { afterEach, expect, it, vi } from "vitest";
 import { createProcessingApplication } from "../src/api/application.js";
+import { TemplateImageSubmissionError } from "../src/business-api/template-image-fal.js";
 import { TemplateImageProduction } from "../src/business-api/template-image-production.js";
 import {
     createProcessAttemptRunner,
@@ -84,7 +85,9 @@ async function setup(
                 "https://images.example.com/hosted.png",
         ),
         submit: vi.fn(async () => "request-1"),
-        result: vi.fn(async () => generated),
+        result: vi.fn(
+            async (_requestId: string, _signal: AbortSignal) => generated,
+        ),
     };
     const upload = vi.fn(async (input: { objectKey: string }) => ({
         provider: "aliyun-oss",
@@ -318,12 +321,12 @@ it("分类、替换目标、闭包和文字权限必须符合来源规则", () =
 
 it("策略字段校验失败后只修正一次，完整复验后才保存", async () => {
     const strategy = imageStrategy();
-    strategy.promptSections.visualFeatures = "漏掉刻意缺陷的描述";
+    strategy.targetCanvas.excludedScopes = [];
     const repair = vi.fn(async () => ({
         changes: [
             {
-                field: "promptSections",
-                valueJson: JSON.stringify(imageStrategy().promptSections),
+                field: "targetCanvas",
+                valueJson: JSON.stringify(imageStrategy().targetCanvas),
             },
         ],
     }));
@@ -345,7 +348,7 @@ it("策略字段校验失败后只修正一次，完整复验后才保存", asyn
                 stage: "plan_validation",
                 issues: expect.arrayContaining([
                     expect.objectContaining({
-                        code: "intentional_imperfections",
+                        code: "canvas_exclusions",
                     }),
                 ]),
             }),
@@ -421,6 +424,134 @@ it("模型执行错误只记录阶段，不重投请求或泄漏错误", async (
         expect(JSON.stringify(onDiagnostic.mock.calls)).not.toContain(
             "SECRET-ERROR",
         );
+    } finally {
+        await s.app.close();
+    }
+});
+
+it("明确拒绝持久化安全分类且批准不能复用，锁在错误后释放", async () => {
+    const s = await setup();
+    try {
+        const plan = await s.execute("template-image-plan", {
+            imageUrl: "https://example.com/source.png",
+        });
+        const productionId = String(plan.body.output.productionId);
+        const approval = {
+            productionId,
+            objectSha256: plan.body.output.strategySha256,
+            reviewerRef: "operator",
+        };
+        s.renderer.submit.mockRejectedValueOnce(
+            new TemplateImageSubmissionError("provider_rejected", 422),
+        );
+        const rejected = await s.execute("template-image-render", approval);
+        expect(JSON.stringify(rejected.body)).toContain("明确拒绝");
+        const saved = JSON.parse(
+            await readFile(
+                join(s.directory, productionId, "attempt.json"),
+                "utf8",
+            ),
+        );
+        expect(saved).toMatchObject({
+            state: "provider_rejected",
+            failure: { type: "provider_rejected", httpStatus: 422 },
+        });
+        await expect(
+            readFile(join(s.directory, productionId, "operation.lock")),
+        ).rejects.toMatchObject({ code: "ENOENT" });
+        await s.execute("template-image-render", approval);
+        expect(s.renderer.submit).toHaveBeenCalledTimes(1);
+    } finally {
+        await s.app.close();
+    }
+});
+it("新指令落盘并绑定批准，不能篡改内容后执行", async () => {
+    const s = await setup();
+    try {
+        const plan = await s.execute("template-image-plan", {
+            imageUrl: "https://example.com/source.png",
+        });
+        const productionId = String(plan.body.output.productionId);
+        const file = join(s.directory, productionId, "plan.json");
+        const saved = JSON.parse(await readFile(file, "utf8"));
+        expect(saved.execution).toEqual(plan.body.output.execution);
+        expect(saved.execution.promptSha256).toBe(
+            sha(Buffer.from(saved.execution.prompt)),
+        );
+        saved.execution.prompt = "篡改的生图指令";
+        saved.execution.promptSha256 = sha(Buffer.from(saved.execution.prompt));
+        await writeFile(file, JSON.stringify(saved));
+        const result = await s.execute("template-image-render", {
+            productionId,
+            objectSha256: plan.body.output.strategySha256,
+            reviewerRef: "operator",
+        });
+        expect(result.status).not.toBe(200);
+        expect(s.renderer.host).not.toHaveBeenCalled();
+        expect(s.renderer.submit).not.toHaveBeenCalled();
+    } finally {
+        await s.app.close();
+    }
+});
+it.each([false, true])(
+    "旧方案未提交时需要重新批准，已有批准=%s",
+    async (approved) => {
+        const s = await setup();
+        try {
+            const plan = await s.execute("template-image-plan", {
+                imageUrl: "https://example.com/source.png",
+            });
+            const productionId = String(plan.body.output.productionId);
+            const file = join(s.directory, productionId, "plan.json");
+            const saved = JSON.parse(await readFile(file, "utf8"));
+            delete saved.execution;
+            await writeFile(file, JSON.stringify(saved));
+            const approval = {
+                productionId,
+                objectSha256: plan.body.output.strategySha256,
+                reviewerRef: "operator",
+            };
+            if (approved)
+                await writeFile(
+                    join(s.directory, productionId, "attempt.json"),
+                    JSON.stringify({ state: "approved", approval }),
+                );
+            const result = await s.execute("template-image-render", approval);
+            expect(JSON.stringify(result.body)).toContain("重新规划和确认");
+            expect(s.renderer.submit).not.toHaveBeenCalled();
+        } finally {
+            await s.app.close();
+        }
+    },
+);
+it("已知请求取消等待后，旧方案也能恢复原请求且不重提交", async () => {
+    const s = await setup();
+    try {
+        const plan = await s.execute("template-image-plan", {
+            imageUrl: "https://example.com/source.png",
+        });
+        const productionId = String(plan.body.output.productionId);
+        const approval = {
+            productionId,
+            objectSha256: plan.body.output.strategySha256,
+            reviewerRef: "operator",
+        };
+        s.renderer.result.mockRejectedValueOnce(new Error("cancelled"));
+        expect(
+            (await s.execute("template-image-render", approval)).status,
+        ).not.toBe(200);
+        const file = join(s.directory, productionId, "plan.json");
+        const saved = JSON.parse(await readFile(file, "utf8"));
+        delete saved.execution;
+        await writeFile(file, JSON.stringify(saved));
+        expect(
+            (await s.execute("template-image-render", approval)).status,
+        ).toBe(200);
+        expect(s.renderer.submit).toHaveBeenCalledTimes(1);
+        expect(s.renderer.result.mock.calls.map((call) => call[0])).toEqual([
+            "request-1",
+            "request-1",
+        ]);
     } finally {
         await s.app.close();
     }

@@ -26,8 +26,8 @@ export const templatePlanProduction = defineProductionProcess({
     installedSkills: () => [
         {
             name: "template-image-preparer",
-            version: "v1",
-            sha256: "3b38250aae6bc330d03faee77686395f4993df5c662ba909f594c58a4569d8d8",
+            version: "v2",
+            sha256: "885149a942e151bfc3e753be99085f25167953da16d0d440e6bf11e7ef013e1f",
             path: ".pi/skills/template-image-preparer",
         },
     ],

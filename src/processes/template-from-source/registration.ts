@@ -24,6 +24,7 @@ import {
     preparedTemplateImageSchema,
     productionIdSchema,
     type TemplateImagePreparation,
+    TemplateImagePreparationError,
 } from "./capability.js";
 import { applyStrategyCorrection } from "./correction.js";
 import {
@@ -44,6 +45,11 @@ export const planOutputSchema = z.strictObject({
     strategySha256: digestSchema,
     sourceImageSha256: digestSchema,
     strategy: replacementStrategySchema,
+    execution: z.strictObject({
+        version: z.literal("v2"),
+        prompt: z.string().min(1).max(250000),
+        promptSha256: digestSchema,
+    }),
 });
 export function createTemplatePlanRegistration(options: {
     agent: TemplateStrategyAgent;
@@ -180,10 +186,12 @@ export function createTemplateRenderRegistration(
                         preparation.render(input, context.signal),
                     ),
                 );
-            } catch {
+            } catch (error) {
                 return failProcess(
                     "DEPENDENCY_FAILURE_AFTER_COMMIT",
-                    "成图未完成；请恢复同一生产项，不自动重新付费",
+                    error instanceof TemplateImagePreparationError
+                        ? error.message
+                        : "成图未完成；请恢复同一生产项，不自动重新付费",
                 );
             }
         },
