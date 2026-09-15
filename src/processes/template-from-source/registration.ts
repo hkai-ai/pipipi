@@ -25,10 +25,20 @@ import {
     productionIdSchema,
     type TemplateImagePreparation,
 } from "./capability.js";
+import { applyStrategyCorrection } from "./correction.js";
 import {
     parseReplacementStrategy,
+    type ReplacementStrategy,
     replacementStrategySchema,
+    type StrategyIssue,
+    StrategyValidationError,
 } from "./strategy.js";
+export type StrategyDiagnostic = Readonly<{
+    event: "template_strategy_diagnostic";
+    runId: string;
+    stage: string;
+    issues: readonly StrategyIssue[];
+}>;
 export const planOutputSchema = z.strictObject({
     productionId: productionIdSchema,
     strategySha256: digestSchema,
@@ -39,6 +49,7 @@ export function createTemplatePlanRegistration(options: {
     agent: TemplateStrategyAgent;
     preparation: TemplateImagePreparation;
     loadImage?: TemplateImageLoader;
+    onDiagnostic?: (record: StrategyDiagnostic) => void;
 }): ProcessRegistration {
     return defineProcessRegistration({
         id: "template-image-plan",
@@ -49,9 +60,27 @@ export function createTemplatePlanRegistration(options: {
         activities: [
             "source_loading",
             "replacement_planning",
+            "plan_validation",
+            "plan_correction",
             "plan_persistence",
         ],
         execute: async (input, context) => {
+            let stage = "source_loading";
+            const diagnose = (error: unknown) => {
+                try {
+                    options.onDiagnostic?.({
+                        event: "template_strategy_diagnostic",
+                        runId: context.runId,
+                        stage,
+                        issues:
+                            error instanceof StrategyValidationError
+                                ? error.issues.slice(0, 16)
+                                : [],
+                    });
+                } catch {
+                    // 诊断 Sink 失败不改变业务结果和修正预算。
+                }
+            };
             try {
                 const image = await context.runActivity("source_loading", () =>
                     (options.loadImage ?? loadTemplateImage)(
@@ -59,11 +88,54 @@ export function createTemplatePlanRegistration(options: {
                         context.signal,
                     ),
                 );
-                const strategy = parseReplacementStrategy(
-                    await context.runActivity("replacement_planning", () =>
-                        options.agent.plan(image, context.signal, input.note),
-                    ),
+                stage = "replacement_planning";
+                const candidate = await context.runActivity(
+                    "replacement_planning",
+                    () => options.agent.plan(image, context.signal, input.note),
                 );
+                stage = "plan_validation";
+                let strategy: ReplacementStrategy;
+                try {
+                    strategy = await context.runActivity(
+                        "plan_validation",
+                        async () => parseReplacementStrategy(candidate),
+                    );
+                } catch (error) {
+                    const repair = options.agent.repair?.bind(options.agent);
+                    if (
+                        !(error instanceof StrategyValidationError) ||
+                        !repair ||
+                        !candidate ||
+                        typeof candidate !== "object" ||
+                        Array.isArray(candidate) ||
+                        error.issues.some((issue) => !issue.fields.length) ||
+                        JSON.stringify(candidate).length > 250_000 ||
+                        context.signal.aborted
+                    )
+                        throw error;
+                    diagnose(error);
+                    stage = "plan_correction";
+                    strategy = await context.runActivity(
+                        "plan_correction",
+                        async () => {
+                            const patch = await repair(
+                                image,
+                                candidate,
+                                error.issues,
+                                context.signal,
+                                input.note,
+                            );
+                            context.signal.throwIfAborted();
+                            return applyStrategyCorrection(
+                                candidate,
+                                error.issues,
+                                patch,
+                            );
+                        },
+                    );
+                }
+                context.signal.throwIfAborted();
+                stage = "plan_persistence";
                 return planOutputSchema.parse(
                     await context.runActivity("plan_persistence", () =>
                         options.preparation.savePlan(
@@ -80,7 +152,8 @@ export function createTemplatePlanRegistration(options: {
                         ),
                     ),
                 );
-            } catch {
+            } catch (error) {
+                diagnose(error);
                 return failProcess(
                     "AGENT_FAILURE",
                     "替换方案未通过校验或保存，未提交图片生成",

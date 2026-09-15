@@ -235,11 +235,40 @@ export const replacementStrategySchema = z.strictObject({
 });
 export type ReplacementStrategy = z.infer<typeof replacementStrategySchema>;
 
+export type StrategyField = keyof ReplacementStrategy;
+export const strategyFields = Object.keys(
+    replacementStrategySchema.shape,
+) as StrategyField[];
+export type StrategyIssue = Readonly<{
+    code: string;
+    fields: readonly StrategyField[];
+}>;
+export class StrategyValidationError extends Error {
+    constructor(readonly issues: readonly StrategyIssue[]) {
+        super("换图策略不符合固定合同");
+    }
+}
+
 /** 身份类别、分组、重绘组件与文字权限对账后才允许交给图片服务。 */
 export function parseReplacementStrategy(value: unknown): ReplacementStrategy {
-    const s = replacementStrategySchema.parse(value);
-    const require = (condition: boolean) => {
-        if (!condition) throw new Error("换图策略不符合固定合同");
+    const parsed = replacementStrategySchema.safeParse(value);
+    if (!parsed.success)
+        throw new StrategyValidationError(
+            parsed.error.issues.map((issue) => ({
+                code: issue.code,
+                fields: strategyFields.includes(issue.path[0] as StrategyField)
+                    ? [issue.path[0] as StrategyField]
+                    : [],
+            })),
+        );
+    const s = parsed.data;
+    const issues: StrategyIssue[] = [];
+    const require = (
+        condition: boolean,
+        code: string,
+        fields: StrategyField[],
+    ) => {
+        if (!condition) issues.push({ code, fields });
     };
     const unique = (items: string[]) => new Set(items).size === items.length;
     const same = (left: string[], right: string[]) =>
@@ -258,58 +287,69 @@ export function parseReplacementStrategy(value: unknown): ReplacementStrategy {
         dog: "dog",
     };
     const route = routes[s.sourceCategory];
-    require(
-        route
-            ? s.selectedCategory === route
-            : s.sourceCategory === s.selectedCategory ||
-                  Boolean(s.crossCategoryMechanism),
-    );
-    require(s.sourceIdentityFingerprint !== s.selectedIdentityFingerprint);
+    require(route
+        ? s.selectedCategory === route
+        : s.sourceCategory === s.selectedCategory ||
+              Boolean(s.crossCategoryMechanism), "category_continuity", [
+        "selectedCategory",
+        "crossCategoryMechanism",
+    ]);
+    require(s.sourceIdentityFingerprint !==
+        s.selectedIdentityFingerprint, "different_identity", [
+        "selectedIdentityFingerprint",
+        "replacementValue",
+    ]);
     const human = ["ordinary_person", "public_figure"].includes(
         s.sourceCategory,
     );
-    require(!human || s.replacementIdentityOrigin === "ai_generated");
-    require(
-        !s.identityResearch.required ||
-            s.identityResearch.evidenceRefs.length > 0,
-    );
-    require(
-        !s.identityResearch.required ||
-            s.identityResearch.confidence >= 0.8 ||
-            s.identityResearch.alternatives.length > 0,
-    );
+    require(!human ||
+        s.replacementIdentityOrigin === "ai_generated", "generated_person", [
+        "replacementIdentityOrigin",
+    ]);
+    require(!s.identityResearch.required ||
+        s.identityResearch.evidenceRefs.length > 0, "research_evidence", [
+        "identityResearch",
+    ]);
+    require(!s.identityResearch.required ||
+        s.identityResearch.confidence >= 0.8 ||
+        s.identityResearch.alternatives.length > 0, "research_confidence", [
+        "identityResearch",
+    ]);
     const components = s.dependencyClosure.map((item) => item.componentId);
-    require(unique(components));
-    require(
-        unique(s.featureAuthority.map((item) => item.componentId)) &&
-            same(
-                components,
-                s.featureAuthority.map((item) => item.componentId),
-            ),
-    );
-    require(
-        same(components, [
-            ...new Set(s.operations.flatMap((item) => item.targetComponentIds)),
-        ]),
-    );
-    require(unique(s.identityBindingGroups.map((item) => item.groupId)));
+    require(unique(components), "unique_components", ["dependencyClosure"]);
+    require(unique(s.featureAuthority.map((item) => item.componentId)) &&
+        same(
+            components,
+            s.featureAuthority.map((item) => item.componentId),
+        ), "feature_coverage", ["featureAuthority", "dependencyClosure"]);
+    require(same(components, [
+        ...new Set(s.operations.flatMap((item) => item.targetComponentIds)),
+    ]), "operation_coverage", ["operations", "dependencyClosure"]);
+    require(unique(
+        s.identityBindingGroups.map((item) => item.groupId),
+    ), "unique_identity_groups", ["identityBindingGroups"]);
     const members = s.identityBindingGroups.flatMap(
         (group) => group.sourceMemberIds,
     );
-    require(
-        unique(members) &&
-            unique(s.sourceIdentityUnitIds) &&
-            same(members, s.sourceIdentityUnitIds),
-    );
+    require(unique(members) &&
+        unique(s.sourceIdentityUnitIds) &&
+        same(members, s.sourceIdentityUnitIds), "identity_members", [
+        "identityBindingGroups",
+        "sourceIdentityUnitIds",
+    ]);
     const pairs: string[] = [];
     for (const group of s.identityBindingGroups) {
-        require(
-            unique(group.targetMemberIds) &&
-                group.sourceMemberIds.length === group.targetMemberIds.length,
-        );
-        require(
-            group.requiredComponentIds.every((id) => components.includes(id)),
-        );
+        require(unique(group.targetMemberIds) &&
+            group.sourceMemberIds.length ===
+                group.targetMemberIds.length, "identity_pairing", [
+            "identityBindingGroups",
+        ]);
+        require(group.requiredComponentIds.every((id) =>
+            components.includes(id),
+        ), "identity_components", [
+            "identityBindingGroups",
+            "dependencyClosure",
+        ]);
         group.sourceMemberIds.forEach((id, index) => {
             pairs.push(JSON.stringify([id, group.targetMemberIds[index]]));
         });
@@ -317,37 +357,37 @@ export function parseReplacementStrategy(value: unknown): ReplacementStrategy {
     const evidencePairs = s.subjectContinuityEvidence.map((item) =>
         JSON.stringify([item.sourceMemberId, item.targetMemberId]),
     );
-    require(unique(evidencePairs) && same(pairs, evidencePairs));
-    require(
-        s.subjectContinuityEvidence.every(
-            (item) =>
-                item.source.category === s.sourceCategory &&
-                item.target.category === s.selectedCategory,
-        ),
-    );
+    require(unique(evidencePairs) &&
+        same(pairs, evidencePairs), "continuity_pairs", [
+        "subjectContinuityEvidence",
+        "identityBindingGroups",
+    ]);
+    require(s.subjectContinuityEvidence.every(
+        (item) =>
+            item.source.category === s.sourceCategory &&
+            item.target.category === s.selectedCategory,
+    ), "continuity_categories", ["subjectContinuityEvidence"]);
     const assets = s.assetBindingGroups.flatMap((group) => group.memberIds);
-    require(
-        unique(assets) &&
-            unique(s.assetUnitIds) &&
-            same(assets, s.assetUnitIds) &&
-            !assets.some((id) => members.includes(id)),
-    );
-    require(
-        unique(
-            [...s.identityBindingGroups, ...s.assetBindingGroups].map(
-                (group) => group.groupId,
-            ),
+    require(unique(assets) &&
+        unique(s.assetUnitIds) &&
+        same(assets, s.assetUnitIds) &&
+        !assets.some((id) => members.includes(id)), "asset_members", [
+        "assetBindingGroups",
+        "assetUnitIds",
+    ]);
+    require(unique(
+        [...s.identityBindingGroups, ...s.assetBindingGroups].map(
+            (group) => group.groupId,
         ),
-    );
-    require(
-        s.assetBindingGroups.every((group) =>
-            group.requiredComponentIds.every((id) => components.includes(id)),
-        ),
-    );
-    require(
-        unique(s.markActions.map((item) => item.regionId)) &&
-            unique(s.textActions.map((item) => item.regionId)),
-    );
+    ), "unique_groups", ["identityBindingGroups", "assetBindingGroups"]);
+    require(s.assetBindingGroups.every((group) =>
+        group.requiredComponentIds.every((id) => components.includes(id)),
+    ), "asset_components", ["assetBindingGroups", "dependencyClosure"]);
+    require(unique(s.markActions.map((item) => item.regionId)) &&
+        unique(s.textActions.map((item) => item.regionId)), "unique_regions", [
+        "markActions",
+        "textActions",
+    ]);
     for (const mark of s.markActions) {
         const attribution = [
             "platform_mark",
@@ -356,43 +396,46 @@ export function parseReplacementStrategy(value: unknown): ReplacementStrategy {
             "url",
             "qr_code",
         ].includes(mark.type);
-        require(
-            attribution ? mark.action === "remove" : mark.action !== "remove",
-        );
-        require(mark.action !== "remove_with_reason" || Boolean(mark.reason));
+        require(attribution
+            ? mark.action === "remove"
+            : mark.action !== "remove", "mark_action", ["markActions"]);
+        require(mark.action !== "remove_with_reason" ||
+            Boolean(mark.reason), "mark_removal_reason", ["markActions"]);
     }
     for (const region of s.textActions) {
         if (["watermark", "attribution"].includes(region.role))
-            require(region.action === "remove");
+            require(region.action === "remove", "attribution_removal", [
+                "textActions",
+            ]);
         if (region.role === "identity") {
-            require(
-                human
-                    ? ["remove", "replace"].includes(region.action)
-                    : ["synchronize_identity", "remove"].includes(
-                          region.action,
-                      ),
-            );
+            require(human
+                ? ["remove", "replace"].includes(region.action)
+                : ["synchronize_identity", "remove"].includes(
+                      region.action,
+                  ), "identity_text", ["textActions"]);
             if (human && region.action === "replace")
-                require(
-                    region.genericAttribute &&
-                        Boolean(region.neutralizationReason),
-                );
+                require(region.genericAttribute &&
+                    Boolean(
+                        region.neutralizationReason,
+                    ), "person_text_neutralization", ["textActions"]);
         }
         if (
             ["joke", "content"].includes(region.role) &&
             region.action !== "preserve"
         )
-            require(
-                region.explicitlyAuthorized || region.mechanismRequiresRewrite,
-            );
+            require(region.explicitlyAuthorized ||
+                region.mechanismRequiresRewrite, "content_rewrite_permission", [
+                "textActions",
+            ]);
         if (region.action !== "remove")
-            require(Boolean(region.exactText.trim()));
+            require(Boolean(region.exactText.trim()), "nonempty_text", [
+                "textActions",
+            ]);
     }
-    require(
-        s.promptSections.visualFeatures.includes(
-            s.visualFeatures.intentionalImperfections,
-        ),
-    );
+    require(s.promptSections.visualFeatures.includes(
+        s.visualFeatures.intentionalImperfections,
+    ), "intentional_imperfections", ["promptSections"]);
+    if (issues.length) throw new StrategyValidationError(issues);
     return s;
 }
 

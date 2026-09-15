@@ -36,7 +36,12 @@ afterEach(async () => {
         await rm(root, { recursive: true, force: true });
 });
 const sha = (bytes: Buffer) => createHash("sha256").update(bytes).digest("hex");
-async function setup(large = false) {
+async function setup(
+    large = false,
+    planOptions: Partial<
+        Parameters<typeof createTemplatePlanRegistration>[0]
+    > = {},
+) {
     const directory = await mkdtemp(join(tmpdir(), "pi-template-production-"));
     roots.push(directory);
     const source = await sharp({
@@ -126,6 +131,7 @@ async function setup(large = false) {
                     preparation,
                     agent: { plan: async () => imageStrategy() },
                     loadImage: async () => sourceImage,
+                    ...planOptions,
                 }),
                 createTemplateRenderRegistration(preparation),
                 createTemplateSourceRegistration({
@@ -307,5 +313,115 @@ it("分类、替换目标、闭包和文字权限必须符合来源规则", () =
         const s = structuredClone(original);
         mutate(s);
         expect(() => parseReplacementStrategy(s)).toThrow();
+    }
+});
+
+it("策略字段校验失败后只修正一次，完整复验后才保存", async () => {
+    const strategy = imageStrategy();
+    strategy.promptSections.visualFeatures = "漏掉刻意缺陷的描述";
+    const repair = vi.fn(async () => ({
+        changes: [
+            {
+                field: "promptSections",
+                valueJson: JSON.stringify(imageStrategy().promptSections),
+            },
+        ],
+    }));
+    const onDiagnostic = vi.fn(() => {
+        throw new Error("PRIVATE-SINK");
+    });
+    const s = await setup(false, {
+        agent: { plan: async () => strategy, repair },
+        onDiagnostic,
+    });
+    try {
+        const result = await s.execute("template-image-plan", {
+            imageUrl: "https://images.example.com/source.png",
+        });
+        expect(result.status).toBe(200);
+        expect(repair).toHaveBeenCalledTimes(1);
+        expect(onDiagnostic).toHaveBeenCalledWith(
+            expect.objectContaining({
+                stage: "plan_validation",
+                issues: expect.arrayContaining([
+                    expect.objectContaining({
+                        code: "intentional_imperfections",
+                    }),
+                ]),
+            }),
+        );
+        expect(s.renderer.submit).not.toHaveBeenCalled();
+        expect(s.upload).not.toHaveBeenCalled();
+    } finally {
+        await s.app.close();
+    }
+});
+
+it("无效补丁只失败一次且不保存，诊断不包含候选或原始异常", async () => {
+    const strategy = imageStrategy();
+    strategy.selectedIdentityFingerprint = strategy.sourceIdentityFingerprint;
+    strategy.risks = ["PRIVATE-CANDIDATE"];
+    const repair = vi.fn(async () => ({
+        changes: [
+            {
+                field: "selectedIdentityFingerprint",
+                valueJson: JSON.stringify(strategy.sourceIdentityFingerprint),
+            },
+        ],
+    }));
+    const savePlan = vi.fn();
+    const diagnostics: unknown[] = [];
+    const s = await setup(false, {
+        agent: { plan: async () => strategy, repair },
+        preparation: { savePlan, render: vi.fn(), finalize: vi.fn() },
+        onDiagnostic: (record) => {
+            diagnostics.push(record);
+            throw new Error("PRIVATE-SINK");
+        },
+    });
+    try {
+        const result = await s.execute("template-image-plan", {
+            imageUrl: "https://images.example.com/source.png",
+        });
+        expect(result.status).toBe(502);
+        expect(repair).toHaveBeenCalledTimes(1);
+        expect(savePlan).not.toHaveBeenCalled();
+        expect(JSON.stringify(diagnostics)).toContain("different_identity");
+        expect(JSON.stringify(diagnostics)).not.toContain("PRIVATE-");
+        expect(JSON.stringify(result.body)).not.toContain("PRIVATE-");
+    } finally {
+        await s.app.close();
+    }
+});
+
+it("模型执行错误只记录阶段，不重投请求或泄漏错误", async () => {
+    const repair = vi.fn();
+    const onDiagnostic = vi.fn();
+    const s = await setup(false, {
+        agent: {
+            plan: async () => {
+                throw new Error("SECRET-ERROR");
+            },
+            repair,
+        },
+        onDiagnostic,
+    });
+    try {
+        const result = await s.execute("template-image-plan", {
+            imageUrl: "https://images.example.com/source.png",
+        });
+        expect(result.status).toBe(502);
+        expect(repair).not.toHaveBeenCalled();
+        expect(onDiagnostic).toHaveBeenCalledWith(
+            expect.objectContaining({
+                stage: "replacement_planning",
+                issues: [],
+            }),
+        );
+        expect(JSON.stringify(onDiagnostic.mock.calls)).not.toContain(
+            "SECRET-ERROR",
+        );
+    } finally {
+        await s.app.close();
     }
 });

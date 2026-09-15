@@ -1,4 +1,5 @@
 /** 装配三个固定图片生产阶段，绑定原业务规则、内部持久化和既有编译成员。 */
+import pino from "pino";
 import { parseCrtBusinessApiBaseUrl } from "../crt/production.js";
 import {
     defineProductionProcess,
@@ -14,6 +15,7 @@ import {
 
 const preparation = ({ environment }: ProductionContext) =>
     new HttpTemplateImagePreparation(parseCrtBusinessApiBaseUrl(environment));
+const logger = pino({ name: "template-strategy-diagnostics" });
 const environment = [
     "CRT_BUSINESS_API_BASE_URL",
     "BUSINESS_API_BASE_URL",
@@ -31,6 +33,7 @@ export const templatePlanProduction = defineProductionProcess({
     ],
     build: (context) =>
         createTemplatePlanRegistration({
+            onDiagnostic: (record) => logger.warn(record, record.event),
             preparation: preparation(context),
             agent: new PiTemplateStrategyAgent({
                 ...context.pi,
