@@ -306,3 +306,7 @@ Interface 提供足够 Depth。
 `template-from-image/v1` 复用 Structured Agent 的无 Tool Session，通过受控图片下载与解码提供真实 PNG 附件。固定 Gallery Schema 与语义规则在服务端验证，Agent 不能选择服务器字段或写入模板库；最多一次候选修正不改变 Registration 的单次 Attempt 策略。过程和测试见 [图片转模板](processes/memebuy/template-from-image/README.md)。
 
 图片转模板保留完整来源业务规则，内部执行“生成分析与草稿 → 独立看图复核并返回必要补丁 → 程序投影与完整校验”。正常两次模型调用；仅首轮 JSON 或候选结构无法读取时允许一次重新编译，最多三次，不追加模型复核。公开 Gallery v2 草稿合同保持不变。实现与边界见 [图片转模板](processes/memebuy/template-from-image/README.md)。
+
+### 有界审核图片交接
+
+Registration 可在构造时固定 `outputMaxBytes`，默认 262,144 字节，最大 28,000,000 字节。当前仅 `template-image-render/v1` 使用特例，供受限运营审核完整 PNG。此参数不进入产品输入；其他 Process 的输出大小与错误行为不变。

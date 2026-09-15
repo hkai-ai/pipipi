@@ -4,11 +4,14 @@
 
 ## 当前能力
 
-生产 catalog 登记十五个 Business Process，其中 `composed-task/v1` 默认关闭。文档先按产品场景分组，运行时仍通过统一的 Process identity 和 HTTP Interface 执行：
+生产 catalog 登记十八个 Business Process，其中 `composed-task/v1` 默认关闭。文档先按产品场景分组，运行时仍通过统一的 Process identity 和 HTTP Interface 执行：
 
 | 场景 | Process | 输入 | 输出 |
 | --- | --- | --- | --- |
 | `memebuy` | `template-from-image/v1` | `{ imageUrl, note? }` | `{ template }`，Gallery v2 草稿 |
+| `memebuy` | `template-image-plan/v1` | 原图与备注 | 待审替换方案 |
+| `memebuy` | `template-image-render/v1` | 方案批准 | 待审完整 PNG |
+| `memebuy` | `template-from-source/v1` | 成图批准 | 新图引用与模板草稿 |
 | `common` | `content-processing/v1` | `{ "content": string }` | `{ "content": string }` |
 | `common` | `titled-content-processing/v1` | `{ "title": string, "body": string }` | `{ "title": string, "content": string }` |
 | `common` | `minimal-zine-poster/v1` | `{ "brief": string, "text"?: string }` | `{ "prompt", "recipe", "interpretation", "image" }` |
@@ -34,7 +37,7 @@ Memebuy 场景已登记 `template-from-image/v1`，可在 Pipipi 独立编译图
 
 生产启动通过 Installed Skill Catalog 校验 Runtime Skill 的准确名称、版本和 SHA-256。Process 只加载 Registration 固定绑定的 Skill 与窄 Tool；运行期不发现、下载或更新 Skill。
 
-图片 Process 只公开业务输入和图片引用。Prompt、模型、供应商、Skill 和存储配置留在服务端。内部新闻图片评测默认关闭，只在受控环境复用同一次正式 Process 执行。
+通常图片 Process 只公开业务输入和图片引用；模板图片生产向受信任的运营调用方提供待审策略与完整 PNG。Prompt、模型、供应商、Skill 和存储配置留在服务端。内部新闻图片评测默认关闭，只在受控环境复用同一次正式 Process 执行。
 
 ## 按 Business Process 查看
 

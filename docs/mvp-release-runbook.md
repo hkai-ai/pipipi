@@ -556,3 +556,17 @@ npm run accept:crt-business
 ## 照片海报发布检查
 
 本批六个照片海报 Process 尚未部署。发布前核对六个固定 Skill 的 LICENSE/SOURCE、用户补充的 Travel 授权范围及原帖提示词使用许可；镜像预检必须包含十三个 Runtime Skill。主 API 与内部图片服务使用同一镜像，`PHOTO_POSTER_API_TIMEOUT_MS` 默认 180000；图片服务需要供应商出站连接和工作目录容量。回滚恢复上一镜像及对应 catalog。真实验收见 [照片海报实验](experiments.md#照片海报业务验收)。
+
+#### 模板图片生产的部署与恢复
+
+新链路最长的 `template-from-source/v1` 为 570 秒。启用该能力的同步 `location = /execute` 使用 `proxy_read_timeout 600s;`，Memebuy 等待 660 秒；原图直接编译仍为 480 秒。不要把两次人工等待放进一个 HTTP 请求。网关修改保留原 Basic Auth、调用方身份头、精确 location 与其他路由；语法检查、匿名拒绝和鉴权访问均通过后再 reload。
+
+发布次序：先审查并执行 Memebuy 的 `20260915090000_template_image_preparation` 迁移（两个状态与 preparation JSONB）；再发布包含三个 Process 的 Pi API、Worker 和内部 Business API；最后发布 Memebuy API 与提取 Worker。旧候选无 preparation 时继续旧链路。迁移未执行时不得运行新 Memebuy 代码。回滚应用可保留新增可空字段和枚举，已进入新审核阶段的项留待兼容版本恢复，勿强改旧状态。
+
+内部图片服务使用既有 FAL_KEY 与 OSS 配置；模板存储仅在 `OSS_PUBLIC_BASE_URL=https://assets.memebuy.cn` 时装配为公读地址，不改变其他图片业务的访问策略。先核验 bucket/CDN 的公读映射与权限，再允许付费生图。缺少模板存储时 render 在提交前拒绝。固定 FAL 模型与参数见来源合同，不由环境或请求覆盖。
+
+`CRT_IMAGE_WORK_DIRECTORY/template-productions` 必须位于持久卷（生产 Compose 已挂载），包含未公开源图、审核图片与批准记录。保护目录权限并纳入备份与容量检查，不用 CRT 临时结果清理任务删除这些生产项。异步 Worker 的 lease 必须严格大于 570000ms，推荐 600000ms；不填写时由完整目录推导。
+
+重启后若存在 `operation.lock`：先停止该内部服务并确认没有旧容器处理该目录，备份单项目录，然后核对 attempt.json 与供应商记录。provider_pending 有 requestId 时可移除该项锁后恢复同一请求；submission_unknown 不得改回 approved 或再次生成，应人工对账。恢复运行前只处理精确 productionId 的锁，不批量删除目录。已上传的同摘要对象只校验复用，不覆盖；缺少真实批准记录时不能人工补“通过”。
+
+上线验收必须从 Memebuy 页面走完两次真实人工确认，再检查最终草稿封面、参考图和供应商单次请求。确定性测试通过不代表真实图片质量、OSS 公读或上线成功。

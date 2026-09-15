@@ -432,3 +432,9 @@ npm run check:deployment-env -- api
 
 模板可用服务端启动变量 `TEMPLATE_MODEL` 独立指定模型；未设置时 OpenAI 模板默认使用 `gpt-5.4`，其他供应商沿用 `PI_MODEL`。模板复用共享供应商与凭证，不改变其他 Process 的模型。
 异步部署的 API、Process Worker 环境预检允许该变量，角色环境生成脚本将它从共享配置传入这两个角色。模板时限为 480 秒；未显式配置租约时，Worker 按已启用目录的最长时限加 30 秒计算，显式租约必须严格大于最长时限。
+
+## 模板图片生产
+
+三个审核阶段共用 `src/processes/template-from-source/`；内部持久化与固定 FAL 协议在 `src/business-api/template-image-production.ts`、`template-image-fal.ts`。图像生产与 JSON 编译分离，后者复用原 Registration。
+
+`defineProcessRegistration` 的 `outputMaxBytes` 是服务端构造选项，默认 262,144 字节，上限 28,000,000；仅成图审核的完整 PNG 交接使用大输出。不得让产品请求覆盖该预算。新增大输出同时检查 HTTP、持久化、调用方加密交接与列表加载；完整目录 Worker 租约须超过最长 Process。

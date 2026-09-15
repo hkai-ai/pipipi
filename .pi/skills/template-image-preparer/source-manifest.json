@@ -1,0 +1,26 @@
+{
+    "source": "E:/Deployment/meme-template-production/skills/meme-template-image-producer",
+    "commit": "a52c87668aa6cb7907306864e85ab861978b2f43",
+    "license": "NOASSERTION",
+    "files": {
+        "agents/openai.yaml": "006ebfa856c31d5927eb273fab21b02e1b420beac0432b3ae517f16839eab558",
+        "references/contracts/approved-template-image-envelope.schema.json": "0f4205875e708a85ce22333111a848adad95bfaf477f27ab695f1bff38ebbf8a",
+        "references/contracts/generation-attempt.schema.json": "64fc0dd0f3b44d11754e07a69e12de4db3f86b43bbd6e5eb2b4da878c1a576d2",
+        "references/contracts/image-approval.schema.json": "698c3727bd53e23910a24bca643faa468f5d0e9f854518b7e8191b7a0273a0ad",
+        "references/contracts/image-review-package.schema.json": "78bf154e1e21cd3efd9b64ba3f37587932ec636d490ffbb9ae9a2f4923a77ffc",
+        "references/contracts/image-revision-review-context.schema.json": "a97b7e191f57399f14e91542c1014b3356aa9576b285b7fc81933443abef553c",
+        "references/contracts/oss-receipt.schema.json": "231a1c942b17c1c811970c3894becb395dd283dd4a7850e0f5fefbf7bc5f993e",
+        "references/contracts/production-index.schema.json": "5a4fb436421f3f556264f23a45eeeadf218e16d5ddc697f33971d6f2ada2603c",
+        "references/contracts/replacement-strategy-review.schema.json": "222ef88e49fe8238251c9b2866022da481ae68fd04d71e27d9db26ec7cab417d",
+        "references/contracts/strategy-approval.schema.json": "98320f1945422e4411653f0de582c5567e5e20f6492f9cb99161dfbd9fb47484",
+        "references/generation-contract.md": "a0a043714d64307591afab796eb333716c1a6b1ce49a49c5f48cadf535a1f1ef",
+        "references/machine-contract.json": "554bd3c85ce63c13022c119ee976f752468085d893b5abd8fe21dcbfadb29956",
+        "references/portable-batch.md": "e93c3a52f23b263cc8822cb60bdf29a1f9064db1e7fbfff03a1c3aa8edb48f75",
+        "references/prompt-structure.md": "5bff7bb3fb8b6d60d8ab9e79af9ce55c02c8eaf75d11478fdfa658dd782cb070",
+        "references/replacement.md": "1f5c051d38cc944cfa2c42398efbedb9710ffa241cfd6c3e814525ca2f8385c0",
+        "references/reviews-and-revisions.md": "8b7f56c38a506bdec72dc0fb01580f916277b410aaddcde457a3ee62dde29cc2",
+        "requirements.txt": "5c9b7b5d13465af944c3497adb21992d8c7ae2c78fa469208d2cf01890f15424",
+        "scripts/producer.py": "6c2e74c48cb5d94ec174bba4611b8ff74a632e62d1f0654e549a2a6d30a92a9a",
+        "SKILL.md": "8faa4ad223a85cb44ceeaa110fddc58ee26866ffea4a00d3ce93fe1cf18006fd"
+    }
+}

@@ -134,3 +134,26 @@ const WORKER_OBSERVATION = {
     PROCESS_RUN_RECORD_STORE: "postgres",
     PROCESS_RUN_RECORD_CONTENT: "omit",
 } as const;
+
+it("完整生产目录按 570 秒编译预算检查 Worker 租约", async () => {
+    const environment = {
+        BUSINESS_API_BASE_URL: "https://business.example",
+        DATABASE_URL,
+        REDIS_URL,
+        ...WORKER_RETENTION,
+        ...WORKER_OBSERVATION,
+    };
+    expect(() =>
+        constructProcessWorkerService({
+            ...environment,
+            PROCESS_RUN_CLAIM_LEASE_MS: "570000",
+        }),
+    ).toThrow(
+        "PROCESS_RUN_CLAIM_LEASE_MS must exceed every Process time limit",
+    );
+    const service = constructProcessWorkerService({
+        ...environment,
+        PROCESS_RUN_CLAIM_LEASE_MS: "600000",
+    });
+    await service.application.close();
+});

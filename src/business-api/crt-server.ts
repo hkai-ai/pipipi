@@ -48,6 +48,8 @@ import {
     OpenAIImageGenerationError,
 } from "./openai-image-generation.js";
 import { finalizeTravelPhoto } from "./photo-poster.js";
+import type { TemplateImageRenderer } from "./template-image-fal.js";
+import { TemplateImageProduction } from "./template-image-production.js";
 
 type ImageEditClient = Readonly<{
     edit: (request: EditImageRequest) => Promise<GeneratedImage>;
@@ -112,6 +114,8 @@ export async function startCrtBusinessApi(
         directory: string;
         imageClient: ImageEditClient;
         generationClient?: ImageGenerationClient;
+        templateRenderer?: TemplateImageRenderer;
+        templateStorage?: ObjectStorageCapability;
         provider?: string;
         model?: string;
         quality?: GptImageQuality;
@@ -124,6 +128,11 @@ export async function startCrtBusinessApi(
     const directory = options.directory;
     const photoOutputDirectory = join(directory, "photo-posters");
     const photoResultDirectory = join(directory, "photo-poster-results");
+    const templateProduction = new TemplateImageProduction({
+        directory: join(directory, "template-productions"),
+        renderer: options.templateRenderer,
+        storage: options.templateStorage,
+    });
     const outputDirectory = join(directory, "images");
     const resultDirectory = join(directory, "results");
     const rawDirectory = join(directory, "raw-images");
@@ -204,6 +213,31 @@ export async function startCrtBusinessApi(
         }
         if (request.method === "POST" && request.url === "/photo-posters") {
             await generatePhotoPoster(request, response);
+            return;
+        }
+        if (
+            request.method === "POST" &&
+            request.url?.startsWith("/template-productions/")
+        ) {
+            const controller = new AbortController();
+            response.once("close", () => {
+                if (!response.writableEnded) controller.abort();
+            });
+            try {
+                const input = JSON.parse(
+                    (await readBody(request, 262144)).toString("utf8"),
+                );
+                const result = await templateProduction.execute(
+                    request.url.slice("/template-productions/".length),
+                    input,
+                    controller.signal,
+                );
+                writeJson(response, 200, result);
+            } catch {
+                writeJson(response, 503, {
+                    error: { code: "TEMPLATE_PRODUCTION_INCOMPLETE" },
+                });
+            }
             return;
         }
         const photoMatch =

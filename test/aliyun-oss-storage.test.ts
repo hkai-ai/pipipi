@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 import {
     type AliyunOssClient,
@@ -267,3 +268,47 @@ function fakeClient(
         ),
     };
 }
+
+it("内容寻址写入禁止覆盖，冲突只接纳摘要、长度和类型一致的对象", async () => {
+    const client = fakeClient();
+    vi.mocked(client.put).mockRejectedValue(
+        Object.assign(new Error("exists"), { status: 409 }),
+    );
+    const bytes = Buffer.from("reviewed-image");
+    const digest = createHash("sha256").update(bytes).digest("hex");
+    const headers = {
+        "x-oss-meta-sha256": digest,
+        "content-length": String(bytes.length),
+        "content-type": "image/png",
+    };
+    client.head = vi.fn(async () => ({
+        status: 200,
+        meta: { uid: 1, pid: 1 },
+        res: { status: 200, headers, size: 0, rt: 1 },
+    }));
+    const storage = new AliyunOssStorage(
+        baseOptions({
+            urlAccess: "public",
+            publicBaseUrl: "https://assets.memebuy.cn",
+        }),
+        { clientFactory: () => client },
+    );
+    const input = {
+        objectKey: `gallery/template-images/${digest}.png`,
+        bytes,
+        contentType: "image/png",
+        immutableSha256: digest,
+    };
+    expect((await storage.upload(input)).url).toBe(
+        `https://assets.memebuy.cn/${input.objectKey}`,
+    );
+    expect(vi.mocked(client.put).mock.calls[0]?.[2]?.headers).toMatchObject({
+        "x-oss-forbid-overwrite": "true",
+        "x-oss-meta-sha256": digest,
+    });
+    headers["x-oss-meta-sha256"] = "0".repeat(64);
+    await expect(storage.upload(input)).rejects.toThrow();
+    headers["x-oss-meta-sha256"] = digest;
+    headers["content-type"] = "image/jpeg";
+    await expect(storage.upload(input)).rejects.toThrow();
+});

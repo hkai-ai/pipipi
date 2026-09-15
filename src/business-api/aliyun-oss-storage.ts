@@ -1,4 +1,6 @@
 /** 阿里云 OSS Adapter：实现 ObjectStorageCapability，上传对象并生成签名或公开访问 URL */
+
+import { createHash } from "node:crypto";
 import OSS from "ali-oss";
 import {
     normalizeUploadObjectRequest,
@@ -24,7 +26,8 @@ export type AliyunOssStorageOptions = {
     signedUrlTtlSeconds?: number;
 };
 
-export type AliyunOssClient = Pick<OSS, "put" | "signatureUrlV4">;
+export type AliyunOssClient = Pick<OSS, "put" | "signatureUrlV4"> &
+    Partial<Pick<OSS, "head">>;
 
 export type AliyunOssStorageDependencies = {
     clientFactory?: (options: OSS.Options) => AliyunOssClient;
@@ -118,18 +121,52 @@ export class AliyunOssStorage implements ObjectStorageCapability {
         const input = normalizeUploadObjectRequest(request);
         const headers: Record<string, string> = {};
         if (input.cacheControl) headers["Cache-Control"] = input.cacheControl;
+        if (input.immutableSha256) {
+            if (
+                createHash("sha256").update(input.bytes).digest("hex") !==
+                input.immutableSha256
+            )
+                throw new Error("不可变对象摘要不匹配");
+            headers["x-oss-forbid-overwrite"] = "true";
+            headers["x-oss-meta-sha256"] = input.immutableSha256;
+        }
         let stage: "upload" | "url" = "upload";
 
         try {
-            const result = await this.#client.put(
-                input.objectKey,
-                Buffer.from(input.bytes),
-                {
+            const result = await this.#client
+                .put(input.objectKey, Buffer.from(input.bytes), {
                     mime: input.contentType,
                     timeout: this.#timeoutMs,
                     ...(Object.keys(headers).length === 0 ? {} : { headers }),
-                },
-            );
+                })
+                .catch(async (error) => {
+                    if (
+                        !input.immutableSha256 ||
+                        readOssError(error).status !== 409 ||
+                        !this.#client.head
+                    )
+                        throw error;
+                    const existing = await this.#client.head(input.objectKey);
+                    if (
+                        readHeader(
+                            existing.res.headers,
+                            "x-oss-meta-sha256",
+                        ) !== input.immutableSha256 ||
+                        Number(
+                            readHeader(existing.res.headers, "content-length"),
+                        ) !== input.bytes.byteLength ||
+                        readHeader(existing.res.headers, "content-type")?.split(
+                            ";",
+                        )[0] !== input.contentType
+                    )
+                        throw new Error("已存对象与审核产物不一致");
+                    return {
+                        url: this.#publicBaseUrl
+                            ? objectUrl(this.#publicBaseUrl, input.objectKey)
+                            : "",
+                        res: existing.res,
+                    };
+                });
             options.signal?.throwIfAborted();
             stage = "url";
 

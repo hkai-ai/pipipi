@@ -28,6 +28,11 @@ import {
 import { posterProduction } from "./poster/production.js";
 import type { ProductionProcess } from "./production.js";
 import { templateProduction } from "./template-from-image/production.js";
+import {
+    templatePlanProduction,
+    templateRenderProduction,
+    templateSourceProduction,
+} from "./template-from-source/production.js";
 import { titledContentProduction } from "./titled-content/production.js";
 
 /**
@@ -51,6 +56,9 @@ export const productionCatalog: readonly ProductionProcess[] = Object.freeze([
     monochromeProduction,
     woodcutProduction,
     templateProduction,
+    templatePlanProduction,
+    templateRenderProduction,
+    templateSourceProduction,
     composedProduction,
 ]);
 

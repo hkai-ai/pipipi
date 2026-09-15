@@ -800,3 +800,21 @@ if (!response.ok || result.status !== "succeeded") {
 输入或额外字段不合法返回 INVALID_INPUT；版本不匹配返回 PROCESS_NOT_FOUND；编译失败返回 AGENT_FAILURE；明确未发起图片调用时失败返回 DEPENDENCY_FAILURE；已发出图片调用、响应丢失、保存失败或内部 pending 返回 DEPENDENCY_FAILURE_AFTER_COMMIT。禁止对后者自动重试，先核对执行记录。Process 超时仍按统一 PROCESS_TIMEOUT 契约处理，图片费用可能已产生。
 
 内部图片服务 `POST /photo-posters` 是受控 Capability 协议，不供产品直连；使用 `CRT_BUSINESS_API_BASE_URL`，连接超时由服务端 `PHOTO_POSTER_API_TIMEOUT_MS` 配置，默认 180000 ms。
+
+## 模板图片生产与两次审核
+
+以下三个固定 Process 仅供受信任的 Memebuy 后台调用，均使用既有 `/execute` 或 `/process-runs` Interface。不得向普通用户开放可自行填写 reviewerRef 的调用入口。Process 身份、模型、Skill、存储与执行指令均由服务端固定；浏览器只提交候选 ID、当前摘要和审核决定。
+
+| Process / version | input | output | Process 预算 |
+| --- | --- | --- | --- |
+| `template-image-plan/v1` | `{ imageUrl, note? }`，沿用原图片编译输入限制 | `{ productionId, sourceImageSha256, strategySha256, strategy }` | 240 秒 |
+| `template-image-render/v1` | `{ productionId, objectSha256, reviewerRef }`，objectSha256 为方案摘要 | `{ productionId, imageSha256, reviewPackageSha256, width, height, imageDataUrl }` | 270 秒 |
+| `template-from-source/v1` | `{ productionId, objectSha256, reviewPackageSha256, reviewerRef }`，objectSha256 为成图摘要 | `{ template, coverImageUrl, preparedImage }` | 570 秒 |
+
+productionId 为 UUID；摘要为小写 64 位 SHA-256；reviewerRef 为 1–191 字符的服务端审核者引用。字段闭合，不接受额外运行配置。strategy 是待人审阅的完整业务方案，包含替换目标、类别判断、组件分组、依赖与特征权限、文字/标记动作、冻结项、风险和十二段生成说明；准确结构由 `GET /processes` 的输出 Schema 给出，调用方不能用策略正文替代已持久化 productionId。
+
+imageDataUrl 是完整 PNG 的 Base64 Data URL，原 PNG 至多 20,000,000 字节，整个成图审核输出至多 28,000,000 字节。该特例只属于固定 render Registration，其他输出仍受默认上限约束。审核方必须保存交接结果并等待人工批准，不因收到图片而自动调用下一步。
+
+preparedImage 为 `{ url, sha256, width, height, contentType: "image/png" }`；url 固定为 `https://assets.memebuy.cn/gallery/template-images/<sha256>.png`。template.cover、template.referenceImage 和 coverImageUrl 均引用该图片。公开输出不包含原始策略、两次审批或业务备注。
+
+方案失败返回 `AGENT_FAILURE`；生图或上传编译不能确定完成时返回 `DEPENDENCY_FAILURE_AFTER_COMMIT`。这些错误不授权重新付费生图：人工恢复必须提交原 productionId 与原批准摘要。已知供应商请求继续查询，未知生成提交需要对账。重试编译可能重新调用编译模型，但不会再生成图片。

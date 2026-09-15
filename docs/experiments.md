@@ -301,3 +301,9 @@ npm run accept:photo-poster-business
 用户修正输出目标后，移除五个 Skill 的上下对照规则及旅行抽象的原图拼接。以相同样图、文本模型、FAL GPT Image 2 low 和 OSS 链路依次重测多巴胺、旅行抽象、彩色蜡笔、黑白蜡笔、木刻；五次图片调用与五次结果存储全部成功，回读均为 1200×1600 PNG。逐张视觉检查确认仅含风格化作品，没有附加原照片或上下对照。本轮只确认输出形态修正，不代表全部风格细节已严格达标。双色整版未改动，未重复付费验证。
 
 当前图片与报告：`artifacts/photo-poster-acceptance/1788776174357/`。相关 200 项测试、五个变更 Skill 校验、类型检查、构建及 11 个相关代码文件的 Biome 检查通过。全量 check 仍有 247 个 CRLF 问题；全量测试本次为 782 通过、131 失败、65 跳过，包含原有 Windows/WSL 脚本失败和并发负载下 CRT finalizer 超时；后者单独复测 3/3 通过。未提交或部署。
+
+## 两次审批的模板图片生产验收
+
+先运行 `npx vitest run test/template-image-production.test.ts test/aliyun-oss-storage.test.ts test/async-runtime-construction.test.ts`；这些测试走本地 HTTP 和替身，不产生模型、图片生成或 OSS 费用。
+
+真实验收按 Memebuy 页面逐次执行：提交一张原图 → 核对完整替换策略 → 人工通过 → 对照原图检查完整成图 → 人工通过 → 检查草稿的 cover/referenceImage 都是内容寻址的新图片。第一次通过会调用付费图片服务，第二次通过才写 OSS 并调用编译模型。不得用脚本自动批准两步；供应商提交未知时对账，不另建生成请求。

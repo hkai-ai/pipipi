@@ -1,10 +1,11 @@
-/** 校验部署环境后装配 CRT 图像生成、对象存储与证据策略，启动 CRT Business API */
+/** 装配受控图片生成、模板图片审批存储与证据策略，启动内部 Business API */
 import { assertDeploymentEnvironment } from "../app/deployment-environment.js";
 import { resolveCrtEvidencePolicy } from "../business-api/crt-evidence.js";
 import { startCrtBusinessApi } from "../business-api/crt-server.js";
 import { createImageGenerationClient } from "../business-api/image-generation-config.js";
 import { createObjectStorageFromEnvironment } from "../business-api/object-storage-config.js";
 import type { GptImageQuality } from "../business-api/openai-image-generation.js";
+import { createTemplateImageRenderer } from "../business-api/template-image-fal.js";
 
 assertDeploymentEnvironment(process.env, "crt-business-api");
 
@@ -30,6 +31,16 @@ const application = await startCrtBusinessApi(
             process.env.CRT_IMAGE_WORK_DIRECTORY?.trim() ||
             "/tmp/pipipi-crt-business",
         imageClient: imageGeneration.client,
+        templateRenderer: createTemplateImageRenderer(
+            process.env.FAL_KEY ?? "",
+        ),
+        templateStorage:
+            process.env.OSS_PUBLIC_BASE_URL === "https://assets.memebuy.cn"
+                ? createObjectStorageFromEnvironment({
+                      ...process.env,
+                      OSS_URL_ACCESS: "public",
+                  })
+                : undefined,
         generationClient: imageGeneration.client,
         provider: imageGeneration.provider,
         model: process.env.CRT_IMAGE_MODEL?.trim() || "gpt-image-2",
