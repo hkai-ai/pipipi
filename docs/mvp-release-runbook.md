@@ -434,6 +434,8 @@ location /console {
 
 ## 构建并检查镜像
 
+Dockerfile 在成品镜像内以非 root 身份、禁网调用 `createProductionSkillBindings`，校验完整 production catalog 的固定 Skill（含可选 `composed-task`）。文件缺失、目录被 `.dockerignore` 过滤或摘要不匹配会直接使构建失败，不等到服务器激活。新增 Runtime Skill 时同步维护 Dockerfile 的复制清单和 `.dockerignore` 的允许清单。
+
 从干净的发布提交构建镜像，并记录生成的镜像摘要：
 
 ```bash

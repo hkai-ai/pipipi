@@ -49,8 +49,12 @@ COPY --chown=node:node .pi/skills/monochrome-photo-poster-prompt ./.pi/skills/mo
 
 COPY --chown=node:node .pi/skills/woodcut-photo-poster-prompt ./.pi/skills/woodcut-photo-poster-prompt
 COPY --chown=node:node .pi/skills/meme-template-json-compiler ./.pi/skills/meme-template-json-compiler
+COPY --chown=node:node .pi/skills/template-image-preparer ./.pi/skills/template-image-preparer
 
 USER node
+# 在成品镜像内校验全部固定 Skill（含可选 Process），不访问外部服务。
+RUN --network=none node --input-type=module --eval \
+    "import { createProductionSkillBindings } from './dist/app/runtime-skills.js'; createProductionSkillBindings({ COMPOSED_TASK_ENABLED: 'true' });"
 EXPOSE 4300
 
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \

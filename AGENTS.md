@@ -47,6 +47,8 @@
 
 ## 单服务器发布
 
+- 镜像构建必须以非 root 身份、禁网运行完整 production catalog 的 Runtime Skill 校验（含可选 Process）；新增 Skill 同步维护 Dockerfile 和 `.dockerignore`，不能只验证工作区文件。
+
 - 修改同步 Process 执行预算或重建网关反代时，按 `docs/mvp-release-runbook.md` 的“同步模板请求的网关超时”核对 Process、网关和调用方的等待余量，并保留精确 location 的鉴权与身份头。
 
 - 标准单服务器发布入口是 `.github/workflows/production-ci-cd.yml`。CI 构建不可变的 `pipipi:<commit>` 镜像，生产 Job 通过 SSH 上传镜像归档，再用 `compose.production.yaml` 重建主 API 与内部 CRT Business API；不要恢复 PM2 或 release 目录作为日常发布路径。
