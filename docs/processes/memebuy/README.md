@@ -10,6 +10,8 @@ Memebuy 的 Mono Color C 类模板以 `gallery.mono_color` 绑定通用 `mono-co
 
 图片预处理新增 [方案规划](template-image-plan/README.md)、[审核后生图](template-image-render/README.md)、[审核后上传与编译](template-from-source/README.md) 三个固定入口。沿用来源强制替换设计，两次人工确认均在 Memebuy 页面，旧 template-from-image 直接编译行为保留。
 
+成图满意、模板内容不满意时，可从审核后编译入口提交本轮要求，复用原成图审批和图片，仅生成新的模板草稿；不重新规划或生图。
+
 图片替换方案在原 240 秒预算内允许一次字段补丁修正，完整复验后才交给人工确认；失败阶段和固定规则可诊断。详见 [方案校验与修正](template-image-plan/README.md)。
 
 图片预处理在同一次请求中结合原图总览与有界局部细节，先逐区观察文字几何再决定替换；按原 Producer 的排版、冻结与特征权限生成并固定十二段简洁生图指令，字段修正携带目标 Schema，保留两次人工审核；明确拒绝与未知提交分别保存，批准不可复用。旧方案兼容与审核展示见 [模板图片预处理](template-from-source/README.md)。

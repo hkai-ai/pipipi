@@ -255,9 +255,38 @@ it("真实 HTTP 三阶段分别暂停，摘要错误不生图、不上传，重�
             referenceImage: expected,
         });
         expect(s.upload).toHaveBeenCalledTimes(1);
+        const approvalBefore = await readFile(
+            join(s.directory, productionId, "image-approval.json"),
+            "utf8",
+        );
+        const recompiled = await s.execute("template-from-source", {
+            ...imageApproval,
+            note: "主副标题应允许分别替换",
+        });
+        expect(recompiled.status).toBe(200);
+        expect(s.compile).toHaveBeenCalledTimes(2);
+        expect(s.compile.mock.calls[1]?.[0]).toMatchObject({
+            imageUrl: expected,
+            note: "主副标题应允许分别替换",
+        });
+        expect(recompiled.body.output.preparedImage).toEqual(
+            finalized.body.output.preparedImage,
+        );
+        expect(s.upload).toHaveBeenCalledTimes(1);
+        expect(s.renderer.submit).toHaveBeenCalledTimes(1);
+        expect(s.renderer.host).toHaveBeenCalledTimes(1);
+        expect(
+            await readFile(
+                join(s.directory, productionId, "image-approval.json"),
+                "utf8",
+            ),
+        ).toBe(approvalBefore);
         expect(
             (await s.execute("template-from-source", imageApproval)).status,
         ).toBe(200);
+        expect(s.compile.mock.calls[2]?.[0]).toMatchObject({
+            note: "保留原有文字布局",
+        });
         expect(s.upload).toHaveBeenCalledTimes(1);
         expect(s.renderer.submit).toHaveBeenCalledTimes(1);
         expect(

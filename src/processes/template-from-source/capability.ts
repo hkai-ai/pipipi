@@ -18,6 +18,9 @@ export const approvalSchema = z.strictObject({
 export const imageApprovalSchema = approvalSchema.extend({
     reviewPackageSha256: digestSchema,
 });
+export const compilationInputSchema = imageApprovalSchema.extend({
+    note: z.string().trim().min(1).max(500).optional(),
+});
 export const preparedTemplateImageSchema = z.strictObject({
     url: sourcePhotoSchema,
     sha256: digestSchema,

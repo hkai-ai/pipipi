@@ -809,7 +809,9 @@ if (!response.ok || result.status !== "succeeded") {
 | --- | --- | --- | --- |
 | `template-image-plan/v1` | `{ imageUrl, note? }`，沿用原图片编译输入限制 | `{ productionId, sourceImageSha256, strategySha256, strategy }` | 240 秒 |
 | `template-image-render/v1` | `{ productionId, objectSha256, reviewerRef }`，objectSha256 为方案摘要 | `{ productionId, imageSha256, reviewPackageSha256, width, height, imageDataUrl }` | 270 秒 |
-| `template-from-source/v1` | `{ productionId, objectSha256, reviewPackageSha256, reviewerRef }`，objectSha256 为成图摘要 | `{ template, coverImageUrl, preparedImage }` | 570 秒 |
+| `template-from-source/v1` | `{ productionId, objectSha256, reviewPackageSha256, reviewerRef, note? }`，objectSha256 为成图摘要，note 为本轮模板编译要求 | `{ template, coverImageUrl, preparedImage }` | 570 秒 |
+
+模板内容不满意时，调用方可用原成图审批发起新的编译轮次，并提交可选 `note`（去首尾空白后 1–500 字符）。新要求只覆盖本次编译的备注，不修改方案、生图指令或成图批准；省略时沿用原方案备注。已经上传的审核图片复用内容寻址对象，不重新生图或上传，返回的图片摘要保持不变。新轮次仍须人工审阅模板草稿；异步调用使用新轮次的幂等键，技术失败恢复沿用原运行。
 
 方案校验失败时可在原 240 秒预算内进行一次受限字段修正，仍不通过则返回 `AGENT_FAILURE`；不会自动生图或批准方案。
 

@@ -18,8 +18,8 @@ import {
 import type { TemplateStrategyAgent } from "./agent.pi.js";
 import {
     approvalSchema,
+    compilationInputSchema,
     digestSchema,
-    imageApprovalSchema,
     imageReviewSchema,
     preparedTemplateImageSchema,
     productionIdSchema,
@@ -206,7 +206,7 @@ export function createTemplateSourceRegistration(options: {
         id: "template-from-source",
         version: "v1",
         timeoutMs: 570000,
-        inputSchema: imageApprovalSchema,
+        inputSchema: compilationInputSchema,
         outputSchema: templateOutputSchema.extend({
             coverImageUrl: preparedTemplateImageSchema.shape.url,
             preparedImage: preparedTemplateImageSchema,
@@ -214,13 +214,16 @@ export function createTemplateSourceRegistration(options: {
         activities: ["approved_image_upload", "approved_image_compilation"],
         execute: async (input, context) => {
             try {
+                const { note, ...approval } = input;
                 const image = await context.runActivity(
                     "approved_image_upload",
-                    () => options.preparation.finalize(input, context.signal),
+                    () =>
+                        options.preparation.finalize(approval, context.signal),
                 );
+                const compileNote = note ?? image.note;
                 const accepted = options.compiler.accept({
                     imageUrl: image.url,
-                    ...(image.note ? { note: image.note } : {}),
+                    ...(compileNote ? { note: compileNote } : {}),
                 });
                 if (!accepted.accepted) throw new Error("输入不符合编译合同");
                 const result = await context.runActivity(
