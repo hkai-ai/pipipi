@@ -7,11 +7,11 @@ import { z } from "zod";
 import { sourcePhotoSchema } from "../processes/photo-poster/capability.js";
 import { decodeTemplateImage } from "../processes/template-from-image/image.js";
 import {
-    approvalSchema,
     digestSchema,
     imageApprovalSchema,
     preparedTemplateImageSchema,
     productionIdSchema,
+    renderInputSchema,
     TemplateImagePreparationError,
 } from "../processes/template-from-source/capability.js";
 import {
@@ -48,7 +48,7 @@ type Attempt = {
         | "submission_unknown"
         | "provider_pending"
         | "image_ready";
-    approval: z.infer<typeof approvalSchema> & { decidedAt: string };
+    approval: z.infer<typeof renderInputSchema> & { decidedAt: string };
     requestId?: string;
     failure?: {
         type: "provider_rejected" | "submission_unknown";
@@ -71,7 +71,7 @@ export class TemplateImageProduction {
     ): Promise<unknown> {
         if (operation === "plans") return this.plan(input, signal);
         if (operation === "render")
-            return this.render(approvalSchema.parse(input), signal);
+            return this.render(renderInputSchema.parse(input), signal);
         if (operation === "finalize")
             return this.finalize(imageApprovalSchema.parse(input), signal);
         throw new Error("未知图片生产操作");
@@ -171,21 +171,29 @@ export class TemplateImageProduction {
         };
     }
     private async render(
-        input: z.infer<typeof approvalSchema>,
+        input: z.infer<typeof renderInputSchema>,
         signal: AbortSignal,
     ) {
         return this.locked(input.productionId, async () => {
             const id = input.productionId;
+            const prefix = input.renderId ? `renders/${input.renderId}/` : "";
+            await mkdir(this.path(id, prefix || "."), { recursive: true });
             const plan = await this.read<Plan>(id, "plan.json");
             if (input.objectSha256 !== plan.strategySha256)
                 throw new Error("方案已变化，确认失效");
-            const existing = await this.optional<unknown>(id, "review.json");
+            const existing = await this.optional<unknown>(
+                id,
+                `${prefix}review.json`,
+            );
             if (existing) return existing;
             const renderer = this.options.renderer;
             if (!renderer) throw new Error("未配置固定 FAL 图片服务");
             if (!this.options.storage)
                 throw new Error("未配置模板公读对象存储，禁止提交生图");
-            let attempt = await this.optional<Attempt>(id, "attempt.json");
+            let attempt = await this.optional<Attempt>(
+                id,
+                `${prefix}attempt.json`,
+            );
             if ((!attempt || attempt.state === "approved") && !plan.execution)
                 throw new TemplateImagePreparationError(
                     false,
@@ -196,7 +204,7 @@ export class TemplateImageProduction {
                     state: "approved",
                     approval: { ...input, decidedAt: new Date().toISOString() },
                 };
-                await this.save(id, "attempt.json", attempt);
+                await this.save(id, `${prefix}attempt.json`, attempt);
             }
             if (attempt.state === "submission_unknown")
                 throw new TemplateImagePreparationError(
@@ -237,7 +245,7 @@ export class TemplateImageProduction {
                 );
                 signal.throwIfAborted();
                 attempt.state = "submission_unknown";
-                await this.save(id, "attempt.json", attempt);
+                await this.save(id, `${prefix}attempt.json`, attempt);
                 let requestId: string;
                 try {
                     requestId = await renderer.submit(
@@ -262,11 +270,11 @@ export class TemplateImageProduction {
                             ? { httpStatus: failure.httpStatus }
                             : {}),
                     };
-                    await this.save(id, "attempt.json", attempt);
+                    await this.save(id, `${prefix}attempt.json`, attempt);
                     throw new TemplateImagePreparationError(true, failure.type);
                 }
                 attempt = { ...attempt, state: "provider_pending", requestId };
-                await this.save(id, "attempt.json", attempt);
+                await this.save(id, `${prefix}attempt.json`, attempt);
             }
             if (!attempt.requestId) throw new Error("缺少可恢复的供应商请求");
             const bytes = await renderer.result(attempt.requestId, signal);
@@ -287,13 +295,14 @@ export class TemplateImageProduction {
             const imageSha256 = hash(bytes);
             if (imageSha256 === plan.sourceImageSha256)
                 throw new Error("来源图不能直接作为产物");
-            await writeFile(this.path(id, "image.png"), bytes, {
+            await writeFile(this.path(id, `${prefix}image.png`), bytes, {
                 mode: 0o600,
                 flush: true,
             });
             const reviewPackageSha256 = hash(
                 JSON.stringify({
                     productionId: id,
+                    ...(input.renderId ? { renderId: input.renderId } : {}),
                     strategySha256: plan.strategySha256,
                     sourceImageSha256: plan.sourceImageSha256,
                     imageSha256,
@@ -303,14 +312,15 @@ export class TemplateImageProduction {
             );
             const review = {
                 productionId: id,
+                ...(input.renderId ? { renderId: input.renderId } : {}),
                 imageSha256,
                 reviewPackageSha256,
                 width,
                 height,
                 imageDataUrl: `data:image/png;base64,${bytes.toString("base64")}`,
             };
-            await this.save(id, "review.json", review);
-            await this.save(id, "attempt.json", {
+            await this.save(id, `${prefix}review.json`, review);
+            await this.save(id, `${prefix}attempt.json`, {
                 ...attempt,
                 state: "image_ready",
             });
@@ -323,12 +333,13 @@ export class TemplateImageProduction {
     ) {
         return this.locked(input.productionId, async () => {
             const id = input.productionId;
+            const prefix = input.renderId ? `renders/${input.renderId}/` : "";
             const review = await this.read<{
                 imageSha256: string;
                 reviewPackageSha256: string;
                 width: number;
                 height: number;
-            }>(id, "review.json");
+            }>(id, `${prefix}review.json`);
             if (
                 input.objectSha256 !== review.imageSha256 ||
                 input.reviewPackageSha256 !== review.reviewPackageSha256
@@ -336,7 +347,10 @@ export class TemplateImageProduction {
                 throw new Error("图片或审核包已变化，确认失效");
             const plan = await this.read<Plan>(id, "plan.json");
             const note = plan.note ? { note: plan.note } : {};
-            const cached = await this.optional<unknown>(id, "uploaded.json");
+            const cached = await this.optional<unknown>(
+                id,
+                `${prefix}uploaded.json`,
+            );
             if (cached)
                 return {
                     ...preparedTemplateImageSchema.parse(cached),
@@ -344,13 +358,16 @@ export class TemplateImageProduction {
                 };
             const storage = this.options.storage;
             if (!storage) throw new Error("未配置模板公读对象存储");
-            const bytes = await readFile(this.path(id, "image.png"));
+            const bytes = await readFile(this.path(id, `${prefix}image.png`));
             if (hash(bytes) !== input.objectSha256)
                 throw new Error("成图摘要不匹配");
             // 审核事实先落盘，上传失败只恢复相同字节，不再次生图。
-            const approval = await this.optional(id, "image-approval.json");
+            const approval = await this.optional(
+                id,
+                `${prefix}image-approval.json`,
+            );
             if (!approval)
-                await this.save(id, "image-approval.json", {
+                await this.save(id, `${prefix}image-approval.json`, {
                     ...input,
                     decidedAt: new Date().toISOString(),
                 });
@@ -377,8 +394,8 @@ export class TemplateImageProduction {
                 height: review.height,
                 contentType: "image/png",
             });
-            await this.save(id, "uploaded.json", image);
-            await this.save(id, "approved-image.json", {
+            await this.save(id, `${prefix}uploaded.json`, image);
+            await this.save(id, `${prefix}approved-image.json`, {
                 schemaVersion: 2,
                 status: "approved_uploaded",
                 image: {

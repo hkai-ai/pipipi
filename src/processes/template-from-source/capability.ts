@@ -15,7 +15,11 @@ export const approvalSchema = z.strictObject({
     objectSha256: digestSchema,
     reviewerRef: z.string().trim().min(1).max(191),
 });
-export const imageApprovalSchema = approvalSchema.extend({
+export const renderInputSchema = approvalSchema.extend({
+    // 新成图使用新身份；恢复请求必须复用原身份。
+    renderId: productionIdSchema.optional(),
+});
+export const imageApprovalSchema = renderInputSchema.extend({
     reviewPackageSha256: digestSchema,
 });
 export const compilationInputSchema = imageApprovalSchema.extend({
@@ -30,6 +34,7 @@ export const preparedTemplateImageSchema = z.strictObject({
 });
 export const imageReviewSchema = z.strictObject({
     productionId: productionIdSchema,
+    renderId: productionIdSchema.optional(),
     imageSha256: digestSchema,
     reviewPackageSha256: digestSchema,
     width: z.int().min(64).max(4096),
@@ -43,7 +48,7 @@ export const finalizedTemplateImageSchema = preparedTemplateImageSchema.extend({
     note: z.string().max(500).optional(),
 });
 export type PreparedTemplateImage = z.infer<typeof preparedTemplateImageSchema>;
-export type StrategyApproval = z.infer<typeof approvalSchema>;
+export type StrategyApproval = z.infer<typeof renderInputSchema>;
 export type ImageApproval = z.infer<typeof imageApprovalSchema>;
 export type TemplateImagePreparation = {
     savePlan(input: unknown, signal: AbortSignal): Promise<unknown>;

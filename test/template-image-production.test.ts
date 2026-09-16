@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -32,6 +32,89 @@ import { candidate } from "./fixtures/template-candidate.js";
 import { imageStrategy } from "./fixtures/template-image-strategy.js";
 
 const roots: string[] = [];
+
+it("同一方案新 renderId 真正重做，旧 renderId 恢复原结果，审批不能跨成图版本", async () => {
+    const s = await setup();
+    try {
+        const plan = await s.execute("template-image-plan", {
+            imageUrl: "https://example.com/source.png",
+            note: "保持原要求",
+        });
+        const approval = {
+            productionId: plan.body.output.productionId,
+            objectSha256: plan.body.output.strategySha256,
+            reviewerRef: "operator",
+        };
+        const firstInput = { ...approval, renderId: randomUUID() };
+        const secondInput = { ...approval, renderId: randomUUID() };
+        const first = await s.execute("template-image-render", firstInput);
+        const second = await s.execute("template-image-render", secondInput);
+        expect(first.status).toBe(200);
+        expect(second.status).toBe(200);
+        expect(s.renderer.submit).toHaveBeenCalledTimes(2);
+        expect(s.upload).not.toHaveBeenCalled();
+        expect(
+            (await s.execute("template-image-render", firstInput)).body.output,
+        ).toEqual(first.body.output);
+        expect(s.renderer.submit).toHaveBeenCalledTimes(2);
+        expect(first.body.output.reviewPackageSha256).not.toBe(
+            second.body.output.reviewPackageSha256,
+        );
+        const imageApproval = {
+            productionId: approval.productionId,
+            renderId: firstInput.renderId,
+            objectSha256: first.body.output.imageSha256,
+            reviewPackageSha256: first.body.output.reviewPackageSha256,
+            reviewerRef: "operator",
+        };
+        expect(
+            (
+                await s.execute("template-from-source", {
+                    ...imageApproval,
+                    renderId: secondInput.renderId,
+                })
+            ).status,
+        ).not.toBe(200);
+        expect(s.upload).not.toHaveBeenCalled();
+        expect(
+            (await s.execute("template-from-source", imageApproval)).status,
+        ).toBe(200);
+        expect(s.compile).toHaveBeenCalledTimes(1);
+        expect(
+            (await s.execute("template-from-source", imageApproval)).status,
+        ).toBe(200);
+        expect(s.compile).toHaveBeenCalledTimes(2);
+        expect(s.renderer.submit).toHaveBeenCalledTimes(2);
+        expect(s.upload).toHaveBeenCalledTimes(1);
+    } finally {
+        await s.app.close();
+    }
+});
+
+it("具名成图提交未知时复用 renderId 不会再次付费", async () => {
+    const s = await setup();
+    try {
+        const plan = await s.execute("template-image-plan", {
+            imageUrl: "https://example.com/source.png",
+        });
+        const input = {
+            productionId: plan.body.output.productionId,
+            objectSha256: plan.body.output.strategySha256,
+            reviewerRef: "operator",
+            renderId: randomUUID(),
+        };
+        s.renderer.submit.mockRejectedValueOnce(new Error("connection lost"));
+        expect(
+            (await s.execute("template-image-render", input)).status,
+        ).not.toBe(200);
+        expect(
+            (await s.execute("template-image-render", input)).status,
+        ).not.toBe(200);
+        expect(s.renderer.submit).toHaveBeenCalledTimes(1);
+    } finally {
+        await s.app.close();
+    }
+});
 afterEach(async () => {
     for (const root of roots.splice(0))
         await rm(root, { recursive: true, force: true });

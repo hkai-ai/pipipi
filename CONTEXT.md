@@ -180,3 +180,5 @@ Startup Construction 是生产组装 Seam；Process Executor 是同步传输与 
 图片预处理按原 Producer 的观察、排版、冻结与特征权限语义生成并固定生图指令，字段修正携带目标 Schema，保留两次人工审核；明确拒绝与未知提交分别保存，批准不可复用。旧方案兼容与审核展示见 [模板图片预处理](docs/processes/memebuy/template-from-source/README.md)。
 
 图片预处理的同次模型请求用总览与最多五张固定区域细节，先逐区观察文字几何再决定替换，观察直接投影到既有 layout 字段；裁片不参与生产图片与审批摘要。Runtime Skill v3 包含原入口及五份完整引用，服务端把批准字段投影为十二段简洁语句。持久化字段顺序与既有 execution v2 合同保持兼容。结构校验和视觉观察质量分别验收，不以人工补充特征后的成图代替自动方案验收。
+
+Memebuy 模板分步制作支持同方案多个成图版本：新 `renderId` 明确重做，同一身份仅恢复；图片审批绑定实际版本，旧单图合同兼容。接口见 [业务 API](docs/api.md)。

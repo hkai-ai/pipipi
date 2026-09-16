@@ -17,12 +17,12 @@ import {
 } from "../template-from-image/image.js";
 import type { TemplateStrategyAgent } from "./agent.pi.js";
 import {
-    approvalSchema,
     compilationInputSchema,
     digestSchema,
     imageReviewSchema,
     preparedTemplateImageSchema,
     productionIdSchema,
+    renderInputSchema,
     type TemplateImagePreparation,
     TemplateImagePreparationError,
 } from "./capability.js";
@@ -176,7 +176,7 @@ export function createTemplateRenderRegistration(
         version: "v1",
         outputMaxBytes: 28_000_000,
         timeoutMs: 270000,
-        inputSchema: approvalSchema,
+        inputSchema: renderInputSchema,
         outputSchema: imageReviewSchema,
         activities: ["approved_image_rendering"],
         execute: async (input, context) => {

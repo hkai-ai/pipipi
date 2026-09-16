@@ -826,3 +826,9 @@ imageDataUrl 是完整 PNG 的 Base64 Data URL，原 PNG 至多 20,000,000 字�
 preparedImage 为 `{ url, sha256, width, height, contentType: "image/png" }`；url 固定为 `https://assets.memebuy.cn/gallery/template-images/<sha256>.png`。template.cover、template.referenceImage 和 coverImageUrl 均引用该图片。公开输出不包含原始策略、两次审批或业务备注。
 
 方案失败返回 `AGENT_FAILURE`；生图或上传编译不能确定完成时返回 `DEPENDENCY_FAILURE_AFTER_COMMIT`。这些错误不授权重新付费生图：人工恢复必须提交原 productionId 与原批准摘要。已知供应商请求继续查询，未知生成提交需要对账。重试编译可能重新调用编译模型，但不会再生成图片。
+
+## 可重复制作与成图版本
+
+Memebuy 分步工作台可保留同一替换方案反复生图。`template-image-render/v1` 兼容可选 UUID `renderId`；同一 `productionId + renderId` 恢复原成图，不同 `renderId` 表示人工明确的新生图。缺省保持旧单图语义。成图审核包摘要包含 `renderId`，`template-from-source/v1` 的图片审批须原样携带该字段，不能跨版本采用审批。每个成图独立保留 attempt、图片、审核与上传记录，提交未知时复用原身份仍禁止重投。模板重编译继续复用同一图片和审批，返回新候选；草稿身份、版本、采用和真实测试由 Memebuy 管理。
+
+先发布支持此字段的 Pi API 与内部图片 Business API，再发布 Memebuy Web 和 Worker；旧方案与旧成图文件原样兼容。
