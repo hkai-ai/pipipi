@@ -1,4 +1,5 @@
 /** capability.ts 里 CrtRenderingCapability Port 的生产 HTTP 实现：POST /crt-images */
+import type { ImageBackground } from "../image-background.js";
 import {
     type CrtRenderingCapability,
     type CrtRenderingResult,
@@ -29,6 +30,7 @@ export class HttpCrtRenderingCapability implements CrtRenderingCapability {
     async transform(
         input: {
             sourceImageUrl: string;
+            background?: ImageBackground;
             prompt: string;
             palette: CrtPalette;
             aspectRatio: CrtAspectRatio;

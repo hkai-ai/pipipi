@@ -1,5 +1,6 @@
 /** Mono Color 的五个固定预设、可编辑业务参数与最终设计约束。 */
 import { z } from "zod";
+import { imageBackgroundSchema } from "../image-background.js";
 import { sourcePhotoSchema } from "./capability.js";
 
 export const monoColorPresets = [
@@ -93,6 +94,7 @@ const presets = {
 
 export const monoColorInputSchema = z.strictObject({
     sourceImageUrl: sourcePhotoSchema,
+    background: imageBackgroundSchema.optional(),
     text: z.string().trim().min(1).max(200).optional(),
     preset: z
         .preprocess(
@@ -125,7 +127,12 @@ export const monoColorInputSchema = z.strictObject({
 export function monoColorDesignInstructions(
     input: z.infer<typeof monoColorInputSchema>,
 ): string {
-    const { sourceImageUrl: _source, text: _text, ...settings } = input;
+    const {
+        sourceImageUrl: _source,
+        text: _text,
+        background: _background,
+        ...settings
+    } = input;
     // 旧调用未提供设计参数时，保持原 Skill 的自动搭配行为。
     if (!Object.values(settings).some((value) => value !== undefined))
         return "";

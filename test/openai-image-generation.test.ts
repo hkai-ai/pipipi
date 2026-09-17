@@ -191,3 +191,30 @@ describe("OpenAI image generation Adapter", () => {
         expect(fetchMock).not.toHaveBeenCalled();
     });
 });
+
+it("OpenAI 生图 JSON 与编辑表单透传背景", async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockImplementation(
+        async () =>
+            new Response(
+                JSON.stringify({
+                    data: [{ b64_json: minimalPng.toString("base64") }],
+                }),
+            ),
+    );
+    const client = new OpenAIImageGenerationClient({
+        apiKey: "test-key",
+        fetch: fetchMock,
+    });
+    await client.generate({ prompt: "test", background: "transparent" });
+    await client.edit({
+        prompt: "test",
+        background: "transparent",
+        image: { bytes: minimalPng, mimeType: "image/png" },
+    });
+    expect(
+        JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body)).background,
+    ).toBe("transparent");
+    const form = fetchMock.mock.calls[1]?.[1]?.body;
+    if (!(form instanceof FormData)) throw new Error("缺少编辑表单");
+    expect(form.get("background")).toBe("transparent");
+});

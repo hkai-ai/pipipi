@@ -5,6 +5,7 @@ import {
     failProcess,
     type ProcessRegistration,
 } from "../../process-runtime/index.js";
+import { imageBackgroundSchema } from "../image-background.js";
 import type { CrtAgent } from "./agent.js";
 import {
     type CrtRenderingCapability,
@@ -34,6 +35,7 @@ const inputSchema = z.strictObject({
             isPublicSourceImageUrl,
             "Source image URL must be a public HTTPS URL",
         ),
+    background: imageBackgroundSchema.optional(),
     palette: z.enum(crtPaletteNames),
     aspectRatio: z.enum(crtAspectRatios),
     grain: z.enum(crtGrains).default(defaultCrtGrain),
@@ -214,6 +216,9 @@ export function createCrtRegistration(
                             {
                                 sourceImageUrl: input.sourceImageUrl,
                                 prompt: compiled.prompt,
+                                ...(input.background
+                                    ? { background: input.background }
+                                    : {}),
                                 palette: input.palette,
                                 aspectRatio: input.aspectRatio,
                                 grain: input.grain,

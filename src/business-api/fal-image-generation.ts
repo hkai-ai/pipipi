@@ -95,6 +95,9 @@ export class FalImageGenerationClient {
                     quality: request.quality ?? "low",
                     num_images: 1,
                     output_format: request.outputFormat ?? "png",
+                    ...(request.background
+                        ? { background: request.background }
+                        : {}),
                     sync_mode: true,
                 },
                 abortSignal: signal,
@@ -123,6 +126,9 @@ export class FalImageGenerationClient {
                     quality: request.quality ?? "low",
                     num_images: 1,
                     output_format: request.outputFormat ?? "png",
+                    ...(request.background
+                        ? { background: request.background }
+                        : {}),
                     sync_mode: true,
                 },
                 abortSignal: signal,

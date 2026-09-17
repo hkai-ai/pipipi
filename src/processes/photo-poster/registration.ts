@@ -5,6 +5,7 @@ import {
     failProcess,
     type ProcessRegistration,
 } from "../../process-runtime/index.js";
+import { imageBackgroundSchema } from "../image-background.js";
 import type { PhotoPosterAgent } from "./agent.js";
 import {
     type PhotoPosterRenderingCapability,
@@ -20,10 +21,12 @@ import { type PhotoPosterStyle, photoPosterProcessId } from "./style.js";
 
 const inputSchema = z.strictObject({
     sourceImageUrl: sourcePhotoSchema,
+    background: imageBackgroundSchema.optional(),
     text: z.string().trim().min(1).max(200).optional(),
 });
 const travelInputSchema = z.strictObject({
     sourceImageUrl: sourcePhotoSchema,
+    background: imageBackgroundSchema.optional(),
     phrase: z
         .string()
         .trim()
@@ -113,6 +116,9 @@ export function createPhotoPosterRegistration(
                                     sourceImageUrl: input.sourceImageUrl,
                                     style,
                                     prompt,
+                                    ...(input.background
+                                        ? { background: input.background }
+                                        : {}),
                                     ...(travel
                                         ? {
                                               archive: {

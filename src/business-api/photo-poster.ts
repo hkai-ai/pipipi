@@ -1,5 +1,6 @@
 /** 照片风格图片编辑、旅行档案文字合成与成品存储。 */
 import sharp from "sharp";
+import type { ImageBackground } from "../processes/image-background.js";
 import type { PhotoPosterRenderInput } from "../processes/photo-poster/capability.js";
 
 /** 统一解码为显示方向的 RGB 原图，限制解码像素和成品尺寸。 */
@@ -35,6 +36,7 @@ export async function decodeSourcePhoto(bytes: Buffer) {
 export async function finalizeTravelPhoto(
     panel: Buffer,
     archive: NonNullable<PhotoPosterRenderInput["archive"]>,
+    background?: ImageBackground,
 ): Promise<Buffer> {
     const { width, height } = await sharp(panel).metadata();
     if (width !== 1_200 || height !== 1_600)
@@ -53,9 +55,9 @@ export async function finalizeTravelPhoto(
     const lettering = Buffer.from(
         `<svg width="${width}" height="${height}"><g font-family="monospace" font-size="${fontSize}" fill="#888888"><text x="${width - margin}" y="${margin}" text-anchor="end">NO. ${String(archive.number).padStart(3, "0")}</text><text x="${margin}" y="${height - margin - fontSize * 1.6}">${date}</text><text x="${margin}" y="${height - margin}">${archive.phrase}</text></g></svg>`,
     );
-    return sharp(panel)
-        .composite([{ input: lettering, top: 0, left: 0 }])
-        .removeAlpha()
-        .png()
-        .toBuffer();
+    const result = sharp(panel).composite([
+        { input: lettering, top: 0, left: 0 },
+    ]);
+    if (background !== "transparent") result.removeAlpha();
+    return result.png().toBuffer();
 }

@@ -115,3 +115,37 @@ describe("CRT finalizer grains", () => {
         }
     });
 });
+
+it("透明 CRT 同步变形 alpha，旧输出仍为不透明 PNG", async () => {
+    const generated = await sharp({
+        create: {
+            width: 200,
+            height: 200,
+            channels: 4,
+            background: { r: 0, g: 0, b: 0, alpha: 0 },
+        },
+    })
+        .composite([
+            {
+                input: Buffer.from(
+                    '<svg width="200" height="200"><rect x="50" y="50" width="100" height="100" fill="red"/></svg>',
+                ),
+            },
+        ])
+        .png()
+        .toBuffer();
+    for (const background of [undefined, "transparent"] as const) {
+        const result = await finalizeCrtImage({
+            generated,
+            palette: "经典",
+            aspectRatio: "4:3",
+            background,
+        });
+        const metadata = await sharp(result.bytes).metadata();
+        expect(metadata.hasAlpha).toBe(background === "transparent");
+        if (background) {
+            const stats = await sharp(result.bytes).stats();
+            expect(stats.channels.at(-1)).toMatchObject({ min: 0, max: 255 });
+        }
+    }
+});

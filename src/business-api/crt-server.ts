@@ -23,6 +23,10 @@ import {
     crtPaletteNames,
 } from "../processes/crt/style.js";
 import {
+    type ImageBackground,
+    imageBackgroundSchema,
+} from "../processes/image-background.js";
+import {
     type NewsImageGeneration,
     type NewsImageRenderingResult,
     parseNewsImage,
@@ -40,6 +44,7 @@ import {
 } from "./crt-evidence.js";
 import { crtImageDimensions, finalizeCrtImage } from "./crt-finalizer.js";
 import { FalImageGenerationError } from "./fal-image-generation.js";
+import { assertImageBackground } from "./image-background.js";
 import type { ObjectStorageCapability } from "./object-storage.js";
 import {
     type EditImageRequest,
@@ -63,6 +68,7 @@ type ImageGenerationClient = Readonly<{
 type RasterContentType = "image/png" | "image/jpeg" | "image/webp";
 
 type CrtRequest = Readonly<{
+    background?: ImageBackground;
     sourceImageUrl: string;
     prompt: string;
     palette: CrtPalette;
@@ -486,6 +492,7 @@ export async function startCrtBusinessApi(
                 model,
                 quality,
                 size: "1200x1600",
+                ...(input.background ? { background: input.background } : {}),
                 outputFormat: "png",
                 signal,
             });
@@ -499,8 +506,13 @@ export async function startCrtBusinessApi(
                 throw new Error("照片海报生成尺寸或格式不正确");
             }
             const bytes = input.archive
-                ? await finalizeTravelPhoto(generated.bytes, input.archive)
+                ? await finalizeTravelPhoto(
+                      generated.bytes,
+                      input.archive,
+                      input.background,
+                  )
                 : generated.bytes;
+            await assertImageBackground(bytes, input.background);
             const final = await sharp(bytes).metadata();
             signal.throwIfAborted();
             const stored = options.storage
@@ -756,6 +768,7 @@ export async function startCrtBusinessApi(
             prompt: input.prompt,
             model,
             size: `${target.width}x${target.height}`,
+            ...(input.background ? { background: input.background } : {}),
             quality,
             outputFormat: "png",
             signal,
@@ -793,10 +806,12 @@ export async function startCrtBusinessApi(
         }
         const finalized = await finalizeCrtImage({
             generated: raw,
+            background: input.background,
             palette: input.palette,
             aspectRatio: input.aspectRatio,
             grain: input.grain,
         });
+        await assertImageBackground(finalized.bytes, input.background);
         artifacts = await saveCrtEvidence(evidencePolicy, {
             runId: requestKey,
             createdAt: new Date().toISOString(),
@@ -1084,8 +1099,21 @@ function summarizeRenderingFailure(
 }
 
 function parseCrtRequest(value: unknown): CrtRequest {
-    if (!isRecord(value) || Object.keys(value).length !== 5) {
-        throw new Error("CRT request must be an object with five fields");
+    if (
+        !isRecord(value) ||
+        Object.keys(value).some(
+            (key) =>
+                ![
+                    "sourceImageUrl",
+                    "prompt",
+                    "palette",
+                    "aspectRatio",
+                    "grain",
+                    "background",
+                ].includes(key),
+        )
+    ) {
+        throw new Error("CRT request contains unsupported fields");
     }
     if (
         typeof value.sourceImageUrl !== "string" ||
@@ -1108,6 +1136,9 @@ function parseCrtRequest(value: unknown): CrtRequest {
         palette: value.palette as CrtPalette,
         aspectRatio: value.aspectRatio as CrtAspectRatio,
         grain: value.grain as CrtGrain,
+        ...(value.background !== undefined
+            ? { background: imageBackgroundSchema.parse(value.background) }
+            : {}),
     });
 }
 

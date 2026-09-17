@@ -67,7 +67,7 @@ flowchart LR
 主线固定为：
 
 1. 调用方准备一条 FAL 可读取且有效期足够的公网 HTTPS 图片 URL。
-2. Registration 严格接受三个业务字段，并把调色板和画幅交给无 Tool Agent。Agent 看不到参考图 URL。
+2. Registration 按固定 Schema 接受业务字段，并把调色板和画幅交给无 Tool Agent。Agent 看不到参考图 URL。
 3. Agent 从固定的 `tait-crt-interface-prompt` Runtime Skill 编译四段英文 Prompt 和十四轴 recipe。Registration 验证结构、调色板、画幅和核心视觉约束；失败时不调用图片服务。
 4. Registration 以 Process `runId` 作为幂等键，只调用一次 CRT Rendering Capability。
 5. 受控 Business API 把 URL 原样交给 FAL GPT Image 2，执行同尺寸后处理，把 PNG 保存到配置的存储，并返回图片引用。
@@ -261,3 +261,5 @@ npm run accept:crt-business
 | 同类流程开发模板 | [参考图转换 Business Process 开发模板](development-template.md) |
 | 编辑 smoke | [`examples/crt-gpt-image-smoke.ts`](../../../../examples/crt-gpt-image-smoke.ts) |
 | 确定性测试 | [`test/crt-process.test.ts`](../../../../test/crt-process.test.ts)、[`test/crt-http.test.ts`](../../../../test/crt-http.test.ts)、[`test/openai-image-generation.test.ts`](../../../../test/openai-image-generation.test.ts)、[`test/fal-image-generation.test.ts`](../../../../test/fal-image-generation.test.ts)、[`test/image-generation-config.test.ts`](../../../../test/image-generation-config.test.ts)、[`test/crt-local-business-api.test.ts`](../../../../test/crt-local-business-api.test.ts)、[`test/crt-evidence.test.ts`](../../../../test/crt-evidence.test.ts) |
+
+可选背景参数及兼容行为见 [图片背景参数](../../../api.md#图片背景参数)。背景参数直接传给模型，不追加或改写提示词；透明输出的最终 PNG 校验真实透明像素，失败不自动重绘。

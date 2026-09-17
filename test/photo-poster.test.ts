@@ -15,6 +15,7 @@ import {
     createProcessRegistry,
     createProcessRunner,
 } from "../src/process-runtime/index.js";
+import { HttpCrtRenderingCapability } from "../src/processes/crt/capability.http.js";
 import { HttpPhotoPosterRenderingCapability } from "../src/processes/photo-poster/capability.http.js";
 import {
     PhotoPosterRenderingUnavailable,
@@ -723,4 +724,187 @@ describe("照片海报图片 Capability", () => {
             height: 1_600,
         });
     });
+});
+
+describe("照片海报背景合同", () => {
+    it.each(photoPosterStyles)(
+        "%s 传递背景意图且不扩大 Agent 输入",
+        async (style) => {
+            const original = runtime(style);
+            const baseline = await original.executor.execute(requestFor(style));
+            expect(baseline.status).toBe("succeeded");
+            const originalPrompt = original.render.mock.calls[0]?.[0].prompt;
+            expect(typeof originalPrompt).toBe("string");
+            for (const background of [
+                "auto",
+                "transparent",
+                "opaque",
+            ] as const) {
+                const run = runtime(style);
+                const result = await run.executor.execute({
+                    ...requestFor(style),
+                    input: { ...inputFor(style), background },
+                });
+                expect(result.status).toBe("succeeded");
+                expect(run.render.mock.calls[0]?.[0].background).toBe(
+                    background,
+                );
+                expect(run.compile.mock.calls[0]?.[0]).not.toHaveProperty(
+                    "background",
+                );
+                expect(run.render.mock.calls[0]?.[0].prompt).toBe(
+                    originalPrompt,
+                );
+            }
+            const run = runtime(style);
+            const rejected = await run.executor.execute({
+                ...requestFor(style),
+                input: { ...inputFor(style), background: "invalid" },
+            });
+            expect(rejected.status).toBe("failed");
+            expect(run.render).not.toHaveBeenCalled();
+        },
+    );
+    it.each(["woodcut", "travel-abstraction"] as const)(
+        "%s 跨 HTTP 保留透明像素，背景变更不能复用旧幂等结果",
+        async (style) => {
+            const directory = await mkdtemp(
+                join(tmpdir(), "photo-background-"),
+            );
+            cleanups.push(() =>
+                rm(directory, { recursive: true, force: true }),
+            );
+            const bytes = await sharp({
+                create: {
+                    width: 1200,
+                    height: 1600,
+                    channels: 4,
+                    background: { r: 30, g: 60, b: 90, alpha: 0.5 },
+                },
+            })
+                .png()
+                .toBuffer();
+            const edit = vi
+                .fn()
+                .mockResolvedValue({ bytes, mimeType: "image/png" });
+            const business = await startCrtBusinessApi({
+                directory,
+                imageClient: { edit },
+            });
+            cleanups.push(business.close);
+            const capability = new HttpPhotoPosterRenderingCapability({
+                baseUrl: business.url,
+                timeoutMs: 10000,
+            });
+            const render = vi.fn(capability.render.bind(capability));
+            const run = runtime(style, render);
+            const result = await run.executor.execute({
+                ...requestFor(style),
+                input: { ...inputFor(style), background: "transparent" },
+            });
+            expect(result.status).toBe("succeeded");
+            expect(edit.mock.calls[0]?.[0]).toMatchObject({
+                background: "transparent",
+                outputFormat: "png",
+            });
+            const downloaded = Buffer.from(
+                await (
+                    await fetch(
+                        `${business.url}/photo-posters/${result.runId}.png`,
+                    )
+                ).arrayBuffer(),
+            );
+            const stats = await sharp(downloaded).stats();
+            expect(stats.channels.at(-1)?.min).toBeLessThan(255);
+            const call = render.mock.calls[0];
+            if (!call) throw new Error("未调用图片服务");
+            const [input, options] = call;
+            await expect(
+                capability.render({ ...input, background: "opaque" }, options),
+            ).rejects.toBeInstanceOf(PhotoPosterRenderingUnavailable);
+            expect(edit).toHaveBeenCalledOnce();
+        },
+    );
+    it("模型返回不透明图片时失败，重放不会再付费", async () => {
+        const directory = await mkdtemp(join(tmpdir(), "photo-no-alpha-"));
+        cleanups.push(() => rm(directory, { recursive: true, force: true }));
+        const edit = vi.fn().mockResolvedValue({
+            bytes: await png(1200, 1600),
+            mimeType: "image/png",
+        });
+        const business = await startCrtBusinessApi({
+            directory,
+            imageClient: { edit },
+        });
+        cleanups.push(business.close);
+        const capability = new HttpPhotoPosterRenderingCapability({
+            baseUrl: business.url,
+            timeoutMs: 10000,
+        });
+        const input = {
+            sourceImageUrl,
+            style: "woodcut" as const,
+            prompt,
+            background: "transparent" as const,
+        };
+        const options = {
+            signal: new AbortController().signal,
+            idempotencyKey: "no-alpha",
+        };
+        await expect(capability.render(input, options)).rejects.toMatchObject({
+            committed: true,
+        });
+        await expect(capability.render(input, options)).rejects.toBeInstanceOf(
+            PhotoPosterRenderingUnavailable,
+        );
+        expect(edit).toHaveBeenCalledOnce();
+    });
+});
+
+it("CRT 内部 HTTP 接受背景参数并保留最终透明通道", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "crt-background-"));
+    cleanups.push(() => rm(directory, { recursive: true, force: true }));
+    const bytes = await sharp({
+        create: {
+            width: 1600,
+            height: 1200,
+            channels: 4,
+            background: { r: 90, g: 100, b: 50, alpha: 0.5 },
+        },
+    })
+        .png()
+        .toBuffer();
+    const edit = vi.fn().mockResolvedValue({ bytes, mimeType: "image/png" });
+    const business = await startCrtBusinessApi({
+        directory,
+        imageClient: { edit },
+    });
+    cleanups.push(business.close);
+    const capability = new HttpCrtRenderingCapability({
+        baseUrl: business.url,
+    });
+    const input = {
+        sourceImageUrl,
+        prompt,
+        palette: "经典" as const,
+        aspectRatio: "4:3" as const,
+        grain: "normal" as const,
+        background: "transparent" as const,
+    };
+    const options = {
+        signal: new AbortController().signal,
+        idempotencyKey: "crt-background",
+    };
+    const result = await capability.transform(input, options);
+    const final = Buffer.from(
+        await (await fetch(result.image.url)).arrayBuffer(),
+    );
+    expect((await sharp(final).metadata()).hasAlpha).toBe(true);
+    expect((await sharp(final).stats()).channels.at(-1)?.min).toBeLessThan(255);
+    expect(edit.mock.calls[0]?.[0]).toMatchObject({
+        background: "transparent",
+        outputFormat: "png",
+    });
+    expect(await capability.transform(input, options)).toEqual(result);
+    expect(edit).toHaveBeenCalledOnce();
 });

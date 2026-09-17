@@ -1,4 +1,6 @@
 /** OpenAI 图片生成/编辑 Adapter：封装 Images API 的 generate/edit 调用、栅格格式探测与用量解析 */
+import type { ImageBackground } from "../processes/image-background.js";
+
 export type GptImageQuality = "low" | "medium" | "high" | "auto";
 
 export type GptImageOutputFormat = "png" | "jpeg" | "webp";
@@ -28,6 +30,7 @@ export type GenerateImageRequest = {
     size?: string;
     quality?: GptImageQuality;
     outputFormat?: GptImageOutputFormat;
+    background?: ImageBackground;
     signal?: AbortSignal;
 };
 
@@ -127,6 +130,9 @@ export class OpenAIImageGenerationClient {
                         size: request.size ?? "1024x1696",
                         quality: request.quality ?? "low",
                         output_format: outputFormat,
+                        ...(request.background
+                            ? { background: request.background }
+                            : {}),
                     }),
                     signal,
                 },
@@ -173,6 +179,7 @@ export class OpenAIImageGenerationClient {
         form.set("size", request.size ?? "1600x1200");
         form.set("quality", request.quality ?? "low");
         form.set("output_format", outputFormat);
+        if (request.background) form.set("background", request.background);
 
         let response: Response;
         try {

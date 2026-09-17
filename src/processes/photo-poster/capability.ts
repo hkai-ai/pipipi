@@ -1,6 +1,7 @@
 /** 照片海报输入输出 Schema 与图片生成能力接口。 */
 import { z } from "zod";
 import { isPublicSourceImageUrl } from "../crt/capability.js";
+import { imageBackgroundSchema } from "../image-background.js";
 import { photoPosterStyles } from "./style.js";
 
 export const sourcePhotoSchema = z
@@ -31,6 +32,7 @@ export const photoPosterImageSchema = z.strictObject({
 export const photoPosterRenderSchema = z
     .strictObject({
         sourceImageUrl: sourcePhotoSchema,
+        background: imageBackgroundSchema.optional(),
         style: z.enum(photoPosterStyles),
         prompt: z.string().trim().min(100).max(16_000),
         archive: z
