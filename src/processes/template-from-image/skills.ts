@@ -12,8 +12,8 @@ export function createTemplateSkillRefs(): readonly InstalledSkillRef[] {
     return Object.freeze([
         Object.freeze({
             name: "meme-template-json-compiler",
-            version: "v1.8",
-            sha256: "43c55f63b6e22a547540c3cb4469c3cc96dcabda8e9b32c7e495201a22506ed5",
+            version: "v1.13",
+            sha256: "bd77585e3ec6021d255210390205f1a53f1a15f850384f821c3c3e562b67d1d3",
             path: ".pi/skills/meme-template-json-compiler",
         }),
     ]);

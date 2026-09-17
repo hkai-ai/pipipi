@@ -1,4 +1,5 @@
-/** 将模型的事实引用投影为完整候选，程序维护语义副本和推荐项代入。 */
+/** 从独立分析的共同语义模型投影草稿，并展开确定性引用和推荐项代入。 */
+import { createHash } from "node:crypto";
 import { z } from "zod";
 import {
     readTemplateCandidate,
@@ -10,6 +11,7 @@ import {
     validationDiagnostics,
 } from "./diagnostics.js";
 import { type TemplateCandidate, templateAnalysisSchema } from "./quality.js";
+import type { TemplateDraft } from "./types.js";
 
 const fields = [
     "styleTraits",
@@ -47,33 +49,14 @@ const planSlot = slot
                 "仅 replace_identity 槽位填写完整九轴具名权限；其他槽位为 null",
             ),
     });
-export const templatePlanAnalysisSchema = templateAnalysisSchema
+const planAnalysis = templateAnalysisSchema
     .omit({
-        semanticModel: true,
-        mediumComposition: true,
         templateValue: true,
         spatialRelations: true,
         slotEvidence: true,
         componentGraph: true,
-        textRegions: true,
     })
     .extend({
-        textRegions: z
-            .array(
-                shape.textRegions.element.omit({ layout: true }).extend({
-                    layoutRefs: z
-                        .strictObject({
-                            lineShape: visualRef,
-                            baseline: visualRef,
-                            glyphStyle: visualRef,
-                            spacing: visualRef,
-                            alignment: visualRef,
-                            placement: visualRef,
-                        })
-                        .nullable(),
-                }),
-            )
-            .max(64),
         templateValue: shape.templateValue
             .omit({ backendOnlyFacts: true })
             .extend({ backendFactRefs: z.array(visualRef).min(1).max(64) }),
@@ -94,9 +77,41 @@ export const templatePlanAnalysisSchema = templateAnalysisSchema
             z.array(z.string().min(1)).min(1).max(64),
         ),
     });
+// 字段映射不能把玩法和组件分析挪到最后，模型请求仍遵循来源的分析顺序。
+export const templatePlanAnalysisSchema = z.strictObject({
+    imageObservation: planAnalysis.shape.imageObservation,
+    visualMechanism: planAnalysis.shape.visualMechanism,
+    templateValue: planAnalysis.shape.templateValue,
+    playDecisionModel: planAnalysis.shape.playDecisionModel,
+    componentGraph: planAnalysis.shape.componentGraph,
+    identityTopology: planAnalysis.shape.identityTopology,
+    textRegions: planAnalysis.shape.textRegions,
+    fieldEvidence: planAnalysis.shape.fieldEvidence,
+    visualSelections: planAnalysis.shape.visualSelections,
+    mediumComposition: planAnalysis.shape.mediumComposition,
+    spatialRelations: planAnalysis.shape.spatialRelations,
+    targetScopes: planAnalysis.shape.targetScopes,
+    slotCoverageReview: planAnalysis.shape.slotCoverageReview,
+    editableCandidates: planAnalysis.shape.editableCandidates,
+    slotEvidence: planAnalysis.shape.slotEvidence,
+    titleEvidence: planAnalysis.shape.titleEvidence,
+    descriptionEvidence: planAnalysis.shape.descriptionEvidence,
+    tagEvidence: planAnalysis.shape.tagEvidence,
+    containers: planAnalysis.shape.containers,
+    fixedStructure: planAnalysis.shape.fixedStructure,
+    promptCoverage: planAnalysis.shape.promptCoverage,
+    translationEquivalences: z.array(
+        shape.translationEquivalences.element.omit({
+            sourceTextSha256: true,
+            targetTextSha256: true,
+        }),
+    ),
+    warnings: planAnalysis.shape.warnings,
+    semanticModel: planAnalysis.shape.semanticModel,
+});
 export const templatePlanSchema = z.strictObject({
-    draft: z.unknown(),
     analysis: templatePlanAnalysisSchema,
+    draft: z.unknown(),
 });
 
 export class TemplateProjectionError extends TemplateContractError {
@@ -121,9 +136,33 @@ export function readTemplatePlan(value: unknown) {
             validationDiagnostics(parsed.error.issues),
         );
     try {
+        const metadata = parsed.data.draft;
+        if (
+            !metadata ||
+            typeof metadata !== "object" ||
+            "promptTemplate" in metadata ||
+            "runtimeSemantics" in metadata
+        )
+            throw new TemplateContractError([
+                "draft 只包含发现文案与输入配置；Prompt 和运行语义只在 analysis.semanticModel 声明",
+            ]);
+        const draft = readTemplateDraft({
+            ...metadata,
+            promptTemplate: parsed.data.analysis.semanticModel.promptTemplate,
+            runtimeSemantics:
+                parsed.data.analysis.semanticModel.runtimeSemantics,
+        });
+        const { promptTemplate, runtimeSemantics, ...fields } = draft;
         return {
-            analysis: parsed.data.analysis,
-            draft: readTemplateDraft(parsed.data.draft),
+            analysis: {
+                ...parsed.data.analysis,
+                semanticModel: {
+                    ...parsed.data.analysis.semanticModel,
+                    promptTemplate,
+                    runtimeSemantics,
+                },
+            },
+            draft: fields,
         };
     } catch (error) {
         if (error instanceof TemplateContractError)
@@ -136,9 +175,19 @@ export function readTemplatePlan(value: unknown) {
     }
 }
 
+export function draftFromPlan(
+    plan: ReturnType<typeof readTemplatePlan>,
+): TemplateDraft {
+    return {
+        ...plan.draft,
+        promptTemplate: plan.analysis.semanticModel.promptTemplate,
+        runtimeSemantics: plan.analysis.semanticModel.runtimeSemantics,
+    };
+}
+
 export function materializeTemplatePlan(value: unknown): TemplateCandidate {
     const plan = readTemplatePlan(value);
-    const { draft } = plan;
+    const draft = draftFromPlan(plan);
     const visual = draft.runtimeSemantics.visualContract;
     const resolve = (ref: z.infer<typeof visualRef>, path: string): string => {
         const fact = visual[ref.field][ref.index];
@@ -171,23 +220,30 @@ export function materializeTemplatePlan(value: unknown): TemplateCandidate {
                 `/analysis/targetScopes/${targetId}: 每个正式目标必须且只能引用一组已存在且不重复的组件`,
             ]);
     }
+    const sha = (text: string) =>
+        createHash("sha256").update(text).digest("hex");
+    const regionText = (id: string) => {
+        const region = sourceAnalysis.textRegions.find(
+            (region) => region.id === id,
+        );
+        if (!region)
+            throw new TemplateProjectionError(value, [
+                "translationEquivalences: 引用未知文字区",
+            ]);
+        return region.exactText;
+    };
     const analysis = {
         ...sourceAnalysis,
-        textRegions: sourceAnalysis.textRegions.map(
-            ({ layoutRefs, ...region }, index) => ({
-                ...region,
-                layout:
-                    layoutRefs === null
-                        ? null
-                        : Object.fromEntries(
-                              Object.entries(layoutRefs).map(([axis, ref]) => [
-                                  axis,
-                                  resolve(
-                                      ref,
-                                      `/analysis/textRegions/${index}/layoutRefs/${axis}`,
-                                  ),
-                              ]),
-                          ),
+        translationEquivalences: sourceAnalysis.translationEquivalences.map(
+            (entry) => ({
+                ...entry,
+                sourceTextSha256: sha(regionText(entry.sourceRegionId)),
+                targetTextSha256: Object.fromEntries(
+                    entry.targetRegionIds.map((id) => [
+                        id,
+                        sha(regionText(id)),
+                    ]),
+                ),
             }),
         ),
         componentGraph: sourceAnalysis.componentGraph.map((component) => ({
@@ -202,16 +258,7 @@ export function materializeTemplatePlan(value: unknown): TemplateCandidate {
                 resolve(ref, `/analysis/templateValue/backendFactRefs/${i}`),
             ),
         },
-        mediumComposition: {
-            medium: visual.medium,
-            styleTraits: visual.styleTraits,
-            composition: visual.composition,
-            colorAndLight: visual.colorAndLight,
-        },
-        semanticModel: {
-            promptTemplate: draft.promptTemplate,
-            runtimeSemantics: draft.runtimeSemantics,
-        },
+
         spatialRelations: plan.analysis.spatialRelations.map(
             ({ relationIndex, ...relation }, i) => ({
                 ...relation,
@@ -313,28 +360,23 @@ export function toTemplatePlan(candidate: TemplateCandidate) {
             "旧候选的分析事实没有准确对应正式约束，不能转换为字段引用",
         ]);
     };
-    const {
-        semanticModel: _semantic,
-        mediumComposition: _medium,
-        ...rest
-    } = analysis;
+    const rest = analysis;
     const { backendOnlyFacts, ...templateValue } = rest.templateValue;
+    const {
+        promptTemplate: _prompt,
+        runtimeSemantics: _runtime,
+        ...metadata
+    } = draft;
     return readTemplatePlan({
-        draft,
+        draft: metadata,
         analysis: {
             ...rest,
-            textRegions: rest.textRegions.map(({ layout, ...region }) => ({
-                ...region,
-                layoutRefs:
-                    layout === null
-                        ? null
-                        : Object.fromEntries(
-                              Object.entries(layout).map(([axis, fact]) => [
-                                  axis,
-                                  reference(fact),
-                              ]),
-                          ),
-            })),
+            translationEquivalences: rest.translationEquivalences.map(
+                ({ sourceRegionId, targetRegionIds }) => ({
+                    sourceRegionId,
+                    targetRegionIds,
+                }),
+            ),
             componentGraph: rest.componentGraph.map(
                 ({ targetIds: _targets, ...component }) => component,
             ),

@@ -3,6 +3,7 @@ import {
     ModelRuntime,
 } from "@earendil-works/pi-coding-agent";
 import { Ajv2020 } from "ajv/dist/2020.js";
+import sharp from "sharp";
 import { describe, expect, it, vi } from "vitest";
 import type { PiStructuredAgentOptions } from "../src/agent-runtime/structured.js";
 import { PiTemplateAgent } from "../src/processes/template-from-image/agent.pi.js";
@@ -24,10 +25,16 @@ import { candidate, reviewFor } from "./fixtures/template-candidate.js";
 import { compactInspection, compactPlan } from "./fixtures/template-compact.js";
 
 const image = {
-    data: "cG5n",
+    data: (
+        await sharp({
+            create: { width: 64, height: 64, channels: 3, background: "white" },
+        })
+            .png()
+            .toBuffer()
+    ).toString("base64"),
     mimeType: "image/png" as const,
-    width: 800,
-    height: 600,
+    width: 64,
+    height: 64,
 };
 function inspection(plan = toTemplatePlan(candidate())) {
     const { reviewedDraftSha256: _digest, ...review } = reviewFor(
@@ -116,6 +123,53 @@ async function agentFor(
 }
 
 describe("模板生成与独立视觉复核", () => {
+    it("编译和独立复核保留原图并提供完整内容观察，不切断文字行", async () => {
+        const data = (
+            await sharp(
+                Buffer.from(
+                    '<svg width="512" height="512"><rect width="512" height="512" fill="white"/><rect x="32" y="192" width="448" height="128" fill="red"/><rect x="160" y="340" width="192" height="20" fill="black"/></svg>',
+                ),
+            )
+                .png()
+                .toBuffer()
+        ).toString("base64");
+        const detailImage = { ...image, data, width: 512, height: 512 };
+        const plan = toTemplatePlan(candidate());
+        const service = await agentFor([
+            JSON.stringify(compactPlan(plan)),
+            JSON.stringify(compactInspection(inspection(plan))),
+        ]);
+        const signal = new AbortController().signal;
+        await service.agent.compile({ image: detailImage, signal });
+        await service.agent.review({
+            image: detailImage,
+            plan,
+            issues: [],
+            signal,
+        });
+        for (const call of service.prompt.mock.calls) {
+            const attachments = (call[1] as { images: { data: string }[] })
+                .images;
+            expect(attachments).toHaveLength(2);
+            expect(attachments[0].data).toBe(data);
+            expect(call[0]).toContain("唯一原图总览");
+            const input = JSON.parse(call[0].slice(call[0].indexOf("\n") + 1));
+            expect(input.pixelContours).toMatchObject({
+                width: 512,
+                height: 512,
+            });
+            expect(input.pixelContours.bands).toHaveLength(2);
+            expect(input.pixelContours.bands[0].samples[0].top).toBe(192);
+            expect(input.imageViews).not.toContain('"samples"');
+            expect(call[0]).toContain("不分割整行文字或组件组");
+            expect(
+                await sharp(
+                    Buffer.from(attachments[1].data, "base64"),
+                ).metadata(),
+            ).toMatchObject({ width: 448, height: 168 });
+        }
+        expect(detailImage.data).toBe(data);
+    });
     it("复核补丁受请求级 Schema 约束，首轮仍沿用 JSON 模式", async () => {
         const plan = toTemplatePlan(candidate());
         const service = await agentFor([
@@ -299,7 +353,7 @@ describe("模板生成与独立视觉复核", () => {
         expect(result.draft.description).toBe("拥抱你的新朋友");
         expect(result.draft.inputSchema).toEqual(plan.draft.inputSchema);
         expect(result.draft.runtimeSemantics).toEqual(
-            plan.draft.runtimeSemantics,
+            plan.analysis.semanticModel.runtimeSemantics,
         );
         expect(plan.draft.description).not.toBe(result.draft.description);
         expect(reviewIssues(result, result.review)).toEqual([]);

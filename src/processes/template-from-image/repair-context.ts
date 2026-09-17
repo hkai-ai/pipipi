@@ -1,30 +1,51 @@
-/** 从引用计划生成复核上下文，引用失效时仍保留槽位约束与可定位的修正信息。 */
-import { readTemplatePlan } from "./projection.js";
+/** 从独立分析与引用计划生成复核上下文，定位未落实的观察和失效引用。 */
+
+import { analysisCounts } from "./analysis-contract.js";
+import { draftFromPlan, readTemplatePlan } from "./projection.js";
+import {
+    visualSelectionContext,
+    visualSelectionIssues,
+} from "./visual-selection.js";
 
 export function templateRepairContext(value: unknown) {
-    const { draft, analysis } = readTemplatePlan(value);
+    const plan = readTemplatePlan(value);
+    const { analysis } = plan;
+    const draft = draftFromPlan(plan);
     const visual = draft.runtimeSemantics.visualContract;
     return {
-        unresolvedTextLayouts: analysis.textRegions.flatMap((region, index) =>
-            Object.entries(region.layoutRefs ?? {}).flatMap(([axis, ref]) =>
-                visual[ref.field][ref.index] === undefined
-                    ? [
-                          {
-                              path: `/analysis/textRegions/${index}/layoutRefs/${axis}`,
-                              targetPath: `/draft/runtimeSemantics/visualContract/${ref.field}/${ref.index}`,
-                              actual: visual[ref.field],
-                          },
-                      ]
-                    : [],
-            ),
-        ),
+        counts: analysisCounts({ analysis, draft }),
+        visualSelections: visualSelectionContext(analysis, visual),
+        visualSelectionIssues: visualSelectionIssues(analysis, visual),
+        visualFactMismatches: (
+            ["medium", "styleTraits", "composition", "colorAndLight"] as const
+        ).flatMap((field) => {
+            const selected = analysis.mediumComposition[field];
+            const actual = visual[field];
+            const missing =
+                typeof selected === "string"
+                    ? selected === actual
+                        ? []
+                        : [selected]
+                    : selected.filter((fact) => !actual.includes(fact));
+            return missing.length
+                ? [
+                      {
+                          sourcePath: `/analysis/mediumComposition/${field}`,
+                          targetPath: `/analysis/semanticModel/runtimeSemantics/visualContract/${field}`,
+                          selected,
+                          actual,
+                          missing,
+                      },
+                  ]
+                : [];
+        }),
         unresolvedRelations: analysis.spatialRelations.flatMap(
             (relation, index) =>
                 visual.relations[relation.relationIndex] === undefined
                     ? [
                           {
                               path: `/analysis/spatialRelations/${index}/relationIndex`,
-                              targetPath: `/draft/runtimeSemantics/visualContract/relations/${relation.relationIndex}`,
+                              targetPath: `/analysis/semanticModel/runtimeSemantics/visualContract/relations/${relation.relationIndex}`,
                               actual: visual.relations,
                           },
                       ]

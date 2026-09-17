@@ -24,6 +24,7 @@ import {
 import { templateExecutionFailure } from "./failure.js";
 import { loadTemplateImage, type TemplateImageLoader } from "./image.js";
 import {
+    draftFromPlan,
     materializeTemplatePlan,
     readTemplatePlan,
     TemplateProjectionError,
@@ -192,8 +193,8 @@ export function createTemplateRegistration(options: {
 
             // 可读取计划的全部问题交给唯一的独立复核，避免单项错误先消耗一次修正。
             const issues = [
-                ...templateSemanticIssues(plan.draft),
-                ...sourceAnalysisIssues(plan.draft, plan.analysis),
+                ...templateSemanticIssues(draftFromPlan(plan)),
+                ...sourceAnalysisIssues(draftFromPlan(plan), plan.analysis),
             ];
             try {
                 parseTemplateCandidate(materializeTemplatePlan(plan));

@@ -155,7 +155,7 @@ Skill 更新按依赖升级处理：解析新的不可变版本，比较目录�
 
 ## 图片模板编译适配
 
-`meme-template-json-compiler@v1.8` 从用户指定的本地仓库固定 commit 适配为无 Tool Runtime Skill，绑定 `template-from-image/v1`。开发期完整打包八份业务文档；原 Python 脚本、key 注册表和磁盘侧车不进入运行路径。模型先生成分析和草稿，下一次独立视觉调用核对输入计划摘要并直接交付必要补丁及十九项最终报告，服务端合并、投影并校验全部结构、语义和固定 Gallery Schema，直接传入受控图片附件。来源许可证记录为 `NOASSERTION`，授权范围为本地实现与测试。来源摘要、适配差异和权限见 [SOURCE.md](../.pi/skills/meme-template-json-compiler/SOURCE.md)，执行和验收见 [Process 文档](processes/memebuy/template-from-image/README.md)。
+`meme-template-json-compiler` 从用户指定的本地仓库固定 commit 适配为无 Tool Runtime Skill，绑定 `template-from-image/v1`。开发期完整打包八份业务文档；原 Python 脚本、key 注册表和磁盘侧车不进入运行路径。模型先生成分析与共同语义，再由服务端投影草稿，下一次独立视觉调用核对输入计划摘要并直接交付必要补丁及十九项最终报告，服务端合并、投影并校验全部结构、语义和固定 Gallery Schema，直接传入受控图片附件。来源许可证记录为 `NOASSERTION`，授权范围为本地实现与测试。来源摘要、适配差异和权限见 [SOURCE.md](../.pi/skills/meme-template-json-compiler/SOURCE.md)，执行和验收见 [Process 文档](processes/memebuy/template-from-image/README.md)。
 
 ## 图片生产策略快照
 
@@ -167,3 +167,5 @@ npx tsx tools/build-template-image-skill.ts E:/Deployment/meme-template-producti
 ```
 
 来源变化须先审查清单，重建版本与 production SHA-256；不要手改打包正文。两次原人工确认迁至 Memebuy 页面，Runtime Agent 仅规划；受控 Adapter 生图与上传。单项与原批量工具的差异记录在 SOURCE.md。
+
+模板编译的原始观察、语义投影、文字路由与程序证据分工见 [来源合同对齐](processes/memebuy/template-from-image/source-alignment.md)。文档打包一致与运行合同等价分别验证。

@@ -101,13 +101,16 @@ describe("原 Skill 的模板适配回归", () => {
             plan.draft.inputSchema.slots[0],
             "resolutionStrategy",
         );
-        Object.assign(plan.draft.runtimeSemantics.inputBindings, {
-            subject: {
-                operation: "replace_content",
-                targetIds: ["subject_main"],
-                distributionPolicy: "replace_as_unit",
+        Object.assign(
+            plan.analysis.semanticModel.runtimeSemantics.inputBindings,
+            {
+                subject: {
+                    operation: "replace_content",
+                    targetIds: ["subject_main"],
+                    distributionPolicy: "replace_as_unit",
+                },
             },
-        });
+        );
         plan.analysis.slotEvidence.subject.featureAuthority = null;
         const expanded = expandTemplatePlan(compactPlan(plan));
         const context = templateRepairContext(expanded);

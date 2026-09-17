@@ -2,7 +2,19 @@
 import { createHash } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
 import { z } from "zod";
+import {
+    observationShape,
+    semanticEvidenceShape,
+    slotEvidenceShape,
+    sourceContractIssues,
+    suggestionChecksShape,
+    textRegionSchema,
+} from "./analysis-contract.js";
 import type { TemplateDraft } from "./types.js";
+import {
+    visualSelectionIssues,
+    visualSelectionsSchema,
+} from "./visual-selection.js";
 
 export const reviewAxes = [
     "subject",
@@ -89,6 +101,8 @@ const namedRecord = <T extends string, S extends z.ZodType>(
 ) => z.record(z.enum(keys), value);
 
 export const templateAnalysisSchema = z.strictObject({
+    ...observationShape,
+    visualSelections: visualSelectionsSchema,
     templateValue: z.strictObject({
         whySelected: text,
         templateHook: text,
@@ -125,47 +139,24 @@ export const templateAnalysisSchema = z.strictObject({
         .array(
             z.strictObject({
                 identityId: z.string().min(1),
+                instanceIds: ids.min(1),
                 componentIds: ids.min(1),
                 targetIds: ids.min(1),
                 evidence: text,
             }),
         )
         .max(32),
-    textRegions: z
-        .array(
-            z.strictObject({
-                id: z.string().min(1),
-                componentId: z.string().min(1),
-                semanticUnitId: z.string().min(1),
-                exactText: fact,
-                layout: z
-                    .strictObject({
-                        lineShape: fact,
-                        baseline: fact,
-                        glyphStyle: fact,
-                        spacing: fact,
-                        alignment: fact,
-                        placement: fact,
-                    })
-                    .nullable(),
-                action: z.enum([
-                    "open_slot",
-                    "free_editable",
-                    "preserve",
-                    "remove",
-                    "review",
-                ]),
-                slotId: z.string().nullable(),
-                evidence: text,
-            }),
-        )
-        .max(64),
-    mediumComposition: z.strictObject({
-        medium: fact,
-        styleTraits: facts.min(1),
-        composition: facts.min(1),
-        colorAndLight: facts,
-    }),
+    textRegions: z.array(textRegionSchema).max(64),
+    mediumComposition: z
+        .strictObject({
+            medium: fact,
+            styleTraits: facts.min(1),
+            composition: facts.min(1),
+            colorAndLight: facts,
+        })
+        .describe(
+            "已选定的稳定视觉规则；medium 与正式 visualContract.medium 逐字一致，三个数组的条目原样保留在正式同名字段；需要修改时同步修改两处，不用同义概括替代",
+        ),
     spatialRelations: z
         .array(
             z.strictObject({
@@ -191,6 +182,7 @@ export const templateAnalysisSchema = z.strictObject({
     slotEvidence: z.record(
         z.string(),
         z.strictObject({
+            ...slotEvidenceShape,
             decisionId: z.string().min(1),
             componentIds: ids.min(1),
             defaultValue: fact,
@@ -202,13 +194,17 @@ export const templateAnalysisSchema = z.strictObject({
                 "high_value_text",
                 "exact_content_asset",
             ]),
-            openVisualFacts: facts.min(1),
+            openVisualFacts: facts
+                .min(1)
+                .describe(
+                    "开放后不得被标题、标签和视觉合同锁回的具体事实；数组必须包含默认值和全部推荐值各自的精确原文，每项只填值本身，不加引号、默认主句、推荐主句、开放等说明。例如默认值为你好，则一项是你好，不能写默认文字你好开放。其他开放事实另列",
+                ),
             imageRationale: text.nullable(),
             featureAuthority: namedRecord(featureAxes, authority).nullable(),
             identityRecognition: z
                 .strictObject({
                     status: z.enum(["recognized", "unrecognized"]),
-                    name: fact,
+                    name: fact.nullable(),
                     evidence: text,
                 })
                 .nullable(),
@@ -225,6 +221,7 @@ export const templateAnalysisSchema = z.strictObject({
             substitutions: z
                 .array(
                     z.strictObject({
+                        ...suggestionChecksShape,
                         value: fact,
                         prompt: z.string().min(1).max(5000),
                         evidence: text,
@@ -242,7 +239,7 @@ export const templateAnalysisSchema = z.strictObject({
             "userAppeal",
             "discoveryValue",
         ],
-        text,
+        gate,
     ),
     descriptionEvidence: namedRecord(
         [
@@ -251,7 +248,7 @@ export const templateAnalysisSchema = z.strictObject({
             "spokenNaturalness",
             "slotPortability",
         ],
-        text,
+        gate,
     ),
     tagEvidence: z.record(
         z.string(),
@@ -271,6 +268,7 @@ export const templateAnalysisSchema = z.strictObject({
         }),
     ),
     semanticModel: z.strictObject({
+        ...semanticEvidenceShape,
         promptTemplate: z.string().min(1),
         runtimeSemantics: z.unknown(),
     }),
@@ -334,10 +332,20 @@ export function candidateDigest(candidate: TemplateCandidate): string {
     // 摘要由服务端计算；包含分析，避免复核草稿时分析被换掉。
     return createHash("sha256")
         .update(
-            JSON.stringify({
-                draft: candidate.draft,
-                analysis: candidate.analysis,
-            }),
+            JSON.stringify(
+                {
+                    draft: candidate.draft,
+                    analysis: candidate.analysis,
+                },
+                (_key, value: unknown) =>
+                    value && typeof value === "object" && !Array.isArray(value)
+                        ? Object.fromEntries(
+                              Object.entries(value).sort(([a], [b]) =>
+                                  a < b ? -1 : a > b ? 1 : 0,
+                              ),
+                          )
+                        : value,
+            ),
         )
         .digest("hex");
 }
@@ -408,7 +416,11 @@ export function analysisIssues({
     draft,
     analysis: a,
 }: TemplateCandidate): string[] {
-    const issues: string[] = sourceAnalysisIssues(draft, a).slice(0, 24);
+    const issues: string[] = [
+        ...sourceAnalysisIssues(draft, a),
+        ...sourceContractIssues({ draft, analysis: a }),
+        ...visualSelectionIssues(a, draft.runtimeSemantics.visualContract),
+    ].slice(0, 24);
     const check = (ok: boolean, message: string) => {
         if (!ok && issues.length < 24) issues.push(message);
     };
@@ -432,10 +444,16 @@ export function analysisIssues({
         "analysis.componentGraph: 组件 ID 重复",
     );
     check(
-        isDeepStrictEqual(a.semanticModel, {
-            promptTemplate: draft.promptTemplate,
-            runtimeSemantics: runtime,
-        }),
+        isDeepStrictEqual(
+            {
+                promptTemplate: a.semanticModel.promptTemplate,
+                runtimeSemantics: a.semanticModel.runtimeSemantics,
+            },
+            {
+                promptTemplate: draft.promptTemplate,
+                runtimeSemantics: runtime,
+            },
+        ),
         "analysis.semanticModel 必须与最终 Prompt 和 runtimeSemantics 逐值一致",
     );
     check(
@@ -637,7 +655,9 @@ export function analysisIssues({
         if (binding?.operation === "replace_identity") {
             check(
                 Boolean(
-                    evidence.featureAuthority && evidence.identityRecognition,
+                    evidence.featureAuthority &&
+                        (binding.bindingPolicy === "preserve_group" ||
+                            evidence.identityRecognition),
                 ),
                 `${slot.id}: 身份缺少识别或九轴特征权限`,
             );
@@ -659,10 +679,9 @@ export function analysisIssues({
                 );
                 for (const axis of featureAxes) {
                     const authority = evidence.featureAuthority[axis];
-                    const templateOwns = authority.owner === "template";
                     check(
                         authority.runtimeFact === null
-                            ? !templateOwns
+                            ? true
                             : visualText.includes(authority.runtimeFact),
                         `${slot.id}/${axis}: 特征执行事实必须落实到视觉约束，来源特征未额外声明时可为空`,
                     );
@@ -698,31 +717,15 @@ export function analysisIssues({
         "文字区域 ID 不能重复",
     );
     for (const region of a.textRegions) {
-        const retained =
-            region.action !== "remove" && region.action !== "review";
-        check(
-            retained ? region.layout !== null : region.layout === null,
-            `${region.id}: 保留文字须记录排版，删除或待辨识文字不得虚构排版约束`,
-        );
-        if (region.layout) {
-            const facts = [
-                ...draft.runtimeSemantics.visualContract.styleTraits,
-                ...draft.runtimeSemantics.visualContract.composition,
-                ...draft.runtimeSemantics.visualContract.relations,
-                ...draft.runtimeSemantics.visualContract.colorAndLight,
-            ];
-            check(
-                Object.values(region.layout).every((fact) =>
-                    facts.includes(fact),
-                ),
-                `${region.id}: 文字排版必须准确对应正式视觉约束`,
-            );
-        }
         check(
             componentIds.includes(region.componentId),
             `${region.id}: 文字区域引用未知组件`,
         );
-        const route = `${region.action}:${region.slotId}`;
+        const route = JSON.stringify([
+            region.action,
+            region.slotId,
+            region.semanticUnitRole,
+        ]);
         check(
             !unitRoutes.has(region.semanticUnitId) ||
                 unitRoutes.get(region.semanticUnitId) === route,
@@ -777,9 +780,22 @@ export function reviewIssues(
     if (review.issues.length)
         issues.push(...review.issues.map((issue) => `review.issues: ${issue}`));
     const observations = new Set<string>();
-    if (
-        candidate.analysis.textRegions.some((region) => region.layout !== null)
-    ) {
+    for (const path of [
+        "/analysis/fieldEvidence/visualContract",
+        "/analysis/visualSelections",
+        "/analysis/semanticModel/runtimeSemantics/visualContract",
+    ]) {
+        if (
+            !review.checks.visualContractRespectsInputs.evidence.some(
+                (item) =>
+                    item.path === path || item.path.startsWith(`${path}/`),
+            )
+        )
+            issues.push(
+                `review.visualContractRespectsInputs: 缺少 ${path} 的观察、取舍或约束复核`,
+            );
+    }
+    if (candidate.analysis.textRegions.length > 0) {
         const evidence = review.checks.textEditLayersComplete.evidence;
         for (const path of [
             "/analysis/textRegions",
@@ -788,7 +804,12 @@ export function reviewIssues(
             if (
                 !evidence.some(
                     (item) =>
-                        item.path === path || item.path.startsWith(`${path}/`),
+                        item.path === path ||
+                        item.path.startsWith(`${path}/`) ||
+                        (path === "/draft/runtimeSemantics/visualContract" &&
+                            item.path.startsWith(
+                                "/analysis/semanticModel/runtimeSemantics/visualContract",
+                            )),
                 )
             )
                 issues.push(

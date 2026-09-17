@@ -299,8 +299,7 @@ export function templateSemanticIssues(draft: TemplateDraft): string[] {
             !fixedText.includes(slot.text.defaultValue),
             `${slot.id}: 开放默认值不能写入固定约束或发现文案`,
         );
-        const values = [slot.text.defaultValue, ...slot.text.suggestions];
-        check(values.every(isQuickText), `${slot.id}: 默认值或推荐文字过长`);
+
         check(
             slot.text.suggestions.every(
                 (value) => !value.includes("{{") && !value.includes("}}"),
@@ -380,13 +379,6 @@ function sameSet(left: readonly string[], right: readonly string[]): boolean {
         new Set(left).size === left.length &&
         left.every((value) => right.includes(value))
     );
-}
-
-function isQuickText(value: string): boolean {
-    const words = value.trim().split(/\s+/u);
-    return words.length > 1
-        ? words.length <= 7 && [...value].length <= 48
-        : [...value].length <= 20;
 }
 
 export function compileTemplateResult(

@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import { evidenceFields } from "../../src/processes/template-from-image/analysis-contract.js";
 import {
     candidateDigest,
     reviewAxes,
@@ -14,6 +15,34 @@ export function candidate() {
         readFileSync("test/fixtures/template-from-image.json", "utf8"),
     );
     const analysis: TemplateAnalysis = {
+        imageObservation:
+            "图中双臂从两侧环抱中央宠物，身体与手臂形成亲密围合；替换宠物时保持接触与空间关系。",
+        visualMechanism: "双臂环抱中央宠物形成亲密关系",
+        containers: [],
+        fixedStructure: ["中央拥抱布局"],
+        warnings: [],
+        translationEquivalences: [],
+        visualSelections: [
+            {
+                evidenceIndex: 0,
+                decision: "retain",
+                reason: "双臂包围中央动物的关系承载拥抱玩法，身份改变后仍须保留",
+                factRefs: [{ field: "relations", index: 0 }],
+            },
+        ],
+        fieldEvidence: Object.fromEntries(
+            evidenceFields.map((field) => [
+                field,
+                [
+                    `${field}：以批准的宠物拥抱图为依据，输入与发现文案沿用同一玩法`,
+                ],
+            ]),
+        ) as TemplateAnalysis["fieldEvidence"],
+        promptCoverage: {
+            allEditableContentCovered: true,
+            slotIds: ["subject"],
+            freeEditableRegionIds: [],
+        },
         templateValue: {
             whySelected: "双臂环抱动物表达亲密与依恋",
             templateHook: "用户把自己的宠物放入双臂环抱的温暖画面",
@@ -49,6 +78,7 @@ export function candidate() {
         identityTopology: [
             {
                 identityId: "pet_identity",
+                instanceIds: ["subject_main"],
                 componentIds: ["pet"],
                 targetIds: ["subject_main"],
                 evidence: "中央仅一个被抱住的身份实例",
@@ -122,7 +152,23 @@ export function candidate() {
                 semanticAxis: "宠物身份与品种",
                 granularity: "一个具体宠物身份",
                 selectionReason: "identity_control",
-                openVisualFacts: ["橘白猫"],
+                openVisualFacts: [
+                    "橘白猫",
+                    ...draft.inputSchema.slots[0].text.suggestions,
+                ],
+                defaultLanguageReview: {
+                    natural: true,
+                    concise: true,
+                    modifierMinimal: true,
+                },
+                inputModeDecision: {
+                    modes: ["text", "image"],
+                    reason: "identity_subject",
+                    evidence: "单个宠物身份支持上传照片或文字描述",
+                },
+                inheritFromUpload: ["宠物身份"],
+                keepFromTemplate: ["拥抱关系"],
+                sourceIsolation: true,
                 imageRationale: "用户上传一张自己的宠物照映射中央身份",
                 featureAuthority: Object.fromEntries(
                     [
@@ -149,13 +195,16 @@ export function candidate() {
                 >,
                 identityRecognition: {
                     status: "unrecognized",
-                    name: "橘白猫",
+                    name: null,
                     evidence: "没有具体专名证据，以可见毛色描述",
                 },
                 groupDecision: null,
                 substitutions: draft.inputSchema.slots[0].text.suggestions.map(
                     (value) => ({
                         value,
+                        sameAxis: true,
+                        sameGranularity: true,
+                        mechanismCompatible: true,
                         prompt: `双臂紧紧抱住画面中央的${value}。`,
                         evidence: `代入${value}仍保留双臂环抱且不锁定旧毛色`,
                     }),
@@ -163,18 +212,33 @@ export function candidate() {
             },
         },
         titleEvidence: {
-            templateGrounded: "标题描述图中的双臂拥抱",
-            usageMotivation: "表达用户想抱住自己的主角",
-            spokenNaturalness: "采用日常动作表达",
-            slotPortability: "不同宠物仍是画面主角",
-            userAppeal: "亲密关系吸引用户替换宠物",
-            discoveryValue: "标题承接拥抱宠物的检索意图",
+            templateGrounded: {
+                passed: true,
+                evidence: "标题描述图中的双臂拥抱",
+            },
+            usageMotivation: {
+                passed: true,
+                evidence: "表达用户想抱住自己的主角",
+            },
+            spokenNaturalness: { passed: true, evidence: "采用日常动作表达" },
+            slotPortability: { passed: true, evidence: "不同宠物仍是画面主角" },
+            userAppeal: { passed: true, evidence: "亲密关系吸引用户替换宠物" },
+            discoveryValue: {
+                passed: true,
+                evidence: "标题承接拥抱宠物的检索意图",
+            },
         },
         descriptionEvidence: {
-            userFacing: "描述说明可以更换中央主角",
-            complementsTitle: "补充标题中的替换方式",
-            spokenNaturalness: "采用用户可理解的主角表达",
-            slotPortability: "不绑定某个默认品种",
+            userFacing: { passed: true, evidence: "描述说明可以更换中央主角" },
+            complementsTitle: {
+                passed: true,
+                evidence: "补充标题中的替换方式",
+            },
+            spokenNaturalness: {
+                passed: true,
+                evidence: "采用用户可理解的主角表达",
+            },
+            slotPortability: { passed: true, evidence: "不绑定某个默认品种" },
         },
         tagEvidence: Object.fromEntries(
             draft.metadata.tags.map((tag) => [
@@ -187,6 +251,9 @@ export function candidate() {
             ]),
         ),
         semanticModel: {
+            dynamicFactSources: { subject: "inputSchema.slots.subject" },
+            completeRedrawByTarget: { subject_main: true },
+            sourceIsolationByInput: { subject: true },
             promptTemplate: draft.promptTemplate,
             runtimeSemantics: structuredClone(draft.runtimeSemantics),
         },
@@ -203,20 +270,57 @@ export function reviewFor(value: TemplateCandidate) {
                 {
                     passed: true,
                     evidence:
-                        name === "slotRecallComplete"
-                            ? reviewAxes.map((axis) => ({
-                                  path: `/analysis/slotCoverageReview/${axis}`,
-                                  observation: `${axis}：本测试图核对该轴的动物拥抱事实及是否有独立控制。`,
-                              }))
-                            : [
+                        name === "visualContractRespectsInputs"
+                            ? [
                                   {
-                                      path: "/analysis/templateValue/templateHook",
-                                      observation: `${name}：本测试候选以中央动物的拥抱玩法为核对依据。`,
+                                      path: "/analysis/fieldEvidence/visualContract",
+                                      observation:
+                                          "先看图：两侧手臂围合中央动物，拥抱接触可见；原动物外观可随输入改变",
                                   },
-                              ],
+                                  {
+                                      path: "/analysis/visualSelections",
+                                      observation:
+                                          "保留拥抱关系有玩法依据，未把开放的动物身份冻结为规则",
+                                  },
+                                  {
+                                      path: "/analysis/semanticModel/runtimeSemantics/visualContract",
+                                      observation:
+                                          "正式关系保留双臂与目标的接触，身份来源仍由输入决定",
+                                  },
+                              ]
+                            : name === "slotRecallComplete"
+                              ? reviewAxes.map((axis) => ({
+                                    path: `/analysis/slotCoverageReview/${axis}`,
+                                    observation: `${axis}：本测试图核对该轴的动物拥抱事实及是否有独立控制。`,
+                                }))
+                              : [
+                                    {
+                                        path: "/analysis/templateValue/templateHook",
+                                        observation: `${name}：本测试候选以中央动物的拥抱玩法为核对依据。`,
+                                    },
+                                ],
                 },
             ]),
         ),
         issues: [] as string[],
+    };
+}
+
+export function textRegion(): TemplateAnalysis["textRegions"][number] {
+    return {
+        id: "caption",
+        componentId: "pet",
+        role: "content",
+        semanticUnitId: "caption",
+        semanticUnitRole: "independent_message",
+        language: "zh",
+        exactText: "你好",
+        layout: "文字单行排列，字块具有不等高特征",
+        position: "画面底部",
+        action: "preserve",
+        editValue: "fixed",
+        slotId: null,
+        routingEvidence: "该文字不承担独立编辑需求",
+        translationSourceRegionId: null,
     };
 }

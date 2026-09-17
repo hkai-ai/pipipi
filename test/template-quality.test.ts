@@ -13,7 +13,7 @@ import {
     reviewIssues,
 } from "../src/processes/template-from-image/quality.js";
 import { createTemplateSkillRefs } from "../src/processes/template-from-image/skills.js";
-import { candidate } from "./fixtures/template-candidate.js";
+import { candidate, textRegion } from "./fixtures/template-candidate.js";
 
 describe("模板质量回归", () => {
     it("纯文字槽的图片理由为 null，可作为未启用图片能力的复核依据", () => {
@@ -54,12 +54,12 @@ describe("模板质量回归", () => {
             "slotCoverageReview/color",
         );
     });
-    it("未识别身份的结论不强迫等于可见默认描述，已识别专名仍需一致", () => {
+    it("未识别身份不编造专名，已识别专名必须与默认值一致", () => {
         const value = candidate();
         const identity =
             value.analysis.slotEvidence.subject.identityRecognition;
         if (!identity) throw new Error("测试身份缺少识别记录");
-        identity.name = "未识别具体身份";
+        identity.name = null;
         expect(analysisIssues(value)).toEqual([]);
         identity.status = "recognized";
         expect(analysisIssues(value).join()).toContain(
@@ -134,14 +134,8 @@ describe("模板质量回归", () => {
             "固定文字没有执行约束",
             (value: ReturnType<typeof candidate>) => {
                 value.analysis.textRegions.push({
-                    id: "caption",
-                    componentId: "pet",
-                    semanticUnitId: "caption",
+                    ...textRegion(),
                     exactText: "抱抱我吧",
-                    layout: null,
-                    action: "preserve",
-                    slotId: null,
-                    evidence: "文字在画面底部清晰可见",
                 });
             },
         ],

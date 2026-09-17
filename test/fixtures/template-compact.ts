@@ -34,18 +34,6 @@ export function compactPlan(plan = toTemplatePlan(candidate())) {
                     x.gates.mechanismPreserved,
                 ].map((g) => [g.passed, g.evidence]),
             })),
-            slotEvidence: Object.fromEntries(
-                Object.entries(a.slotEvidence).map(([k, x]) => [
-                    k,
-                    {
-                        ...x,
-                        substitutions: x.substitutions.map((s) => [
-                            s.value,
-                            s.evidence,
-                        ]),
-                    },
-                ]),
-            ),
             tagEvidence: Object.fromEntries(
                 Object.entries(a.tagEvidence).map(([k, x]) => [
                     k,
@@ -73,6 +61,51 @@ export function compactInspection<
 >(value: T) {
     return {
         ...structuredClone(value),
+        review: {
+            ...structuredClone(value.review),
+            checks: {
+                ...structuredClone(value.review.checks),
+                visualContractRespectsInputs: {
+                    ...structuredClone(
+                        value.review.checks.visualContractRespectsInputs,
+                    ),
+                    evidence: {
+                        observations:
+                            value.review.checks.visualContractRespectsInputs.evidence.filter(
+                                (item) =>
+                                    item.path.startsWith(
+                                        "/analysis/fieldEvidence/visualContract",
+                                    ),
+                            ),
+                        selections:
+                            value.review.checks.visualContractRespectsInputs.evidence.filter(
+                                (item) =>
+                                    item.path.startsWith(
+                                        "/analysis/visualSelections",
+                                    ),
+                            ),
+                        visualContract:
+                            value.review.checks.visualContractRespectsInputs.evidence.filter(
+                                (item) =>
+                                    item.path.startsWith(
+                                        "/analysis/semanticModel/runtimeSemantics/visualContract",
+                                    ),
+                            ),
+                    },
+                },
+                slotRecallComplete: {
+                    ...structuredClone(value.review.checks.slotRecallComplete),
+                    evidence: Object.fromEntries(
+                        value.review.checks.slotRecallComplete.evidence.map(
+                            (item) => [
+                                item.path.split("/")[3],
+                                structuredClone(item),
+                            ],
+                        ),
+                    ),
+                },
+            },
+        },
         changes: value.changes.map(({ path, value }) => ({
             path,
             valueJson: JSON.stringify(value),

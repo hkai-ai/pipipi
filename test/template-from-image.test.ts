@@ -349,8 +349,8 @@ describe("模板真实 HTTP 生成与独立复核", () => {
     });
     it("语义问题由第二次独立复核直接修补，不先重编译", async () => {
         const plan = toTemplatePlan(candidate());
-        const correctPrompt = plan.draft.promptTemplate;
-        plan.draft.promptTemplate = "missing placeholder";
+        const correctPrompt = plan.analysis.semanticModel.promptTemplate;
+        plan.analysis.semanticModel.promptTemplate = "missing placeholder";
         const compile = vi.fn<TemplateAgent["compile"]>(async () => plan);
         const review = vi.fn<TemplateAgent["review"]>(
             async ({ plan: previous }) => {
@@ -361,7 +361,10 @@ describe("模板真实 HTTP 生成与独立复核", () => {
                 return applyTemplateInspection(typed, {
                     reviewedPlanSha256: planDigest(typed),
                     changes: [
-                        { path: "/draft/promptTemplate", value: correctPrompt },
+                        {
+                            path: "/analysis/semanticModel/promptTemplate",
+                            value: correctPrompt,
+                        },
                     ],
                     review: checks,
                 });
