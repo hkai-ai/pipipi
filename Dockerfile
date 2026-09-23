@@ -48,6 +48,8 @@ COPY --chown=node:node .pi/skills/crayon-photo-poster-prompt ./.pi/skills/crayon
 COPY --chown=node:node .pi/skills/monochrome-photo-poster-prompt ./.pi/skills/monochrome-photo-poster-prompt
 
 COPY --chown=node:node .pi/skills/woodcut-photo-poster-prompt ./.pi/skills/woodcut-photo-poster-prompt
+
+COPY --chown=node:node .pi/skills/photo-doodle-collage-prompt ./.pi/skills/photo-doodle-collage-prompt
 COPY --chown=node:node .pi/skills/meme-template-json-compiler ./.pi/skills/meme-template-json-compiler
 COPY --chown=node:node .pi/skills/template-image-preparer ./.pi/skills/template-image-preparer
 

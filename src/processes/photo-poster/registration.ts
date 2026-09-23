@@ -1,4 +1,4 @@
-/** 六个照片海报 Process 的准确版本契约与执行定义。 */
+/** 照片海报 Process 的准确版本契约与执行定义。 */
 import { z } from "zod";
 import {
     defineProcessRegistration,

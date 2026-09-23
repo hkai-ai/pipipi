@@ -299,7 +299,7 @@ Interface 提供足够 Depth。
 
 ## 照片海报 Registration
 
-六个准确风格共用 Photo Poster Module，Registration 绑定单个固定 Skill 与图片 Capability。无 Tool Agent 编译通用图像规则，不接收照片、URL 或产品文字；图片模型负责观察原图。用户文字由代码原样追加。图片服务复用持久化 claim/complete 幂等记录，请求摘要含固定 style、Prompt 和原图引用，磁盘只保留摘要与输出。已派发的失败或不确定状态返回付费后失败，禁止自动重试。全部风格使用 URL 直传参考图，只交付 1200×1600 独立风格化作品；旅行抽象仅追加档案字样，不拼接原图。图案质量由独立视觉验收确认。
+照片海报风格共用 Photo Poster Module，Registration 绑定单个固定 Skill 与图片 Capability。无 Tool Agent 编译通用图像规则，不接收照片、URL 或产品文字；图片模型负责观察原图。用户文字由代码原样追加。图片服务复用持久化 claim/complete 幂等记录，请求摘要含固定 style、Prompt 和原图引用，磁盘只保留摘要与输出。已派发的失败或不确定状态返回付费后失败，禁止自动重试。全部风格使用 URL 直传参考图，只交付 1200×1600 独立风格化作品；旅行抽象仅追加档案字样，不拼接原图。图案质量由独立视觉验收确认。
 
 ## 图片转模板的视觉输入
 

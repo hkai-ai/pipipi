@@ -422,7 +422,7 @@ npm run check:deployment-env -- api
 
 ## 照片海报实现
 
-`src/processes/photo-poster/` 统一拥有六个风格的精确 Registration、单文件 Skill、编译 Agent 和 HTTP Capability；`style.ts` 是固定顺序与身份的唯一来源。`production.ts` 声明六项生产装配及启动变量，`agent.pi.ts` 和 `capability.http.ts` 实现对应接口。图片阶段复用现有 FAL 和 OSS Adapter，内部路由为 `POST /photo-posters`。参考图 URL 直传图片供应商；旅行抽象的档案字样由 `src/business-api/photo-poster.ts` 绘制，`source-photo.ts` 仅供验收下载参考图。
+`src/processes/photo-poster/` 统一拥有照片海报风格的精确 Registration、单文件 Skill、编译 Agent 和 HTTP Capability；`style.ts` 是固定顺序与身份的唯一来源。`production.ts` 声明各项生产装配及启动变量，`agent.pi.ts` 和 `capability.http.ts` 实现对应接口。图片阶段复用现有 FAL 和 OSS Adapter，内部路由为 `POST /photo-posters`。参考图 URL 直传图片供应商；旅行抽象的档案字样由 `src/business-api/photo-poster.ts` 绘制，`source-photo.ts` 仅供验收下载参考图。
 
 照片 URL 和用户文字均不交给文本 Agent；URL 只用于图片编辑，文字由 Registration 追加为待印刷内容。不能把新增风格做成请求可选 Skill 路径。验证入口见 [实验](experiments.md#照片海报业务验收)。
 

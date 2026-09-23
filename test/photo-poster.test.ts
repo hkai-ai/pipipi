@@ -82,7 +82,7 @@ const png = (width: number, height: number, background = "#F3F0E8") =>
         .png()
         .toBuffer();
 
-describe("照片海报的六个准确版本", () => {
+describe("照片海报的准确版本", () => {
     it.each(photoPosterStyles)(
         "%s 通过正式 HTTP 返回同一次图片调用的结果",
         async (style) => {
@@ -212,7 +212,7 @@ describe("照片海报的六个准确版本", () => {
         });
         expect(run.render).not.toHaveBeenCalled();
     });
-    it("生产 catalog 显式注册六项，未加入跳过的猫猫绘本", () => {
+    it("生产 catalog 显式注册照片海报风格，未加入跳过的猫猫绘本", () => {
         const production = createProductionRuntime({
             BUSINESS_API_BASE_URL: "https://business.example",
         });

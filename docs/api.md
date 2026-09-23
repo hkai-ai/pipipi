@@ -70,6 +70,7 @@ Content-Type: application/json
 | `common` | `content-processing` | 处理一段业务文本 |
 | `common` | `titled-content-processing` | 处理标题和正文 |
 | `common` | `minimal-zine-poster` | 生成极简 Zine 海报 |
+| `common` | `photo-doodle-collage` | 生成摄影剪贴与互动黑线小人海报 |
 | `common` | `crt-interface-image` | 根据公网参考图生成 CRT 风格图片 |
 | `memene` | `news-image-narrative-monument` | 生成人物叙事碑式新闻图片 |
 | `memene` | `news-image-pale-watercolor` | 生成淡彩绘本新闻图片 |
@@ -736,13 +737,13 @@ if (!response.ok || result.status !== "succeeded") {
 
 ## 图片背景参数
 
-CRT 与六个照片海报的 `v1` 接受可选 `background: auto | transparent | opaque`；省略时保留原行为。背景参数直接传给模型，不追加或改写提示词；CRT 后处理同步变换 alpha。透明成品必须同时存在可见与透明像素；不符合时失败且不自动重绘。该参数进入下游幂等摘要，不能用同一个键切换背景。发布时先部署 Pipipi，再开放 Memebuy 能力声明；本地验证不代表生产已生效。
+CRT 与七个照片海报的 `v1` 接受可选 `background: auto | transparent | opaque`；省略时保留原行为。背景参数直接传给模型，不追加或改写提示词；CRT 后处理同步变换 alpha。透明成品必须同时存在可见与透明像素；不符合时失败且不自动重绘。该参数进入下游幂等摘要，不能用同一个键切换背景。发布时先部署 Pipipi，再开放 Memebuy 能力声明；本地验证不代表生产已生效。
 
 例如：`{"process":"woodcut-photo-poster","version":"v1","input":{"sourceImageUrl":"https://assets.example.com/photo.png","background":"transparent"}}`。其他 Process 未开放该字段。FAL 参数取值依据 [GPT Image 2 编辑接口](https://fal.ai/models/openai/gpt-image-2/edit/api)。
 
 ## 照片海报
 
-以下六个 Process 均使用 `POST /execute`，版本固定为 `v1`。每次处理一张照片；批量由调用方逐张提交，不能上传流程、Skill、模型或运行参数。
+以下七个 Process 均使用 `POST /execute`，版本固定为 `v1`。每次处理一张照片；批量由调用方逐张提交，不能上传流程、Skill、模型或运行参数。
 
 | process | style | 输出规格 |
 | --- | --- | --- |
@@ -752,6 +753,7 @@ CRT 与六个照片海报的 `v1` 接受可选 `background: auto | transparent |
 | `crayon-photo-poster` | `crayon` | 1200×1600 PNG |
 | `monochrome-photo-poster` | `monochrome` | 1200×1600 PNG |
 | `woodcut-photo-poster` | `woodcut` | 1200×1600 PNG |
+| `photo-doodle-collage` | `photo-doodle-collage` | 1200×1600 PNG |
 
 除旅行抽象外，input 为 `{ sourceImageUrl, text? }`。sourceImageUrl 必须为公网 HTTPS URL（最大 2048 字符，无凭据、片段、自定义端口或 IP 字面量）；text 为 1–200 字符的海报原文，不参与模型或风格选择。
 
@@ -793,6 +795,12 @@ CRT 与六个照片海报的 `v1` 接受可选 `background: auto | transparent |
 
 ```json
 {"process":"dopamine-photo-poster","version":"v1","input":{"sourceImageUrl":"https://assets.example.com/photo.png","text":"SUMMER DAYS"}}
+```
+
+摄影剪贴与涂鸦小人示例：
+
+```json
+{"process":"photo-doodle-collage","version":"v1","input":{"sourceImageUrl":"https://assets.example.com/photo.png","text":"don't let go."}}
 ```
 
 旅行抽象 input 为 `{ sourceImageUrl, phrase, archiveNumber?, capturedOn? }`。phrase 是用户根据照片提供的 1–3 个大写英文单词，最多 60 字符；archiveNumber 为 1–999，默认 1，无跨请求计数；capturedOn 为 YYYY-MM-DD，缺省采用服务端 UTC 创建日期，不猜测拍摄日期。

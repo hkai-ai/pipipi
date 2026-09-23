@@ -40,7 +40,7 @@ Business Processing Service 让产品调用方通过一个稳定的 HTTP Interfa
 
 ## 当前能力
 
-生产 catalog 当前登记十八个精确版本，其中 `composed-task/v1` 默认关闭：
+生产 catalog 当前登记十九个精确版本，其中 `composed-task/v1` 默认关闭：
 
 | 场景 | Business Process | 输入 | 输出 | 实现选择 |
 | --- | --- | --- | --- | --- |
@@ -62,6 +62,7 @@ Business Processing Service 让产品调用方通过一个稳定的 HTTP Interfa
 | `common` | `crayon-photo-poster/v1` | `{ sourceImageUrl, text? }` | `{ style, image }` | 彩色蜡笔抽象海报；固定无 Tool Skill，单次编辑与存储 |
 | `common` | `monochrome-photo-poster/v1` | `{ sourceImageUrl, text? }` | `{ style, image }` | 黑白蜡笔摄影海报；固定无 Tool Skill，单次编辑与存储 |
 | `common` | `woodcut-photo-poster/v1` | `{ sourceImageUrl, text? }` | `{ style, image }` | 限色木刻摄影海报；固定无 Tool Skill，单次编辑与存储 |
+| `common` | `photo-doodle-collage/v1` | `{ sourceImageUrl, text? }` | `{ style, image }` | 摄影剪贴与互动黑线小人；固定无 Tool Skill，单次编辑与存储 |
 
 照片海报正式输出只包含完整 1200×1600 风格化成品，原图仅作参考输入；旅行抽象只叠加档案字样，不拼接原图。
 

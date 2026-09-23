@@ -37,6 +37,12 @@
             "skillPath": "news-image-style-01/SKILL.md",
             "computedHash": "df26ad6934dd3c1239fd39d98d82786a1bcc86d9975c7c1e0cfd8b47308a34ce"
         },
+        "photo-doodle-collage": {
+            "source": "maintainer-supplied local bundle",
+            "sourceType": "local",
+            "skillPath": "photo-doodle-collage-prompt/SKILL.md",
+            "computedHash": "3205dae9d148a5187b97b13cede3c3364313eca2299193e94b2d65a936aa9009"
+        },
         "maintain-test-plan": {
             "source": "techidsk/skills",
             "sourceType": "github",

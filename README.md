@@ -6,7 +6,7 @@
 
 图片预处理后的模板内容支持独立重编译：保留已确认成图，提交本轮模板修改要求，只生成新的 Gallery 草稿供人工审阅。
 
-生产 catalog 登记十八个 Business Process，其中 `composed-task/v1` 默认关闭。文档先按产品场景分组，运行时仍通过统一的 Process identity 和 HTTP Interface 执行：
+生产 catalog 登记十九个 Business Process，其中 `composed-task/v1` 默认关闭。文档先按产品场景分组，运行时仍通过统一的 Process identity 和 HTTP Interface 执行：
 
 | 场景 | Process | 输入 | 输出 |
 | --- | --- | --- | --- |
@@ -28,6 +28,7 @@
 | `common` | [`crayon-photo-poster/v1`](docs/processes/common/crayon-photo-poster/README.md) | 公网参考图与可选文案 | `{ style, image }` |
 | `common` | [`monochrome-photo-poster/v1`](docs/processes/common/monochrome-photo-poster/README.md) | 公网参考图与可选文案 | `{ style, image }` |
 | `common` | [`woodcut-photo-poster/v1`](docs/processes/common/woodcut-photo-poster/README.md) | 公网参考图与可选文案 | `{ style, image }` |
+| `common` | [`photo-doodle-collage/v1`](docs/processes/common/photo-doodle-collage/README.md) | 公网参考图与可选文案 | `{ style, image }` |
 
 Memebuy 场景已登记 `template-from-image/v1`，可在 Pipipi 独立编译图片模板草稿；Memebuy 改由模板素材箱的提取 Worker 接入，候选需人工确认后保存草稿，部署与真实页面验收另行完成。Pipipi 独立测试与 JSON 下载保留。场景入口和归属规则见 [`docs/processes/README.md`](docs/processes/README.md)。
 
@@ -181,7 +182,7 @@ curl http://127.0.0.1:4300/healthz
 
 Mono Color 支持同一 `v1` 下的五个可编辑预设，供 Memebuy 的五个固定预设 C 类模板调用。每种版式明确标题用色、分行与穿插关系，默认干净近白纸底和细网点，保留参考主体与动作；未提供新参数的调用保持原行为。字段见 [Mono Color API](docs/api.md#mono-color-可编辑预设)。
 
-新增六个准确 v1：多巴胺、双色油墨、旅行抽象、彩色蜡笔、黑白蜡笔、木刻。一次请求处理一张公网 HTTPS 照片，返回持久化 PNG 引用；调用方式见 [照片海报 API](docs/api.md#照片海报)，来源与适配见 [通用 Process](docs/processes/common/)。六项均只返回完整风格化成品，不附原图或上下对照；旅行抽象仅由代码补充档案字样。本批尚未部署。
+现有七个照片海报 Process：多巴胺、双色油墨、旅行抽象、彩色蜡笔、黑白蜡笔、木刻，以及摄影剪贴与涂鸦小人。一次请求处理一张公网 HTTPS 照片，返回持久化 PNG 引用；调用方式见 [照片海报 API](docs/api.md#照片海报)，来源与适配见 [通用 Process](docs/processes/common/)。它们均只返回完整风格化成品，不附原图或上下对照；旅行抽象仅由代码补充档案字样。摄影剪贴与涂鸦小人当前已注册，尚未部署。
 
 图片转模板的 `promptTemplate` 是用户可编辑的草稿业务内容，可以随正式结果返回；内部编译指令、复核证据和模型配置仍不返回。
 
@@ -193,4 +194,4 @@ Mono Color 支持同一 `v1` 下的五个可编辑预设，供 Memebuy 的五个
 
 Memebuy 模板分步制作支持同方案多个成图版本：新 `renderId` 明确重做，同一身份仅恢复；图片审批绑定实际版本，旧单图合同兼容。接口见 [业务 API](docs/api.md)。
 
-CRT 与六个照片海报支持可选背景参数，省略时保持原行为；透明成品在交付前校验。取值与调用方式见 [图片背景参数](docs/api.md#图片背景参数)。
+CRT 与七个照片海报支持可选背景参数，省略时保持原行为；透明成品在交付前校验。取值与调用方式见 [图片背景参数](docs/api.md#图片背景参数)。

@@ -269,9 +269,9 @@ npm run smoke:staging
 
 ## 照片海报业务验收
 
-`npm run accept:photo-poster-business` 按表格顺序验证六个固定风格，跳过猫猫绘本。需要设置 `PHOTO_POSTER_SOURCE_IMAGE_URL` 为可使用的公网 HTTPS 照片。它使用本地 .env 中的 Pi 文本模型、FAL GPT Image 2 和 OSS 配置，临时监听回环端口并关闭异步入口、Worker 和共享 Run Record。
+`npm run accept:photo-poster-business` 按表格顺序验证七个固定风格，跳过猫猫绘本。需要设置 `PHOTO_POSTER_SOURCE_IMAGE_URL` 为可使用的公网 HTTPS 照片。它使用本地 .env 中的 Pi 文本模型、FAL GPT Image 2 和 OSS 配置，临时监听回环端口并关闭异步入口、Worker 和共享 Run Record。
 
-验收最多六次图片调用与六次结果 OSS PUT；每项正式 POST /execute 后下载 output.image.url，验证 PNG、尺寸、文件哈希和单次图片调用。全部风格校验 1200×1600 独立成品，是否夹带原图区域通过人工视觉检查。结果与图片写入 `artifacts/photo-poster-acceptance/<本次时间戳>/`，报告不保存原图 URL、Prompt 或凭据。失败不自动重绘。
+验收最多七次图片调用与七次结果 OSS PUT；每项正式 POST /execute 后下载 output.image.url，验证 PNG、尺寸、文件哈希和单次图片调用。全部风格校验 1200×1600 独立成品，是否夹带原图区域通过人工视觉检查。结果与图片写入 `artifacts/photo-poster-acceptance/<本次时间戳>/`，报告不保存原图 URL、Prompt 或凭据。失败不自动重绘。
 
 ```powershell
 $env:PHOTO_POSTER_SOURCE_IMAGE_URL = 'https://assets.example.com/photo.png'
@@ -294,7 +294,7 @@ npm run accept:photo-poster-business
 
 全量 `npm test` 最终为 783 通过、130 失败、65 跳过，失败集中在 12 个部署脚本测试文件；`npm run check` 有 247 个 CRLF 格式问题。本次 18 个相关代码文件的 Biome 检查和 `git diff --check` 通过。
 
-当前验收可用 `PHOTO_POSTER_ACCEPTANCE_STYLES` 指定逗号分隔的固定风格子集，默认六项全跑；用于只重测发生变化的风格，避免重复付费。
+当前验收可用 `PHOTO_POSTER_ACCEPTANCE_STYLES` 指定逗号分隔的固定风格子集，默认七项全跑；用于只重测发生变化的风格，避免重复付费。
 
 ### 2026-09-07 独立成品复测
 

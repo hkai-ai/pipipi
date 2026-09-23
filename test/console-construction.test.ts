@@ -143,6 +143,7 @@ describe("operator console construction", () => {
             "news-image-narrative-monument-prompt",
             "news-image-pale-watercolor-prompt",
             "news-image-raw-humanism-prompt",
+            "photo-doodle-collage-prompt",
             "tait-crt-interface-prompt",
             "template-image-preparer",
             "travel-abstraction-photo-poster-prompt",

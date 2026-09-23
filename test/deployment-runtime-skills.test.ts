@@ -26,6 +26,7 @@ describe("production Runtime Skill bindings", () => {
             "template-from-image": ["meme-template-json-compiler@v1.13"],
             "template-image-plan": ["template-image-preparer@v3"],
             "dopamine-photo-poster": ["dopamine-photo-poster-prompt@v1"],
+            "photo-doodle-collage": ["photo-doodle-collage-prompt@v1"],
             "mono-color-photo-poster": ["mono-color-photo-poster-prompt@v1"],
             "travel-abstraction-photo-poster": [
                 "travel-abstraction-photo-poster-prompt@v1",

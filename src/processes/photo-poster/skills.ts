@@ -13,17 +13,23 @@ const hashes: Readonly<Record<PhotoPosterStyle, string>> = {
     monochrome:
         "dc21fd4205704fe4ff0619db503a6683b7ef70921829496ff37d15c3889949d1",
     woodcut: "fbfb6593a8133a64159a9e0423f214c6a99ffc0d62e43eeeecc6b84bb31f04f3",
+    "photo-doodle-collage":
+        "3205dae9d148a5187b97b13cede3c3364313eca2299193e94b2d65a936aa9009",
 };
 
 export function createPhotoPosterSkillRefs(
     style: PhotoPosterStyle,
 ): readonly InstalledSkillRef[] {
+    const name =
+        style === "photo-doodle-collage"
+            ? "photo-doodle-collage-prompt"
+            : `${style}-photo-poster-prompt`;
     return Object.freeze([
         Object.freeze({
-            name: `${style}-photo-poster-prompt`,
+            name,
             version: "v1",
             sha256: hashes[style],
-            path: `.pi/skills/${style}-photo-poster-prompt`,
+            path: `.pi/skills/${name}`,
         }),
     ]);
 }

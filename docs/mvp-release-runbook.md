@@ -557,7 +557,7 @@ npm run accept:crt-business
 
 ## 照片海报发布检查
 
-本批六个照片海报 Process 尚未部署。发布前核对六个固定 Skill 的 LICENSE/SOURCE、用户补充的 Travel 授权范围及原帖提示词使用许可；镜像预检必须包含十三个 Runtime Skill。主 API 与内部图片服务使用同一镜像，`PHOTO_POSTER_API_TIMEOUT_MS` 默认 180000；图片服务需要供应商出站连接和工作目录容量。回滚恢复上一镜像及对应 catalog。真实验收见 [照片海报实验](experiments.md#照片海报业务验收)。
+本批照片海报 Process 尚未部署。发布前核对全部固定 Skill 的 LICENSE/SOURCE，包括摄影剪贴与涂鸦小人的来源授权；镜像预检必须包含新增 Runtime Skill。主 API 与内部图片服务使用同一镜像，`PHOTO_POSTER_API_TIMEOUT_MS` 默认 180000；图片服务需要供应商出站连接和工作目录容量。回滚恢复上一镜像及对应 catalog。真实验收见 [照片海报实验](experiments.md#照片海报业务验收)。
 
 #### 模板图片生产的部署与恢复
 

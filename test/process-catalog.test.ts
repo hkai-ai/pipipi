@@ -32,6 +32,9 @@ const validInputs: Readonly<Record<string, Record<string, unknown>>> = {
     "dopamine-photo-poster": {
         sourceImageUrl: "https://assets.example.com/source.png",
     },
+    "photo-doodle-collage": {
+        sourceImageUrl: "https://assets.example.com/source.png",
+    },
     "mono-color-photo-poster": {
         sourceImageUrl: "https://assets.example.com/source.png",
     },
@@ -87,6 +90,7 @@ describe("Process catalog description", () => {
             "news-image-narrative-monument/v1",
             "news-image-pale-watercolor/v1",
             "news-image-raw-humanism/v1",
+            "photo-doodle-collage/v1",
             "template-from-image/v1",
             "template-from-source/v1",
             "template-image-plan/v1",

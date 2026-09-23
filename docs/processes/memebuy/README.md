@@ -20,4 +20,4 @@ Memebuy 模板分步制作支持同方案多个成图版本：新 `renderId` 明
 
 模板编译的原始观察、视觉取舍、像素辅助依据与语义投影边界统一见 [来源合同对齐](template-from-image/source-alignment.md)。
 
-Memebuy C 类采用通用 CRT 与六个照片海报 Process 的背景合同；背景由冻结任务传递，模板输入不能覆盖。合同与发布顺序见 [业务 API](../../api.md#图片背景参数)。
+Memebuy C 类采用通用 CRT 与照片海报 Process 的背景合同；背景由冻结任务传递，模板输入不能覆盖。合同与发布顺序见 [业务 API](../../api.md#图片背景参数)。

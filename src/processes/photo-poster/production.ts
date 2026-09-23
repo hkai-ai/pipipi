@@ -1,4 +1,4 @@
-/** 六个照片海报 Process 的生产装配，绑定固定 Skill 与受控图片能力。 */
+/** 照片海报 Process 的生产装配，绑定固定 Skill 与受控图片能力。 */
 import { parseCrtBusinessApiBaseUrl } from "../crt/production.js";
 import {
     defineProductionProcess,
@@ -39,3 +39,6 @@ export const travelAbstractionProduction =
 export const crayonProduction = photoPosterProduction("crayon");
 export const monochromeProduction = photoPosterProduction("monochrome");
 export const woodcutProduction = photoPosterProduction("woodcut");
+export const photoDoodleCollageProduction = photoPosterProduction(
+    "photo-doodle-collage",
+);

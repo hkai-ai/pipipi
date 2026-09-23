@@ -22,6 +22,7 @@ import {
     dopamineProduction,
     monoColorProduction,
     monochromeProduction,
+    photoDoodleCollageProduction,
     travelAbstractionProduction,
     woodcutProduction,
 } from "./photo-poster/production.js";
@@ -55,6 +56,7 @@ export const productionCatalog: readonly ProductionProcess[] = Object.freeze([
     crayonProduction,
     monochromeProduction,
     woodcutProduction,
+    photoDoodleCollageProduction,
     templateProduction,
     templatePlanProduction,
     templateRenderProduction,
