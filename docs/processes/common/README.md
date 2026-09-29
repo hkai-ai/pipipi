@@ -16,7 +16,7 @@
 | `monochrome-photo-poster/v1` | [monochrome-photo-poster/](monochrome-photo-poster/) | 黑白蜡笔摄影海报 |
 | `woodcut-photo-poster/v1` | [woodcut-photo-poster/](woodcut-photo-poster/) | 限色木刻摄影海报 |
 | `photo-doodle-collage/v1` | [photo-doodle-collage/](photo-doodle-collage/) | 摄影剪贴与互动黑线小人海报 |
-| `photo-fashion-manga/v1` | [photo-fashion-manga/](photo-fashion-manga/) | 真人照片转红蓝少色时装漫画，手刻粗字与人物剪影一体排版 |
+| `photo-fashion-manga/v1` | [photo-fashion-manga/](photo-fashion-manga/) | 真人照片转红蓝少色日式时装漫画，配手绘印刷粗字 |
 
 产品采用通用 Process 时，在对应产品场景 README 中记录产品限制和采用关系，不复制 Process 契约。统一 HTTP 契约见 [`../../api.md`](../../api.md)。
 
