@@ -69,6 +69,7 @@ const businessApi = await startLocalCrtBusinessApi({
                 model: request.model,
                 reference: request.image ? "locked-rgb" : "public-url",
                 size: request.size,
+                quality: request.quality,
             };
             calls.push(evidence);
             const started = Date.now();

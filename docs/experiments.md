@@ -312,6 +312,10 @@ npm run accept:photo-poster-business
 
 图片和脱敏报告位于 `artifacts/photo-poster-acceptance/1790649560300/`，不纳入 Git。本次为本地 Pipipi 集成验收，不代表已部署线上或接入 Memebuy 模板。
 
+同日优化复测：保持相同公网参考图、文本模型、FAL GPT Image 2 low 和默认文案，仅调整时装漫画的固定视觉规则。运行 `2750d545-d00d-4e7e-83c9-28dacf3d365a` 用时约 56 秒，一次生图、一次 OSS 写入，HTTP、1200×1600 PNG 与回读摘要通过。脱敏报告现在记录实际图片请求的质量档位，结果位于 `artifacts/photo-poster-acceptance/1790652482387/`，不纳入 Git。
+
+人工对照确认本样本的标题由规整衬线变为倾斜无衬线粗字，引题移到头部旁，原有宽松西装的剪影与硬边阴影更鲜明；默认文案可读，红蓝分工、插袋姿势与主要辨认特征保留。人物下缘与标题穿插方式仍有生成差异；一次成功不能证明跨照片稳定性，也不能据此断言质量档位无影响。本次保持生产质量策略与调用次数不变。
+
 ## 两次审批的模板图片生产验收
 
 先运行 `npx vitest run test/template-image-production.test.ts test/aliyun-oss-storage.test.ts test/async-runtime-construction.test.ts`；这些测试走本地 HTTP 和替身，不产生模型、图片生成或 OSS 费用。

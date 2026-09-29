@@ -4,7 +4,7 @@
 
 ## 执行与依赖
 
-服务端绑定 `photo-fashion-manga-prompt@v1`，无 Tool Agent 编译固定画风；图片 URL 与最终文案不进入文本 Agent。Registration 在编译后追加逐项解析的文字，再通过共享 Photo Poster Rendering Capability 单次生成与存储，使用同一 `runId` 作为下游幂等键。复用现有照片海报超时、取消、背景、错误净化与异步执行，不新增启动变量或独立图片 Adapter。
+服务端绑定 `photo-fashion-manga-prompt@v1`，无 Tool Agent 编译固定画风；图片 URL 与最终文案不进入文本 Agent。无衬线手刻粗字、服装轮廓与紧凑字图关系由服务端在编译前传入，并在生图前重申；引题与小注围绕头肩留白排列，保留可读笔画及克制纸纹。Registration 在编译后追加逐项解析的文字，再通过共享 Photo Poster Rendering Capability 单次生成与存储，使用同一 `runId` 作为下游幂等键。复用现有照片海报超时、取消、背景、错误净化与异步执行，不新增启动变量或独立图片 Adapter。
 
 接口只接收一张人物照片，画风由固定 Skill 提供；不接受第二张风格图、Prompt、模型或 Skill 路径。文本约束由图片模型执行，Schema 与尺寸验证不证明人物、文案及画风已通过视觉验收。
 

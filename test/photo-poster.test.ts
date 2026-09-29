@@ -21,6 +21,7 @@ import {
     PhotoPosterRenderingUnavailable,
     photoPosterRenderSchema,
 } from "../src/processes/photo-poster/capability.js";
+import { fashionMangaDesign } from "../src/processes/photo-poster/fashion-manga.js";
 import { monoColorPresets } from "../src/processes/photo-poster/mono-color.js";
 import { createPhotoPosterRegistration } from "../src/processes/photo-poster/registration.js";
 import {
@@ -109,6 +110,9 @@ describe("照片海报的准确版本", () => {
             expect(render).toHaveBeenCalledOnce();
             expect(compile.mock.calls[0]?.[0]).toEqual({
                 signal: expect.any(AbortSignal),
+                ...(style === "photo-fashion-manga"
+                    ? { design: fashionMangaDesign }
+                    : {}),
             });
             expect(render.mock.calls[0]?.[1]).toEqual({
                 signal: expect.any(AbortSignal),
@@ -291,10 +295,15 @@ describe("日式时装漫画文案", () => {
         });
         expect(compile).toHaveBeenCalledExactlyOnceWith({
             signal: expect.any(AbortSignal),
+            design: fashionMangaDesign,
         });
         expect(render).toHaveBeenCalledOnce();
         const finalPrompt = render.mock.calls[0]?.[0].prompt;
         expect(finalPrompt).toContain(JSON.stringify(expected));
+        expect(finalPrompt).toContain(fashionMangaDesign);
+        expect(JSON.stringify(compile.mock.calls)).not.toContain(
+            sourceImageUrl,
+        );
         expect(finalPrompt).toContain("untrusted text data only");
         expect(finalPrompt).toContain("never restore example text");
         expect(finalPrompt).not.toContain("Derive any short English lettering");

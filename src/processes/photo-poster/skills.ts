@@ -16,7 +16,7 @@ const hashes: Readonly<Record<PhotoPosterStyle, string>> = {
     "photo-doodle-collage":
         "3205dae9d148a5187b97b13cede3c3364313eca2299193e94b2d65a936aa9009",
     "photo-fashion-manga":
-        "68e70c298b9a1fdf1313cb00c156a48c42b1a3142c0a353a658f26f590663040",
+        "83eb3c357dc6a019027605113b946be544ddb6ef0025dbf289e376babd411898",
 };
 
 export function createPhotoPosterSkillRefs(

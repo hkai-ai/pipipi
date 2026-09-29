@@ -29,7 +29,7 @@
 | `common` | [`monochrome-photo-poster/v1`](docs/processes/common/monochrome-photo-poster/README.md) | 公网参考图与可选文案 | `{ style, image }` |
 | `common` | [`woodcut-photo-poster/v1`](docs/processes/common/woodcut-photo-poster/README.md) | 公网参考图与可选文案 | `{ style, image }` |
 | `common` | [`photo-doodle-collage/v1`](docs/processes/common/photo-doodle-collage/README.md) | 公网参考图与可选文案 | `{ style, image }` |
-| `common` | [`photo-fashion-manga/v1`](docs/processes/common/photo-fashion-manga/README.md) | 真人参考图与可选主标题、引题、小注 | `{ style, image }` |
+| `common` | [`photo-fashion-manga/v1`](docs/processes/common/photo-fashion-manga/README.md) | 真人参考图与可选文案，手刻粗字与人物剪影一体排版 | `{ style, image }` |
 
 Memebuy 场景已登记 `template-from-image/v1`，可在 Pipipi 独立编译图片模板草稿；Memebuy 改由模板素材箱的提取 Worker 接入，候选需人工确认后保存草稿，部署与真实页面验收另行完成。Pipipi 独立测试与 JSON 下载保留。场景入口和归属规则见 [`docs/processes/README.md`](docs/processes/README.md)。
 
