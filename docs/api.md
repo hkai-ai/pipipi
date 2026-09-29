@@ -71,6 +71,7 @@ Content-Type: application/json
 | `common` | `titled-content-processing` | 处理标题和正文 |
 | `common` | `minimal-zine-poster` | 生成极简 Zine 海报 |
 | `common` | `photo-doodle-collage` | 生成摄影剪贴与互动黑线小人海报 |
+| `common` | `photo-fashion-manga` | 真人照片转日式手绘时装漫画 |
 | `common` | `crt-interface-image` | 根据公网参考图生成 CRT 风格图片 |
 | `memene` | `news-image-narrative-monument` | 生成人物叙事碑式新闻图片 |
 | `memene` | `news-image-pale-watercolor` | 生成淡彩绘本新闻图片 |
@@ -737,13 +738,13 @@ if (!response.ok || result.status !== "succeeded") {
 
 ## 图片背景参数
 
-CRT 与七个照片海报的 `v1` 接受可选 `background: auto | transparent | opaque`；省略时保留原行为。背景参数直接传给模型，不追加或改写提示词；CRT 后处理同步变换 alpha。透明成品必须同时存在可见与透明像素；不符合时失败且不自动重绘。该参数进入下游幂等摘要，不能用同一个键切换背景。发布时先部署 Pipipi，再开放 Memebuy 能力声明；本地验证不代表生产已生效。
+CRT 与八个照片海报的 `v1` 接受可选 `background: auto | transparent | opaque`；省略时保留原行为。背景参数直接传给模型，不追加或改写提示词；CRT 后处理同步变换 alpha。透明成品必须同时存在可见与透明像素；不符合时失败且不自动重绘。该参数进入下游幂等摘要，不能用同一个键切换背景。发布时先部署 Pipipi，再开放 Memebuy 能力声明；本地验证不代表生产已生效。
 
 例如：`{"process":"woodcut-photo-poster","version":"v1","input":{"sourceImageUrl":"https://assets.example.com/photo.png","background":"transparent"}}`。其他 Process 未开放该字段。FAL 参数取值依据 [GPT Image 2 编辑接口](https://fal.ai/models/openai/gpt-image-2/edit/api)。
 
 ## 照片海报
 
-以下七个 Process 均使用 `POST /execute`，版本固定为 `v1`。每次处理一张照片；批量由调用方逐张提交，不能上传流程、Skill、模型或运行参数。
+以下八个 Process 均使用 `POST /execute`，版本固定为 `v1`。每次处理一张照片；批量由调用方逐张提交，不能上传流程、Skill、模型或运行参数。
 
 | process | style | 输出规格 |
 | --- | --- | --- |
@@ -754,8 +755,25 @@ CRT 与七个照片海报的 `v1` 接受可选 `background: auto | transparent |
 | `monochrome-photo-poster` | `monochrome` | 1200×1600 PNG |
 | `woodcut-photo-poster` | `woodcut` | 1200×1600 PNG |
 | `photo-doodle-collage` | `photo-doodle-collage` | 1200×1600 PNG |
+| `photo-fashion-manga` | `photo-fashion-manga` | 1200×1600 PNG |
 
-除旅行抽象外，input 为 `{ sourceImageUrl, text? }`。sourceImageUrl 必须为公网 HTTPS URL（最大 2048 字符，无凭据、片段、自定义端口或 IP 字面量）；text 为 1–200 字符的海报原文，不参与模型或风格选择。
+除旅行抽象与日式时装漫画外，input 为 `{ sourceImageUrl, text? }`。sourceImageUrl 必须为公网 HTTPS URL（最大 2048 字符，无凭据、片段、自定义端口或 IP 字面量）；text 为 1–200 字符的海报原文，不参与模型或风格选择。
+
+### 日式时装漫画文案
+
+`photo-fashion-manga/v1` 接收真实单人照片的 `sourceImageUrl`，以及可选的 `background` 和以下文案。画风固定为墨黑轻线、红蓝平涂与米白纸底；照片决定人物身份、服装类别、动作和可见身体范围，不补画照片外身体。暂不接收第二张风格图。
+
+| 字段 | 长度 | 省略时的默认值 | 位置与颜色 |
+| --- | --- | --- | --- |
+| `text` | 0–200 字符 | `WIBI\nSTYLE` | 下方主标题，首行暖红、次行灰蓝 |
+| `kicker` | 0–100 字符 | `EVERYDAY, REDRAWN.` | 上方墨黑小引题 |
+| `caption` | 0–100 字符 | `my own way.` | 头肩旁更小的墨黑小注 |
+
+每项独立覆盖，空字符串或纯空白表示去掉该项，`null` 无效。主标题保留明确分行；没有换行时按自然词界适配两行，单词不拆写。全部文案保留大小写与标点，仅作为待印刷文字，不参与规则编译；其他照片 Process 不接受 `kicker` 或 `caption`。
+
+```json
+{"process":"photo-fashion-manga","version":"v1","input":{"sourceImageUrl":"https://assets.example.com/person.jpg","text":"MY OWN\nSTYLE","kicker":"EVERYDAY, REDRAWN.","caption":""}}
+```
 
 ### Mono Color 可编辑预设
 
@@ -789,7 +807,7 @@ CRT 与七个照片海报的 `v1` 接受可选 `background: auto | transparent |
 
 旧 `preset` 值仍兼容：`within_reach` → `blue_orange_overlap`、`half_hidden` → `blue_orange_diagonal_crop`、`your_move` → `black_red_statement`、`hold_still` → `black_red_frame`、`look_again` → `black_red_diagonal_type`。只在输入校验时转换，复用相同设计规则；新调用使用新标识，Process 仍为 `v1`。
 
-五个预设来自样图的设计归纳，不是作者公开的精确配方。它们调整版式和印刷处理，保留输入图主体、数量、动作及核心关系；不会为匹配示例额外制造伸手或手势。`text` 留空时按实际参考图提炼短英文，不把预设名印在画面上。只返回单张 1200×1600 PNG，不提供可编辑图层。其他五种照片 Process 不接受这些新增字段。
+五个预设来自样图的设计归纳，不是作者公开的精确配方。它们调整版式和印刷处理，保留输入图主体、数量、动作及核心关系；不会为匹配示例额外制造伸手或手势。`text` 留空时按实际参考图提炼短英文，不把预设名印在画面上。只返回单张 1200×1600 PNG，不提供可编辑图层。其他照片 Process 不接受这些新增字段。
 
 ### 其他照片海报示例
 
@@ -809,7 +827,7 @@ CRT 与七个照片海报的 `v1` 接受可选 `background: auto | transparent |
 {"process":"travel-abstraction-photo-poster","version":"v1","input":{"sourceImageUrl":"https://assets.example.com/photo.png","phrase":"QUIET PAWS","archiveNumber":1,"capturedOn":"2026-09-07"}}
 ```
 
-成功 output 为 `{ style, image: { url, contentType: "image/png", width, height, expiresAt? } }`。正式输出不返回 Prompt、原图 URL、模型、Skill、供应商或存储配置。六项输出均为独立风格化成品，不附原照片、不分上下对照。旅行抽象的档案字样直接绘制在抽象成品上。
+成功 output 为 `{ style, image: { url, contentType: "image/png", width, height, expiresAt? } }`。正式输出不返回 Prompt、原图 URL、模型、Skill、供应商或存储配置。全部输出均为独立风格化成品，不附原照片、不分上下对照。旅行抽象的档案字样直接绘制在抽象成品上。
 
 输入或额外字段不合法返回 INVALID_INPUT；版本不匹配返回 PROCESS_NOT_FOUND；编译失败返回 AGENT_FAILURE；明确未发起图片调用时失败返回 DEPENDENCY_FAILURE；已发出图片调用、响应丢失、保存失败或内部 pending 返回 DEPENDENCY_FAILURE_AFTER_COMMIT。禁止对后者自动重试，先核对执行记录。Process 超时仍按统一 PROCESS_TIMEOUT 契约处理，图片费用可能已产生。
 

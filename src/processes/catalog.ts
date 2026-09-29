@@ -23,6 +23,7 @@ import {
     monoColorProduction,
     monochromeProduction,
     photoDoodleCollageProduction,
+    photoFashionMangaProduction,
     travelAbstractionProduction,
     woodcutProduction,
 } from "./photo-poster/production.js";
@@ -57,6 +58,7 @@ export const productionCatalog: readonly ProductionProcess[] = Object.freeze([
     monochromeProduction,
     woodcutProduction,
     photoDoodleCollageProduction,
+    photoFashionMangaProduction,
     templateProduction,
     templatePlanProduction,
     templateRenderProduction,

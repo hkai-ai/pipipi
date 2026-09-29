@@ -50,6 +50,8 @@
 
 !.pi/skills/photo-doodle-collage-prompt/
 !.pi/skills/photo-doodle-collage-prompt/**
+!.pi/skills/photo-fashion-manga-prompt/
+!.pi/skills/photo-fashion-manga-prompt/**
 !.pi/skills/composed-task-planner/
 !.pi/skills/composed-task-planner/**
 !.pi/skills/meme-template-json-compiler/

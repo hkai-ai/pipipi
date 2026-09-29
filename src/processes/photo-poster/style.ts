@@ -7,6 +7,7 @@ export const photoPosterStyles = [
     "monochrome",
     "woodcut",
     "photo-doodle-collage",
+    "photo-fashion-manga",
 ] as const;
 
 export type PhotoPosterStyle = (typeof photoPosterStyles)[number];
@@ -19,9 +20,11 @@ export const photoPosterNames: Readonly<Record<PhotoPosterStyle, string>> = {
     monochrome: "黑白蜡笔摄影海报",
     woodcut: "限色木刻摄影海报",
     "photo-doodle-collage": "摄影剪贴与涂鸦小人海报",
+    "photo-fashion-manga": "日式时装漫画",
 };
 
 export function photoPosterProcessId(style: PhotoPosterStyle): string {
-    if (style === "photo-doodle-collage") return "photo-doodle-collage";
+    if (style === "photo-doodle-collage" || style === "photo-fashion-manga")
+        return style;
     return `${style}-photo-poster`;
 }

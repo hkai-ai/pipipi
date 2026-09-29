@@ -40,7 +40,7 @@ Business Processing Service 让产品调用方通过一个稳定的 HTTP Interfa
 
 ## 当前能力
 
-生产 catalog 当前登记十九个精确版本，其中 `composed-task/v1` 默认关闭：
+生产 catalog 当前登记二十个精确版本，其中 `composed-task/v1` 默认关闭：
 
 | 场景 | Business Process | 输入 | 输出 | 实现选择 |
 | --- | --- | --- | --- | --- |
@@ -63,12 +63,13 @@ Business Processing Service 让产品调用方通过一个稳定的 HTTP Interfa
 | `common` | `monochrome-photo-poster/v1` | `{ sourceImageUrl, text? }` | `{ style, image }` | 黑白蜡笔摄影海报；固定无 Tool Skill，单次编辑与存储 |
 | `common` | `woodcut-photo-poster/v1` | `{ sourceImageUrl, text? }` | `{ style, image }` | 限色木刻摄影海报；固定无 Tool Skill，单次编辑与存储 |
 | `common` | `photo-doodle-collage/v1` | `{ sourceImageUrl, text? }` | `{ style, image }` | 摄影剪贴与互动黑线小人；固定无 Tool Skill，单次编辑与存储 |
+| `common` | `photo-fashion-manga/v1` | `{ sourceImageUrl, text?, kicker?, caption? }` | `{ style, image }` | 日式时装漫画；固定红蓝配色，服务端逐项解析文案，单次编辑与存储 |
 
 照片海报正式输出只包含完整 1200×1600 风格化成品，原图仅作参考输入；旅行抽象只叠加档案字样，不拼接原图。
 
 Mono Color 支持五个按配色与版式命名的可编辑预设，旧标识在输入处兼容转换，供 Memebuy 的五个固定预设 C 类模板复用，保留旧调用行为；服务端在 Agent 编译前解析标题用色、分行、穿插与印刷约束，并在最终图片指令中重申，默认近白纸底与细网点。油墨分工跟随最终版式与配色，用户原文优先于分行，参考主体动作不变。用户原图、文字和补充说明不进入文本 Agent。参数契约见 [API 文档](docs/api.md#mono-color-可编辑预设)。
 
-生产 Composition Root 通过 Installed Skill Catalog 校验默认启用的十五个 Runtime Skill 的准确名称、版本和 SHA-256。Process 只绑定通过校验的准确版本；Catalog 不发现、下载或更新 Skill。
+生产 Composition Root 通过 Installed Skill Catalog 校验默认启用的 Runtime Skill 的准确名称、版本和 SHA-256。Process 只绑定通过校验的准确版本；Catalog 不发现、下载或更新 Skill。
 
 默认 HTTP Interface 提供健康检查和同步 `POST /execute`。异步提交、owner 查询、PostgreSQL Store、BullMQ Worker、Webhook、恢复和保留已经实现，但入口默认关闭。精确行为见 [异步设计](docs/async-process-runs-design.md)。
 

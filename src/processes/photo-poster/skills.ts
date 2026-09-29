@@ -1,6 +1,6 @@
 /** 固定照片风格 Runtime Skill 的本地路径与内容摘要。 */
 import type { InstalledSkillRef } from "../../agent-runtime/skills.js";
-import type { PhotoPosterStyle } from "./style.js";
+import { type PhotoPosterStyle, photoPosterProcessId } from "./style.js";
 
 const hashes: Readonly<Record<PhotoPosterStyle, string>> = {
     dopamine:
@@ -15,15 +15,14 @@ const hashes: Readonly<Record<PhotoPosterStyle, string>> = {
     woodcut: "fbfb6593a8133a64159a9e0423f214c6a99ffc0d62e43eeeecc6b84bb31f04f3",
     "photo-doodle-collage":
         "3205dae9d148a5187b97b13cede3c3364313eca2299193e94b2d65a936aa9009",
+    "photo-fashion-manga":
+        "68e70c298b9a1fdf1313cb00c156a48c42b1a3142c0a353a658f26f590663040",
 };
 
 export function createPhotoPosterSkillRefs(
     style: PhotoPosterStyle,
 ): readonly InstalledSkillRef[] {
-    const name =
-        style === "photo-doodle-collage"
-            ? "photo-doodle-collage-prompt"
-            : `${style}-photo-poster-prompt`;
+    const name = `${photoPosterProcessId(style)}-prompt`;
     return Object.freeze([
         Object.freeze({
             name,

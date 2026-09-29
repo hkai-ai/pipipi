@@ -42,3 +42,6 @@ export const woodcutProduction = photoPosterProduction("woodcut");
 export const photoDoodleCollageProduction = photoPosterProduction(
     "photo-doodle-collage",
 );
+export const photoFashionMangaProduction = photoPosterProduction(
+    "photo-fashion-manga",
+);
