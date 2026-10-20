@@ -72,6 +72,7 @@ Content-Type: application/json
 | `common` | `minimal-zine-poster` | 生成极简 Zine 海报 |
 | `common` | `photo-doodle-collage` | 生成摄影剪贴与互动黑线小人海报 |
 | `common` | `photo-fashion-manga` | 真人照片转日式手绘时装漫画 |
+| `common` | `manga-panels` | 无文字的漫画分镜 |
 | `common` | `character-emoji` | 固定 AI 角色的单图表情或多格漫画 |
 | `common` | `crt-interface-image` | 根据公网参考图生成 CRT 风格图片 |
 | `memene` | `news-image-narrative-monument` | 生成人物叙事碑式新闻图片 |
@@ -782,13 +783,13 @@ if (!response.ok || result.status !== "succeeded") {
 
 ## 图片背景参数
 
-CRT 与八个照片海报的 `v1` 接受可选 `background: auto | transparent | opaque`；省略时保留原行为。背景参数直接传给模型，不追加或改写提示词；CRT 后处理同步变换 alpha。透明成品必须同时存在可见与透明像素；不符合时失败且不自动重绘。该参数进入下游幂等摘要，不能用同一个键切换背景。发布时先部署 Pipipi，再开放 Memebuy 能力声明；本地验证不代表生产已生效。
+CRT 与九个照片海报的 `v1` 接受可选 `background: auto | transparent | opaque`；省略时保留原行为。背景参数直接传给模型，不追加或改写提示词；CRT 后处理同步变换 alpha。透明成品必须同时存在可见与透明像素；不符合时失败且不自动重绘。该参数进入下游幂等摘要，不能用同一个键切换背景。发布时先部署 Pipipi，再开放 Memebuy 能力声明；本地验证不代表生产已生效。
 
 例如：`{"process":"woodcut-photo-poster","version":"v1","input":{"sourceImageUrl":"https://assets.example.com/photo.png","background":"transparent"}}`。其他 Process 未开放该字段。FAL 参数取值依据 [GPT Image 2 编辑接口](https://fal.ai/models/openai/gpt-image-2/edit/api)。
 
 ## 照片海报
 
-以下八个 Process 均使用 `POST /execute`，版本固定为 `v1`。每次处理一张照片；批量由调用方逐张提交，不能上传流程、Skill、模型或运行参数。
+以下九个 Process 均使用 `POST /execute`，版本固定为 `v1`。每次处理一张照片；批量由调用方逐张提交，不能上传流程、Skill、模型或运行参数。
 
 | process | style | 输出规格 |
 | --- | --- | --- |
@@ -800,8 +801,26 @@ CRT 与八个照片海报的 `v1` 接受可选 `background: auto | transparent |
 | `woodcut-photo-poster` | `woodcut` | 1200×1600 PNG |
 | `photo-doodle-collage` | `photo-doodle-collage` | 1200×1600 PNG |
 | `photo-fashion-manga` | `photo-fashion-manga` | 1200×1600 PNG |
+| `manga-panels` | `manga-panels` | 1200×1600 PNG |
 
-除旅行抽象与日式时装漫画外，input 为 `{ sourceImageUrl, text? }`。sourceImageUrl 必须为公网 HTTPS URL（最大 2048 字符，无凭据、片段、自定义端口或 IP 字面量）；text 为 1–200 字符的海报原文，不参与模型或风格选择。
+除旅行抽象、日式时装漫画与漫画分镜外，input 为 `{ sourceImageUrl, text? }`。sourceImageUrl 必须为公网 HTTPS URL（最大 2048 字符，无凭据、片段、自定义端口或 IP 字面量）；text 为 1–200 字符的海报原文，不参与模型或风格选择。
+
+### 漫画分镜
+
+`manga-panels/v1` 接收公网 HTTPS `sourceImageUrl`、可选 `preset` 与 `background`。只允许以下固定预设；省略时使用 `three-panel-details`。不接受 `dialogues`、`text`、画格数量、任意风格或 Prompt，越权字段与非法预设返回 `INVALID_INPUT`。
+
+| preset | 效果 | 构图 |
+| --- | --- | --- |
+| `three-panel-details` | C · 细节三格 | 上方约三分之一为两个细节格，下方约三分之二为主体；清晰墨线与克制网点 |
+| `sketchy-mixed-panels` | D · 粗笔拼页 | 约七成的斜向主格，加右上眼神与左下细节；粗细笔触、干笔及黑块 |
+
+两者均为三个画格、中性黑白、无文字。主格保留原图可见姿态，细节取自原图已有的脸、手或配饰；不补出不可见身体，不增加故事动作。原图 URL 不进入文本 Agent。`background` 沿用图片背景合同；固定黑白画法不改写背景参数。技术成功不证明视觉验收通过。
+
+Memebuy 可将两个模板分别绑定同一 Process 与固定 preset，用户只需上传参考图。返回 `style` 为 `manga-panels`，preset 保留于运行输入，不增加正式输出字段。
+
+```json
+{"process":"manga-panels","version":"v1","input":{"sourceImageUrl":"https://assets.example.com/person.png","preset":"sketchy-mixed-panels"}}
+```
 
 ### 日式时装漫画文案
 

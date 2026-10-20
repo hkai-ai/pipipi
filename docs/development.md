@@ -442,6 +442,8 @@ npm run check:deployment-env -- api
 
 `defineProcessRegistration` 的 `outputMaxBytes` 是服务端构造选项，默认 262,144 字节，上限 28,000,000；仅成图审核的完整 PNG 交接使用大输出。不得让产品请求覆盖该预算。新增大输出同时检查 HTTP、持久化、调用方加密交接与列表加载；完整目录 Worker 租约须超过最长 Process。
 
+`manga-panels/v1` 复用照片海报链路；`manga-panels.ts` 拥有严格输入与两个固定预设，解析后的约束同时用于 Agent 编译及最终图片指令。分镜允许三个重绘画格，不沿用其他风格的禁止分屏指令；不改变其他风格默认文字行为。
+
 表情包构思 Skill 通过 `node --import tsx tools/build-character-emoji-skill.ts` 生成；使用 `--check` 检查源提示词、快照与绑定摘要一致。专用 Pi Adapter 移除专用网关不支持的 OpenAI prompt-cache 参数，模型与 HTTP 重试均受本次 Registration 预算限制。
 
 角色表情包的本地梗库在 `src/processes/character-emoji/memes.ts` 维护，`materials.ts` 按角色和题材挑选最多8张短卡并投影给首轮 Agent，不增加选材模型调用。库更新同步版本与研究依据；角色背景、可选素材和公开 scene 各自拥有一份事实。内部 `adaptation.entryIds` 最多绑定两条本次提供的本地或联网材料，来源投影与失败原创规则见[专题](processes/common/character-emoji/README.md#本地梗素材)。

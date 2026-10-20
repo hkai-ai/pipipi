@@ -40,7 +40,7 @@ Business Processing Service 让产品调用方通过一个稳定的 HTTP Interfa
 
 ## 当前能力
 
-生产 catalog 当前登记二十一个精确版本，其中 `composed-task/v1` 默认关闭：
+生产 catalog 当前登记二十二个精确版本，其中 `composed-task/v1` 默认关闭：
 
 | 场景 | Business Process | 输入 | 输出 | 实现选择 |
 | --- | --- | --- | --- | --- |
@@ -64,6 +64,7 @@ Business Processing Service 让产品调用方通过一个稳定的 HTTP Interfa
 | `common` | `woodcut-photo-poster/v1` | `{ sourceImageUrl, text? }` | `{ style, image }` | 限色木刻摄影海报；固定无 Tool Skill，单次编辑与存储 |
 | `common` | `photo-doodle-collage/v1` | `{ sourceImageUrl, text? }` | `{ style, image }` | 摄影剪贴与互动黑线小人；固定无 Tool Skill，单次编辑与存储 |
 | `common` | `photo-fashion-manga/v1` | `{ sourceImageUrl, text?, kicker?, caption? }` | `{ style, image }` | 日式时装漫画；固定红蓝配色，服务端逐项解析文案，单次编辑与存储 |
+| `common` | `manga-panels/v1` | `{ sourceImageUrl, preset?, background? }` | `{ style, image }` | 漫画分镜；细节三格与粗笔拼页，无文字和对话框，单次编辑与存储 |
 | `common` | `character-emoji/v2` | `{ cast, idea, captionSetting? }` 或 `{ mode: "comic", cast, idea }` | `{ image, mode, caption?, plan }` | 每格唯一 scene；角色与准确文字独立绑定；专用 DeepSeek 4.1 Flash Pi Agent、按模式加载的固定 Skill 与 DeepSeek 联网搜梗 Tool，Memene GPT Image 2.5 Flare（报错后尝试一次 Magikaru，取消或总截止除外） 多参考图编辑 |
 
 照片海报正式输出只包含完整 1200×1600 风格化成品，原图仅作参考输入；旅行抽象只叠加档案字样，不拼接原图。

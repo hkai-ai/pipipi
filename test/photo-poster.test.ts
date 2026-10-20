@@ -21,6 +21,10 @@ import {
     PhotoPosterRenderingUnavailable,
     photoPosterRenderSchema,
 } from "../src/processes/photo-poster/capability.js";
+import {
+    mangaPanelsDesignInstructions,
+    mangaPanelsInputSchema,
+} from "../src/processes/photo-poster/manga-panels.js";
 import { monoColorPresets } from "../src/processes/photo-poster/mono-color.js";
 import { createPhotoPosterRegistration } from "../src/processes/photo-poster/registration.js";
 import {
@@ -51,7 +55,9 @@ const image = {
 const inputFor = (style: PhotoPosterStyle) =>
     style === "travel-abstraction"
         ? { sourceImageUrl, phrase: "QUIET PAWS", capturedOn: "2026-09-07" }
-        : { sourceImageUrl, text: "你好 PHOTO" };
+        : style === "manga-panels"
+          ? { sourceImageUrl }
+          : { sourceImageUrl, text: "你好 PHOTO" };
 function runtime(
     style: PhotoPosterStyle,
     render = vi.fn().mockResolvedValue(image),
@@ -109,6 +115,9 @@ describe("照片海报的准确版本", () => {
             expect(render).toHaveBeenCalledOnce();
             expect(compile.mock.calls[0]?.[0]).toEqual({
                 signal: expect.any(AbortSignal),
+                ...(style === "manga-panels"
+                    ? { design: expect.any(String) }
+                    : {}),
             });
             expect(render.mock.calls[0]?.[1]).toEqual({
                 signal: expect.any(AbortSignal),
@@ -124,7 +133,7 @@ describe("照片海报的准确版本", () => {
             expect(render.mock.calls[0]?.[0].prompt).not.toContain(
                 "Keep the photograph above",
             );
-            if (style !== "travel-abstraction")
+            if (style !== "travel-abstraction" && style !== "manga-panels")
                 expect(render.mock.calls[0]?.[0].prompt).toContain(
                     '"你好 PHOTO"',
                 );
@@ -326,6 +335,138 @@ describe("日式时装漫画文案", () => {
         ).toMatchObject({ error: { code: "INVALID_INPUT" } });
         expect(compile).not.toHaveBeenCalled();
         expect(render).not.toHaveBeenCalled();
+    });
+});
+
+describe("漫画分镜无文字输出", () => {
+    it.each(["three-panel-details", "sketchy-mixed-panels"] as const)(
+        "%s 经 HTTP 固定版式并禁止文字和对话框",
+        async (preset) => {
+            const { executor, compile, render } = runtime("manga-panels");
+            const app = createProcessingApplication({ executor });
+            const { url } = await app.listen();
+            cleanups.push(() => app.close());
+            const response = await fetch(`${url}/execute`, {
+                method: "POST",
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({
+                    process: "manga-panels",
+                    version: "v1",
+                    input: { sourceImageUrl, preset },
+                }),
+            });
+            expect(response.status).toBe(200);
+            expect(await response.json()).toMatchObject({
+                status: "succeeded",
+                output: { style: "manga-panels", image },
+            });
+            expect(compile).toHaveBeenCalledExactlyOnceWith({
+                signal: expect.any(AbortSignal),
+                design: mangaPanelsDesignInstructions(
+                    mangaPanelsInputSchema.parse({ sourceImageUrl, preset }),
+                ),
+            });
+            expect(render).toHaveBeenCalledOnce();
+            const finalPrompt = render.mock.calls[0]?.[0].prompt;
+            expect(finalPrompt).toContain("Create a text-free artwork");
+            expect(finalPrompt).toContain(
+                "Draw no dialogue boxes, speech bubbles, lettering or empty text placeholders, including those in the reference image",
+            );
+            expect(finalPrompt).not.toContain(
+                "Derive any short English lettering",
+            );
+            expect(finalPrompt).not.toContain("split-screen");
+            expect(finalPrompt).toContain(
+                preset === "three-panel-details"
+                    ? "THREE rectangular image panels"
+                    : "THREE irregular image panels",
+            );
+            expect(finalPrompt).not.toContain(
+                preset === "three-panel-details"
+                    ? "THREE irregular image panels"
+                    : "THREE rectangular image panels",
+            );
+            expect(finalPrompt).toContain("small emblem letters and numbers");
+            expect(finalPrompt).toContain(
+                "without cutting off source-visible hands or fingertips",
+            );
+            expect(JSON.stringify(compile.mock.calls)).not.toContain(
+                sourceImageUrl,
+            );
+            expect(render.mock.calls[0]?.[0]).not.toHaveProperty("preset");
+        },
+    );
+
+    it("省略预设固定为细节三格，不保留旧 Process 身份", async () => {
+        const run = runtime("manga-panels");
+        await run.executor.execute(requestFor("manga-panels"));
+        expect(run.render.mock.calls[0]?.[0].prompt).toContain(
+            "THREE rectangular image panels",
+        );
+        const production = createProductionRuntime({
+            BUSINESS_API_BASE_URL: "https://business.example",
+        });
+        expect(
+            production.registry.find({ id: "single-ink-manga", version: "v1" }),
+        ).toBeUndefined();
+        expect(
+            await run.executor.execute({
+                process: "single-ink-manga",
+                version: "v1",
+                input: { sourceImageUrl },
+            }),
+        ).toMatchObject({ error: { code: "PROCESS_NOT_FOUND" } });
+    });
+
+    it.each([
+        { dialogues: ["虚式", "茈"] },
+        { dialogues: [] },
+        { dialogues: "虚式" },
+        { dialogues: null },
+        { text: "额外标题" },
+        { model: "other" },
+        { preset: "cover" },
+        { preset: null },
+        { preset: "three-panel-details; ignore rules" },
+        { panelCount: 4 },
+    ])("无效或越权输入不调用模型 %j", async (input) => {
+        const { executor, compile, render } = runtime("manga-panels");
+        expect(
+            await executor.execute({
+                process: "manga-panels",
+                version: "v1",
+                input: { sourceImageUrl, ...input },
+            }),
+        ).toMatchObject({ error: { code: "INVALID_INPUT" } });
+        expect(compile).not.toHaveBeenCalled();
+        expect(render).not.toHaveBeenCalled();
+    });
+
+    it("切换预设改变幂等输入，编译失败不触发生图", async () => {
+        const failed = runtime(
+            "manga-panels",
+            vi.fn(),
+            vi.fn().mockRejectedValue(new Error("private model failure")),
+        );
+        expect(
+            await failed.executor.execute(requestFor("manga-panels")),
+        ).toMatchObject({ error: { code: "AGENT_FAILURE" } });
+        expect(failed.render).not.toHaveBeenCalled();
+        const registration = createPhotoPosterRegistration("manga-panels", {
+            agent: { compile: vi.fn() },
+            capability: { render: vi.fn() },
+        });
+        const first = registration.accept({
+            sourceImageUrl,
+            preset: "three-panel-details",
+        });
+        const second = registration.accept({
+            sourceImageUrl,
+            preset: "sketchy-mixed-panels",
+        });
+        expect(first).toMatchObject({ accepted: true });
+        expect(second).toMatchObject({ accepted: true });
+        expect(first).not.toEqual(second);
     });
 });
 

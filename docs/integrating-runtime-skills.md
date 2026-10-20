@@ -172,4 +172,6 @@ npx tsx tools/build-template-image-skill.ts E:/Deployment/meme-template-producti
 
 模板编译的原始观察、语义投影、文字路由与程序证据分工见 [来源合同对齐](processes/memebuy/template-from-image/source-alignment.md)。文档打包一致与运行合同等价分别验证。
 
+`manga-panels-prompt@v1` 是 Agent Mangaka Forge 固定 MIT 版本的受限适配，只支持细节三格和粗笔拼页，不携带 img-memory、脚本或自动重绘。来源、完整目录审查与差异见 [来源记录](../.pi/skills/manga-panels-prompt/SOURCE.md)，运行时仅加载固定 SKILL.md。
+
 角色表情包使用固定 character-emoji-planner@v18 公共规则及 single/comic 对应模式 Skill，与专用 DeepSeek 4.1 Flash Pi Session；search_memes Tool 内部调用受控 DeepSeek Responses。完整调用预算、来源规则、Skill 生成命令与暂缓的持久化范围见 [角色表情包](processes/common/character-emoji/README.md)。

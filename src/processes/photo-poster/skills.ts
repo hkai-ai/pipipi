@@ -3,6 +3,8 @@ import type { InstalledSkillRef } from "../../agent-runtime/skills.js";
 import { type PhotoPosterStyle, photoPosterProcessId } from "./style.js";
 
 const hashes: Readonly<Record<PhotoPosterStyle, string>> = {
+    "manga-panels":
+        "4d4d7ef60a761c757f9a8cca8a4dc6fdec834cbde1fc6539f9c98ccbca218dc1",
     dopamine:
         "f70a9298b01ea5c088b164b4463f07611cd29fcb5f01974517720a111600ab5e",
     "mono-color":

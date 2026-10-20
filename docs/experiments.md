@@ -269,9 +269,9 @@ npm run smoke:staging
 
 ## 照片海报业务验收
 
-`npm run accept:photo-poster-business` 按表格顺序验证八个固定风格，跳过猫猫绘本。需要设置 `PHOTO_POSTER_SOURCE_IMAGE_URL` 为可使用的公网 HTTPS 照片。它使用本地 .env 中的 Pi 文本模型、FAL GPT Image 2 和 OSS 配置，临时监听回环端口并关闭异步入口、Worker 和共享 Run Record。
+`npm run accept:photo-poster-business` 按表格顺序验证九个固定风格，跳过猫猫绘本。需要设置 `PHOTO_POSTER_SOURCE_IMAGE_URL` 为可使用的公网 HTTPS 照片。它使用本地 .env 中的 Pi 文本模型、FAL GPT Image 2 和 OSS 配置，临时监听回环端口并关闭异步入口、Worker 和共享 Run Record。
 
-验收最多八次图片调用与八次结果 OSS PUT；每项正式 POST /execute 后下载 output.image.url，验证 PNG、尺寸、文件哈希和单次图片调用。全部风格校验 1200×1600 独立成品，是否夹带原图区域通过人工视觉检查。结果与图片写入 `artifacts/photo-poster-acceptance/<本次时间戳>/`，报告不保存原图 URL、Prompt 或凭据。失败不自动重绘。
+验收最多九次图片调用与九次结果 OSS PUT；每项正式 POST /execute 后下载 output.image.url，验证 PNG、尺寸、文件哈希和单次图片调用。全部风格校验 1200×1600 独立成品，是否夹带原图区域通过人工视觉检查。结果与图片写入 `artifacts/photo-poster-acceptance/<本次时间戳>/`，报告不保存原图 URL、Prompt 或凭据。失败不自动重绘。
 
 ```powershell
 $env:PHOTO_POSTER_SOURCE_IMAGE_URL = 'https://assets.example.com/photo.png'
@@ -325,3 +325,11 @@ npm run accept:photo-poster-business
 先运行 `npx vitest run test/template-image-production.test.ts test/aliyun-oss-storage.test.ts test/async-runtime-construction.test.ts`；这些测试走本地 HTTP 和替身，不产生模型、图片生成或 OSS 费用。
 
 真实验收按 Memebuy 页面逐次执行：提交一张原图 → 核对完整替换策略 → 人工通过 → 对照原图检查完整成图 → 人工通过 → 检查草稿的 cover/referenceImage 都是内容寻址的新图片。第一次通过会调用付费图片服务，第二次通过才写 OSS 并调用编译模型。不得用脚本自动批准两步；供应商提交未知时对账，不另建生成请求。
+
+## 漫画分镜验收
+
+真实验收会调用文本模型、FAL 和 OSS，产生费用与外部写入。设置参考图地址、`PHOTO_POSTER_ACCEPTANCE_STYLES=manga-panels`，通过 `PHOTO_POSTER_MANGA_PRESET` 分别选择 `three-panel-details` 与 `sketchy-mixed-panels`，每次执行 `npm run accept:photo-poster-business` 只测试一个预设。该选择变量仅属于本地验收程序，不是生产启动配置。
+
+验收必须走正式 Agent 编译、HTTP、图片 Capability 与存储回读，不把直接调用图片 Adapter 的预览当作完整链路通过。人工检查恰好三个画格、清楚的格间留白、同一人物与配饰、主格手指完整、细节取自原图、无字母和徽章文字残留。
+
+2026-10-07 的 C、D 预览仅验证人工提示词经 Pipipi 图片 Adapter 的效果；C 有原图字母残留，部分样图主格裁掉指尖。新接入已加入对应约束，但仍需真实模型验收，不能把规则存在当成视觉修复证明。历史图片保留在被忽略的 artifacts 目录，不作为 Runtime 资源或模板封面。

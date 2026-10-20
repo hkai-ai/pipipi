@@ -143,6 +143,7 @@ describe("console Skill catalog", () => {
             "content-optimization",
             "crayon-photo-poster-prompt",
             "dopamine-photo-poster-prompt",
+            "manga-panels-prompt",
             "meme-template-json-compiler",
             "minimal-zine-poster-prompt",
             "mono-color-photo-poster-prompt",

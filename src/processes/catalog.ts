@@ -21,6 +21,7 @@ import {
 import {
     crayonProduction,
     dopamineProduction,
+    mangaPanelsProduction,
     monoColorProduction,
     monochromeProduction,
     photoDoodleCollageProduction,
@@ -60,6 +61,7 @@ export const productionCatalog: readonly ProductionProcess[] = Object.freeze([
     woodcutProduction,
     photoDoodleCollageProduction,
     photoFashionMangaProduction,
+    mangaPanelsProduction,
     characterEmojiProduction,
     templateProduction,
     templatePlanProduction,

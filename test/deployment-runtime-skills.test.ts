@@ -28,6 +28,7 @@ describe("production Runtime Skill bindings", () => {
             "dopamine-photo-poster": ["dopamine-photo-poster-prompt@v1"],
             "photo-doodle-collage": ["photo-doodle-collage-prompt@v1"],
             "photo-fashion-manga": ["photo-fashion-manga-prompt@v1"],
+            "manga-panels": ["manga-panels-prompt@v1"],
             "character-emoji": [
                 "character-emoji-planner@v18",
                 "character-emoji-single@v4",

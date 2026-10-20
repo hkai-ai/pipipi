@@ -45,3 +45,5 @@ export const photoDoodleCollageProduction = photoPosterProduction(
 export const photoFashionMangaProduction = photoPosterProduction(
     "photo-fashion-manga",
 );
+
+export const mangaPanelsProduction = photoPosterProduction("manga-panels");
