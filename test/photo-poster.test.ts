@@ -265,6 +265,11 @@ describe("日式时装漫画文案", () => {
             },
         },
         {
+            name: "保留混合大小写标点且纯空白删除小字",
+            input: { text: "my Way!\n日常", kicker: " ", caption: "\t" },
+            expected: { text: "my Way!\n日常", kicker: " ", caption: "\t" },
+        },
+        {
             name: "空字符串删除全部文字",
             input: { text: "", kicker: "", caption: "" },
             expected: { text: "", kicker: "", caption: "" },

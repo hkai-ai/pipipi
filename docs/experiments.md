@@ -318,6 +318,8 @@ npm run accept:photo-poster-business
 
 根据文字过透、腿部贯穿标题的反馈，追加不透明实色笔画与衣摆附近取景规则，同照片及 low 档位复测运行 `b6afaa35-95b2-4c20-8436-a408388a4489`。约 35 秒完成一次生图及一次 OSS 写入，技术校验通过，产物位于 `artifacts/photo-poster-acceptance/1790656951306/`。人工核对本样本的红蓝笔画不再透出人物线条，仅在衣摆下、首行标题上方露一小段腿，标题区没有腿部延伸；保留手绘字边缘，颗粒仍比基准图克制。此结果仅证明当前样本的两项问题得到修正，不代表跨照片稳定性或已部署。
 
+本轮按原始 Skill 收敛：取消固定裁腿、强制颗粒与重复字形限制，恢复人物局部遮挡首行文字；保留自然手绘感与不透明印色。上面的实测对应历史规则，不能作为收敛后版本的视觉验收；新版需另行真实生图核验。
+
 ## 两次审批的模板图片生产验收
 
 先运行 `npx vitest run test/template-image-production.test.ts test/aliyun-oss-storage.test.ts test/async-runtime-construction.test.ts`；这些测试走本地 HTTP 和替身，不产生模型、图片生成或 OSS 费用。

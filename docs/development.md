@@ -427,7 +427,7 @@ npm run check:deployment-env -- api
 
 照片 URL 和用户文字均不交给文本 Agent；URL 只用于图片编辑，文字由 Registration 追加为待印刷内容。不能把新增风格做成请求可选 Skill 路径。验证入口见 [实验](experiments.md#照片海报业务验收)。
 
-`photo-fashion-manga/v1` 复用同一链路；`fashion-manga.ts` 拥有逐项文案默认值、空字符串删除与最终印刷指令，Runtime Skill 只拥有画风与排版，不重复具体示例文案。准确契约见 [API 文档](api.md#日式时装漫画文案)。
+`photo-fashion-manga/v1` 复用同一链路；`fashion-manga.ts` 拥有逐项文案默认值、空字符串删除与字段角色、分行配色；字形、取景与字图关系由 Runtime Skill 拥有，服务端不重复追加视觉限制，Skill 不重复具体示例文案。准确契约见 [API 文档](api.md#日式时装漫画文案)。
 
 照片海报的原图只作参考输入。正式成品为完整风格化画布，禁止把验收用原图对照拼进产品输出；对应约束已写入 AGENTS.md。
 

@@ -16,7 +16,7 @@
 | `monochrome-photo-poster/v1` | [monochrome-photo-poster/](monochrome-photo-poster/) | 黑白蜡笔摄影海报 |
 | `woodcut-photo-poster/v1` | [woodcut-photo-poster/](woodcut-photo-poster/) | 限色木刻摄影海报 |
 | `photo-doodle-collage/v1` | [photo-doodle-collage/](photo-doodle-collage/) | 摄影剪贴与互动黑线小人海报 |
-| `photo-fashion-manga/v1` | [photo-fashion-manga/](photo-fashion-manga/) | 真人照片转红蓝少色日式时装漫画，配手绘印刷粗字 |
+| `photo-fashion-manga/v1` | [photo-fashion-manga/](photo-fashion-manga/) | 真人照片转红蓝少色日式时装漫画，配手刻粗字，取景随原照片与版面 |
 | `character-emoji/v2` | [character-emoji/](character-emoji/) | DeepSeek 4.1 Flash Pi Agent 默认选用本地素材或原创、服务端仅对明确检索或近期事实要求开放 DeepSeek 搜梗 Tool，按固定角色参考图经 Memene GPT Image 2.5 Flare（报错后尝试一次 Magikaru，取消或总截止除外） 生成单张表情或多格漫画 |
 
 产品采用通用 Process 时，在对应产品场景 README 中记录产品限制和采用关系，不复制 Process 契约。统一 HTTP 契约见 [`../../api.md`](../../api.md)。
