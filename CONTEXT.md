@@ -40,7 +40,7 @@ Business Processing Service 让产品调用方通过一个稳定的 HTTP Interfa
 
 ## 当前能力
 
-生产 catalog 当前登记二十个精确版本，其中 `composed-task/v1` 默认关闭：
+生产 catalog 当前登记二十一个精确版本，其中 `composed-task/v1` 默认关闭：
 
 | 场景 | Business Process | 输入 | 输出 | 实现选择 |
 | --- | --- | --- | --- | --- |
@@ -64,6 +64,7 @@ Business Processing Service 让产品调用方通过一个稳定的 HTTP Interfa
 | `common` | `woodcut-photo-poster/v1` | `{ sourceImageUrl, text? }` | `{ style, image }` | 限色木刻摄影海报；固定无 Tool Skill，单次编辑与存储 |
 | `common` | `photo-doodle-collage/v1` | `{ sourceImageUrl, text? }` | `{ style, image }` | 摄影剪贴与互动黑线小人；固定无 Tool Skill，单次编辑与存储 |
 | `common` | `photo-fashion-manga/v1` | `{ sourceImageUrl, text?, kicker?, caption? }` | `{ style, image }` | 日式时装漫画；固定红蓝配色，服务端逐项解析文案，单次编辑与存储 |
+| `common` | `character-emoji/v2` | `{ cast, idea, captionSetting? }` 或 `{ mode: "comic", cast, idea }` | `{ image, mode, caption?, plan }` | 每格唯一 scene；角色与准确文字独立绑定；专用 DeepSeek 4.1 Flash Pi Agent、按模式加载的固定 Skill 与 DeepSeek 联网搜梗 Tool，Memene GPT Image 2.5 Flare（报错后尝试一次 Magikaru，取消或总截止除外） 多参考图编辑 |
 
 照片海报正式输出只包含完整 1200×1600 风格化成品，原图仅作参考输入；旅行抽象只叠加档案字样，不拼接原图。
 
@@ -75,7 +76,7 @@ Mono Color 支持五个按配色与版式命名的可编辑预设，旧标识在
 
 默认 HTTP Interface 提供健康检查和同步 `POST /execute`。异步提交、owner 查询、PostgreSQL Store、BullMQ Worker、Webhook、恢复和保留已经实现，但入口默认关闭。精确行为见 [异步设计](docs/async-process-runs-design.md)。
 
-海报、CRT 和 Memene 新闻图片 Process 会调用模型并持久化图片。产品只接收图片引用；真实验收、证据与费用必须显式启用。CRT 和新闻图片上游来源的许可证仍是发布门禁。
+海报、CRT、Memene 新闻图片和角色表情包 Process 会调用模型并持久化图片。产品只接收图片引用；真实验收、证据与费用必须显式启用。CRT 和新闻图片上游来源的许可证仍是发布门禁。角色表情包使用 CC BY-NC-SA 4.0 来源素材，只能用于非商业验证；商用发布前须确认授权并保留署名与相同方式共享要求。
 
 ## 运行与信任模型
 
@@ -85,7 +86,7 @@ Mono Color 支持五个按配色与版式命名的可编辑预设，旧标识在
 
 Run Observation Module 同时服务同步 API 和异步 Worker。Run Record 与活动日志只用于观测，不决定业务状态、重试或投递；写入失败不能改变 Process Result。异步调用方始终通过 owner-scoped Process Run Store 查询权威状态。
 
-Agent 只获得 Registration 固定绑定的 Runtime Skill 与窄 Tool。文本 Agent 只能调用 Content Processing Capability；海报、CRT 和新闻图片 Agent 没有 Tool，只编译待校验计划；`composed-task` 的 Planner Agent 只获得 allow-list 中其他 Process 的 Step Tool，每个 Step 仍经 Member Registration 自己的校验、幂等键和错误净化。Agent 不获得 Shell、文件读写、代码编辑或任意远程工具。Runtime Skill 随应用发布，调用方不能选择、增加或排序。
+Agent 只获得 Registration 固定绑定的 Runtime Skill 与窄 Tool。文本 Agent 只能调用 Content Processing Capability；海报、CRT 和新闻图片 Agent 没有 Tool，只编译待校验计划；`character-emoji/v2` 的 Pi Agent 默认无 Tool，仅服务端识别到明确检索或近期事实要求时开放 `search_memes` Tool，由其内部调用固定 DeepSeek Responses 原生 `web_search`，首轮接收服务端挑选的本地短卡，允许无需搜索直接提交经校验的改编或原创方案；开放工具后按需搜索，搜索失败直接原创；`composed-task` 的 Planner Agent 只获得 allow-list 中其他 Process 的 Step Tool，每个 Step 仍经 Member Registration 自己的校验、幂等键和错误净化。Agent 不获得 Shell、文件读写、代码编辑或任意远程工具。Runtime Skill 随应用发布，调用方不能选择、增加或排序。
 
 图片 Process 的模型、FAL、OSS、证据和保留策略由服务端 Adapter 与部署环境拥有。产品只提交业务字段并接收图片引用。真实模型、存储和付费验收必须显式运行，凭证与敏感内容不进入日志、正式输出或证据。
 
@@ -190,3 +191,7 @@ Startup Construction 是生产组装 Seam；Process Executor 是同步传输与 
 Memebuy 模板分步制作支持同方案多个成图版本：新 `renderId` 明确重做，同一身份仅恢复；图片审批绑定实际版本，旧单图合同兼容。接口见 [业务 API](docs/api.md)。
 
 CRT 与照片海报将背景模式作为可选业务参数；省略时保持原行为，透明成品需通过透明与可见像素校验。公开合同见 [图片背景参数](docs/api.md#图片背景参数)。
+
+角色表情包由同一个 DeepSeek 4.1 Flash Pi Agent 调用 DeepSeek 搜梗，从最多两个候选中按行为关系选材，以 low 推理预算构思、自检并提交，不启动独立复核会话。搜索资料由服务端生成同次 ID，可用原生摘要直接绑定，缺失时标为未核验灵感；搜索调用失败直接原创，用户取消与整体截止仍停止。初稿及修正均校验同次材料身份。Agent 创作的构图、笑点细节和连续性保留，程序按角色 ID 绑定参考图、生成编号并保留 Agent 的自由布局，接受角色错序；JSON格式错误、可定位的画面字段结构错误与台词错误共用一次原会话修正机会；可读取候选冻结未报错字段，JSON重交则重新检查完整合同。来源错误或角色不匹配仍停止。搜索采用独立上限和有界资料，兜底原因与调用耗时通过不含正文的请求级观测记录。台词与标识保持准确，场景辅助文字交由 Agent 与绘图模型适量处理，明确无字要求优先；单图白底贴纸为默认风格。内部候选与来源不持久化、不进入公开输出，结构及引用通过不代表事实或画面语义正确。
+
+角色表情包主用 Flare 按 Memebuy 方式将参考图读入内存、按顺序通过 multipart 文件表单上传，不落临时文件；备用 Magikaru 保持公网 URL 直传。角色表情包按所选角色注入已维护的创作背景；v2 漫画由 Agent 决定自由布局和各格大小，程序仅补编号。每格仍只有一份 scene；page 与 frame 只描述画格几何，关键行动或可辨认痕迹在 scene 呈现，同次自检核对肢体占用与道具支撑；配字优先级及创作规则见[角色表情包专题](docs/processes/common/character-emoji/README.md)。

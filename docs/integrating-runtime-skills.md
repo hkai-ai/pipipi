@@ -171,3 +171,5 @@ npx tsx tools/build-template-image-skill.ts E:/Deployment/meme-template-producti
 来源变化须先审查清单，重建版本与 production SHA-256；不要手改打包正文。两次原人工确认迁至 Memebuy 页面，Runtime Agent 仅规划；受控 Adapter 生图与上传。单项与原批量工具的差异记录在 SOURCE.md。
 
 模板编译的原始观察、语义投影、文字路由与程序证据分工见 [来源合同对齐](processes/memebuy/template-from-image/source-alignment.md)。文档打包一致与运行合同等价分别验证。
+
+角色表情包使用固定 character-emoji-planner@v18 公共规则及 single/comic 对应模式 Skill，与专用 DeepSeek 4.1 Flash Pi Session；search_memes Tool 内部调用受控 DeepSeek Responses。完整调用预算、来源规则、Skill 生成命令与暂缓的持久化范围见 [角色表情包](processes/common/character-emoji/README.md)。

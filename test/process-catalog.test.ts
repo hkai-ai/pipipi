@@ -12,6 +12,10 @@ const registry: ProcessRegistry = createProductionRuntime({
  * honest: a Schema change that these no longer satisfy is a contract change.
  */
 const validInputs: Readonly<Record<string, Record<string, unknown>>> = {
+    "character-emoji": {
+        cast: [{ character: "DeepSeek", appearance: "Chibi" }],
+        idea: "用一卷长代码表达只改一行",
+    },
     "template-image-plan": {
         imageUrl: "https://assets.example.com/source.png",
     },
@@ -83,6 +87,7 @@ describe("Process catalog description", () => {
         expect(
             catalog.map((entry) => `${entry.process}/${entry.version}`),
         ).toEqual([
+            "character-emoji/v2",
             "content-processing/v1",
             "crayon-photo-poster/v1",
             "crt-interface-image/v1",

@@ -310,3 +310,5 @@ Interface 提供足够 Depth。
 ### 有界审核图片交接
 
 Registration 可在构造时固定 `outputMaxBytes`，默认 262,144 字节，最大 28,000,000 字节。当前仅 `template-image-render/v1` 使用特例，供受限运营审核完整 PNG。此参数不进入产品输入；其他 Process 的输出大小与错误行为不变。
+
+角色表情包 v2 的每格动作、位置、道具与可见反差由唯一 scene 字段拥有，图片编译只投影一次；准确文字与角色绑定独立保留。在同一次 Planning Activity 内由一个 Pi Agent 搜梗、构思及自检，搜索失败直接原创；不启动独立复核。JSON格式、可定位结构或配字错误共用一次修正机会，并共享 Registration 截止时间和调用预算；通过完整业务校验后进入 Rendering Activity。请求级观测只记录搜索结果、净化原因码、耗时与调用次数，Sink 失败不改变执行。精确合同见 [角色表情包](processes/common/character-emoji/README.md)。

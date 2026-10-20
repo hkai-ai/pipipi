@@ -10,6 +10,10 @@ import {
 import { join } from "node:path";
 import sharp from "sharp";
 import {
+    characterEmojiImageSchema,
+    characterEmojiRenderInputSchema,
+} from "../processes/character-emoji/capability.js";
+import {
     type CrtRenderingResult,
     isPublicSourceImageUrl,
     parseCrtRenderingResult,
@@ -45,6 +49,7 @@ import {
 import { crtImageDimensions, finalizeCrtImage } from "./crt-finalizer.js";
 import { FalImageGenerationError } from "./fal-image-generation.js";
 import { assertImageBackground } from "./image-background.js";
+import { characterEmojiImageModel } from "./magikaru-image-edit.js";
 import type { ObjectStorageCapability } from "./object-storage.js";
 import {
     type EditImageRequest,
@@ -120,6 +125,7 @@ export async function startCrtBusinessApi(
     options: {
         directory: string;
         imageClient: ImageEditClient;
+        characterEmojiImageClient?: ImageEditClient;
         generationClient?: ImageGenerationClient;
         templateRenderer?: TemplateImageRenderer;
         templateStorage?: ObjectStorageCapability;
@@ -135,6 +141,8 @@ export async function startCrtBusinessApi(
     const directory = options.directory;
     const photoOutputDirectory = join(directory, "photo-posters");
     const photoResultDirectory = join(directory, "photo-poster-results");
+    const emojiOutputDirectory = join(directory, "character-emojis");
+    const emojiResultDirectory = join(directory, "character-emoji-results");
     const templateProduction = new TemplateImageProduction({
         directory: join(directory, "template-productions"),
         renderer: options.templateRenderer,
@@ -148,6 +156,8 @@ export async function startCrtBusinessApi(
     await Promise.all([
         mkdir(photoOutputDirectory, { recursive: true }),
         mkdir(photoResultDirectory, { recursive: true }),
+        mkdir(emojiOutputDirectory, { recursive: true }),
+        mkdir(emojiResultDirectory, { recursive: true }),
         mkdir(outputDirectory, { recursive: true }),
         mkdir(resultDirectory, { recursive: true }),
         mkdir(rawDirectory, { recursive: true }),
@@ -222,6 +232,10 @@ export async function startCrtBusinessApi(
             await generatePhotoPoster(request, response);
             return;
         }
+        if (request.method === "POST" && request.url === "/character-emojis") {
+            await generateCharacterEmoji(request, response);
+            return;
+        }
         if (
             request.method === "POST" &&
             request.url?.startsWith("/template-productions/")
@@ -263,6 +277,27 @@ export async function startCrtBusinessApi(
             try {
                 const bytes = await readFile(
                     join(photoOutputDirectory, `${photoMatch[1]}.png`),
+                );
+                response.writeHead(200, {
+                    "content-type": "image/png",
+                    "content-length": bytes.length,
+                });
+                response.end(bytes);
+            } catch {
+                writeJson(response, 404, { error: { code: "NOT_FOUND" } });
+            }
+            return;
+        }
+        const emojiMatch =
+            request.method === "GET"
+                ? /^\/character-emojis\/([A-Za-z0-9_-]+)\.png$/u.exec(
+                      request.url ?? "",
+                  )
+                : null;
+        if (emojiMatch) {
+            try {
+                const bytes = await readFile(
+                    join(emojiOutputDirectory, `${emojiMatch[1]}.png`),
                 );
                 response.writeHead(200, {
                     "content-type": "image/png",
@@ -546,6 +581,121 @@ export async function startCrtBusinessApi(
                     code: dispatched
                         ? "PHOTO_POSTER_INCOMPLETE"
                         : "PHOTO_POSTER_REJECTED",
+                },
+            });
+        } finally {
+            response.off("close", abort);
+        }
+    }
+
+    async function generateCharacterEmoji(
+        request: IncomingMessage,
+        response: ServerResponse,
+    ): Promise<void> {
+        let input: ReturnType<typeof characterEmojiRenderInputSchema.parse>;
+        let key: string;
+        try {
+            input = characterEmojiRenderInputSchema.parse(
+                JSON.parse((await readBody(request, 65_536)).toString("utf8")),
+            );
+            key = parseIdempotencyKey(
+                singleHeader(request.headers["idempotency-key"]),
+            );
+        } catch {
+            writeJson(response, 400, {
+                error: { code: "CHARACTER_EMOJI_REJECTED" },
+            });
+            return;
+        }
+        const imageClient = options.characterEmojiImageClient;
+        if (!imageClient) {
+            writeJson(response, 503, {
+                error: { code: "CHARACTER_EMOJI_CONFIGURATION_MISSING" },
+            });
+            return;
+        }
+        const digest = sha256(JSON.stringify(input));
+        const controller = new AbortController();
+        const abort = () => {
+            if (!response.writableEnded) controller.abort();
+        };
+        response.once("close", abort);
+        let dispatched = false;
+        try {
+            const claim = await claimTransform(
+                emojiResultDirectory,
+                key,
+                digest,
+                (value) => characterEmojiImageSchema.parse(value),
+                "character emoji",
+            );
+            if (claim.kind === "conflict") {
+                writeJson(response, 409, {
+                    error: { code: "IDEMPOTENCY_CONFLICT" },
+                });
+                return;
+            }
+            if (claim.kind === "pending") {
+                writeJson(response, 503, {
+                    error: { code: "CHARACTER_EMOJI_INCOMPLETE" },
+                });
+                return;
+            }
+            if (claim.kind === "complete") {
+                writeJson(response, 200, claim.result);
+                return;
+            }
+            const signal = controller.signal;
+            signal.throwIfAborted();
+            dispatched = true;
+            const generated = await imageClient.edit({
+                imageUrls: input.imageUrls,
+                prompt: input.prompt,
+                model: characterEmojiImageModel,
+                idempotencyKey: key,
+                quality,
+                size: input.size,
+                outputFormat: "png",
+                signal,
+            });
+            const metadata = await sharp(generated.bytes).metadata();
+            if (
+                generated.mimeType !== "image/png" ||
+                metadata.format !== "png" ||
+                !metadata.width ||
+                !metadata.height ||
+                metadata.width > 4_096 ||
+                metadata.height > 4_096
+            ) {
+                throw new Error("表情包图片尺寸或格式不正确");
+            }
+            const stored = options.storage
+                ? await options.storage.upload(
+                      {
+                          objectKey: `character-emoji/${key}.png`,
+                          bytes: generated.bytes,
+                          contentType: "image/png",
+                          cacheControl: "private, max-age=31536000, immutable",
+                      },
+                      { signal },
+                  )
+                : undefined;
+            const result = characterEmojiImageSchema.parse({
+                url: stored?.url ?? `${serviceUrl}/character-emojis/${key}.png`,
+                contentType: "image/png",
+                width: metadata.width,
+                height: metadata.height,
+            });
+            const path = join(emojiOutputDirectory, `${key}.png`);
+            await writeFile(path, generated.bytes, { mode: 0o600 });
+            await completeTransform(emojiResultDirectory, key, digest, result);
+            writeJson(response, 200, result);
+        } catch {
+            writeJson(response, 503, {
+                error: {
+                    code: dispatched
+                        ? "CHARACTER_EMOJI_INCOMPLETE"
+                        : "CHARACTER_EMOJI_REJECTED",
                 },
             });
         } finally {

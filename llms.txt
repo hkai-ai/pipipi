@@ -23,4 +23,5 @@ Base URL: `https://pi.ganjiuwanshi.com`
 - Product requests contain business input only. The server selects Skills, models, Tools, providers, storage, retries, and execution configuration.
 - Use only the exact Process versions documented in the production catalog. There is no `latest` alias or version fallback.
 - `template-from-image/v1` compiles a Gallery v2 draft using a vision model; it does not generate an image or save/publish a Memebuy template. Follow its 300-second execution limit and do not retry ambiguous timeouts automatically.
+- `character-emoji/v2` generates one AI-character emoji or a 2–6 panel comic from fixed reference images. It plans with local material by default; only explicit retrieval or recent-fact requests enable Responses `web_search`. Image editing uses Flare, with one Magikaru fallback on primary failure; do not retry ambiguous image submissions. The source character art is CC BY-NC-SA 4.0 and restricted to non-commercial validation unless separate rights are confirmed.
 - `/internal/eval/execute` is a gated internal evaluation interface, not a general product endpoint.

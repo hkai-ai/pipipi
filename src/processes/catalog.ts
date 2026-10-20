@@ -9,6 +9,7 @@ import {
     type ProcessRunLogSink,
 } from "../process-runtime/index.js";
 import type { ProcessRunRecords } from "../process-runtime/records.js";
+import { characterEmojiProduction } from "./character-emoji/production.js";
 import { composedProduction } from "./composed/production.js";
 import { contentProduction } from "./content/production.js";
 import { crtProduction } from "./crt/production.js";
@@ -59,6 +60,7 @@ export const productionCatalog: readonly ProductionProcess[] = Object.freeze([
     woodcutProduction,
     photoDoodleCollageProduction,
     photoFashionMangaProduction,
+    characterEmojiProduction,
     templateProduction,
     templatePlanProduction,
     templateRenderProduction,

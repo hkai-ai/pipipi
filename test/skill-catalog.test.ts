@@ -136,6 +136,9 @@ describe("console Skill catalog", () => {
         const skills = catalog.list();
 
         expect(skills.map((skill) => skill.name)).toEqual([
+            "character-emoji-comic",
+            "character-emoji-planner",
+            "character-emoji-single",
             "content-integrity",
             "content-optimization",
             "crayon-photo-poster-prompt",

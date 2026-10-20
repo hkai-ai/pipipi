@@ -51,6 +51,9 @@ COPY --chown=node:node .pi/skills/woodcut-photo-poster-prompt ./.pi/skills/woodc
 
 COPY --chown=node:node .pi/skills/photo-doodle-collage-prompt ./.pi/skills/photo-doodle-collage-prompt
 COPY --chown=node:node .pi/skills/photo-fashion-manga-prompt ./.pi/skills/photo-fashion-manga-prompt
+COPY --chown=node:node .pi/skills/character-emoji-planner ./.pi/skills/character-emoji-planner
+COPY --chown=node:node .pi/skills/character-emoji-single ./.pi/skills/character-emoji-single
+COPY --chown=node:node .pi/skills/character-emoji-comic ./.pi/skills/character-emoji-comic
 COPY --chown=node:node .pi/skills/meme-template-json-compiler ./.pi/skills/meme-template-json-compiler
 COPY --chown=node:node .pi/skills/template-image-preparer ./.pi/skills/template-image-preparer
 

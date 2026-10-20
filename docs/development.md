@@ -97,7 +97,7 @@ curl --fail -X POST http://127.0.0.1:4300/execute \
 | `src/release/` | 发布门禁逻辑：异步 internal smoke、付费 CRT 异步 smoke、新闻图片业务验收、smoke 状态审计、生产数据库身份审计和 migration 二次验证；只由 `bin/`、`examples/` 和 CI 调用，不进入请求路径 |
 | `src/process-runtime/` | 跨 Business Process 复用的 Registration、Registry、Runner、Attempt、结果和观测治理 |
 | `src/agent-runtime/` | 跨 Business Process 复用的 Pi provider 配置、请求级 Session 支撑、无 Tool 与带 Tool 两种 Structured Agent Session、Agent JSON 解析、Installed Skill Catalog 和 Runtime Skill 精确加载 |
-| `src/processes/` | production catalog 与生产装配契约，以及按 `content/`、`titled-content/`、`poster/`、`crt/`、`news-image/`、`composed/` 分组的具体 Business Process；不放通用 Runtime |
+| `src/processes/` | production catalog 与生产装配契约，以及按 `content/`、`titled-content/`、`poster/`、`crt/`、`news-image/`、`character-emoji/`、`composed/` 分组的具体 Business Process；不放通用 Runtime |
 | `src/process-runs/` | Async Process Runs，以及按 `store/`、`queue/`、`outbox/`、`worker/`、`recovery/`、`retention/` 和 `ops/` 分组的内部 Module |
 | `src/webhooks/` | Webhook Delivery，以及按 `delivery/`、`store/`、`queue/`、`outbox/` 分组的内部 Module |
 | `src/availability/` | 一次性 Availability Monitor、HTTP/Redis Probe 和异常 Webhook Notifier |
@@ -382,6 +382,7 @@ npm run check:deployment-env -- api
 - `POSTER_API_TIMEOUT_MS` 只控制受控 `POST /posters` Adapter，默认 `90000`；Process 总超时仍由 `PROCESS_TIMEOUT_MS` 治理。
 - `CRT_API_TIMEOUT_MS` 只控制受控 `POST /crt-images` Adapter，默认 `180000`。受控发布必须让 `PROCESS_TIMEOUT_MS` 长于它，平台请求超时再长于 Process 总超时。
 - `IMAGE_PROVIDER=openai|fal` 选择真实图片集成 Adapter，默认 `openai`。OpenAI Adapter 可用 `OPENAI_IMAGE_API_KEY` 与 `OPENAI_IMAGE_BASE_URL` 脱离 Agent 网关；未设置时回退到 `OPENAI_API_KEY` 与 `OPENAI_BASE_URL`。FAL Adapter 只读取服务端 `FAL_KEY`，并固定调用 GPT Image 2 生成与编辑 endpoint。
+- 表情包文本使用独立 `CHARACTER_EMOJI_API_KEY`、`CHARACTER_EMOJI_BASE_URL`，由专用 DeepSeek 4.1 Flash Pi Agent 按模式加载固定 Skill，通过 DeepSeek Responses 搜梗 Tool 编译方案；构思与修正支持独立的 `CHARACTER_EMOJI_PLANNER_API_KEY`、`CHARACTER_EMOJI_PLANNER_BASE_URL`；参数及来源核验见 [Character Emoji](processes/common/character-emoji/README.md)。生图由 `character-emoji-image.ts` 装配 Flare 参考 Memebuy 通过 multipart image[] 提交内存中的角色参考图，保留输入顺序；Magikaru 保持 URL 直传。配置备用时主用最多180秒，总预算300秒，主备观测均保留；Magikaru 保存受理回执后只轮询原 Job。模型选择固定在服务端，产品请求仍只包含角色和业务创意。
 - `INTERNAL_EVAL_ENABLED=true` 挂载 `POST /internal/eval/execute`。该入口仅接受三个新闻图片 Process，复用正式 Executor、Registration、Agent 和图片 Capability，在同一次成功执行中返回实际 Prompt、文本模型与非敏感图片参数。响应使用 `no-store`，诊断内容不进入正式输出、日志或 Run Record；生产 Compose 当前开启，鉴权与 `/execute` 一并后续统一处理。
 - `CRT_IMAGE_EVIDENCE_MODE=off|metadata|full` 控制 `crt-interface-image/v1` 的服务端证据副本。产品请求不能覆盖它；本地完整验收默认 `full`，生产 `POST /crt-images` 必须默认 `off`。
 - `CRT_IMAGE_EVIDENCE_DIRECTORY` 只在 `metadata` 或 `full` 时使用。完整字段、敏感数据边界和清理责任见 [`crt-interface-image` 的证据保留说明](processes/common/crt-interface-image/evidence-retention.md)。
@@ -440,3 +441,15 @@ npm run check:deployment-env -- api
 三个审核阶段共用 `src/processes/template-from-source/`；内部持久化与固定 FAL 协议在 `src/business-api/template-image-production.ts`、`template-image-fal.ts`。图像生产与 JSON 编译分离，后者复用原 Registration。
 
 `defineProcessRegistration` 的 `outputMaxBytes` 是服务端构造选项，默认 262,144 字节，上限 28,000,000；仅成图审核的完整 PNG 交接使用大输出。不得让产品请求覆盖该预算。新增大输出同时检查 HTTP、持久化、调用方加密交接与列表加载；完整目录 Worker 租约须超过最长 Process。
+
+表情包构思 Skill 通过 `node --import tsx tools/build-character-emoji-skill.ts` 生成；使用 `--check` 检查源提示词、快照与绑定摘要一致。专用 Pi Adapter 移除专用网关不支持的 OpenAI prompt-cache 参数，模型与 HTTP 重试均受本次 Registration 预算限制。
+
+角色表情包的本地梗库在 `src/processes/character-emoji/memes.ts` 维护，`materials.ts` 按角色和题材挑选最多8张短卡并投影给首轮 Agent，不增加选材模型调用。库更新同步版本与研究依据；角色背景、可选素材和公开 scene 各自拥有一份事实。内部 `adaptation.entryIds` 最多绑定两条本次提供的本地或联网材料，来源投影与失败原创规则见[专题](processes/common/character-emoji/README.md#本地梗素材)。
+
+角色表情包通过 search-policy.ts 保守识别明确检索或近期事实要求，默认不注册搜索工具；获准后在同一个 Pi 会话中完成搜梗、构思及提交前自检，不启动独立复核。搜索一次最多返回两个候选；首轮判断与构思共用 low 推理预算，修正为 none，均由 Registration 拥有。失败分类经 EmojiFailure 保留到 Registration 的净化诊断，失败诊断只记录 runId、阶段、固定错误码、HTTP 状态和耗时；请求级观测补充搜索结果、兜底原因及主模型调用与修正次数；诊断 Sink 失败不影响业务结果。结构、来源和业务规则由程序校验；JSON格式、可定位结构及配字错误共用一次修正机会；不再以通用禁词拦截台词。场景辅助文字与默认风格的取舍见角色表情包专题。修正保留原会话历史并关闭搜索，返回相同 Schema 的完整候选；可读取候选只允许改变报错字段，其他字段逐值冻结；JSON不可读时仅要求修复格式并重交，程序重新检查完整合同，无法证明逐字段冻结。搜索独立上限与有界材料投影见专题。相关回归见 `test/character-emoji-comic-repair.test.ts` 与 `test/character-emoji-submission.test.ts`。
+
+表情包 Pi 内部候选直接使用公开方案的创作字段，删除额外景别、焦点和道具状态层；构图、视觉笑点及连续性由 Agent 编写，v2 布局、阅读顺序及各格 frame 由 Agent 创作，`scene.ts` 仅生成编号。来源 ID 在初稿和修正后均绑定同次检索，缺原生引用的资料只作未核验灵感，背景条目不作为社区行为来源。修改源规则须重建公共及单图/漫画模式 Skill 快照与摘要，并运行生成器 `--check`；失败样本留在验收资料，不追加剧情禁例。
+
+### 角色表情包 v2 场景合同
+
+单图和漫画每格只有一份 `scene`，以动作、作用对象和可见结果组织构图，核心因果不能仅靠台词或旁白解释；角色列表只登记身份和标识；page 与 frame 只描述画格几何。关键行为或可辨认痕迹留在 scene，adaptation 根据已写画面归纳，同次自检检查手脚占用、支撑和道具接触。不要重新增加同一事实的动作表、构图总结或跨格状态副本。运行时保留结构、来源和准确文字校验；语义质量使用固定材料对照验收，不用结构通过代替画面正确。源规则在 `src/processes/character-emoji/scene-prompt.ts`，公开合同在 `scene.ts`；修改后运行 Skill 生成器并核对摘要。

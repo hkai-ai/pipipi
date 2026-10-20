@@ -6,7 +6,7 @@
 
 图片预处理后的模板内容支持独立重编译：保留已确认成图，提交本轮模板修改要求，只生成新的 Gallery 草稿供人工审阅。
 
-生产 catalog 登记十九个 Business Process，其中 `composed-task/v1` 默认关闭。文档先按产品场景分组，运行时仍通过统一的 Process identity 和 HTTP Interface 执行：
+生产 catalog 登记二十一个 Business Process，其中 `composed-task/v1` 默认关闭。文档先按产品场景分组，运行时仍通过统一的 Process identity 和 HTTP Interface 执行：
 
 | 场景 | Process | 输入 | 输出 |
 | --- | --- | --- | --- |
@@ -30,6 +30,7 @@
 | `common` | [`woodcut-photo-poster/v1`](docs/processes/common/woodcut-photo-poster/README.md) | 公网参考图与可选文案 | `{ style, image }` |
 | `common` | [`photo-doodle-collage/v1`](docs/processes/common/photo-doodle-collage/README.md) | 公网参考图与可选文案 | `{ style, image }` |
 | `common` | [`photo-fashion-manga/v1`](docs/processes/common/photo-fashion-manga/README.md) | 真人参考图与可选主标题、引题、小注，保留手绘印刷字质感 | `{ style, image }` |
+| `common` | [character-emoji/v2](docs/processes/common/character-emoji/README.md) | DeepSeek 4.1 Flash Pi Agent 按模式加载 Skill、默认使用本地素材或原创，按需调用 DeepSeek 搜梗 Tool，经 Memene GPT Image 2.5 Flare（报错后尝试一次 Magikaru，取消或总截止除外） 生成单图表情或多格漫画 | `{ image, mode, caption?, plan }` |
 
 Memebuy 场景已登记 `template-from-image/v1`，可在 Pipipi 独立编译图片模板草稿；Memebuy 改由模板素材箱的提取 Worker 接入，候选需人工确认后保存草稿，部署与真实页面验收另行完成。Pipipi 独立测试与 JSON 下载保留。场景入口和归属规则见 [`docs/processes/README.md`](docs/processes/README.md)。
 
@@ -196,3 +197,7 @@ Mono Color 支持同一 `v1` 下的五个可编辑预设，供 Memebuy 的五个
 Memebuy 模板分步制作支持同方案多个成图版本：新 `renderId` 明确重做，同一身份仅恢复；图片审批绑定实际版本，旧单图合同兼容。接口见 [业务 API](docs/api.md)。
 
 CRT 与七个照片海报支持可选背景参数，省略时保持原行为；透明成品在交付前校验。取值与调用方式见 [图片背景参数](docs/api.md#图片背景参数)。
+
+角色表情包构思包含单图与漫画；同一个 DeepSeek 4.1 Flash Pi Agent 首轮接收按角色和题材挑选的本地短卡，可改编或原创，服务端仅对明确检索或近期事实要求开放搜索工具，普通创作没有搜索工具；开放后可从 DeepSeek 返回的最多两个候选中选材，以 low 推理预算构思并自检，JSON格式、可定位结构或台词错误共用一次原会话修正机会。搜索失败直接原创，未核验资料可作灵感；搜索最多30秒，资料精简后交给 Agent；程序校验同次材料身份，可读取候选修正时冻结未报错字段，按角色 ID 绑定参考图，仅生成编号，保留 Agent 的自由布局；允许少量场景辅助文字，单图白底贴纸为默认风格；画面语义仍需验收，见[角色表情包说明](docs/processes/common/character-emoji/README.md)。
+
+角色表情包主用 Flare 按 Memebuy 方式将参考图读入内存、按顺序通过 multipart 文件表单上传，不落临时文件；备用 Magikaru 保持公网 URL 直传。角色表情包按所选角色注入已维护的创作背景；v2 漫画由 Agent 决定自由布局和各格大小，程序仅补编号。每格仍只有一份 scene；page 与 frame 只描述画格几何，关键行动或可辨认痕迹在 scene 呈现，同次自检核对肢体占用与道具支撑；配字优先级及创作规则见[角色表情包专题](docs/processes/common/character-emoji/README.md)。

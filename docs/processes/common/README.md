@@ -17,9 +17,14 @@
 | `woodcut-photo-poster/v1` | [woodcut-photo-poster/](woodcut-photo-poster/) | 限色木刻摄影海报 |
 | `photo-doodle-collage/v1` | [photo-doodle-collage/](photo-doodle-collage/) | 摄影剪贴与互动黑线小人海报 |
 | `photo-fashion-manga/v1` | [photo-fashion-manga/](photo-fashion-manga/) | 真人照片转红蓝少色日式时装漫画，配手绘印刷粗字 |
+| `character-emoji/v2` | [character-emoji/](character-emoji/) | DeepSeek 4.1 Flash Pi Agent 默认选用本地素材或原创、服务端仅对明确检索或近期事实要求开放 DeepSeek 搜梗 Tool，按固定角色参考图经 Memene GPT Image 2.5 Flare（报错后尝试一次 Magikaru，取消或总截止除外） 生成单张表情或多格漫画 |
 
 产品采用通用 Process 时，在对应产品场景 README 中记录产品限制和采用关系，不复制 Process 契约。统一 HTTP 契约见 [`../../api.md`](../../api.md)。
 
 八个照片海报 Process 均输出完整 1200×1600 风格化作品，不附原图或对照布局。
 
 CRT 与八个照片海报共享 [图片背景参数](../../api.md#图片背景参数)，省略时保持各自原有行为。
+
+角色表情包支持单图与 2 至 6 格漫画，服务端先按角色和题材提供最多8张本地短卡，由一个 DeepSeek 4.1 Flash Pi Agent 选材、按需搜梗、构思并自检；DeepSeek 负责 Tool 内联网并提供最多两个候选，Agent 按用户主题选材，以 low 推理预算检查定格动作。搜索失败直接原创，未核验材料可作灵感；程序校验同次材料身份、按角色 ID 绑定参考图并生成编号，保留 Agent 的自由布局；JSON格式、可定位结构与台词错误共用一次原会话修正机会，可读取候选冻结其余字段；搜索最多30秒，搜索失败原因及阶段耗时进入无正文观测。允许少量场景辅助文字，明确无字要求优先；单图白底贴纸为默认风格。素材取舍与质量边界见[专题](character-emoji/README.md)。
+
+角色表情包主用 Flare 按 Memebuy 方式将参考图读入内存、按顺序通过 multipart 文件表单上传，不落临时文件；备用 Magikaru 保持公网 URL 直传。角色表情包按所选角色注入已维护的创作背景；v2 漫画由 Agent 决定自由布局和各格大小，程序仅补编号。每格仍只有一份 scene；page 与 frame 只描述画格几何，关键行动或可辨认痕迹在 scene 呈现，同次自检核对肢体占用与道具支撑；配字优先级及创作规则见[角色表情包专题](character-emoji/README.md)。

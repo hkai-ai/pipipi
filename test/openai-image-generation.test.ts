@@ -10,6 +10,78 @@ const minimalPng = Buffer.concat([
 ]);
 
 describe("OpenAI image generation Adapter", () => {
+    it("角色参考图读入内存后按原顺序通过 multipart 上传", async () => {
+        const secondPng = Buffer.concat([minimalPng, Buffer.from("second")]);
+        const fetchMock = vi
+            .fn<typeof fetch>()
+            .mockImplementation(async (url) =>
+                String(url).endsWith("/images/edits")
+                    ? Response.json({
+                          data: [{ b64_json: minimalPng.toString("base64") }],
+                      })
+                    : new Response(
+                          String(url).endsWith("first.png")
+                              ? minimalPng
+                              : secondPng,
+                      ),
+            );
+        const client = new OpenAIImageGenerationClient({
+            apiKey: "test-key",
+            baseUrl: "https://gateway.example/v1",
+            fetch: fetchMock,
+        });
+        const imageUrls = ["first.png", "second.png"].map(
+            (name) =>
+                `https://assets.memebuy.cn/maker/characters/ai-fanworks/${name}`,
+        );
+        await client.edit({
+            prompt: "保持角色顺序",
+            model: "gpt-image-2.5-flare",
+            size: "1024x1024",
+            background: "transparent",
+            imageUrls,
+        });
+        expect(fetchMock).toHaveBeenCalledTimes(3);
+        for (const [index, [url, init]] of fetchMock.mock.calls
+            .slice(0, 2)
+            .entries()) {
+            expect(url).toBe(imageUrls[index]);
+            expect(init?.redirect).toBe("error");
+            expect(new Headers(init?.headers).has("authorization")).toBe(false);
+        }
+        const [url, request] = fetchMock.mock.calls[2];
+        expect(url).toBe("https://gateway.example/v1/images/edits");
+        expect(new Headers(request?.headers).has("content-type")).toBe(false);
+        expect(request?.body).toBeInstanceOf(FormData);
+        const body = request?.body as FormData;
+        expect(body.get("model")).toBe("gpt-image-2.5-flare");
+        expect(body.get("prompt")).toBe("保持角色顺序");
+        expect(body.get("size")).toBe("1024x1024");
+        expect(body.get("quality")).toBe("low");
+        expect(body.get("output_format")).toBe("png");
+        expect(body.get("background")).toBe("transparent");
+        const images = body.getAll("image[]") as File[];
+        expect(images).toHaveLength(2);
+        expect(Buffer.from(await images[0].arrayBuffer())).toEqual(minimalPng);
+        expect(Buffer.from(await images[1].arrayBuffer())).toEqual(secondPng);
+    });
+    it.each([
+        [],
+        ["https://example.com/unknown.png"],
+        Array(6).fill(
+            "https://assets.memebuy.cn/maker/characters/ai-fanworks/a.png",
+        ),
+    ])("非法角色参考图在提交前拒绝：%j", async (imageUrls) => {
+        const fetchMock = vi.fn<typeof fetch>();
+        const client = new OpenAIImageGenerationClient({
+            apiKey: "test-key",
+            fetch: fetchMock,
+        });
+        await expect(
+            client.edit({ prompt: "test", imageUrls }),
+        ).rejects.toThrow();
+        expect(fetchMock).not.toHaveBeenCalled();
+    });
     it("calls the configured Images API and decodes its first raster image", async () => {
         const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
             new Response(

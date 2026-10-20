@@ -112,7 +112,7 @@ export class FalImageGenerationClient {
     async edit(request: EditImageRequest): Promise<GeneratedImage> {
         const prompt = request.prompt.trim();
         if (!prompt) throw new Error("FAL image prompt is required");
-        const sourceImageUrl = resolveSourceImageUrl(request);
+        const sourceImageUrls = resolveSourceImageUrls(request);
         requireGptImage2(request.model);
 
         const signal = timeoutSignal(request.signal, this.#timeoutMs);
@@ -121,7 +121,7 @@ export class FalImageGenerationClient {
             result = await this.#subscribe("openai/gpt-image-2/edit", {
                 input: {
                     prompt,
-                    image_urls: [sourceImageUrl],
+                    image_urls: sourceImageUrls,
                     image_size: parseImageSize(request.size ?? "1600x1200"),
                     quality: request.quality ?? "low",
                     num_images: 1,
@@ -207,17 +207,44 @@ function dataUri(
     return `data:${mimeType};base64,${Buffer.from(bytes).toString("base64")}`;
 }
 
-function resolveSourceImageUrl(request: EditImageRequest): string {
+function resolveSourceImageUrls(request: EditImageRequest): string[] {
+    if ("imageUrls" in request && request.imageUrls !== undefined) {
+        if (
+            request.imageUrls.length < 1 ||
+            request.imageUrls.length > 5 ||
+            request.imageUrls.some((value) => !isCharacterReferenceUrl(value))
+        ) {
+            throw new Error(
+                "FAL image edit requires one to five approved reference URLs",
+            );
+        }
+        return [...request.imageUrls];
+    }
     if ("imageUrl" in request && request.imageUrl !== undefined) {
         const value = request.imageUrl.trim();
         if (!value)
             throw new Error("FAL image edit requires a source image URL");
-        return value;
+        return [value];
     }
     if (request.image.bytes.byteLength === 0) {
         throw new Error("FAL image edit requires source image bytes");
     }
-    return dataUri(request.image.bytes, request.image.mimeType);
+    return [dataUri(request.image.bytes, request.image.mimeType)];
+}
+
+function isCharacterReferenceUrl(value: string): boolean {
+    try {
+        const url = new URL(value);
+        return (
+            url.protocol === "https:" &&
+            url.hostname === "assets.memebuy.cn" &&
+            !url.username &&
+            !url.password &&
+            url.pathname.startsWith("/maker/characters/ai-fanworks/")
+        );
+    } catch {
+        return false;
+    }
 }
 
 function readGeneratedImage(
