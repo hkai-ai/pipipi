@@ -106,7 +106,7 @@ describe("每格唯一场景合同", () => {
                 ).cast[0].creativeBrief,
             ).toBe(background);
         }
-        expect(Object.keys(characterPersonas)).toHaveLength(10);
+        expect(Object.keys(characterPersonas)).toHaveLength(11);
         expect(sceneImagePrompt(brief, single)).not.toContain(
             characterPersonas.DeepSeek,
         );

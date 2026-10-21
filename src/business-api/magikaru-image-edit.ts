@@ -82,6 +82,7 @@ export class MagikaruImageEditClient {
             prompt: request.prompt,
             imageUrls: request.imageUrls,
             size: request.size,
+            ...(request.background ? { background: request.background } : {}),
         });
         const key = request.idempotencyKey;
         if (
@@ -111,6 +112,9 @@ export class MagikaruImageEditClient {
                 input: {
                     prompt: input.prompt,
                     size: input.size,
+                    ...(input.background
+                        ? { background: input.background }
+                        : {}),
                     n: 1,
                     quality: request.quality ?? "low",
                     output_format: "png",

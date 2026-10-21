@@ -2,6 +2,7 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import sharp from "sharp";
+import { createCharacterReferenceReader } from "./character-reference.js";
 import {
     characterEmojiImageModel,
     MagikaruImageEditClient,
@@ -69,6 +70,12 @@ export function createCharacterEmojiImageClient(
               baseUrl: baseUrl || "https://llmapi.memene.cn/openai/v1",
               timeoutMs: backupKey ? primaryTimeoutMs : timeoutMs,
               fetch: options.fetch,
+              referenceReader: createCharacterReferenceReader(
+                  environment,
+                  options.fetch,
+              ),
+              // 对齐 Memebuy 已核验的 Flare 请求，不继承 CRT 的质量与输出参数。
+              editDefaults: {},
           })
         : undefined;
     const backup = backupKey
@@ -118,6 +125,12 @@ export function createCharacterEmojiImageClient(
                             ...request,
                             model: route.model,
                             signal,
+                            ...(route.client === primary
+                                ? {
+                                      quality: undefined,
+                                      outputFormat: undefined,
+                                  }
+                                : {}),
                         });
                         const metadata = await sharp(image.bytes).metadata();
                         if (

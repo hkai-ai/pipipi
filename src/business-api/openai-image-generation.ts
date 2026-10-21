@@ -53,7 +53,18 @@ export type OpenAIImageGenerationClientOptions = {
     baseUrl?: string;
     timeoutMs?: number;
     fetch?: typeof globalThis.fetch;
+    referenceReader?: ReferenceImageReader;
+    /** 省略沿用通用默认值；空对象表示由上游决定质量与输出格式。 */
+    editDefaults?: {
+        quality?: GptImageQuality;
+        outputFormat?: GptImageOutputFormat;
+    };
 };
+
+export type ReferenceImageReader = (
+    url: string,
+    signal: AbortSignal,
+) => Promise<Response>;
 
 export class OpenAIImageGenerationError extends Error {
     readonly status?: number;
@@ -86,6 +97,10 @@ export class OpenAIImageGenerationClient {
     readonly #baseUrl: string;
     readonly #timeoutMs: number;
     readonly #fetch: typeof globalThis.fetch;
+    readonly #referenceReader: ReferenceImageReader;
+    readonly #editDefaults: NonNullable<
+        OpenAIImageGenerationClientOptions["editDefaults"]
+    >;
 
     constructor(options: OpenAIImageGenerationClientOptions) {
         const apiKey = options.apiKey.trim();
@@ -102,6 +117,13 @@ export class OpenAIImageGenerationClient {
         ).replace(/\/+$/, "");
         this.#timeoutMs = timeoutMs;
         this.#fetch = options.fetch ?? globalThis.fetch;
+        this.#referenceReader =
+            options.referenceReader ??
+            ((url, signal) => this.#fetch(url, { signal, redirect: "error" }));
+        this.#editDefaults = options.editDefaults ?? {
+            quality: "low",
+            outputFormat: "png",
+        };
     }
 
     async generate(request: GenerateImageRequest): Promise<GeneratedImage> {
@@ -153,7 +175,8 @@ export class OpenAIImageGenerationClient {
         const prompt = request.prompt.trim();
         if (!prompt) throw new Error("GPT image prompt is required");
         const model = request.model?.trim() || "gpt-image-2";
-        const outputFormat = request.outputFormat ?? "png";
+        const outputFormat =
+            request.outputFormat ?? this.#editDefaults.outputFormat;
         const timeoutSignal = AbortSignal.timeout(this.#timeoutMs);
         const signal = request.signal
             ? AbortSignal.any([request.signal, timeoutSignal])
@@ -163,7 +186,7 @@ export class OpenAIImageGenerationClient {
             prompt,
             n: 1,
             size: request.size ?? "1600x1200",
-            quality: request.quality ?? "low",
+            quality: request.quality ?? this.#editDefaults.quality,
             output_format: outputFormat,
             ...(request.background ? { background: request.background } : {}),
         };
@@ -173,7 +196,7 @@ export class OpenAIImageGenerationClient {
         const images = request.imageUrls
             ? await readCharacterReferences(
                   request.imageUrls,
-                  this.#fetch,
+                  this.#referenceReader,
                   signal,
               )
             : request.image
@@ -182,8 +205,9 @@ export class OpenAIImageGenerationClient {
         if (images.length === 0)
             throw new Error("GPT image edit requires source image data");
         const body = new FormData();
-        for (const [key, value] of Object.entries(parameters))
-            body.set(key, String(value));
+        for (const [key, value] of Object.entries(parameters)) {
+            if (value !== undefined) body.set(key, String(value));
+        }
         for (const [index, image] of images.entries()) {
             if (image.bytes.byteLength === 0) {
                 throw new Error("GPT image edit requires source image bytes");
@@ -232,7 +256,11 @@ function characterReferenceUrls(urls: readonly string[]): readonly string[] {
             url.password ||
             url.port ||
             url.hash ||
-            !url.pathname.startsWith("/maker/characters/ai-fanworks/")
+            !(
+                url.pathname.startsWith("/maker/characters/ai-fanworks/") ||
+                url.pathname ===
+                    "/maker/characters/community/scenes/doubao/chibi-5e7e8f7823faaa50.png"
+            )
         ) {
             throw new Error("Character reference URL is not allowed");
         }
@@ -242,7 +270,7 @@ function characterReferenceUrls(urls: readonly string[]): readonly string[] {
 
 async function readCharacterReferences(
     urls: readonly string[],
-    fetcher: typeof globalThis.fetch,
+    readReference: ReferenceImageReader,
     callerSignal: AbortSignal,
 ): Promise<SourceImage[]> {
     const references = characterReferenceUrls(urls);
@@ -258,10 +286,7 @@ async function readCharacterReferences(
         return await Promise.all(
             references.map(async (url) => {
                 signal.throwIfAborted();
-                const response = await fetcher(url, {
-                    signal,
-                    redirect: "error",
-                });
+                const response = await readReference(url, signal);
                 if (
                     !response.ok ||
                     !response.body ||

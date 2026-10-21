@@ -37,7 +37,8 @@ describe("角色图片文件主用与 URL 备用", () => {
                         imageUrl("Claude", "Chibi"),
                         imageUrl("DeepSeek", "Chibi"),
                     ],
-                    size: "1024x1536",
+                    size: "864x1536",
+                    background: "transparent" as const,
                     quality: "low" as const,
                     idempotencyKey: "fallback-test",
                     signal: controller.signal,
@@ -57,6 +58,8 @@ describe("角色图片文件主用与 URL 备用", () => {
                         if (!(form instanceof FormData))
                             throw new Error("缺少文件表单");
                         expect(form.getAll("image[]")).toHaveLength(2);
+                        expect(form.get("background")).toBe("transparent");
+                        expect(form.get("size")).toBe("864x1536");
                         if (outcome === "success")
                             return Response.json({
                                 data: [{ b64_json: bytes.toString("base64") }],
@@ -74,6 +77,7 @@ describe("角色图片文件主用与 URL 备用", () => {
                         expect(body.input).toMatchObject({
                             prompt: request.prompt,
                             size: request.size,
+                            background: "transparent",
                             quality: request.quality,
                         });
                         return Response.json(

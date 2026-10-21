@@ -28,6 +28,7 @@ import {
     candidateSchema,
     projectCandidate,
 } from "./candidate.js";
+import { CAST_IDENTITY_RULE } from "./cast.js";
 import { parseComicPlannerOutput } from "./comic-output.js";
 import { comicPlannerInput } from "./comic-prompt.js";
 import {
@@ -41,6 +42,7 @@ import {
     type EmojiObservation,
     planningIssues,
 } from "./diagnostics.js";
+import { imageOptionsRule } from "./image-options.js";
 import {
     type AdaptationSource,
     adaptationSource,
@@ -74,6 +76,7 @@ import { allowsMemeSearch } from "./search-policy.js";
 
 export type PiCharacterEmojiAgentOptions = CharacterEmojiModelConfig & {
     skills: readonly SkillRef[];
+    version?: "v2" | "v3";
     search: MemeSearch;
     sessionFactory?: PiSessionFactory;
 };
@@ -101,7 +104,8 @@ export class PiCharacterEmojiAgent
             plannerInput(brief),
             signal,
             budget,
-            (text) => parseScenePlan(text, brief),
+            (text) =>
+                parseScenePlan(text, brief, this.#options.version === "v3"),
             observe,
             "scene",
         );
@@ -119,7 +123,12 @@ export class PiCharacterEmojiAgent
             comicPlannerInput(brief),
             signal,
             budget,
-            (text) => parseSceneComicPlan(text, brief),
+            (text) =>
+                parseSceneComicPlan(
+                    text,
+                    brief,
+                    this.#options.version === "v3",
+                ),
             observe,
             "scene",
         );
@@ -193,7 +202,12 @@ export class PiCharacterEmojiAgent
         const research: MemeResearch[] = [];
         const schema = () =>
             format === "scene"
-                ? sceneCandidateSchema(mode, research, local)
+                ? sceneCandidateSchema(
+                      mode,
+                      research,
+                      local,
+                      this.#options.version === "v3",
+                  )
                 : candidateSchema(mode, research);
         const accept = (raw: unknown) => {
             if (format === "scene") {
@@ -202,6 +216,7 @@ export class PiCharacterEmojiAgent
                     mode,
                     research,
                     local,
+                    this.#options.version === "v3",
                 );
                 return { candidate, plan: projectSceneCandidate(candidate) };
             }
@@ -337,6 +352,9 @@ export class PiCharacterEmojiAgent
                         new PiSessionSupport({
                             skills,
                             instructions: [
+                                ...(this.#options.version === "v3"
+                                    ? [CAST_IDENTITY_RULE]
+                                    : []),
                                 "执行角色表情包构思。默认直接提交方案，仅在已绑定 Skill 规定的必要情形使用搜索 Tool。",
                             ],
                             provider: characterEmojiProvider,
@@ -374,6 +392,7 @@ export class PiCharacterEmojiAgent
                 customTools: searchAllowed ? [tool] : [],
             },
             [
+                imageOptionsRule(brief),
                 searchAllowed
                     ? "本次允许核实用户要求的外部资料；已有材料足够时直接构思。"
                     : "本次使用本地素材或原创，直接提交方案；没有联网工具，不声称已检索或已核实实时资料。",
@@ -406,6 +425,8 @@ export class PiCharacterEmojiAgent
             };
             session.agent.onPayload = (payload) => {
                 const request = preparePayload(payload);
+                // 构思与修正沿用上游默认输出额度，移除 Pi 自动补入的上限。
+                delete request.max_output_tokens;
                 if (
                     !searchAllowed ||
                     repairing ||
@@ -427,7 +448,6 @@ export class PiCharacterEmojiAgent
                 return {
                     ...request,
                     text: { format: { type: "json_object" } },
-                    max_output_tokens: budget.planTokens,
                     reasoning: {
                         effort: repairing ? "none" : budget.reasoningEffort,
                     },

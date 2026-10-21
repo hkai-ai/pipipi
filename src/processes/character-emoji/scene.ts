@@ -1,7 +1,10 @@
-/** 定义每格唯一场景的 v2 合同，校验角色、文字及本次可用的组合素材。 */
+/** 定义每格唯一场景的版本化合同，校验角色、文字及本次可用的组合素材。 */
 import { z } from "zod";
 import type { AiTextOutputFailure } from "./agent-types.js";
 import { textRestrictions } from "./caption-policy.js";
+import { matchesVersionedCast } from "./cast.js";
+import { characters } from "./catalog.js";
+import { aspectRatios } from "./image-options.js";
 import { availableMaterialIds } from "./materials.js";
 import type { MemeCard } from "./memes.js";
 import { readPlannerJson, textRequirementFailure } from "./planner-output.js";
@@ -50,8 +53,44 @@ export const sceneComicPlanSchema = z.strictObject({
         .min(2)
         .max(6),
 });
-export type ScenePlan = z.infer<typeof scenePlanSchema>;
-export type SceneComicPlan = z.infer<typeof sceneComicPlanSchema>;
+const versionedActors = z
+    .array(actors.element.extend({ appearance: z.enum(["Chibi", "Girl"]) }))
+    .min(1)
+    .max(MAX_CAST);
+const speaker = z.enum(
+    characters.flatMap(({ id }) => [`${id}:Chibi`, `${id}:Girl`]),
+);
+const versionedTexts = z
+    .array(
+        z.union([
+            comicTextSchema.options[0].extend({ speaker }),
+            comicTextSchema.options[1],
+        ]),
+    )
+    .max(3);
+export const versionedScenePlanSchema = scenePlanSchema.extend({
+    actors: versionedActors,
+});
+export const versionedSceneComicPlanSchema = sceneComicPlanSchema.extend({
+    page: sceneComicPlanSchema.shape.page.extend({
+        aspectRatio: z.enum(aspectRatios),
+    }),
+    panels: z
+        .array(
+            sceneComicPlanSchema.shape.panels.element.extend({
+                actors: versionedActors,
+                texts: versionedTexts,
+            }),
+        )
+        .min(2)
+        .max(6),
+});
+export type ScenePlan =
+    | z.infer<typeof scenePlanSchema>
+    | z.infer<typeof versionedScenePlanSchema>;
+export type SceneComicPlan =
+    | z.infer<typeof sceneComicPlanSchema>
+    | z.infer<typeof versionedSceneComicPlanSchema>;
 const adaptationSchema = z.strictObject({
     entryIds: z.array(z.string()).max(2),
     original: z.string().trim().min(1).max(400),
@@ -67,16 +106,41 @@ const comicCandidate = z.strictObject({
         .max(6),
     adaptation: adaptationSchema,
 });
+const versionedSingleCandidate = versionedScenePlanSchema.extend({
+    adaptation: adaptationSchema,
+});
+const versionedComicCandidate = comicCandidate.extend({
+    page: versionedSceneComicPlanSchema.shape.page,
+    panels: z
+        .array(
+            versionedSceneComicPlanSchema.shape.panels.element.omit({
+                index: true,
+            }),
+        )
+        .min(2)
+        .max(6),
+});
 export type SceneCandidate =
+    | z.infer<typeof versionedSingleCandidate>
+    | z.infer<typeof versionedComicCandidate>
     | z.infer<typeof singleCandidate>
     | z.infer<typeof comicCandidate>;
 export function sceneCandidateSchema(
     mode: "single" | "comic",
     research: readonly MemeResearch[],
     local: readonly MemeCard[] = [],
+    versioned = false,
 ) {
     const ids = availableMaterialIds(local, research);
-    return (mode === "single" ? singleCandidate : comicCandidate).extend({
+    return (
+        mode === "single"
+            ? versioned
+                ? versionedSingleCandidate
+                : singleCandidate
+            : versioned
+              ? versionedComicCandidate
+              : comicCandidate
+    ).extend({
         adaptation: adaptationSchema.extend({
             entryIds: z
                 .array(ids.length ? z.enum(ids) : z.string())
@@ -89,20 +153,23 @@ export function acceptSceneCandidate(
     mode: "single" | "comic",
     research: readonly MemeResearch[],
     local: readonly MemeCard[] = [],
+    versioned = false,
 ): SceneCandidate {
-    return sceneCandidateSchema(mode, research, local).parse(raw);
+    return sceneCandidateSchema(mode, research, local, versioned).parse(raw);
 }
 export function projectSceneCandidate(
     candidate: SceneCandidate,
 ): ScenePlan | SceneComicPlan {
     if ("panels" in candidate)
-        return {
-            page: candidate.page,
-            panels: candidate.panels.map((panel, index) => ({
-                ...panel,
-                index: index + 1,
-            })),
-        };
+        return z
+            .union([sceneComicPlanSchema, versionedSceneComicPlanSchema])
+            .parse({
+                page: candidate.page,
+                panels: candidate.panels.map((panel, index) => ({
+                    ...panel,
+                    index: index + 1,
+                })),
+            });
     const { adaptation: _adaptation, ...plan } = candidate;
     return plan;
 }
@@ -131,10 +198,18 @@ function read<T>(text: string, schema: z.ZodType<T>): PlanResult<T> {
 export function parseScenePlan(
     text: string,
     brief: Brief,
+    versioned = false,
 ): PlanResult<ScenePlan> {
-    const result = read(text, scenePlanSchema);
+    const result = read<ScenePlan>(
+        text,
+        versioned ? versionedScenePlanSchema : scenePlanSchema,
+    );
     if (!result.success) return result;
-    if (!planMatchesCast(brief, result.plan))
+    if (
+        !(versioned
+            ? matchesVersionedCast(brief, [result.plan])
+            : planMatchesCast(brief, result.plan))
+    )
         return {
             success: false,
             reason: "invalid_schema",
@@ -146,14 +221,31 @@ export function parseScenePlan(
 export function parseSceneComicPlan(
     text: string,
     brief: ComicBrief,
+    versioned = false,
 ): PlanResult<SceneComicPlan> {
-    const result = read(text, sceneComicPlanSchema);
+    const result = read<SceneComicPlan>(
+        text,
+        versioned ? versionedSceneComicPlanSchema : sceneComicPlanSchema,
+    );
     if (!result.success) return result;
-    if (!comicPlanMatchesCast(brief, result.plan))
+    if (
+        !(versioned
+            ? matchesVersionedCast(brief, result.plan.panels) &&
+              result.plan.panels.every(
+                  (panel, index) => panel.index === index + 1,
+              )
+            : comicPlanMatchesCast(brief, result.plan))
+    )
         return {
             success: false,
             reason: "invalid_schema",
             issues: [{ path: "panels", code: "comic_cast_mismatch" }],
+        };
+    if (brief.aspectRatio && result.plan.page.aspectRatio !== brief.aspectRatio)
+        return {
+            success: false,
+            reason: "invalid_schema",
+            issues: [{ path: "page.aspectRatio", code: "canvas_mismatch" }],
         };
     const { noText, noDialogue } = textRestrictions(brief.idea);
     if (

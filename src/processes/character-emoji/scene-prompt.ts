@@ -1,6 +1,8 @@
-/** 编译 v2 的单一场景指令，角色绑定和准确文字独立输出。 */
+/** 编译单一场景指令，绑定角色版本、准确文字与画布背景。 */
+
 import { imageTextRule } from "./caption-policy.js";
 import { appearanceLabels } from "./catalog.js";
+import { imageOptionsRule } from "./image-options.js";
 import type { SceneComicPlan, ScenePlan } from "./scene.js";
 import type { Brief, ComicBrief } from "./schema.js";
 
@@ -20,21 +22,25 @@ export const SCENE_COMIC_RULES = `设计单页漫画，用能讲清反差的最�
 function references(brief: Brief | ComicBrief) {
     return brief.cast.map(
         (member, index) =>
-            `参考图${index + 1}只对应${member.character}（${appearanceLabels[member.appearance]}），决定该角色默认外观与比例，不交换或混合身份。参考图不提供姿势、构图或文字。`,
+            `参考图${index + 1}只对应${member.character}:${member.appearance}（${appearanceLabels[member.appearance]}），决定该角色默认外观、比例及渲染质感，不交换或混合身份。${member.character === "Doubao" ? "豆包保持原版深棕侧分短发、黑色圆领上衣与3D卡通质感，不因贴纸或漫画载体改成日系女仆角色。" : ""}参考图不提供姿势、构图或文字。`,
     );
 }
+const actorLabel = (actor: ScenePlan["actors"][number]) =>
+    "appearance" in actor
+        ? `${actor.character}:${actor.appearance}`
+        : actor.character;
 function marks(actors: ScenePlan["actors"]) {
     return actors.map((actor) =>
         actor.identityMark
-            ? `${actor.character}的身份标识：${JSON.stringify(actor.identityMark.text)}，附着于${actor.identityMark.carrier}，位置${actor.identityMark.placement}。`
-            : `${actor.character}不添加文字身份标识。`,
+            ? `${actorLabel(actor)}的身份标识：${JSON.stringify(actor.identityMark.text)}，附着于${actor.identityMark.carrier}，位置${actor.identityMark.placement}。`
+            : `${actorLabel(actor)}不添加文字身份标识。`,
     );
 }
 const appearanceRule =
     "用户明确的伪装、换装和染发只改变指定部分，其余外观沿用对应参考图；穿戴物保持穿戴，不改成手持道具。";
 export function sceneImagePrompt(brief: Brief, plan: ScenePlan) {
     return [
-        `绘制一张方形表情包，恰好${brief.cast.length}位角色共同登场，不分格。风格和背景按场景，未指定时采用白底动漫贴纸。`,
+        `绘制一张${brief.aspectRatio ? `宽高比${brief.aspectRatio}的` : "方形"}表情包，恰好${brief.cast.length}位角色共同登场，不分格。${brief.background === "transparent" ? "背景透明。" : "风格和背景按场景，未指定时采用白底动漫贴纸。"}`,
         ...references(brief),
         appearanceRule,
         `画面：${plan.scene}`,
@@ -47,6 +53,7 @@ export function sceneImagePrompt(brief: Brief, plan: ScenePlan) {
             ? `主台词：${JSON.stringify(plan.caption)}。准确绘制，清晰且不遮挡关键动作。`
             : "无主台词，不留台词空位。",
         imageTextRule(brief),
+        imageOptionsRule(brief),
     ].join("\n");
 }
 export function sceneComicImagePrompt(brief: ComicBrief, plan: SceneComicPlan) {
@@ -57,7 +64,7 @@ export function sceneComicImagePrompt(brief: ComicBrief, plan: SceneComicPlan) {
         ...references(brief),
         appearanceRule,
         ...plan.panels.flatMap((panel) => [
-            `第${panel.index}格：${panel.frame}。仅${panel.actors.map((actor) => actor.character).join("、")}登场。`,
+            `第${panel.index}格：${panel.frame}。仅${panel.actors.map(actorLabel).join("、")}登场。`,
             `画面：${panel.scene}`,
             ...marks(panel.actors),
             ...panel.texts.map(
@@ -66,6 +73,7 @@ export function sceneComicImagePrompt(brief: ComicBrief, plan: SceneComicPlan) {
             ),
         ]),
         imageTextRule(brief),
+        imageOptionsRule(brief),
         "文字清楚，不遮挡关键动作；只输出一张整页漫画。",
     ].join("\n");
 }

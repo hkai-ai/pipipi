@@ -17,7 +17,12 @@ export class HttpCharacterEmojiRenderingCapability
     }
 
     async render(
-        input: { prompt: string; imageUrls: readonly string[]; size: string },
+        input: {
+            prompt: string;
+            imageUrls: readonly string[];
+            size: string;
+            background?: "transparent" | "opaque";
+        },
         options: { signal: AbortSignal; idempotencyKey: string },
     ) {
         let dispatched = false;

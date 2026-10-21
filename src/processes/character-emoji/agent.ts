@@ -10,7 +10,6 @@ export type CharacterEmojiBudget = Readonly<{
     maxKeywords: number;
     maxModelCalls: number;
     searchTokens: number;
-    planTokens: number;
     reasoningEffort: "none" | "low";
 }>;
 

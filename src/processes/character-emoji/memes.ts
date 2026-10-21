@@ -13,8 +13,44 @@ export type MemeCard = Readonly<{
 }>;
 
 // 维护依据：docs/research/model-meme-library-2026-10-20.md；来源只留在服务端。
-export const memeLibraryVersion = "2026-10-20.v1";
+export const memeLibraryVersion = "2026-10-21.v2";
 export const memeCards: readonly MemeCard[] = [
+    {
+        id: "local:doubao-speaker",
+        name: "悄悄问，外放答",
+        characters: ["Doubao"],
+        aliases: ["外放社死", "悄悄问", "小声点"],
+        topics: ["语音", "外放", "尴尬", "秘密", "安静"],
+        summary:
+            "本想悄悄提问，豆包却热情地对着开着的扬声器回答；提问者急着按静音，音量提示仍亮着。让低声请求与大声回应同时可见。只使用虚构的日常尴尬，不编造真实隐私。",
+        scope: "基于语音对话场景的原创反差，不是已核实的热梗或真实产品事故。创作日期2026-10-21。",
+        sources: ["https://www.doubao.com/legal/feature_intro"],
+    },
+    {
+        id: "local:doubao-voice-loop",
+        name: "客气到挂不了电话",
+        characters: ["Doubao"],
+        aliases: ["挂不了电话", "晚安循环", "先挂"],
+        topics: ["语音", "电话", "晚安", "礼貌", "聊天", "结束"],
+        summary:
+            "双方都礼貌地等对方先结束通话，晚安说了好几轮，通话计时仍在增长；豆包一边挥手告别，一边又认真等回应。只能使用已选角色，不擅自增加第二个豆包；单人时以通话界面表现另一端。",
+        scope: "日常语音搭子的原创场景，不声称豆包固定如此回复。创作日期2026-10-21。",
+        sources: ["https://www.doubao.com/legal/feature_intro"],
+    },
+    {
+        id: "local:doubao-dialect",
+        name: "正经解答变成唠家常",
+        characters: ["Doubao"],
+        aliases: ["方言搭子", "唠家常", "老乡模式"],
+        topics: ["方言", "聊天", "东北话", "四川话", "粤语", "语音"],
+        summary:
+            "原本准备严肃讲解，切换方言后聊得太投机，问题板还空着，茶杯已经续了几轮。重点是解决问题与聊得开心的反差，不靠口音文字堆砌，也不刻板化地域人物。",
+        scope: "方言语音能力背景上的原创情节，不是官方人格或固定输出。创作日期2026-10-21。",
+        sources: [
+            "https://play.google.com/store/apps/details?id=com.larus.nova",
+        ],
+    },
+
     {
         id: "local:deepseek-rice",
         name: "白饭与 Token",

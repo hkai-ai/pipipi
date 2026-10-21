@@ -86,6 +86,8 @@ Memebuy 场景的图片转模板返回 Gallery v2 草稿，不直接写入 Memeb
 
 ## 角色表情包
 
+`character-emoji/v3` 支持同角色双版本登场：cast 按角色 + appearance 去重，最多 5 位；方案 actors 必填 appearance，漫画对白 speaker 使用 `character:appearance`，其余输入输出结构沿用 v2。参考图按 cast 顺序逐位绑定新版场景素材。v2 合同和旧参考图保留，详情见[双版本登场](processes/common/character-emoji/README.md#双版本登场-v3)。
+
 `character-emoji/v2` 基于 Memebuy 角色表情包接入单图与多格漫画，当前提示词已独立精简。`cast` 中的角色数量为 1–5，同一角色不能重复；`appearance` 为 `Chibi` 或 `Girl`。参考图、文本模型、图片模型和供应商均由服务端固定配置。构思使用 DeepSeek 4.1 Flash Pi Agent，搜索 Tool 内使用 DeepSeek，默认提供按角色和题材挑选的本地短卡，由 Agent 首轮选材改编或原创；服务端仅对明确搜索、核实或近期新闻/热梗等要求开放搜索工具，普通剧情无搜索工具；禁止搜索优先，允许时最多调用一次并取舍两个候选；缺引用的资料可作未核验灵感，搜索失败或素材不适用时直接按输入原创。来源与改编证据不返回给产品。单图按角色 ID 绑定参考图，允许方案中的角色排列不同。JSON格式、可定位结构或配字错误可在原预算内修正一次；构思模型失败、修正后方案仍无法读取或必要业务校验失败时返回 `AGENT_FAILURE`，不会调用生图；用户取消和整体截止仍停止执行。
 
 单图请求：
@@ -121,11 +123,11 @@ Memebuy 场景的图片转模板返回 Gallery v2 草稿，不直接写入 Memeb
 }
 ```
 
-成功输出包含 `image`、`mode`、`plan`；单图另包含 `caption`。v2 的单图 `plan` 为 `{ scene, actors, caption, propMarks }`；漫画为 `{ page, panels }`，每格为 `{ index, frame, scene, actors, texts }`。`actors` 只包含 `{ character, identityMark }`；动作、位置、道具状态及可见笑点统一写入该格 `scene`。准确台词与标识保留原有文字对象。v1 的 `joke`、`composition`、`punchlineDetail`、角色表演字段及漫画 `continuity` 已移除。这是公开输出的不兼容变更：调用方应切换精确版本并读取 `scene`；当前 production catalog 只注册 v2，不自动回退 v1。文本阶段由专用 DeepSeek 4.1 Flash Pi Agent 加载固定 Skill，通过受控搜梗 Tool 调用带原生 `web_search` 的 Responses 网关；不继承全局 `PI_MODEL`。图片阶段主用渠道将角色参考图读入内存后按原顺序上传文件，备用渠道保持公网 URL 直传；主用 Memene `gpt-image-2.5-flare`，主用报错时自动切换一次 Magikaru `gpt-image-2.5`，主动取消或整体截止除外；具体服务端配置与切换条件见[角色表情包专题](processes/common/character-emoji/README.md)。调用方不能选择模型或触发备用。取消或超时不代表 Gateway 已停止生成；已知任务应查原 `jobId`；主用提交未知仍按上述策略切换一次备用，产品调用方不要据此重投整个请求。当前正式入口尚未接通跨请求 Job 恢复，重复遇到 pending 会返回失败；方案持久化与正式恢复另行补充。
+成功输出包含 `image`、`mode`、`plan`；单图另包含 `caption`。v2 的单图 `plan` 为 `{ scene, actors, caption, propMarks }`；漫画为 `{ page, panels }`，每格为 `{ index, frame, scene, actors, texts }`。`actors` 只包含 `{ character, identityMark }`；动作、位置、道具状态及可见笑点统一写入该格 `scene`。准确台词与标识保留原有文字对象。v1 的 `joke`、`composition`、`punchlineDetail`、角色表演字段及漫画 `continuity` 已移除。这是公开输出的不兼容变更：调用方应切换精确版本并读取 `scene`；当前 production catalog 同时注册 v2 和 v3，不自动回退版本。文本阶段由专用 DeepSeek 4.1 Flash Pi Agent 加载固定 Skill，通过受控搜梗 Tool 调用带原生 `web_search` 的 Responses 网关；不继承全局 `PI_MODEL`。图片阶段主用渠道将角色参考图读入内存后按原顺序上传文件，备用渠道保持公网 URL 直传；主用 Memene `gpt-image-2.5-flare`，主用报错时自动切换一次 Magikaru `gpt-image-2.5`，主动取消或整体截止除外；具体服务端配置与切换条件见[角色表情包专题](processes/common/character-emoji/README.md)。调用方不能选择模型或触发备用。取消或超时不代表 Gateway 已停止生成；已知任务应查原 `jobId`；主用提交未知仍按上述策略切换一次备用，产品调用方不要据此重投整个请求。当前正式入口尚未接通跨请求 Job 恢复，重复遇到 pending 会返回失败；方案持久化与正式恢复另行补充。
 
 漫画输出的 `page.layout`、`page.readingOrder` 和各格 `frame` 由 Agent 按剧情设计，支持不等大的画格、跨行跨列及明确嵌格；`panels` 按阅读顺序排列，程序只生成 `index`，不会改写布局。角色创作背景由服务端按角色注入，调用方不能上传或覆盖背景配置；用户剧情仍优先。
 
-角色参考图来自 CC BY-NC-SA 4.0 素材，仅供非商业验证。商用发布前确认授权、署名和相同方式共享要求，详见 [Process 说明](processes/common/character-emoji/README.md#素材与授权)。
+既有 AI-Fanworks 角色参考图采用 CC BY-NC-SA 4.0，仅供非商业验证；豆包参考图单独记录来源，不沿用该许可。商用发布前确认各素材授权、署名和相同方式共享要求，详见 [Process 说明](processes/common/character-emoji/README.md#素材与授权)。
 
 ## 图片转模板
 
@@ -927,3 +929,5 @@ preparedImage 为 `{ url, sha256, width, height, contentType: "image/png" }`；u
 Memebuy 分步工作台可保留同一替换方案反复生图。`template-image-render/v1` 兼容可选 UUID `renderId`；同一 `productionId + renderId` 恢复原成图，不同 `renderId` 表示人工明确的新生图。缺省保持旧单图语义。成图审核包摘要包含 `renderId`，`template-from-source/v1` 的图片审批须原样携带该字段，不能跨版本采用审批。每个成图独立保留 attempt、图片、审核与上传记录，提交未知时复用原身份仍禁止重投。模板重编译继续复用同一图片和审批，返回新候选；草稿身份、版本、采用和真实测试由 Memebuy 管理。
 
 先发布支持此字段的 Pi API 与内部图片 Business API，再发布 Memebuy Web 和 Worker；旧方案与旧成图文件原样兼容。
+
+豆包以 "Doubao" 身份提供原版头像延展的 Q 版（仅 "Chibi"），不提供少女版。固定参考图为修正肩颈比例后的版本，保留棕色侧分短发、黑色上衣和 3D 卡通质感。构思同步语音搭子预设及三条原创素材：悄悄问外放答、客气到挂不了电话、正经解答变唠家常；这些不是已核实的流行梗。参考来源为 https://apps.apple.com/cn/app/id6459478672 ，不沿用 AI-Fanworks 素材许可。先部署此角色支持，再解除调用方的远程保护。

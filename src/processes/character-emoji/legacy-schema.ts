@@ -5,7 +5,11 @@ import { characters } from "./catalog.js";
 
 export const briefSchema = z
     .object({
-        character: z.enum(characters.map((item) => item.id)),
+        character: z.enum(
+            characters
+                .filter((item) => item.id !== "Doubao")
+                .map((item) => item.id),
+        ),
         appearance: z.enum(["Chibi", "Girl"]),
         idea: z.string().trim().min(1).max(200),
         // 兼容历史任务和待确认提交，新创作不再使用感觉选项。

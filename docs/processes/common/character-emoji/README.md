@@ -2,6 +2,16 @@
 
 `character-emoji/v2` 把 Memebuy AI 角色表情包小工具接入 Pipipi。调用方提交角色名单、外观版本和创意；服务端默认提供本地短素材卡供 Agent 改编或原创，仅必要时联网搜集素材，再生成经过 Schema 与角色身份校验的单图方案或多格漫画分镜，最后用角色目录中的固定参考图生成 PNG。
 
+## 双版本登场 v3
+
+production catalog 同时注册 `character-emoji/v2` 与 `character-emoji/v3`，调用方显式选择，不自动回退。v2 保持角色 ID 去重及旧参考图；v3 按 `(character, appearance)` 去重，总人数仍为 1–5，同角色 Q 版与少女版可同时登场。
+
+v3 的每个 `actors` 元素必须有 `appearance`；`dialogue.speaker` 为 `character:appearance`（如 `Claude:Girl`），必须属于本格演员；旁白及标牌的 speaker 仍为 null。单图及整篇漫画都必须覆盖选中的全部身份，不猜测或修补对白归属。
+
+v3 按 cast 顺序传递每个版本各自的参考图，使用 `catalog.ts` 中与 Memebuy 场景版 manifest 对齐的不可变 URL；v2 的图地址不随此次更新。两版复用同一组固定 Runtime Skill，v3 额外注入版本身份规则和候选 Schema。先部署 Pipipi v3，再发布 Memebuy 调用方。
+
+功能验收：`npm exec -- vitest run test/character-emoji-v3.test.ts` 使用替身 Agent 和 Rendering Capability，通过实际 Process Runner 验证角色、参考图顺序、对白归属及非法输入阻断；不调用模型，不证明视觉效果。
+
 ## 角色背景与创作
 
 `src/processes/character-emoji/character-personas.ts` 原样迁入 Memebuy 同名文件的10个角色背景。来源为 Memebuy 的 `docs/gallery/ai-character-persona-research.md`，研究 JSON、来源卡片仍用于研究维护，不整份进入运行时。单图与漫画的构思输入按角色 ID 注入 creativeBrief；仅按情境启发行为，用户指定剧情优先，外观由参考图决定。不将角色背景当成本次搜索证据，不把背景全文拼入生图提示词。
@@ -38,7 +48,7 @@ Agent 只收到卡片 ID、名称、短摘要与适用范围；来源链接和�
 
 搜梗 Tool 固定原始 cast 与 idea，只接受不超过200字的 focus。仅必要时发起一轮联合检索，最多两个方向，返回最多两条不同候选及同次原生引用摘要，由 Agent 按用户要表达的动机、行为与反差选材；只共享主题词不足以采用，都不适用时原创；不能将技术背景或用户创意改写成社区实例。原生请求使用 `tool_choice:required`，确认搜索调用全部完成、正文完整且无拒绝后才返回。搜索尝试结束后关闭 Tool。模型只整理 kind、summary、sourceUrl，适配器逐条接收并兼容旧字段；缺摘要或引用只降低可信程度，完整搜索正文格式不符时作为未核验资料交给 Agent。调用失败、拒绝、不完整搜索或搜索子预算超时直接原创，不再搜索；用户取消和整体截止仍停止。交给 Agent 的每条摘要最多800字符，引用片段最多1200字符，不重复完全相同的摘要与引用，不传URL；状态说明最多400字符。全文绑定及来源ID保持在请求内，裁剪不改变来源资格。搜索提示词要求关键行为在前，不追加摘要模型调用。
 
-Registration 保持120秒共享截止时间、至多一次搜索 Tool、最多三次 Agent 请求（默认首轮出稿；必要时先调用 Tool 再出稿，另允许至多一次JSON格式、结构或台词修正），搜索独立上限30秒，并取剩余时间三分之二与该上限的较小值，为构思和修正留出时间；搜索输出上限4096 tokens，其余8192。首轮判断与构思共用 low 推理预算，修正为 none，DeepSeek 搜索为 low；自动重试和自动压缩关闭。Agent 在同一会话中完成搜索、构思及提交前自检，不再启动独立复核会话。来源错误、角色不匹配或角色/分格容器不合法时拒绝。JSON无法读取、可定位的画面字段类型、枚举及长度错误与配字错误共用一次原会话修正机会。JSON无法读取时要求仅修复格式并重交完整对象；程序无法对不可解析内容逐字段冻结，重交后执行完整校验。可读取候选只修改报错字段，其他字段逐值冻结。修正后失败即停止，不再修正或重新搜索。不搜索时正常仅一次主 Agent 请求，修正时两次；搜索时正常两次主 Agent 请求加一次搜索模型请求，修正时主 Agent 最多三次。不增加独立的搜索判断模型调用。
+Registration 保持120秒共享截止时间、至多一次搜索 Tool、最多三次 Agent 请求（默认首轮出稿；必要时先调用 Tool 再出稿，另允许至多一次JSON格式、结构或台词修正），搜索独立上限30秒，并取剩余时间三分之二与该上限的较小值，为构思和修正留出时间；搜索输出上限4096 tokens；构思及修正不发送 max_output_tokens，并移除 Pi 自动补入的上限，采用上游默认输出额度，仍受120秒共享截止时间约束。首轮判断与构思共用 low 推理预算，修正为 none，DeepSeek 搜索为 low；自动重试和自动压缩关闭。Agent 在同一会话中完成搜索、构思及提交前自检，不再启动独立复核会话。来源错误、角色不匹配或角色/分格容器不合法时拒绝。JSON无法读取、可定位的画面字段类型、枚举及长度错误与配字错误共用一次原会话修正机会。JSON无法读取时要求仅修复格式并重交完整对象；程序无法对不可解析内容逐字段冻结，重交后执行完整校验。可读取候选只修改报错字段，其他字段逐值冻结。修正后失败即停止，不再修正或重新搜索。不搜索时正常仅一次主 Agent 请求，修正时两次；搜索时正常两次主 Agent 请求加一次搜索模型请求，修正时主 Agent 最多三次。不增加独立的搜索判断模型调用。
 
 搜索 Adapter 异常保留固定类别、阶段、HTTP 状态（收到响应时）和阶段耗时；整次执行失败时的生产诊断附 runId，不包含模型正文、来源、URL、凭证或原始异常。类别区分配置、网络、超时、取消、HTTP 错误、拒绝、不完整响应、不完整搜索与响应格式异常。HTTP 429 与 5xx 通过状态码区分；构思模型报错记录 model_error；JSON语法、结构、来源绑定、业务校验、越界修正分别记录 invalid_json、invalid_schema、invalid_source、business_validation、repair_changed_content。结构与业务错误只保留最多12项固定规则码及净化字段路径，未知键替换为星号，不记录原始异常或字段值。诊断失败不改变业务结果。搜索 Adapter 的异常由 Agent 转为原创材料状态，不记为整次 Process 失败；生产通过 character_emoji_observation 记录 runId、搜索结果、净化原因码、可用的HTTP状态和耗时，保留成功兜底时的失败原因。构思完成或失败记录主模型调用数、修正尝试次数及总耗时（包含搜索），成功时区分来源材料改编与原创；这些值只用于观测，不代表语义验收。构思模型失败仍停止。资料不足时原创；未核验资料可作灵感，但不能声称是已证实的社区经历。不自动重试或补查。
 
@@ -48,7 +58,7 @@ Registration 保持120秒共享截止时间、至多一次搜索 Tool、最多�
 
 本轮注册 character-emoji/v2，输入和图片链路保持原行为，公开 plan 改为单一场景合同。production catalog 只注册 v2；旧 v1 候选与固定布局投影仅留作本地回放对照，不参与 v2 的自由分格，不做版本回退或旧字段填充。调用方须显式切换版本并读取 scene。方案持久化、跨请求会话恢复、Memebuy 任务历史及计费对齐不在范围内。正式图片入口尚未读取已保存回执恢复 pending；已保存回执可供运维对账，不代表正式入口已实现恢复。
 
-图片主用 Memebuy 同款 Memene `gpt-image-2.5-flare`，参考 Memebuy 的 OpenAI Images Edit 调用，以 multipart 的 `image[]` 按原顺序上传多张参考图，提交一次；内部图片服务独立读取 `CHARACTER_EMOJI_IMAGE_API_KEY` 和可选 `CHARACTER_EMOJI_IMAGE_BASE_URL`（默认 `https://llmapi.memene.cn/openai/v1`）。Pipipi 校验角色素材白名单及1至5张数量，参考图并行读入内存后上传，不落临时文件。素材请求不携带网关凭证、不跟随重定向；整批读取最多15秒并计入主用及整体预算，每张最多20 MiB，按实际字节识别 PNG/JPEG/WebP；读取失败进入原有备用策略。已有字节输入复用同一文件表单。Magikaru 仍接收原始参考图 URL。质量沿用 `CRT_IMAGE_QUALITY`，默认 low。备用使用 `MAGIKARU_API_KEY` 和可选 `MAGIKARU_BASE_URL` 的 `gpt-image-2.5` External Job。只配置 Magikaru 时保留旧部署行为；两个密钥均缺失时不可生图。图片凭证只属于内部图片服务，不复制进 API/Worker 的 agent_keys；现有 Compose 从共享环境文件加载。
+图片主用 Memebuy 同款 Memene `gpt-image-2.5-flare`，参考 Memebuy 的 OpenAI Images Edit 调用，以 multipart 的 `image[]` 按原顺序上传多张参考图，提交一次；内部图片服务独立读取 `CHARACTER_EMOJI_IMAGE_API_KEY` 和可选 `CHARACTER_EMOJI_IMAGE_BASE_URL`（默认 `https://llmapi.memene.cn/openai/v1`）。Pipipi 校验角色素材白名单及1至5张数量，参考图并行读入内存后上传，不落临时文件、不缩放、不压缩、不转码。配置 OSS 时复用 OSS_* 的 bucket、endpoint 和凭证，把固定素材 URL 映射为同桶对象键，使用只在请求内存在的短时 GET 签名直接读 OSS；OSS_PUBLIC_BASE_URL 必须对应 https://assets.memebuy.cn。未配置对象存储的独立本地运行保留公网读取。对象读取失败不另行改走公网重试。素材请求不携带网关凭证、不跟随重定向；整批读取最多15秒并计入主用及整体预算，每张最多20 MiB，按实际字节识别 PNG/JPEG/WebP；读取失败进入原有备用策略。已有字节输入复用同一文件表单。Magikaru 仍接收原始参考图 URL。Flare 对齐已核验的 Memebuy 历史请求：保留 model、prompt、n=1、size 和 image[]，省略 quality、output_format，不再继承 CRT_IMAGE_QUALITY；返回后仍校验 PNG 合同。Magikaru 保留原有质量参数（沿用 CRT_IMAGE_QUALITY，缺省 low）与 PNG 格式。参考图数量由 cast 决定，不固定为两张。备用使用 `MAGIKARU_API_KEY` 和可选 `MAGIKARU_BASE_URL` 的 `gpt-image-2.5` External Job。只配置 Magikaru 时保留旧部署行为；两个密钥均缺失时不可生图。图片凭证只属于内部图片服务，不复制进 API/Worker 的 agent_keys；现有 Compose 从共享环境文件加载。
 
 主用调用发生任何错误时立即尝试一次 Magikaru，包括所有 HTTP 错误、网络中断、主用超时、响应解析及图片格式校验失败。用户取消或整体截止仍停止；未配置备用时保留主用错误。两路共享最多300秒等待上限，并服从调用方截止；配置备用时主用最多180秒，为备用保留剩余预算，仅配置主用时仍为300秒。正常只调用主用，备用失败不重投。`character_emoji_image_attempts` 观测仅保留幂等关联、模型、结果分类、HTTP 状态与耗时，主备失败分别保留，观测失败不影响生成。提交前仍记录 pending，Magikaru 受理后保存 `jobId`、`deadlineAt` 与幂等键，只轮询原 Job。PNG 经内部图片服务与对象存储交付；取消等待不会取消上游生成；本流程按用户要求对主用提交未知也切换一次备用，因此可能产生两路生成与费用。此策略只覆盖同一次执行的主用到备用，不自动重投任一渠道或重启已保存 pending 的整个请求。
 
@@ -93,3 +103,7 @@ Registration 保持120秒共享截止时间、至多一次搜索 Tool、最多�
 原生引用绑定只能说明材料来自本次搜索，不能证明网页真实。Agent 自检及程序结构校验均不等于梗或视觉质量已验收；程序只校验结构化文字字段，不从自由场景描述中推断文字，也不能保证成图无字。真实效果仍须用固定来源与用户需求人工审查。离线验收沿用固定输入与已有失败样本，分三层记录：搜索到方案的行为关系保留与主题一致性；方案到图片的关键动作、道具及跨格变化；图片的笑点可读性、角色、肢体和关键文字。失败与重试结果分别保留，比较总耗时与修正次数；这些标准不作为在线语义硬门禁，不追加每次生图后的复核模型调用。
 
 新增 `test/character-emoji-scene.test.ts` 验证 v2 合同、单次场景编译、身份与文字边界及字段冻结；`test/character-emoji-agent.test.ts` 覆盖 v2 HTTP 与原会话修正。原有确定性测试位于 `test/character-emoji-submission.test.ts`、`test/character-emoji-agent.test.ts` 与 `test/character-emoji-comic-repair.test.ts`，维护来源身份、模式隔离、修正冻结、创作字段保留、单会话与预算边界。真实文本验收单独产生模型费用，不生成图片；生图验收另行授权。
+
+本轮只对齐参考图原始字节与供应商请求参数，不迁入 Memebuy 的资产注册表和审核业务；成图保存与公开 URL 合同保持不变，重复入库另行调整。OSS 读取走部署配置的 endpoint，不自动改成内网域名；网络地域与权限需部署方核对，代码对齐不代表两侧网络耗时相同。
+
+豆包以 "Doubao" 身份提供原版头像延展的 Q 版（仅 "Chibi"），不提供少女版。固定参考图为修正肩颈比例后的版本，保留棕色侧分短发、黑色上衣和 3D 卡通质感。构思同步语音搭子预设及三条原创素材：悄悄问外放答、客气到挂不了电话、正经解答变唠家常；这些不是已核实的流行梗。参考来源为 https://apps.apple.com/cn/app/id6459478672 ，不沿用 AI-Fanworks 素材许可。先部署此角色支持，再解除调用方的远程保护。

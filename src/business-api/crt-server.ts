@@ -531,6 +531,7 @@ export async function startCrtBusinessApi(
                 outputFormat: "png",
                 signal,
             });
+            await assertImageBackground(generated.bytes, input.background);
             const metadata = await sharp(generated.bytes).metadata();
             if (
                 generated.mimeType !== "image/png" ||
@@ -655,9 +656,11 @@ export async function startCrtBusinessApi(
                 idempotencyKey: key,
                 quality,
                 size: input.size,
+                ...(input.background ? { background: input.background } : {}),
                 outputFormat: "png",
                 signal,
             });
+            await assertImageBackground(generated.bytes, input.background);
             const metadata = await sharp(generated.bytes).metadata();
             if (
                 generated.mimeType !== "image/png" ||

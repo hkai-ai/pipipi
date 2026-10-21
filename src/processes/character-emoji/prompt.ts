@@ -6,7 +6,7 @@ import { characterPersonas } from "./character-personas.js";
 import type { Brief, Composition } from "./schema.js";
 import { sceneFromPlan } from "./schema.js";
 
-export const EMOJI_PROMPT_VERSION = "ai-character-emoji/v24";
+export const EMOJI_PROMPT_VERSION = "ai-character-emoji/v25";
 
 export const PLANNER_SYSTEM_PROMPT = `设计一张方形表情包，默认白底动漫贴纸；用户要求或情节需要时可调整风格与背景，在composition中说明。截取一个主笑点的可见瞬间，不分格。actors包含cast的全部角色且不重复，按角色身份绑定表演，排列顺序不限；围绕同一反差互动，让动作与关键证据清楚。
 主台词遵守本次配字要求，最多28字。propMarks仅用于辨认情节目标品牌，不重复身份标识，不充当解释笑点的标签；公司名与产品名不混用。`;

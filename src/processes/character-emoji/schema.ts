@@ -1,7 +1,7 @@
 /** schema.ts：移植 Memebuy AI 角色表情包的固定规则与校验。 */
 import { z } from "zod";
-
-import { characters } from "./catalog.js";
+import { characters, hasAppearance } from "./catalog.js";
+import type { ImageOptions } from "./image-options.js";
 import type { Composition as LegacyComposition } from "./legacy-schema.js";
 import {
     briefSchema as legacyBriefSchema,
@@ -25,7 +25,11 @@ export const castMemberSchema = z
         character: characterSchema,
         appearance: z.enum(["Chibi", "Girl"]),
     })
-    .strict();
+    .strict()
+    .refine(
+        (member) => hasAppearance(member.character, member.appearance),
+        "该角色暂不支持此形象版本",
+    );
 export type CastMember = z.infer<typeof castMemberSchema>;
 export const castSchema = z
     .array(castMemberSchema)
@@ -60,7 +64,7 @@ export const briefSchema = z
         captionSetting: captionSettingSchema.optional(),
     })
     .strict();
-export type Brief = z.infer<typeof briefSchema>;
+export type Brief = z.infer<typeof briefSchema> & ImageOptions;
 export const COMIC_IDEA_LIMIT = 800;
 // 仅用于读取 v4 任务；新漫画的布局由构思方案决定。
 export const legacyComicLayouts = [
@@ -82,7 +86,7 @@ export const legacyComicBriefSchema = z
     })
     .strict();
 export const comicBriefSchema = legacyComicBriefSchema.omit({ layout: true });
-export type ComicBrief = z.infer<typeof comicBriefSchema>;
+export type ComicBrief = z.infer<typeof comicBriefSchema> & ImageOptions;
 export type LegacyComicBrief = z.infer<typeof legacyComicBriefSchema>;
 export type CreationBrief = Brief | ComicBrief;
 export const creationBriefSchema = z.union([briefSchema, comicBriefSchema]);

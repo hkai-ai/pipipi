@@ -29,6 +29,7 @@ describe("OpenAI image generation Adapter", () => {
             apiKey: "test-key",
             baseUrl: "https://gateway.example/v1",
             fetch: fetchMock,
+            editDefaults: {},
         });
         const imageUrls = ["first.png", "second.png"].map(
             (name) =>
@@ -57,8 +58,8 @@ describe("OpenAI image generation Adapter", () => {
         expect(body.get("model")).toBe("gpt-image-2.5-flare");
         expect(body.get("prompt")).toBe("保持角色顺序");
         expect(body.get("size")).toBe("1024x1024");
-        expect(body.get("quality")).toBe("low");
-        expect(body.get("output_format")).toBe("png");
+        expect(body.get("quality")).toBeNull();
+        expect(body.get("output_format")).toBeNull();
         expect(body.get("background")).toBe("transparent");
         const images = body.getAll("image[]") as File[];
         expect(images).toHaveLength(2);

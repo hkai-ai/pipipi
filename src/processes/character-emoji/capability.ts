@@ -1,5 +1,10 @@
 /** 表情包图片渲染 Capability 与结果契约。 */
 import { z } from "zod";
+import {
+    type ImageOptions,
+    imageOptionsShape,
+    imageSizes,
+} from "./image-options.js";
 
 export const characterEmojiImageSchema = z.strictObject({
     url: z.url().max(2_048),
@@ -14,19 +19,18 @@ export const characterEmojiRenderInputSchema = z.strictObject({
         .array(z.url().refine(isApprovedCharacterImageUrl))
         .min(1)
         .max(5),
-    size: z.enum([
-        "1024x1024",
-        "1024x1536",
-        "1536x1024",
-        "1024x2048",
-        "2048x1024",
-        "1536x1536",
-    ]),
+    size: z.enum(["1024x1024", ...Object.values(imageSizes)]),
+    background: imageOptionsShape.background,
 });
 
 export type CharacterEmojiRenderingCapability = Readonly<{
     render: (
-        input: { prompt: string; imageUrls: readonly string[]; size: string },
+        input: {
+            prompt: string;
+            imageUrls: readonly string[];
+            size: string;
+            background?: ImageOptions["background"];
+        },
         options: { signal: AbortSignal; idempotencyKey: string },
     ) => Promise<z.infer<typeof characterEmojiImageSchema>>;
 }>;
@@ -49,7 +53,9 @@ function isApprovedCharacterImageUrl(value: string): boolean {
             url.hostname === "assets.memebuy.cn" &&
             !url.username &&
             !url.password &&
-            url.pathname.startsWith("/maker/characters/ai-fanworks/")
+            (url.pathname.startsWith("/maker/characters/ai-fanworks/") ||
+                url.pathname ===
+                    "/maker/characters/community/scenes/doubao/chibi-5e7e8f7823faaa50.png")
         );
     } catch {
         return false;

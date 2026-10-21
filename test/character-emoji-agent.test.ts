@@ -177,6 +177,7 @@ function harness(
                 payloads.push(
                     await state.onPayload?.({
                         model: characterEmojiModel,
+                        max_output_tokens: 8192,
                         input: [{ role: "user", content: prompts.join("\n") }],
                         prompt_cache_key: "test-session",
                         prompt_cache_retention: "24h",
@@ -618,10 +619,11 @@ describe("Pi 表情包 Agent", () => {
         expect(h.payloads).toHaveLength(2);
         expect(h.payloads[0]).toMatchObject({
             text: { format: { type: "json_object" } },
-            max_output_tokens: 8192,
             reasoning: { effort: "low" },
         });
         expect(h.payloads[0]).not.toHaveProperty("prompt_cache_key");
+        for (const payload of h.payloads)
+            expect(payload).not.toHaveProperty("max_output_tokens");
         expect(characterEmojiModel).toBe("deepseek-v4.1-flash");
         expect(h.payloads[1]).toMatchObject({
             reasoning: { effort: "low" },

@@ -15,6 +15,12 @@ import {
     CharacterEmojiRenderingUnavailable,
     characterEmojiImageSchema,
 } from "./capability.js";
+import {
+    matchesVersionedCast,
+    versionedBriefSchema,
+    versionedComicBriefSchema,
+    versionedInputSchema,
+} from "./cast.js";
 import { characters, imageUrl } from "./catalog.js";
 import { comicImagePrompt } from "./comic-prompt.js";
 import {
@@ -23,13 +29,20 @@ import {
     type EmojiObservationRecord,
     emojiDiagnostic,
 } from "./diagnostics.js";
+import { imageSizes } from "./image-options.js";
 import { imagePrompt } from "./prompt.js";
-import { sceneComicPlanSchema, scenePlanSchema } from "./scene.js";
+import {
+    sceneComicPlanSchema,
+    scenePlanSchema,
+    versionedSceneComicPlanSchema,
+    versionedScenePlanSchema,
+} from "./scene.js";
 import { sceneComicImagePrompt, sceneImagePrompt } from "./scene-prompt.js";
 import {
     briefSchema,
+    type ComicBrief,
+    type CreationBrief,
     comicBriefSchema,
-    comicCanvas,
     comicPlanSchema,
     isComicBrief,
     planSchema,
@@ -44,7 +57,6 @@ export const characterEmojiBudget: CharacterEmojiBudget = Object.freeze({
     maxKeywords: 2,
     maxModelCalls: 3,
     searchTokens: 4096,
-    planTokens: 8192,
     reasoningEffort: "low",
 });
 const outputSchema = z.strictObject({
@@ -65,6 +77,7 @@ export function createCharacterEmojiRegistration(
     } & (
         | { version?: "v1"; agent: CharacterEmojiAgent }
         | { version: "v2"; agent: SceneEmojiAgent }
+        | { version: "v3"; agent: SceneEmojiAgent }
     ),
 ): ProcessRegistration {
     if (!options.agent || !options.capability)
@@ -73,9 +86,19 @@ export function createCharacterEmojiRegistration(
         id: "character-emoji",
         version: options.version ?? "v1",
         timeoutMs: 480_000,
-        inputSchema,
+        inputSchema:
+            options.version === "v3" ? versionedInputSchema : inputSchema,
         outputSchema:
-            options.version === "v2" ? sceneOutputSchema : outputSchema,
+            options.version === "v3"
+                ? outputSchema.extend({
+                      plan: z.union([
+                          versionedScenePlanSchema,
+                          versionedSceneComicPlanSchema,
+                      ]),
+                  })
+                : options.version === "v2"
+                  ? sceneOutputSchema
+                  : outputSchema,
         activities: ["character_emoji_planning", "character_emoji_rendering"],
         execute: async (input, context) => {
             const started = Date.now();
@@ -96,12 +119,23 @@ export function createCharacterEmojiRegistration(
             let size = "1024x1024";
             try {
                 if (comic) {
-                    const brief = comicBriefSchema.parse(input);
+                    const brief: ComicBrief = (
+                        options.version === "v3"
+                            ? versionedComicBriefSchema
+                            : comicBriefSchema
+                    ).parse(input);
                     const compiled = await context.runActivity(
                         "character_emoji_planning",
                         async () => {
-                            if (options.version === "v2") {
-                                const plan = sceneComicPlanSchema.parse(
+                            if (
+                                options.version === "v2" ||
+                                options.version === "v3"
+                            ) {
+                                const plan = (
+                                    options.version === "v3"
+                                        ? versionedSceneComicPlanSchema
+                                        : sceneComicPlanSchema
+                                ).parse(
                                     await options.agent.planSceneComic(
                                         brief,
                                         context.signal,
@@ -109,6 +143,11 @@ export function createCharacterEmojiRegistration(
                                         observe,
                                     ),
                                 );
+                                if (
+                                    options.version === "v3" &&
+                                    !matchesVersionedCast(brief, plan.panels)
+                                )
+                                    throw new Error("漫画登场身份不匹配");
                                 return {
                                     plan,
                                     prompt: sceneComicImagePrompt(brief, plan),
@@ -130,14 +169,30 @@ export function createCharacterEmojiRegistration(
                     );
                     plan = compiled.plan;
                     prompt = compiled.prompt;
-                    size = comicCanvas(compiled.plan).size;
+                    if (
+                        brief.aspectRatio &&
+                        compiled.plan.page.aspectRatio !== brief.aspectRatio
+                    )
+                        throw new Error("漫画画幅与请求不一致");
+                    size = imageSizes[compiled.plan.page.aspectRatio];
                 } else {
-                    const brief = briefSchema.parse(input);
+                    const brief = (
+                        options.version === "v3"
+                            ? versionedBriefSchema
+                            : briefSchema
+                    ).parse(input);
                     const compiled = await context.runActivity(
                         "character_emoji_planning",
                         async () => {
-                            if (options.version === "v2") {
-                                const plan = scenePlanSchema.parse(
+                            if (
+                                options.version === "v2" ||
+                                options.version === "v3"
+                            ) {
+                                const plan = (
+                                    options.version === "v3"
+                                        ? versionedScenePlanSchema
+                                        : scenePlanSchema
+                                ).parse(
                                     await options.agent.planScene(
                                         brief,
                                         context.signal,
@@ -145,6 +200,11 @@ export function createCharacterEmojiRegistration(
                                         observe,
                                     ),
                                 );
+                                if (
+                                    options.version === "v3" &&
+                                    !matchesVersionedCast(brief, [plan])
+                                )
+                                    throw new Error("表情包登场身份不匹配");
                                 return {
                                     plan,
                                     prompt: sceneImagePrompt(brief, plan),
@@ -191,15 +251,27 @@ export function createCharacterEmojiRegistration(
                 );
             }
             context.signal.throwIfAborted();
-            const brief = input;
+            const brief: CreationBrief = input;
+            if (brief.aspectRatio) size = imageSizes[brief.aspectRatio];
             const imageUrls = brief.cast.map((member) =>
-                imageUrl(member.character, member.appearance),
+                imageUrl(
+                    member.character,
+                    member.appearance,
+                    options.version === "v3" ? "v3" : "v2",
+                ),
             );
             try {
                 const image = characterEmojiImageSchema.parse(
                     await context.runActivity("character_emoji_rendering", () =>
                         options.capability.render(
-                            { prompt, imageUrls, size },
+                            {
+                                prompt,
+                                imageUrls,
+                                size,
+                                ...(brief.background
+                                    ? { background: brief.background }
+                                    : {}),
+                            },
                             {
                                 signal: context.signal,
                                 idempotencyKey: context.runId,

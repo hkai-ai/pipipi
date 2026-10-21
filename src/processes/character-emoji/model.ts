@@ -28,10 +28,11 @@ export async function createCharacterEmojiModel(
                 reasoning: true,
                 thinkingLevelMap: { off: "none", low: "low" },
                 input: ["text"],
-                // 本地执行上限；零值不作为供应商实际费用证据。
+                // 零值不作为供应商实际费用证据。
                 cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
                 contextWindow: 65536,
-                maxTokens: 8192,
+                // Pi 要求此元数据；出站前移除输出上限，由上游决定额度。
+                maxTokens: 0,
             },
         ],
     });

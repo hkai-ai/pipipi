@@ -91,6 +91,7 @@ describe("Process catalog description", () => {
             catalog.map((entry) => `${entry.process}/${entry.version}`),
         ).toEqual([
             "character-emoji/v2",
+            "character-emoji/v3",
             "content-processing/v1",
             "crayon-photo-poster/v1",
             "crt-interface-image/v1",

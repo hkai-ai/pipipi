@@ -12,46 +12,51 @@ export { characterEmojiModel } from "./model.js";
 
 const logger = pino({ name: "character-emoji-diagnostics" });
 
-export const characterEmojiProduction = defineProductionProcess({
-    id: "character-emoji",
-    environment: [
-        "CRT_BUSINESS_API_BASE_URL",
-        "BUSINESS_API_BASE_URL",
-        "PHOTO_POSTER_API_TIMEOUT_MS",
-        "CHARACTER_EMOJI_API_KEY",
-        "CHARACTER_EMOJI_BASE_URL",
-        "CHARACTER_EMOJI_PLANNER_BASE_URL",
-        "CHARACTER_EMOJI_PLANNER_API_KEY",
-    ],
-    installedSkills: () => createCharacterEmojiSkillRefs(),
-    build: ({ environment, skills, positiveInteger }) => {
-        const config = {
-            apiKey: environment.CHARACTER_EMOJI_API_KEY ?? "",
-            baseUrl:
-                environment.CHARACTER_EMOJI_BASE_URL?.trim() ||
-                "https://llmapi.memene.cn/openai/v1",
-        };
-        return createCharacterEmojiRegistration({
-            version: "v2",
-            onDiagnostic: (record) => logger.warn(record, record.event),
-            onObservation: (record) => logger.info(record, record.event),
-            agent: new PiCharacterEmojiAgent({
-                apiKey:
-                    environment.CHARACTER_EMOJI_PLANNER_API_KEY?.trim() ||
-                    config.apiKey,
+function production(version: "v2" | "v3") {
+    return defineProductionProcess({
+        id: "character-emoji",
+        environment: [
+            "CRT_BUSINESS_API_BASE_URL",
+            "BUSINESS_API_BASE_URL",
+            "PHOTO_POSTER_API_TIMEOUT_MS",
+            "CHARACTER_EMOJI_API_KEY",
+            "CHARACTER_EMOJI_BASE_URL",
+            "CHARACTER_EMOJI_PLANNER_BASE_URL",
+            "CHARACTER_EMOJI_PLANNER_API_KEY",
+        ],
+        installedSkills: () => createCharacterEmojiSkillRefs(),
+        build: ({ environment, skills, positiveInteger }) => {
+            const config = {
+                apiKey: environment.CHARACTER_EMOJI_API_KEY ?? "",
                 baseUrl:
-                    environment.CHARACTER_EMOJI_PLANNER_BASE_URL?.trim() ||
-                    config.baseUrl,
-                skills,
-                search: new ResponsesMemeSearch(config),
-            }),
-            capability: new HttpCharacterEmojiRenderingCapability({
-                baseUrl: parseCrtBusinessApiBaseUrl(environment),
-                timeoutMs: positiveInteger(
-                    "PHOTO_POSTER_API_TIMEOUT_MS",
-                    300_000,
-                ),
-            }),
-        });
-    },
-});
+                    environment.CHARACTER_EMOJI_BASE_URL?.trim() ||
+                    "https://llmapi.memene.cn/openai/v1",
+            };
+            return createCharacterEmojiRegistration({
+                version,
+                onDiagnostic: (record) => logger.warn(record, record.event),
+                onObservation: (record) => logger.info(record, record.event),
+                agent: new PiCharacterEmojiAgent({
+                    version,
+                    apiKey:
+                        environment.CHARACTER_EMOJI_PLANNER_API_KEY?.trim() ||
+                        config.apiKey,
+                    baseUrl:
+                        environment.CHARACTER_EMOJI_PLANNER_BASE_URL?.trim() ||
+                        config.baseUrl,
+                    skills,
+                    search: new ResponsesMemeSearch(config),
+                }),
+                capability: new HttpCharacterEmojiRenderingCapability({
+                    baseUrl: parseCrtBusinessApiBaseUrl(environment),
+                    timeoutMs: positiveInteger(
+                        "PHOTO_POSTER_API_TIMEOUT_MS",
+                        300_000,
+                    ),
+                }),
+            });
+        },
+    });
+}
+export const characterEmojiProduction = production("v2");
+export const characterEmojiV3Production = production("v3");

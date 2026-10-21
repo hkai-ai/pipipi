@@ -6,7 +6,7 @@
 
 图片预处理后的模板内容支持独立重编译：保留已确认成图，提交本轮模板修改要求，只生成新的 Gallery 草稿供人工审阅。
 
-生产 catalog 登记二十二个 Business Process，其中 `composed-task/v1` 默认关闭。文档先按产品场景分组，运行时仍通过统一的 Process identity 和 HTTP Interface 执行：
+生产 catalog 登记二十三个 Business Process，其中 `composed-task/v1` 默认关闭。文档先按产品场景分组，运行时仍通过统一的 Process identity 和 HTTP Interface 执行：
 
 | 场景 | Process | 输入 | 输出 |
 | --- | --- | --- | --- |
@@ -32,6 +32,7 @@
 | `common` | [`photo-fashion-manga/v1`](docs/processes/common/photo-fashion-manga/README.md) | 真人参考图与可选主标题、引题、小注，原始手刻字风格与随图构图 | `{ style, image }` |
 | `common` | [`manga-panels/v1`](docs/processes/common/manga-panels/README.md) | 参考图与固定预设，输出无文字三格漫画 | `{ style, image }` |
 | `common` | [character-emoji/v2](docs/processes/common/character-emoji/README.md) | DeepSeek 4.1 Flash Pi Agent 按模式加载 Skill、默认使用本地素材或原创，按需调用 DeepSeek 搜梗 Tool，经 Memene GPT Image 2.5 Flare（报错后尝试一次 Magikaru，取消或总截止除外） 生成单图表情或多格漫画 | `{ image, mode, caption?, plan }` |
+| `common` | `character-emoji/v3` | 同角色双版本登场、版本化对白及新版场景参考图，最多 5 位 | `{ image, mode, caption?, plan }` |
 
 Memebuy 场景已登记 `template-from-image/v1`，可在 Pipipi 独立编译图片模板草稿；Memebuy 改由模板素材箱的提取 Worker 接入，候选需人工确认后保存草稿，部署与真实页面验收另行完成。Pipipi 独立测试与 JSON 下载保留。场景入口和归属规则见 [`docs/processes/README.md`](docs/processes/README.md)。
 
@@ -199,6 +200,8 @@ Memebuy 模板分步制作支持同方案多个成图版本：新 `renderId` 明
 
 CRT 与七个照片海报支持可选背景参数，省略时保持原行为；透明成品在交付前校验。取值与调用方式见 [图片背景参数](docs/api.md#图片背景参数)。
 
-角色表情包构思包含单图与漫画；同一个 DeepSeek 4.1 Flash Pi Agent 首轮接收按角色和题材挑选的本地短卡，可改编或原创，服务端仅对明确检索或近期事实要求开放搜索工具，普通创作没有搜索工具；开放后可从 DeepSeek 返回的最多两个候选中选材，以 low 推理预算构思并自检，JSON格式、可定位结构或台词错误共用一次原会话修正机会。搜索失败直接原创，未核验资料可作灵感；搜索最多30秒，资料精简后交给 Agent；程序校验同次材料身份，可读取候选修正时冻结未报错字段，按角色 ID 绑定参考图，仅生成编号，保留 Agent 的自由布局；允许少量场景辅助文字，单图白底贴纸为默认风格；画面语义仍需验收，见[角色表情包说明](docs/processes/common/character-emoji/README.md)。
+角色表情包构思包含单图与漫画；同一个 DeepSeek 4.1 Flash Pi Agent 首轮接收按角色和题材挑选的本地短卡，可改编或原创，服务端仅对明确检索或近期事实要求开放搜索工具，普通创作没有搜索工具；开放后可从 DeepSeek 返回的最多两个候选中选材，以 low 推理预算构思并自检，JSON格式、可定位结构或台词错误共用一次原会话修正机会。搜索失败直接原创，未核验资料可作灵感；搜索最多30秒，资料精简后交给 Agent；程序校验同次材料身份，可读取候选修正时冻结未报错字段，按角色 ID 绑定参考图，仅生成编号，保留 Agent 的自由布局；允许少量场景辅助文字，单图白底贴纸为默认风格；画面语义仍需验收，见[角色表情包说明](docs/processes/common/character-emoji/README.md)。 构思及修正采用上游默认输出额度，不发送输出 token 上限，仍保留120秒共享截止时间。
 
-角色表情包主用 Flare 按 Memebuy 方式将参考图读入内存、按顺序通过 multipart 文件表单上传，不落临时文件；备用 Magikaru 保持公网 URL 直传。角色表情包按所选角色注入已维护的创作背景；v2 漫画由 Agent 决定自由布局和各格大小，程序仅补编号。每格仍只有一份 scene；page 与 frame 只描述画格几何，关键行动或可辨认痕迹在 scene 呈现，同次自检核对肢体占用与道具支撑；配字优先级及创作规则见[角色表情包专题](docs/processes/common/character-emoji/README.md)。
+角色表情包主用 Flare 复用已配置的 OSS 读取固定角色原图，不缩放、不压缩，按原顺序通过 multipart 文件表单上传；独立本地运行未配置 OSS 时才使用公网取图。Flare 对齐已核验的 Memebuy 请求，省略 quality 和 output_format，不继承 CRT 参数；备用 Magikaru 保持公网 URL 直传及原有质量参数。角色表情包按所选角色注入已维护的创作背景；v2 漫画由 Agent 决定自由布局和各格大小，程序仅补编号。每格仍只有一份 scene；page 与 frame 只描述画格几何，关键行动或可辨认痕迹在 scene 呈现，同次自检核对肢体占用与道具支撑；配字优先级及创作规则见[角色表情包专题](docs/processes/common/character-emoji/README.md)。
+
+豆包（Doubao）新增原版 Q 版参考图、个性和三条原创语音素材，仅支持 Chibi；详见角色表情包专题，部署服务端后再开放调用方。
