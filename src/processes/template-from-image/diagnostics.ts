@@ -34,7 +34,7 @@ const fields = new Set(
     key title description promptTemplate inputSchema version slots type text image
     presentation allowCustom defaultValue placeholder suggestions label required
     runtimeSemantics visualContract medium styleTraits composition relations colorAndLight
-    inputBindings operation targetIds targets role region
+    inputBindings operation targetIds targetId targetInstances appearance targets role region
     metadata tags prompt needsReview rationale reason passed observation
     reviewedPlanSha256 reviewedDraftSha256 issues`.split(/\s+/),
 );

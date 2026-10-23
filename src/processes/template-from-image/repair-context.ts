@@ -2,7 +2,9 @@
 
 import { analysisCounts } from "./analysis-contract.js";
 import { draftFromPlan, readTemplatePlan } from "./projection.js";
+import { resolveVisualFact } from "./visual-facts.js";
 import {
+    unreferencedTargetFacts,
     visualSelectionContext,
     visualSelectionIssues,
 } from "./visual-selection.js";
@@ -14,8 +16,20 @@ export function templateRepairContext(value: unknown) {
     const visual = draft.runtimeSemantics.visualContract;
     return {
         counts: analysisCounts({ analysis, draft }),
-        visualSelections: visualSelectionContext(analysis, visual),
-        visualSelectionIssues: visualSelectionIssues(analysis, visual),
+        visualSelections: visualSelectionContext(
+            analysis,
+            visual,
+            draft.runtimeSemantics.targetInstances,
+        ),
+        unreferencedTargetFacts: unreferencedTargetFacts(
+            analysis,
+            draft.runtimeSemantics.targetInstances,
+        ),
+        visualSelectionIssues: visualSelectionIssues(
+            analysis,
+            visual,
+            draft.runtimeSemantics.targetInstances,
+        ),
         visualFactMismatches: (
             ["medium", "styleTraits", "composition", "colorAndLight"] as const
         ).flatMap((field) => {
@@ -41,11 +55,26 @@ export function templateRepairContext(value: unknown) {
         }),
         unresolvedRelations: analysis.spatialRelations.flatMap(
             (relation, index) =>
-                visual.relations[relation.relationIndex] === undefined
+                resolveVisualFact(
+                    typeof relation.relationIndex === "number"
+                        ? { field: "relations", index: relation.relationIndex }
+                        : relation.relationIndex,
+                    visual,
+                    draft.runtimeSemantics.targetInstances,
+                ).fact === null
                     ? [
                           {
                               path: `/analysis/spatialRelations/${index}/relationIndex`,
-                              targetPath: `/analysis/semanticModel/runtimeSemantics/visualContract/relations/${relation.relationIndex}`,
+                              targetPath: resolveVisualFact(
+                                  typeof relation.relationIndex === "number"
+                                      ? {
+                                            field: "relations",
+                                            index: relation.relationIndex,
+                                        }
+                                      : relation.relationIndex,
+                                  visual,
+                                  draft.runtimeSemantics.targetInstances,
+                              ).path,
                               actual: visual.relations,
                           },
                       ]
@@ -69,9 +98,11 @@ export function templateRepairContext(value: unknown) {
                     basis: feature.basis,
                     runtimeFactRef: feature.runtimeFactRef,
                     runtimeFact: feature.runtimeFactRef
-                        ? (visual[feature.runtimeFactRef.field][
-                              feature.runtimeFactRef.index
-                          ] ?? null)
+                        ? resolveVisualFact(
+                              feature.runtimeFactRef,
+                              visual,
+                              draft.runtimeSemantics.targetInstances,
+                          ).fact
                         : null,
                 })),
             openVisualFacts:

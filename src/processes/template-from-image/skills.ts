@@ -8,6 +8,13 @@ export const templateSchemaUrl = new URL(
     import.meta.url,
 );
 
+export const templateV3SchemaSha256 =
+    "d95721ad11f0a65c21b50a9203c7d370a57151cf217ad0a73267e903d88f2a68";
+export const templateV3SchemaUrl = new URL(
+    "../../../.pi/skills/meme-template-json-compiler/gallery-v3.schema.json",
+    import.meta.url,
+);
+
 export function createTemplateSkillRefs(): readonly InstalledSkillRef[] {
     return Object.freeze([
         Object.freeze({

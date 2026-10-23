@@ -2,6 +2,7 @@
 import { z } from "zod";
 import type { TemplateAnalysis } from "./quality.js";
 import type { TemplateDraft } from "./types.js";
+import { resolveVisualFact, selectionFactRef } from "./visual-facts.js";
 
 export const visualSelectionsSchema = z
     .array(
@@ -9,20 +10,7 @@ export const visualSelectionsSchema = z
             evidenceIndex: z.int().min(0).max(63),
             decision: z.enum(["retain", "omit"]),
             reason: z.string().trim().min(1).max(500),
-            factRefs: z
-                .array(
-                    z.strictObject({
-                        field: z.enum([
-                            "medium",
-                            "styleTraits",
-                            "composition",
-                            "relations",
-                            "colorAndLight",
-                        ]),
-                        index: z.int().min(0).max(63).nullable(),
-                    }),
-                )
-                .max(16),
+            factRefs: z.array(selectionFactRef).max(16),
         }),
     )
     .min(1)
@@ -40,6 +28,7 @@ type VisualContract = TemplateDraft["runtimeSemantics"]["visualContract"];
 export function visualSelectionContext(
     analysis: SelectionAnalysis,
     visual: VisualContract,
+    targets: TemplateDraft["runtimeSemantics"]["targetInstances"] = [],
 ) {
     return analysis.fieldEvidence.visualContract.map(
         (observation, evidenceIndex) => ({
@@ -52,18 +41,9 @@ export function visualSelectionContext(
                               path: `/analysis/visualSelections/${index}`,
                               decision: selection.decision,
                               reason: selection.reason,
-                              facts: selection.factRefs.map((ref) => ({
-                                  path: `/analysis/semanticModel/runtimeSemantics/visualContract/${ref.field}${ref.index === null ? "" : `/${ref.index}`}`,
-                                  fact:
-                                      ref.field === "medium"
-                                          ? ref.index === null
-                                              ? visual.medium
-                                              : null
-                                          : ref.index === null
-                                            ? null
-                                            : (visual[ref.field][ref.index] ??
-                                              null),
-                              })),
+                              facts: selection.factRefs.map((ref) =>
+                                  resolveVisualFact(ref, visual, targets),
+                              ),
                           },
                       ]
                     : [],
@@ -72,23 +52,80 @@ export function visualSelectionContext(
     );
 }
 
+/** 为独立复核定位缺失观察引用的准确事实，不推测或自动补齐。 */
+export function unreferencedTargetFacts(
+    analysis: SelectionAnalysis,
+    targets: TemplateDraft["runtimeSemantics"]["targetInstances"],
+) {
+    return targets.flatMap((target, targetIndex) =>
+        (["appearance", "pose"] as const).flatMap((field) =>
+            (target[field] ?? []).flatMap((fact, index) =>
+                analysis.visualSelections.some(
+                    (selection) =>
+                        selection.decision === "retain" &&
+                        selection.factRefs.some(
+                            (ref) =>
+                                "targetId" in ref &&
+                                ref.targetId === target.id &&
+                                ref.field === field &&
+                                ref.index === index,
+                        ),
+                )
+                    ? []
+                    : [
+                          {
+                              path: `/analysis/semanticModel/runtimeSemantics/targetInstances/${targetIndex}/${field}/${index}`,
+                              fact,
+                              requiredRef: {
+                                  targetId: target.id,
+                                  field,
+                                  index,
+                              },
+                          },
+                      ],
+            ),
+        ),
+    );
+}
+
 export function visualSelectionIssues(
     analysis: SelectionAnalysis,
     visual: VisualContract,
+    targets: TemplateDraft["runtimeSemantics"]["targetInstances"] = [],
 ): string[] {
     const issues: string[] = [];
     const selections = analysis.visualSelections;
     const observations = analysis.fieldEvidence.visualContract;
-    if (
-        selections.length !== observations.length ||
+    // 一条观察可支持多个不同事实；只在 v3 目标事实存在时接受分组引用，不改写候选或摘要。
+    const groupedFacts = targets.some(
+        (target) =>
+            target.appearance !== undefined || target.pose !== undefined,
+    );
+    const coverageInvalid =
         new Set(selections.map((item) => item.evidenceIndex)).size !==
             observations.length ||
-        selections.some((item) => item.evidenceIndex >= observations.length)
-    )
-        issues.push(
-            "visualSelections: 每条原始视觉依据必须有且只有一个取舍决定",
+        selections.some((item) => item.evidenceIndex >= observations.length);
+    const decisionsInvalid = observations.some((_, index) => {
+        const rows = selections.filter((item) => item.evidenceIndex === index);
+        if (rows.length <= 1) return false;
+        if (!groupedFacts || rows.some((item) => item.decision !== "retain"))
+            return true;
+        const refs = rows.flatMap((item) =>
+            item.factRefs.map((ref) =>
+                JSON.stringify([
+                    "targetId" in ref ? ref.targetId : null,
+                    ref.field,
+                    ref.index,
+                ]),
+            ),
         );
-    for (const item of visualSelectionContext(analysis, visual)) {
+        return new Set(refs).size !== refs.length;
+    });
+    if (coverageInvalid || decisionsInvalid)
+        issues.push(
+            "visualSelections: 每条原始视觉依据必须有且只有一个取舍决定；分组保留不能重复引用事实",
+        );
+    for (const item of visualSelectionContext(analysis, visual, targets)) {
         for (const selection of item.decisions) {
             if (
                 selection.decision === "retain" &&
@@ -104,5 +141,27 @@ export function visualSelectionIssues(
                 );
         }
     }
+    for (const target of targets) {
+        for (const field of ["appearance", "pose"] as const) {
+            for (const fact of target[field] ?? []) {
+                const globalFacts = [
+                    visual.medium,
+                    ...visual.styleTraits,
+                    ...visual.composition,
+                    ...visual.relations,
+                    ...visual.colorAndLight,
+                ];
+                if (
+                    globalFacts.includes(fact) ||
+                    (field === "appearance" && target.pose?.includes(fact))
+                )
+                    issues.push(
+                        "visualSelections: 目标事实不得重复冻结到全局或另一类归属",
+                    );
+            }
+        }
+    }
+    if (unreferencedTargetFacts(analysis, targets).length)
+        issues.push("visualSelections: 每条目标事实必须有原始观察及保留引用");
     return [...new Set(issues)];
 }

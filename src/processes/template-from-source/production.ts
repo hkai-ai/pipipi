@@ -51,20 +51,30 @@ export const templateRenderProduction = defineProductionProcess({
     environment,
     build: (context) => createTemplateRenderRegistration(preparation(context)),
 });
-export const templateSourceProduction = defineProductionProcess({
-    id: "template-from-source",
-    environment,
-    members: [{ id: "template-from-image", version: "v1" }],
-    build: (context) => {
-        const compiler = context.members.registry.find({
-            id: "template-from-image",
-            version: "v1",
-        });
-        if (!compiler) throw new Error("缺少固定模板编译成员");
-        return createTemplateSourceRegistration({
-            compiler,
-            attemptRunner: context.members.attemptRunner,
-            preparation: preparation(context),
-        });
-    },
-});
+const createSourceProduction = (runtimeVersion: 2 | 3) =>
+    defineProductionProcess({
+        id: "template-from-source",
+        environment,
+        members: [
+            {
+                id: "template-from-image",
+                version: runtimeVersion === 3 ? "v2" : "v1",
+            },
+        ],
+        build: (context) => {
+            const compiler = context.members.registry.find({
+                id: "template-from-image",
+                version: runtimeVersion === 3 ? "v2" : "v1",
+            });
+            if (!compiler) throw new Error("缺少固定模板编译成员");
+            return createTemplateSourceRegistration({
+                runtimeVersion,
+                compiler,
+                attemptRunner: context.members.attemptRunner,
+                preparation: preparation(context),
+            });
+        },
+    });
+
+export const templateSourceProduction = createSourceProduction(2);
+export const templateSourceV2Production = createSourceProduction(3);

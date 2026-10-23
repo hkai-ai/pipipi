@@ -13,16 +13,12 @@ import {
 import { type TemplateCandidate, templateAnalysisSchema } from "./quality.js";
 import type { TemplateDraft } from "./types.js";
 
-const fields = [
-    "styleTraits",
-    "composition",
-    "relations",
-    "colorAndLight",
-] as const;
-const visualRef = z.strictObject({
-    field: z.enum(fields),
-    index: z.int().min(0).max(63),
-});
+import {
+    globalFields as fields,
+    resolveVisualFact,
+    selectionFactRef as visualRef,
+} from "./visual-facts.js";
+
 const shape = templateAnalysisSchema.shape;
 const slot = shape.slotEvidence.valueType;
 const authority = slot.shape.featureAuthority.unwrap();
@@ -64,7 +60,12 @@ const planAnalysis = templateAnalysisSchema
             .array(
                 shape.spatialRelations.element
                     .omit({ runtimeFact: true })
-                    .extend({ relationIndex: z.int().min(0).max(63) }),
+                    .extend({
+                        relationIndex: z.union([
+                            z.int().min(0).max(63),
+                            visualRef,
+                        ]),
+                    }),
             )
             .max(64),
         slotEvidence: z.record(z.string(), planSlot),
@@ -190,10 +191,15 @@ export function materializeTemplatePlan(value: unknown): TemplateCandidate {
     const draft = draftFromPlan(plan);
     const visual = draft.runtimeSemantics.visualContract;
     const resolve = (ref: z.infer<typeof visualRef>, path: string): string => {
-        const fact = visual[ref.field][ref.index];
-        if (fact === undefined)
+        const resolved = resolveVisualFact(
+            ref,
+            visual,
+            draft.runtimeSemantics.targetInstances,
+        );
+        const fact = resolved.fact;
+        if (fact === null)
             throw new TemplateProjectionError(value, [
-                `${path}: 引用了不存在的 /draft/runtimeSemantics/visualContract/${ref.field}/${ref.index}；有效索引为 0..${visual[ref.field].length - 1}，修正引用或对应正式事实，不得猜测补文`,
+                `${path}: 引用了不存在的 ${resolved.path}；修正引用或对应正式事实，不得猜测补文`,
             ]);
         return fact;
     };
@@ -263,7 +269,9 @@ export function materializeTemplatePlan(value: unknown): TemplateCandidate {
             ({ relationIndex, ...relation }, i) => ({
                 ...relation,
                 runtimeFact: resolve(
-                    { field: "relations", index: relationIndex },
+                    typeof relationIndex === "number"
+                        ? { field: "relations", index: relationIndex }
+                        : relationIndex,
                     `/analysis/spatialRelations/${i}/relationIndex`,
                 ),
             }),
@@ -352,9 +360,20 @@ export function toTemplatePlan(candidate: TemplateCandidate) {
     const { draft, analysis } = structuredClone(candidate);
     const visual = draft.runtimeSemantics.visualContract;
     const reference = (fact: string) => {
+        if (fact === visual.medium)
+            return { field: "medium" as const, index: null };
         for (const field of fields) {
             const index = visual[field].indexOf(fact);
             if (index >= 0) return { field, index };
+        }
+        if (draft.runtimeSemantics.version === 3) {
+            for (const target of draft.runtimeSemantics.targetInstances) {
+                for (const field of ["appearance", "pose"] as const) {
+                    const index = target[field]?.indexOf(fact) ?? -1;
+                    if (index >= 0)
+                        return { targetId: target.id, field, index };
+                }
+            }
         }
         throw new TemplateContractError([
             "旧候选的分析事实没有准确对应正式约束，不能转换为字段引用",
@@ -397,11 +416,11 @@ export function toTemplatePlan(candidate: TemplateCandidate) {
             spatialRelations: rest.spatialRelations.map(
                 ({ runtimeFact, ...relation }) => {
                     const index = visual.relations.indexOf(runtimeFact);
-                    if (index < 0)
-                        throw new TemplateContractError([
-                            "旧候选空间事实没有准确对应 relations，不能转换为字段引用",
-                        ]);
-                    return { ...relation, relationIndex: index };
+                    return {
+                        ...relation,
+                        relationIndex:
+                            index >= 0 ? index : reference(runtimeFact),
+                    };
                 },
             ),
             slotEvidence: Object.fromEntries(

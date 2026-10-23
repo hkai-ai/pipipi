@@ -16,7 +16,12 @@ import {
     type TemplateCandidate,
     templateAnalysisSchema,
 } from "./quality.js";
-import { templateSchemaSha256, templateSchemaUrl } from "./skills.js";
+import {
+    templateSchemaSha256,
+    templateSchemaUrl,
+    templateV3SchemaSha256,
+    templateV3SchemaUrl,
+} from "./skills.js";
 
 export { reviewAxes, templateReviewSchema } from "./quality.js";
 
@@ -39,6 +44,13 @@ if (
     throw new Error("模板 Gallery Schema 摘要不匹配");
 }
 const schema = JSON.parse(schemaBytes.toString("utf8"));
+const v3Bytes = readFileSync(templateV3SchemaUrl);
+if (
+    createHash("sha256").update(v3Bytes).digest("hex") !==
+    templateV3SchemaSha256
+)
+    throw new Error("模板 v3 Schema 摘要不匹配");
+const v3Schema = JSON.parse(v3Bytes.toString("utf8"));
 const draftFields = [
     "key",
     "title",
@@ -98,12 +110,18 @@ export const templateDraftJsonSchema = {
         },
     },
 };
+export const templateV3DraftJsonSchema = {
+    ...templateDraftJsonSchema,
+    $id: "urn:pipipi:template-from-image:draft:v2",
+    $defs: v3Schema.$defs,
+};
 const ajv = new Ajv2020({
     strict: false,
     allErrors: true,
     formats: { uri: fullFormats.uri },
 });
-const validateDraft = ajv.compile<TemplateDraft>(templateDraftJsonSchema);
+const validateLegacyDraft = ajv.compile<TemplateDraft>(templateDraftJsonSchema);
+const validateV3Draft = ajv.compile<TemplateDraft>(templateV3DraftJsonSchema);
 const outputContract = {
     ...schema,
     required: [
@@ -117,6 +135,12 @@ const outputContract = {
     ],
 };
 const validateTemplate = ajv.compile<Template>(outputContract);
+const v3OutputContract = {
+    ...outputContract,
+    $id: v3Schema.$id,
+    $defs: v3Schema.$defs,
+};
+const validateV3Template = ajv.compile<Template>(v3OutputContract);
 const majorTags = new Set([
     "人物",
     "动物",
@@ -179,6 +203,10 @@ export function parseTemplateDraft(value: unknown): TemplateDraft {
 }
 
 export function readTemplateDraft(value: unknown): TemplateDraft {
+    const isV3 = z
+        .object({ runtimeSemantics: z.object({ version: z.literal(3) }) })
+        .safeParse(value).success;
+    const validateDraft = isV3 ? validateV3Draft : validateLegacyDraft;
     if (!validateDraft(value)) {
         // 缺失属性来自固定 Schema，明确字段名才能修正；仍不回显原始字段值或远端错误。
         throw new TemplateContractError(
@@ -222,8 +250,8 @@ export function templateSemanticIssues(draft: TemplateDraft): string[] {
         visualContract,
     } = draft.runtimeSemantics;
     check(
-        draft.runtimeSemantics.version === 2,
-        "runtimeSemantics.version 必须为 2",
+        [2, 3].includes(draft.runtimeSemantics.version),
+        "runtimeSemantics.version 必须为 2 或 3",
     );
     check([...draft.title].length <= 20, "title 最多 20 字");
     check([...draft.description].length <= 20, "description 最多 20 字");
@@ -278,7 +306,12 @@ export function templateSemanticIssues(draft: TemplateDraft): string[] {
         "前台 Prompt 不应包含编译术语",
     );
     const fixedText = JSON.stringify({
-        targets,
+        targets:
+            draft.runtimeSemantics.version === 3
+                ? targets.map(
+                      ({ appearance: _appearance, ...target }) => target,
+                  )
+                : targets,
         visualContract,
         title: draft.title,
         tags,
@@ -417,7 +450,19 @@ export const templateOutputSchema = z.strictObject({
         .refine(
             (value) =>
                 validateTemplate(value) &&
+                value.runtimeSemantics.version === 2 &&
                 templateSemanticIssues(value).length === 0,
         )
         .meta(outputContract),
+});
+
+export const templateV3OutputSchema = z.strictObject({
+    template: z
+        .unknown()
+        .refine(
+            (value) =>
+                validateV3Template(value) &&
+                templateSemanticIssues(value).length === 0,
+        )
+        .meta(v3OutputContract),
 });

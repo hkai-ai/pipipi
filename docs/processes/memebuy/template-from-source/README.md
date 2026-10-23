@@ -84,3 +84,5 @@ Memebuy 主审核区域展示输出形态、载体理由、逐区文字变化、
 Memebuy 分步工作台可保留同一替换方案反复生图。`template-image-render/v1` 兼容可选 UUID `renderId`；同一 `productionId + renderId` 恢复原成图，不同 `renderId` 表示人工明确的新生图。缺省保持旧单图语义。成图审核包摘要包含 `renderId`，`template-from-source/v1` 的图片审批须原样携带该字段，不能跨版本采用审批。每个成图独立保留 attempt、图片、审核与上传记录，提交未知时复用原身份仍禁止重投。模板重编译继续复用同一图片和审批，返回新候选；草稿身份、版本、采用和真实测试由 Memebuy 管理。
 
 先发布支持此字段的 Pi API 与内部图片 Business API，再发布 Memebuy Web 和 Worker；旧方案与旧成图文件原样兼容。
+
+新增 v2 接口交付目标视觉归属 v3，旧 v1 合同保留。详见 [视觉归属升级](../template-from-image/visual-ownership-v3.md)。
