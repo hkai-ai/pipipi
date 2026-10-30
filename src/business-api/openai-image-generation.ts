@@ -1,4 +1,6 @@
-/** OpenAI 图片生成/编辑 Adapter：封装 Images API 的 generate/edit 调用、栅格格式探测与用量解析 */
+/** 封装 OpenAI 图片生成、参考图内存读取与文件表单编辑，以及结果和用量解析。 */
+import type { ImageBackground } from "../processes/image-background.js";
+
 export type GptImageQuality = "low" | "medium" | "high" | "auto";
 
 export type GptImageOutputFormat = "png" | "jpeg" | "webp";
@@ -28,6 +30,7 @@ export type GenerateImageRequest = {
     size?: string;
     quality?: GptImageQuality;
     outputFormat?: GptImageOutputFormat;
+    background?: ImageBackground;
     signal?: AbortSignal;
 };
 
@@ -37,10 +40,12 @@ type SourceImage = {
     filename?: string;
 };
 
-export type EditImageRequest = GenerateImageRequest &
-    (
-        | { image: SourceImage; imageUrl?: never }
-        | { imageUrl: string; image?: never }
+export type EditImageRequest = GenerateImageRequest & {
+    idempotencyKey?: string;
+} & (
+        | { image: SourceImage; imageUrl?: never; imageUrls?: never }
+        | { imageUrl: string; image?: never; imageUrls?: never }
+        | { imageUrls: readonly string[]; image?: never; imageUrl?: never }
     );
 
 export type OpenAIImageGenerationClientOptions = {
@@ -48,7 +53,18 @@ export type OpenAIImageGenerationClientOptions = {
     baseUrl?: string;
     timeoutMs?: number;
     fetch?: typeof globalThis.fetch;
+    referenceReader?: ReferenceImageReader;
+    /** 省略沿用通用默认值；空对象表示由上游决定质量与输出格式。 */
+    editDefaults?: {
+        quality?: GptImageQuality;
+        outputFormat?: GptImageOutputFormat;
+    };
 };
+
+export type ReferenceImageReader = (
+    url: string,
+    signal: AbortSignal,
+) => Promise<Response>;
 
 export class OpenAIImageGenerationError extends Error {
     readonly status?: number;
@@ -81,6 +97,10 @@ export class OpenAIImageGenerationClient {
     readonly #baseUrl: string;
     readonly #timeoutMs: number;
     readonly #fetch: typeof globalThis.fetch;
+    readonly #referenceReader: ReferenceImageReader;
+    readonly #editDefaults: NonNullable<
+        OpenAIImageGenerationClientOptions["editDefaults"]
+    >;
 
     constructor(options: OpenAIImageGenerationClientOptions) {
         const apiKey = options.apiKey.trim();
@@ -97,6 +117,13 @@ export class OpenAIImageGenerationClient {
         ).replace(/\/+$/, "");
         this.#timeoutMs = timeoutMs;
         this.#fetch = options.fetch ?? globalThis.fetch;
+        this.#referenceReader =
+            options.referenceReader ??
+            ((url, signal) => this.#fetch(url, { signal, redirect: "error" }));
+        this.#editDefaults = options.editDefaults ?? {
+            quality: "low",
+            outputFormat: "png",
+        };
     }
 
     async generate(request: GenerateImageRequest): Promise<GeneratedImage> {
@@ -127,6 +154,9 @@ export class OpenAIImageGenerationClient {
                         size: request.size ?? "1024x1696",
                         quality: request.quality ?? "low",
                         output_format: outputFormat,
+                        ...(request.background
+                            ? { background: request.background }
+                            : {}),
                     }),
                     signal,
                 },
@@ -144,42 +174,60 @@ export class OpenAIImageGenerationClient {
     async edit(request: EditImageRequest): Promise<GeneratedImage> {
         const prompt = request.prompt.trim();
         if (!prompt) throw new Error("GPT image prompt is required");
-        if (!("image" in request) || request.image === undefined) {
-            throw new Error(
-                "The OpenAI image Adapter requires source image bytes",
-            );
-        }
-        if (request.image.bytes.byteLength === 0) {
-            throw new Error("GPT image edit requires source image bytes");
-        }
-
         const model = request.model?.trim() || "gpt-image-2";
-        const outputFormat = request.outputFormat ?? "png";
+        const outputFormat =
+            request.outputFormat ?? this.#editDefaults.outputFormat;
         const timeoutSignal = AbortSignal.timeout(this.#timeoutMs);
         const signal = request.signal
             ? AbortSignal.any([request.signal, timeoutSignal])
             : timeoutSignal;
-        const sourceBytes = Uint8Array.from(request.image.bytes);
-        const form = new FormData();
-        form.set("model", model);
-        form.append(
-            "image[]",
-            new Blob([sourceBytes], { type: request.image.mimeType }),
-            request.image.filename?.trim() ||
-                `source.${extensionFor(request.image.mimeType)}`,
-        );
-        form.set("prompt", prompt);
-        form.set("n", "1");
-        form.set("size", request.size ?? "1600x1200");
-        form.set("quality", request.quality ?? "low");
-        form.set("output_format", outputFormat);
+        const parameters = {
+            model,
+            prompt,
+            n: 1,
+            size: request.size ?? "1600x1200",
+            quality: request.quality ?? this.#editDefaults.quality,
+            output_format: outputFormat,
+            ...(request.background ? { background: request.background } : {}),
+        };
+        const headers: Record<string, string> = {
+            authorization: `Bearer ${this.#apiKey}`,
+        };
+        const images = request.imageUrls
+            ? await readCharacterReferences(
+                  request.imageUrls,
+                  this.#referenceReader,
+                  signal,
+              )
+            : request.image
+              ? [request.image]
+              : [];
+        if (images.length === 0)
+            throw new Error("GPT image edit requires source image data");
+        const body = new FormData();
+        for (const [key, value] of Object.entries(parameters)) {
+            if (value !== undefined) body.set(key, String(value));
+        }
+        for (const [index, image] of images.entries()) {
+            if (image.bytes.byteLength === 0) {
+                throw new Error("GPT image edit requires source image bytes");
+            }
+            body.append(
+                "image[]",
+                new Blob([Uint8Array.from(image.bytes)], {
+                    type: image.mimeType,
+                }),
+                image.filename?.trim() ||
+                    `source-${index + 1}.${extensionFor(image.mimeType)}`,
+            );
+        }
 
         let response: Response;
         try {
             response = await this.#fetch(`${this.#baseUrl}/images/edits`, {
                 method: "POST",
-                headers: { authorization: `Bearer ${this.#apiKey}` },
-                body: form,
+                headers,
+                body,
                 signal,
             });
         } catch (error) {
@@ -190,6 +238,94 @@ export class OpenAIImageGenerationClient {
         }
 
         return readGeneratedImage(response);
+    }
+}
+
+function characterReferenceUrls(urls: readonly string[]): readonly string[] {
+    if (urls.length < 1 || urls.length > 5) {
+        throw new Error(
+            "GPT image edit supports one to five character references",
+        );
+    }
+    return urls.map((raw) => {
+        const url = new URL(raw);
+        if (
+            url.protocol !== "https:" ||
+            url.hostname !== "assets.memebuy.cn" ||
+            url.username ||
+            url.password ||
+            url.port ||
+            url.hash ||
+            !(
+                url.pathname.startsWith("/maker/characters/ai-fanworks/") ||
+                url.pathname ===
+                    "/maker/characters/community/scenes/doubao/chibi-5e7e8f7823faaa50.png"
+            )
+        ) {
+            throw new Error("Character reference URL is not allowed");
+        }
+        return raw;
+    });
+}
+
+async function readCharacterReferences(
+    urls: readonly string[],
+    readReference: ReferenceImageReader,
+    callerSignal: AbortSignal,
+): Promise<SourceImage[]> {
+    const references = characterReferenceUrls(urls);
+    const controller = new AbortController();
+    const signal = AbortSignal.any([
+        callerSignal,
+        controller.signal,
+        AbortSignal.timeout(15_000),
+    ]);
+    const maxBytes = 20 * 1024 * 1024;
+    try {
+        // 并行读取但保留原顺序；素材请求不携带网关凭证，也不跟随跳转。
+        return await Promise.all(
+            references.map(async (url) => {
+                signal.throwIfAborted();
+                const response = await readReference(url, signal);
+                if (
+                    !response.ok ||
+                    !response.body ||
+                    Number(response.headers.get("content-length")) > maxBytes
+                ) {
+                    await response.body?.cancel();
+                    throw new Error("角色参考图读取失败或超过大小限制");
+                }
+                const reader = response.body.getReader();
+                const chunks: Uint8Array[] = [];
+                let length = 0;
+                try {
+                    while (true) {
+                        signal.throwIfAborted();
+                        const { done, value } = await reader.read();
+                        if (done) break;
+                        length += value.byteLength;
+                        if (length > maxBytes)
+                            throw new Error("角色参考图超过大小限制");
+                        chunks.push(value);
+                    }
+                } finally {
+                    await reader.cancel();
+                    reader.releaseLock();
+                }
+                const bytes = Buffer.concat(chunks, length);
+                const detected = detectRasterImage(bytes);
+                if (!detected) throw new Error("角色参考图不是支持的图片格式");
+                const mimeType = {
+                    png: "image/png",
+                    jpeg: "image/jpeg",
+                    webp: "image/webp",
+                } as const;
+                return { bytes, mimeType: mimeType[detected.outputFormat] };
+            }),
+        );
+    } finally {
+        // 任一读取失败时终止同批剩余请求。
+        controller.abort();
     }
 }
 

@@ -6,6 +6,8 @@ export type UploadObjectRequest = {
     bytes: Uint8Array;
     contentType: string;
     cacheControl?: string;
+    /** 内容寻址产物只创建一次；冲突时校验已存对象摘要与大小。 */
+    immutableSha256?: string;
 };
 
 export type UploadObjectOptions = {

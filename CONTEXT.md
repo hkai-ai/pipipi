@@ -10,11 +10,15 @@ Business Processing Service 让产品调用方通过一个稳定的 HTTP Interfa
 
 ## 产品场景
 
-仓库服务多个产品场景。Memene 当前拥有三个新闻图片 Business Process；Memebuy 是独立产品边界，当前尚无明确归属的 production Process；跨产品原样复用或契约本身与产品无关的 Process 归入 `common`。场景归属组织代码阅读与文档，不改变 Process identity、版本或统一 HTTP Interface。
+仓库服务多个产品场景。Memene 当前拥有三个新闻图片 Business Process；Memebuy 拥有图片转模板 `template-from-image/v1` 的产品合同，当前通过模板素材箱提取 Worker 对接，候选经人工确认后保存为投稿人的草稿；部署与真实页面验收另行完成；跨产品原样复用或契约本身与产品无关的 Process 归入 `common`。场景归属组织代码阅读与文档，不改变 Process identity、版本或统一 HTTP Interface。
 
 新增 Process 时先确认调用产品。产品专属契约进入 `docs/processes/<product>/`；多个产品共享同一准确契约时进入 `docs/processes/common/`。当前归属以 [`docs/processes/README.md`](docs/processes/README.md) 为入口。
 
 ## 产品契约
+
+模板图的原始附件始终是视觉依据。单一背景上可分离的内容带可附加像素轮廓测量；测量只辅助同次观察，不能代替视觉判断或成为公开模板字段。
+
+图片处理与模板编译的人工重试按阶段区分：模板内容调整复用已批准成图，以新编译轮次保存结果；图片调整才重新进入方案与成图审核。编译要求不改写既有图片审批。
 
 调用方必须知道：
 
@@ -36,10 +40,14 @@ Business Processing Service 让产品调用方通过一个稳定的 HTTP Interfa
 
 ## 当前能力
 
-生产 catalog 当前登记十四个精确版本，其中 `composed-task/v1` 默认关闭：
+生产 catalog 当前登记二十三个精确版本，其中 `composed-task/v1` 默认关闭：
 
 | 场景 | Business Process | 输入 | 输出 | 实现选择 |
 | --- | --- | --- | --- | --- |
+| `memebuy` | `template-from-image/v1` | `{ imageUrl, note? }` | `{ template }` | 受控下载与真实视觉附件；无 Tool Agent 编译并验证 Gallery v2 草稿，不生图、不入库 |
+| `memebuy` | `template-image-plan/v1` | 原图与备注 | 待审替换方案 | 固定来源规则，无 Tool |
+| `memebuy` | `template-image-render/v1` | 方案批准 | 待审 PNG | 固定单次 FAL 编辑 |
+| `memebuy` | `template-from-source/v1` | 成图批准 | 新图与 Gallery 草稿 | 不可变 OSS 与原编译器 |
 | `common` | `content-processing/v1` | `{ content: string }` | `{ content: string }` | 服务端可选择 Direct 或绑定多个 Runtime Skill 的 Agent 路径 |
 | `common` | `titled-content-processing/v1` | `{ title: string, body: string }` | `{ title: string, content: string }` | 复用 Content Processing Capability |
 | `common` | `minimal-zine-poster/v1` | `{ brief: string, text?: string }` | `{ prompt, recipe, interpretation, image }` | 无 Tool Agent 编译固定 Runtime Skill；Poster Rendering Capability 生成并持久化图片 |
@@ -54,10 +62,19 @@ Business Processing Service 让产品调用方通过一个稳定的 HTTP Interfa
 | `common` | `crayon-photo-poster/v1` | `{ sourceImageUrl, text? }` | `{ style, image }` | 彩色蜡笔抽象海报；固定无 Tool Skill，单次编辑与存储 |
 | `common` | `monochrome-photo-poster/v1` | `{ sourceImageUrl, text? }` | `{ style, image }` | 黑白蜡笔摄影海报；固定无 Tool Skill，单次编辑与存储 |
 | `common` | `woodcut-photo-poster/v1` | `{ sourceImageUrl, text? }` | `{ style, image }` | 限色木刻摄影海报；固定无 Tool Skill，单次编辑与存储 |
+| `common` | `photo-doodle-collage/v1` | `{ sourceImageUrl, text? }` | `{ style, image }` | 摄影剪贴与互动黑线小人；固定无 Tool Skill，单次编辑与存储 |
+| `common` | `photo-fashion-manga/v1` | `{ sourceImageUrl, text?, kicker?, caption? }` | `{ style, image }` | 日式时装漫画；固定红蓝配色，服务端逐项解析文案，单次编辑与存储 |
+| `common` | `manga-panels/v1` | `{ sourceImageUrl, preset?, background? }` | `{ style, image }` | 漫画分镜；细节三格与粗笔拼页，无文字和对话框，单次编辑与存储 |
+| `common` | `character-emoji/v2` | `{ cast, idea, captionSetting? }` 或 `{ mode: "comic", cast, idea }` | `{ image, mode, caption?, plan }` | 每格唯一 scene；角色与准确文字独立绑定；专用 DeepSeek 4.1 Flash Pi Agent、按模式加载的固定 Skill 与 DeepSeek 联网搜梗 Tool，Memene GPT Image 2.5 Flare（报错后尝试一次 Magikaru，取消或总截止除外） 多参考图编辑 |
+| `common` | `character-emoji/v3` | `{ cast, idea, captionSetting? }` 或漫画输入 | `{ image, mode, caption?, plan }` | 角色 + appearance 身份；同角色双版本；新版场景参考图；其余执行治理复用 v2 |
 
 照片海报正式输出只包含完整 1200×1600 风格化成品，原图仅作参考输入；旅行抽象只叠加档案字样，不拼接原图。
 
-生产 Composition Root 通过 Installed Skill Catalog 校验默认启用的十三个 Runtime Skill 的准确名称、版本和 SHA-256。Process 只绑定通过校验的准确版本；Catalog 不发现、下载或更新 Skill。
+时装漫画沿用原始手刻粗字与略不齐的字形、字距和基线，印色完整、不透明；人物下缘可局部遮挡首行文字且保持可读。取景跟随原照片与版面，不固定裁腿、小字坐标或做旧纹理。
+
+Mono Color 支持五个按配色与版式命名的可编辑预设，旧标识在输入处兼容转换，供 Memebuy 的五个固定预设 C 类模板复用，保留旧调用行为；服务端在 Agent 编译前解析标题用色、分行、穿插与印刷约束，并在最终图片指令中重申，默认近白纸底与细网点。油墨分工跟随最终版式与配色，用户原文优先于分行，参考主体动作不变。用户原图、文字和补充说明不进入文本 Agent。参数契约见 [API 文档](docs/api.md#mono-color-可编辑预设)。
+
+生产 Composition Root 通过 Installed Skill Catalog 校验默认启用的 Runtime Skill 的准确名称、版本和 SHA-256。Process 只绑定通过校验的准确版本；Catalog 不发现、下载或更新 Skill。
 
 默认 HTTP Interface 提供健康检查和同步 `POST /execute`。异步提交、owner 查询、PostgreSQL Store、BullMQ Worker、Webhook、恢复和保留已经实现，但入口默认关闭。精确行为见 [异步设计](docs/async-process-runs-design.md)。
 
@@ -65,7 +82,9 @@ production Agent catalog 精确登记 `design-assistant/v1`，Agent Conversation
 
 调用方本地开发可以使用 `npm run dev:agent` 启动只绑定回环地址的单进程文本契约服务。它复用正式 HTTP Interface 与内存 Store、Queue、Worker，以确定性 Scripted Agent 完成 Turn；不访问模型、资源服务或外部基础设施，退出即清空，因此不代表生产持久化和恢复形状。
 
-海报、CRT 和 Memene 新闻图片 Process 会调用模型并持久化图片。产品只接收图片引用；真实验收、证据与费用必须显式启用。CRT 和新闻图片上游来源的许可证仍是发布门禁。
+海报、CRT、Memene 新闻图片和角色表情包 Process 会调用模型并持久化图片。产品只接收图片引用；真实验收、证据与费用必须显式启用。CRT 和新闻图片上游来源的许可证仍是发布门禁。角色表情包使用 CC BY-NC-SA 4.0 来源素材，只能用于非商业验证；商用发布前须确认授权并保留署名与相同方式共享要求。
+
+角色表情包 Flare 参考图复用服务端 OSS 配置读取原始字节，不压缩或转码；未配置 OSS 的独立运行保留公网取图。请求参数对齐已核验的 Memebuy 调用，省略质量与输出格式参数，不继承 CRT 设置；成图仍按现有 PNG 与图片引用合同交付。
 
 ## 运行与信任模型
 
@@ -75,7 +94,7 @@ production Agent catalog 精确登记 `design-assistant/v1`，Agent Conversation
 
 Run Observation Module 同时服务同步 API 和异步 Worker。Run Record 与活动日志只用于观测，不决定业务状态、重试或投递；写入失败不能改变 Process Result。异步调用方始终通过 owner-scoped Process Run Store 查询权威状态。
 
-Agent 只获得 Registration 固定绑定的 Runtime Skill 与窄 Tool。文本 Agent 只能调用 Content Processing Capability；海报、CRT 和新闻图片 Agent 没有 Tool，只编译待校验计划；`composed-task` 的 Planner Agent 只获得 allow-list 中其他 Process 的 Step Tool，每个 Step 仍经 Member Registration 自己的校验、幂等键和错误净化。Agent 不获得 Shell、文件读写、代码编辑或任意远程工具。Runtime Skill 随应用发布，调用方不能选择、增加或排序。
+Agent 只获得 Registration 固定绑定的 Runtime Skill 与窄 Tool。文本 Agent 只能调用 Content Processing Capability；海报、CRT 和新闻图片 Agent 没有 Tool，只编译待校验计划；`character-emoji/v2` 的 Pi Agent 默认无 Tool，仅服务端识别到明确检索或近期事实要求时开放 `search_memes` Tool，由其内部调用固定 DeepSeek Responses 原生 `web_search`，首轮接收服务端挑选的本地短卡，允许无需搜索直接提交经校验的改编或原创方案；开放工具后按需搜索，搜索失败直接原创；`composed-task` 的 Planner Agent 只获得 allow-list 中其他 Process 的 Step Tool，每个 Step 仍经 Member Registration 自己的校验、幂等键和错误净化。Agent 不获得 Shell、文件读写、代码编辑或任意远程工具。Runtime Skill 随应用发布，调用方不能选择、增加或排序。
 
 图片 Process 的模型、FAL、OSS、证据和保留策略由服务端 Adapter 与部署环境拥有。产品只提交业务字段并接收图片引用。真实模型、存储和付费验收必须显式运行，凭证与敏感内容不进入日志、正式输出或证据。
 
@@ -183,3 +202,23 @@ Startup Construction 是生产组装 Seam；Process Executor 是同步传输与 
 | 配置键与示例值 | [`.env.example`](.env.example) 与配置解析测试 |
 
 若文档与代码行为冲突，先按测试确认当前事实，再在同一改动中更新受影响的文档。项目目的、范围或共同语言发生变化时，必须同时更新本文。
+
+图片转模板的 `promptTemplate` 是用户可编辑的草稿业务内容，可以随正式结果返回；内部编译指令、复核证据和模型配置仍不返回。
+
+图片转模板按原 Skill 保留逐区文字分类、布局、位置和路由依据，原始观察与选定稳定规则分开保存；共同语义模型生成正式草稿，由独立复核核对。保留完整来源业务规则，槽位取舍直接复用来源原文并复核未入选候选，重复事实由服务端引用投影，内部执行“生成分析与草稿 → 独立看图复核并返回必要补丁 → 程序投影与完整校验”。正常两次模型调用，仅首轮 JSON 或候选结构无法读取时允许一次重新编译，最多三次；独立复核不重写完整候选，也不默认追加模型复核，部分分析采用紧凑行，特征权限及复核报告采用具名对象；九轴权限只要求身份替换槽位提供，其他槽位为 null。证据按来源要求非空且具体，不额外设置四字符下限。修正上下文直接读取引用计划，程序展开后执行完整校验。公开 Gallery v2 草稿合同保持不变；执行失败区分编译、独立复核和本地校验阶段，仅返回安全归类提示。实现与边界见 [图片转模板](docs/processes/memebuy/template-from-image/README.md)。
+
+图片替换方案在原 240 秒预算内允许一次字段补丁修正，完整复验后才交给人工确认；失败阶段和固定规则可诊断。详见 [方案校验与修正](docs/processes/memebuy/template-image-plan/README.md)。
+
+图片预处理按原 Producer 的观察、排版、冻结与特征权限语义生成并固定生图指令，字段修正携带目标 Schema，保留两次人工审核；明确拒绝与未知提交分别保存，批准不可复用。旧方案兼容与审核展示见 [模板图片预处理](docs/processes/memebuy/template-from-source/README.md)。
+
+图片预处理的同次模型请求用总览与最多五张固定区域细节，先逐区观察文字几何再决定替换，观察直接投影到既有 layout 字段；裁片不参与生产图片与审批摘要。Runtime Skill v3 包含原入口及五份完整引用，服务端把批准字段投影为十二段简洁语句。持久化字段顺序与既有 execution v2 合同保持兼容。结构校验和视觉观察质量分别验收，不以人工补充特征后的成图代替自动方案验收。
+
+Memebuy 模板分步制作支持同方案多个成图版本：新 `renderId` 明确重做，同一身份仅恢复；图片审批绑定实际版本，旧单图合同兼容。接口见 [业务 API](docs/api.md)。
+
+CRT 与照片海报将背景模式作为可选业务参数；省略时保持原行为，透明成品需通过透明与可见像素校验。公开合同见 [图片背景参数](docs/api.md#图片背景参数)。
+
+角色表情包由同一个 DeepSeek 4.1 Flash Pi Agent 调用 DeepSeek 搜梗，从最多两个候选中按行为关系选材，以 low 推理预算构思、自检并提交，不启动独立复核会话。搜索资料由服务端生成同次 ID，可用原生摘要直接绑定，缺失时标为未核验灵感；搜索调用失败直接原创，用户取消与整体截止仍停止。初稿及修正均校验同次材料身份。Agent 创作的构图、笑点细节和连续性保留，程序按角色 ID 绑定参考图、生成编号并保留 Agent 的自由布局，接受角色错序；JSON格式错误、可定位的画面字段结构错误与台词错误共用一次原会话修正机会；可读取候选冻结未报错字段，JSON重交则重新检查完整合同。来源错误或角色不匹配仍停止。搜索采用独立上限和有界资料，兜底原因与调用耗时通过不含正文的请求级观测记录。台词与标识保持准确，场景辅助文字交由 Agent 与绘图模型适量处理，明确无字要求优先；单图白底贴纸为默认风格。内部候选与来源不持久化、不进入公开输出，结构及引用通过不代表事实或画面语义正确。 构思及修正采用上游默认输出额度，不发送输出 token 上限，仍保留120秒共享截止时间。
+
+角色表情包主用 Flare 按 Memebuy 方式将参考图读入内存、按顺序通过 multipart 文件表单上传，不落临时文件；备用 Magikaru 保持公网 URL 直传。角色表情包按所选角色注入已维护的创作背景；v2 漫画由 Agent 决定自由布局和各格大小，程序仅补编号。每格仍只有一份 scene；page 与 frame 只描述画格几何，关键行动或可辨认痕迹在 scene 呈现，同次自检核对肢体占用与道具支撑；配字优先级及创作规则见[角色表情包专题](docs/processes/common/character-emoji/README.md)。
+
+豆包（Doubao）新增原版 Q 版参考图、个性和三条原创语音素材，仅支持 Chibi；详见角色表情包专题，部署服务端后再开放调用方。

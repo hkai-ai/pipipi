@@ -10,6 +10,10 @@ import {
 import { join } from "node:path";
 import sharp from "sharp";
 import {
+    characterEmojiImageSchema,
+    characterEmojiRenderInputSchema,
+} from "../processes/character-emoji/capability.js";
+import {
     type CrtRenderingResult,
     isPublicSourceImageUrl,
     parseCrtRenderingResult,
@@ -23,6 +27,10 @@ import {
     crtPaletteNames,
 } from "../processes/crt/style.js";
 import {
+    type ImageBackground,
+    imageBackgroundSchema,
+} from "../processes/image-background.js";
+import {
     type NewsImageGeneration,
     type NewsImageRenderingResult,
     parseNewsImage,
@@ -32,6 +40,7 @@ import {
     photoPosterImageSchema,
     photoPosterRenderSchema,
 } from "../processes/photo-poster/capability.js";
+import { TemplateImagePreparationError } from "../processes/template-from-source/capability.js";
 import {
     type CrtEvidencePolicy,
     type CrtEvidenceResult,
@@ -39,6 +48,8 @@ import {
 } from "./crt-evidence.js";
 import { crtImageDimensions, finalizeCrtImage } from "./crt-finalizer.js";
 import { FalImageGenerationError } from "./fal-image-generation.js";
+import { assertImageBackground } from "./image-background.js";
+import { characterEmojiImageModel } from "./magikaru-image-edit.js";
 import type { ObjectStorageCapability } from "./object-storage.js";
 import {
     type EditImageRequest,
@@ -48,6 +59,8 @@ import {
     OpenAIImageGenerationError,
 } from "./openai-image-generation.js";
 import { finalizeTravelPhoto } from "./photo-poster.js";
+import type { TemplateImageRenderer } from "./template-image-fal.js";
+import { TemplateImageProduction } from "./template-image-production.js";
 
 type ImageEditClient = Readonly<{
     edit: (request: EditImageRequest) => Promise<GeneratedImage>;
@@ -60,6 +73,7 @@ type ImageGenerationClient = Readonly<{
 type RasterContentType = "image/png" | "image/jpeg" | "image/webp";
 
 type CrtRequest = Readonly<{
+    background?: ImageBackground;
     sourceImageUrl: string;
     prompt: string;
     palette: CrtPalette;
@@ -111,7 +125,10 @@ export async function startCrtBusinessApi(
     options: {
         directory: string;
         imageClient: ImageEditClient;
+        characterEmojiImageClient?: ImageEditClient;
         generationClient?: ImageGenerationClient;
+        templateRenderer?: TemplateImageRenderer;
+        templateStorage?: ObjectStorageCapability;
         provider?: string;
         model?: string;
         quality?: GptImageQuality;
@@ -124,6 +141,13 @@ export async function startCrtBusinessApi(
     const directory = options.directory;
     const photoOutputDirectory = join(directory, "photo-posters");
     const photoResultDirectory = join(directory, "photo-poster-results");
+    const emojiOutputDirectory = join(directory, "character-emojis");
+    const emojiResultDirectory = join(directory, "character-emoji-results");
+    const templateProduction = new TemplateImageProduction({
+        directory: join(directory, "template-productions"),
+        renderer: options.templateRenderer,
+        storage: options.templateStorage,
+    });
     const outputDirectory = join(directory, "images");
     const resultDirectory = join(directory, "results");
     const rawDirectory = join(directory, "raw-images");
@@ -132,6 +156,8 @@ export async function startCrtBusinessApi(
     await Promise.all([
         mkdir(photoOutputDirectory, { recursive: true }),
         mkdir(photoResultDirectory, { recursive: true }),
+        mkdir(emojiOutputDirectory, { recursive: true }),
+        mkdir(emojiResultDirectory, { recursive: true }),
         mkdir(outputDirectory, { recursive: true }),
         mkdir(resultDirectory, { recursive: true }),
         mkdir(rawDirectory, { recursive: true }),
@@ -206,6 +232,41 @@ export async function startCrtBusinessApi(
             await generatePhotoPoster(request, response);
             return;
         }
+        if (request.method === "POST" && request.url === "/character-emojis") {
+            await generateCharacterEmoji(request, response);
+            return;
+        }
+        if (
+            request.method === "POST" &&
+            request.url?.startsWith("/template-productions/")
+        ) {
+            const controller = new AbortController();
+            response.once("close", () => {
+                if (!response.writableEnded) controller.abort();
+            });
+            try {
+                const input = JSON.parse(
+                    (await readBody(request, 262144)).toString("utf8"),
+                );
+                const result = await templateProduction.execute(
+                    request.url.slice("/template-productions/".length),
+                    input,
+                    controller.signal,
+                );
+                writeJson(response, 200, result);
+            } catch (error) {
+                writeJson(response, 503, {
+                    error: {
+                        code: "TEMPLATE_PRODUCTION_INCOMPLETE",
+                        reason:
+                            error instanceof TemplateImagePreparationError
+                                ? error.reason
+                                : "incomplete",
+                    },
+                });
+            }
+            return;
+        }
         const photoMatch =
             request.method === "GET"
                 ? /^\/photo-posters\/([A-Za-z0-9_-]+)\.png$/u.exec(
@@ -216,6 +277,27 @@ export async function startCrtBusinessApi(
             try {
                 const bytes = await readFile(
                     join(photoOutputDirectory, `${photoMatch[1]}.png`),
+                );
+                response.writeHead(200, {
+                    "content-type": "image/png",
+                    "content-length": bytes.length,
+                });
+                response.end(bytes);
+            } catch {
+                writeJson(response, 404, { error: { code: "NOT_FOUND" } });
+            }
+            return;
+        }
+        const emojiMatch =
+            request.method === "GET"
+                ? /^\/character-emojis\/([A-Za-z0-9_-]+)\.png$/u.exec(
+                      request.url ?? "",
+                  )
+                : null;
+        if (emojiMatch) {
+            try {
+                const bytes = await readFile(
+                    join(emojiOutputDirectory, `${emojiMatch[1]}.png`),
                 );
                 response.writeHead(200, {
                     "content-type": "image/png",
@@ -445,9 +527,11 @@ export async function startCrtBusinessApi(
                 model,
                 quality,
                 size: "1200x1600",
+                ...(input.background ? { background: input.background } : {}),
                 outputFormat: "png",
                 signal,
             });
+            await assertImageBackground(generated.bytes, input.background);
             const metadata = await sharp(generated.bytes).metadata();
             if (
                 generated.mimeType !== "image/png" ||
@@ -458,8 +542,13 @@ export async function startCrtBusinessApi(
                 throw new Error("照片海报生成尺寸或格式不正确");
             }
             const bytes = input.archive
-                ? await finalizeTravelPhoto(generated.bytes, input.archive)
+                ? await finalizeTravelPhoto(
+                      generated.bytes,
+                      input.archive,
+                      input.background,
+                  )
                 : generated.bytes;
+            await assertImageBackground(bytes, input.background);
             const final = await sharp(bytes).metadata();
             signal.throwIfAborted();
             const stored = options.storage
@@ -493,6 +582,123 @@ export async function startCrtBusinessApi(
                     code: dispatched
                         ? "PHOTO_POSTER_INCOMPLETE"
                         : "PHOTO_POSTER_REJECTED",
+                },
+            });
+        } finally {
+            response.off("close", abort);
+        }
+    }
+
+    async function generateCharacterEmoji(
+        request: IncomingMessage,
+        response: ServerResponse,
+    ): Promise<void> {
+        let input: ReturnType<typeof characterEmojiRenderInputSchema.parse>;
+        let key: string;
+        try {
+            input = characterEmojiRenderInputSchema.parse(
+                JSON.parse((await readBody(request, 65_536)).toString("utf8")),
+            );
+            key = parseIdempotencyKey(
+                singleHeader(request.headers["idempotency-key"]),
+            );
+        } catch {
+            writeJson(response, 400, {
+                error: { code: "CHARACTER_EMOJI_REJECTED" },
+            });
+            return;
+        }
+        const imageClient = options.characterEmojiImageClient;
+        if (!imageClient) {
+            writeJson(response, 503, {
+                error: { code: "CHARACTER_EMOJI_CONFIGURATION_MISSING" },
+            });
+            return;
+        }
+        const digest = sha256(JSON.stringify(input));
+        const controller = new AbortController();
+        const abort = () => {
+            if (!response.writableEnded) controller.abort();
+        };
+        response.once("close", abort);
+        let dispatched = false;
+        try {
+            const claim = await claimTransform(
+                emojiResultDirectory,
+                key,
+                digest,
+                (value) => characterEmojiImageSchema.parse(value),
+                "character emoji",
+            );
+            if (claim.kind === "conflict") {
+                writeJson(response, 409, {
+                    error: { code: "IDEMPOTENCY_CONFLICT" },
+                });
+                return;
+            }
+            if (claim.kind === "pending") {
+                writeJson(response, 503, {
+                    error: { code: "CHARACTER_EMOJI_INCOMPLETE" },
+                });
+                return;
+            }
+            if (claim.kind === "complete") {
+                writeJson(response, 200, claim.result);
+                return;
+            }
+            const signal = controller.signal;
+            signal.throwIfAborted();
+            dispatched = true;
+            const generated = await imageClient.edit({
+                imageUrls: input.imageUrls,
+                prompt: input.prompt,
+                model: characterEmojiImageModel,
+                idempotencyKey: key,
+                quality,
+                size: input.size,
+                ...(input.background ? { background: input.background } : {}),
+                outputFormat: "png",
+                signal,
+            });
+            await assertImageBackground(generated.bytes, input.background);
+            const metadata = await sharp(generated.bytes).metadata();
+            if (
+                generated.mimeType !== "image/png" ||
+                metadata.format !== "png" ||
+                !metadata.width ||
+                !metadata.height ||
+                metadata.width > 4_096 ||
+                metadata.height > 4_096
+            ) {
+                throw new Error("表情包图片尺寸或格式不正确");
+            }
+            const stored = options.storage
+                ? await options.storage.upload(
+                      {
+                          objectKey: `character-emoji/${key}.png`,
+                          bytes: generated.bytes,
+                          contentType: "image/png",
+                          cacheControl: "private, max-age=31536000, immutable",
+                      },
+                      { signal },
+                  )
+                : undefined;
+            const result = characterEmojiImageSchema.parse({
+                url: stored?.url ?? `${serviceUrl}/character-emojis/${key}.png`,
+                contentType: "image/png",
+                width: metadata.width,
+                height: metadata.height,
+            });
+            const path = join(emojiOutputDirectory, `${key}.png`);
+            await writeFile(path, generated.bytes, { mode: 0o600 });
+            await completeTransform(emojiResultDirectory, key, digest, result);
+            writeJson(response, 200, result);
+        } catch {
+            writeJson(response, 503, {
+                error: {
+                    code: dispatched
+                        ? "CHARACTER_EMOJI_INCOMPLETE"
+                        : "CHARACTER_EMOJI_REJECTED",
                 },
             });
         } finally {
@@ -715,6 +921,7 @@ export async function startCrtBusinessApi(
             prompt: input.prompt,
             model,
             size: `${target.width}x${target.height}`,
+            ...(input.background ? { background: input.background } : {}),
             quality,
             outputFormat: "png",
             signal,
@@ -752,10 +959,12 @@ export async function startCrtBusinessApi(
         }
         const finalized = await finalizeCrtImage({
             generated: raw,
+            background: input.background,
             palette: input.palette,
             aspectRatio: input.aspectRatio,
             grain: input.grain,
         });
+        await assertImageBackground(finalized.bytes, input.background);
         artifacts = await saveCrtEvidence(evidencePolicy, {
             runId: requestKey,
             createdAt: new Date().toISOString(),
@@ -1043,8 +1252,21 @@ function summarizeRenderingFailure(
 }
 
 function parseCrtRequest(value: unknown): CrtRequest {
-    if (!isRecord(value) || Object.keys(value).length !== 5) {
-        throw new Error("CRT request must be an object with five fields");
+    if (
+        !isRecord(value) ||
+        Object.keys(value).some(
+            (key) =>
+                ![
+                    "sourceImageUrl",
+                    "prompt",
+                    "palette",
+                    "aspectRatio",
+                    "grain",
+                    "background",
+                ].includes(key),
+        )
+    ) {
+        throw new Error("CRT request contains unsupported fields");
     }
     if (
         typeof value.sourceImageUrl !== "string" ||
@@ -1067,6 +1289,9 @@ function parseCrtRequest(value: unknown): CrtRequest {
         palette: value.palette as CrtPalette,
         aspectRatio: value.aspectRatio as CrtAspectRatio,
         grain: value.grain as CrtGrain,
+        ...(value.background !== undefined
+            ? { background: imageBackgroundSchema.parse(value.background) }
+            : {}),
     });
 }
 

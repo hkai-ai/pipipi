@@ -1,8 +1,10 @@
 /** 固定照片风格 Runtime Skill 的本地路径与内容摘要。 */
 import type { InstalledSkillRef } from "../../agent-runtime/skills.js";
-import type { PhotoPosterStyle } from "./style.js";
+import { type PhotoPosterStyle, photoPosterProcessId } from "./style.js";
 
 const hashes: Readonly<Record<PhotoPosterStyle, string>> = {
+    "manga-panels":
+        "4d4d7ef60a761c757f9a8cca8a4dc6fdec834cbde1fc6539f9c98ccbca218dc1",
     dopamine:
         "f70a9298b01ea5c088b164b4463f07611cd29fcb5f01974517720a111600ab5e",
     "mono-color":
@@ -13,17 +15,22 @@ const hashes: Readonly<Record<PhotoPosterStyle, string>> = {
     monochrome:
         "dc21fd4205704fe4ff0619db503a6683b7ef70921829496ff37d15c3889949d1",
     woodcut: "fbfb6593a8133a64159a9e0423f214c6a99ffc0d62e43eeeecc6b84bb31f04f3",
+    "photo-doodle-collage":
+        "3205dae9d148a5187b97b13cede3c3364313eca2299193e94b2d65a936aa9009",
+    "photo-fashion-manga":
+        "56f4b2bc5874905d492f76e2f513bd2666d57af0ee4a833382ff8ea080dc8333",
 };
 
 export function createPhotoPosterSkillRefs(
     style: PhotoPosterStyle,
 ): readonly InstalledSkillRef[] {
+    const name = `${photoPosterProcessId(style)}-prompt`;
     return Object.freeze([
         Object.freeze({
-            name: `${style}-photo-poster-prompt`,
+            name,
             version: "v1",
             sha256: hashes[style],
-            path: `.pi/skills/${style}-photo-poster-prompt`,
+            path: `.pi/skills/${name}`,
         }),
     ]);
 }

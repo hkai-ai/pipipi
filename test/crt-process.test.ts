@@ -701,3 +701,31 @@ function crtPrompt(palette: "经典" | "如图", aspectRatio: "4:3" | "9:16") {
             : "Derive a coherent two-to-five color palette from the attached source image and use no other colors.";
     return `Transform the attached source image into one ${aspectRatio} CRT wallpaper composition. Lock a roster of every prominent or interacting subject, preserve their order and relationships, retain only a few identity anchors, sever the source contours, alter at least three structural relationships, and rebuild them from five-to-nine flat interlocking masses with plausible blocky hands. Use the diagonal-left waist-up recipe at 70% subject coverage so the subject stays dominant and independently authored.\n\nPlace four foreground windows in an asymmetric-L constellation with one large, two medium, and one small tier, using 5%-20% staggered overlap and preserving 20%-30% connected open field. Include two unequal feature crops, a full-width menu, one open French drop-down, exactly one cursor, and the exact lowercase signature tait-crt-interface-skill unobscured in the upper-right title bar.\n\n${paletteInstruction} Use a dark-field polarity with broad face-side and garment midtones. Build the subject, windows, borders, glyphs, icons, cursor, charts, accents, and a regular darkest/lightest checkerboard on one shared global square-cell lattice; keep all steps integer-aligned and free from antialiasing or smooth sub-cell transitions.\n\nApply dense palette-bound scanlines, sparse noise, hard-cell bloom, one-cell misregistration, short persistence, and restrained row jitter. Force unmistakable radial barrel curvature throughout the outer 10% of all four sides while keeping the inner 80% stable. Avoid tracing, filtered photography, duplicate subjects, malformed hands, invented colors, gradients, modern cards, vector smoothness, 3D, a physical monitor, other logos, calls to action, and long text.`;
 }
+
+it("CRT 背景在编译后传入图片能力，旧流程版本保持可用", async () => {
+    let captured:
+        | Parameters<CrtRenderingCapability["transform"]>[0]
+        | undefined;
+    const executor = createCrtExecutor(
+        { compile: async () => compiledCrt },
+        {
+            transform: async (input) => {
+                captured = input;
+                return rendered;
+            },
+        },
+    );
+    const result = await executor.execute({
+        process: "crt-interface-image",
+        version: "v1",
+        input: {
+            sourceImageUrl: "https://images.example.com/a.png",
+            palette: "经典",
+            aspectRatio: "4:3",
+            background: "transparent",
+        },
+    });
+    expect(result.status).toBe("succeeded");
+    expect(captured?.background).toBe("transparent");
+    expect(captured?.prompt).toBe(compiledCrt.prompt);
+});

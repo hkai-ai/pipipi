@@ -8,6 +8,7 @@ import {
     grainProfile,
     paletteColors,
 } from "../processes/crt/style.js";
+import type { ImageBackground } from "../processes/image-background.js";
 
 export type FinalizedCrtImage = Readonly<{
     bytes: Buffer;
@@ -39,6 +40,7 @@ export function crtImageDimensions(
  */
 export async function finalizeCrtImage(input: {
     generated: Uint8Array;
+    background?: ImageBackground;
     source?: Uint8Array;
     palette: CrtPalette;
     aspectRatio: CrtAspectRatio;
@@ -61,7 +63,7 @@ export async function finalizeCrtImage(input: {
             fit: "fill",
             kernel: sharp.kernel.nearest,
         })
-        .removeAlpha()
+        .ensureAlpha()
         .raw()
         .toBuffer({ resolveWithObject: true });
     if (info.channels < 3) {
@@ -69,6 +71,10 @@ export async function finalizeCrtImage(input: {
     }
 
     const output = Buffer.allocUnsafe(width * height * 3);
+    const alpha =
+        input.background === "transparent"
+            ? Buffer.allocUnsafe(width * height)
+            : null;
     for (let y = 0; y < height; y += 1) {
         for (let x = 0; x < width; x += 1) {
             const source = distortedSourcePixel({
@@ -81,6 +87,7 @@ export async function finalizeCrtImage(input: {
                 low,
                 channels: info.channels,
             });
+            if (alpha) alpha[y * width + x] = source.alpha;
             let colorIndex = nearestColorIndex(source, rgb);
             colorIndex = applyCrtSignals({
                 colorIndex,
@@ -95,11 +102,12 @@ export async function finalizeCrtImage(input: {
             setPixel(output, width, x, y, rgb[colorIndex]);
         }
     }
-    drawSignature(output, width, height, rgb);
+    if (!alpha) drawSignature(output, width, height, rgb);
 
-    const bytes = await sharp(output, {
-        raw: { width, height, channels: 3 },
-    })
+    const result = sharp(output, { raw: { width, height, channels: 3 } });
+    if (alpha)
+        result.joinChannel(alpha, { raw: { width, height, channels: 1 } });
+    const bytes = await result
         .png({ compressionLevel: 9, palette: false })
         .toBuffer();
     return Object.freeze({
@@ -158,7 +166,7 @@ function distortedSourcePixel(options: {
     lowHeight: number;
     low: Buffer;
     channels: number;
-}): Rgb {
+}): Rgb & { alpha: number } {
     const normalizedX = (options.x / Math.max(1, options.width - 1)) * 2 - 1;
     const normalizedY = (options.y / Math.max(1, options.height - 1)) * 2 - 1;
     const radius = Math.sqrt(normalizedX ** 2 + normalizedY ** 2);
@@ -183,6 +191,7 @@ function distortedSourcePixel(options: {
         red: options.low[offset] ?? 0,
         green: options.low[offset + 1] ?? 0,
         blue: options.low[offset + 2] ?? 0,
+        alpha: options.channels === 4 ? (options.low[offset + 3] ?? 255) : 255,
     };
 }
 

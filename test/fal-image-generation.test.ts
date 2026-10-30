@@ -196,3 +196,31 @@ describe("FAL image generation Adapter", () => {
         );
     });
 });
+
+it("FAL 生图与编辑都透传背景，缺省不增添参数", async () => {
+    for (const background of [
+        undefined,
+        "auto",
+        "transparent",
+        "opaque",
+    ] as const) {
+        const subscribe = vi.fn<FalSubscribe>(async () => ({
+            data: { images: [{ url: inlinePng }] },
+            requestId: "background-test",
+        }));
+        const client = new FalImageGenerationClient({
+            apiKey: "test-key",
+            subscribe,
+        });
+        await client.generate({ prompt: "test", background });
+        await client.edit({
+            prompt: "test",
+            imageUrl: "https://example.com/a.png",
+            background,
+        });
+        for (const [, request] of subscribe.mock.calls) {
+            if (background) expect(request.input.background).toBe(background);
+            else expect(request.input).not.toHaveProperty("background");
+        }
+    }
+});

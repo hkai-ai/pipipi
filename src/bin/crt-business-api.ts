@@ -1,10 +1,12 @@
-/** 校验部署环境后装配 CRT 图像生成、对象存储与证据策略，启动 CRT Business API */
+/** 装配受控图片生成、模板图片审批存储与证据策略，启动内部 Business API */
 import { assertDeploymentEnvironment } from "../app/deployment-environment.js";
+import { createCharacterEmojiImageClient } from "../business-api/character-emoji-image.js";
 import { resolveCrtEvidencePolicy } from "../business-api/crt-evidence.js";
 import { startCrtBusinessApi } from "../business-api/crt-server.js";
 import { createImageGenerationClient } from "../business-api/image-generation-config.js";
 import { createObjectStorageFromEnvironment } from "../business-api/object-storage-config.js";
 import type { GptImageQuality } from "../business-api/openai-image-generation.js";
+import { createTemplateImageRenderer } from "../business-api/template-image-fal.js";
 
 assertDeploymentEnvironment(process.env, "crt-business-api");
 
@@ -12,6 +14,19 @@ const port = portNumber(process.env.CRT_BUSINESS_API_PORT);
 const host = process.env.CRT_BUSINESS_API_HOST?.trim() || "127.0.0.1";
 const timeoutMs = positiveInteger(process.env.CRT_IMAGE_TIMEOUT_MS, 180_000);
 const imageGeneration = createImageGenerationClient(process.env, { timeoutMs });
+const directory =
+    process.env.CRT_IMAGE_WORK_DIRECTORY?.trim() || "/tmp/pipipi-crt-business";
+const characterEmojiImageClient = createCharacterEmojiImageClient(process.env, {
+    directory,
+    onAttempts: (event) => {
+        console.log(
+            JSON.stringify({
+                event: "character_emoji_image_attempts",
+                ...event,
+            }),
+        );
+    },
+});
 if (imageGeneration.provider !== "fal") {
     throw new Error(
         "The production CRT Business API requires IMAGE_PROVIDER=fal",
@@ -26,10 +41,19 @@ if (!storage) {
 
 const application = await startCrtBusinessApi(
     {
-        directory:
-            process.env.CRT_IMAGE_WORK_DIRECTORY?.trim() ||
-            "/tmp/pipipi-crt-business",
+        directory,
         imageClient: imageGeneration.client,
+        characterEmojiImageClient,
+        templateRenderer: createTemplateImageRenderer(
+            process.env.FAL_KEY ?? "",
+        ),
+        templateStorage:
+            process.env.OSS_PUBLIC_BASE_URL === "https://assets.memebuy.cn"
+                ? createObjectStorageFromEnvironment({
+                      ...process.env,
+                      OSS_URL_ACCESS: "public",
+                  })
+                : undefined,
         generationClient: imageGeneration.client,
         provider: imageGeneration.provider,
         model: process.env.CRT_IMAGE_MODEL?.trim() || "gpt-image-2",

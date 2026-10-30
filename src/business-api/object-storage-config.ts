@@ -2,6 +2,7 @@
 import {
     AliyunOssStorage,
     type AliyunOssStorageDependencies,
+    type AliyunOssStorageOptions,
 } from "./aliyun-oss-storage.js";
 import type {
     ObjectStorageCapability,
@@ -14,6 +15,14 @@ export function createObjectStorageFromEnvironment(
     environment: ObjectStorageEnvironment = process.env,
     dependencies: AliyunOssStorageDependencies = {},
 ): ObjectStorageCapability | undefined {
+    const options = readAliyunOssOptions(environment);
+    return options ? new AliyunOssStorage(options, dependencies) : undefined;
+}
+
+/** 读写 Adapter 共用部署配置，避免为角色参考图复制一套 OSS 凭证。 */
+export function readAliyunOssOptions(
+    environment: ObjectStorageEnvironment,
+): AliyunOssStorageOptions | undefined {
     const provider = environment.OBJECT_STORAGE_PROVIDER?.trim() || "none";
     if (provider === "none") return undefined;
     if (provider !== "aliyun-oss") {
@@ -24,38 +33,35 @@ export function createObjectStorageFromEnvironment(
     const endpoint = optional(environment, "OSS_ENDPOINT");
     const publicBaseUrl = optional(environment, "OSS_PUBLIC_BASE_URL");
 
-    return new AliyunOssStorage(
-        {
-            region: required(environment, "OSS_REGION"),
-            bucket: required(environment, "OSS_BUCKET"),
-            accessKeyId: required(environment, "OSS_ACCESS_KEY_ID"),
-            accessKeySecret: required(environment, "OSS_ACCESS_KEY_SECRET"),
-            urlAccess: parseUrlAccess(environment.OSS_URL_ACCESS),
-            ...(stsToken ? { stsToken } : {}),
-            ...(endpoint ? { endpoint } : {}),
-            ...(environment.OSS_CNAME === undefined
-                ? {}
-                : { cname: parseBoolean(environment.OSS_CNAME, "OSS_CNAME") }),
-            ...(publicBaseUrl ? { publicBaseUrl } : {}),
-            ...(environment.OSS_TIMEOUT_MS === undefined
-                ? {}
-                : {
-                      timeoutMs: parsePositiveInteger(
-                          environment.OSS_TIMEOUT_MS,
-                          "OSS_TIMEOUT_MS",
-                      ),
-                  }),
-            ...(environment.OSS_SIGNED_URL_TTL_SECONDS === undefined
-                ? {}
-                : {
-                      signedUrlTtlSeconds: parsePositiveInteger(
-                          environment.OSS_SIGNED_URL_TTL_SECONDS,
-                          "OSS_SIGNED_URL_TTL_SECONDS",
-                      ),
-                  }),
-        },
-        dependencies,
-    );
+    return {
+        region: required(environment, "OSS_REGION"),
+        bucket: required(environment, "OSS_BUCKET"),
+        accessKeyId: required(environment, "OSS_ACCESS_KEY_ID"),
+        accessKeySecret: required(environment, "OSS_ACCESS_KEY_SECRET"),
+        urlAccess: parseUrlAccess(environment.OSS_URL_ACCESS),
+        ...(stsToken ? { stsToken } : {}),
+        ...(endpoint ? { endpoint } : {}),
+        ...(environment.OSS_CNAME === undefined
+            ? {}
+            : { cname: parseBoolean(environment.OSS_CNAME, "OSS_CNAME") }),
+        ...(publicBaseUrl ? { publicBaseUrl } : {}),
+        ...(environment.OSS_TIMEOUT_MS === undefined
+            ? {}
+            : {
+                  timeoutMs: parsePositiveInteger(
+                      environment.OSS_TIMEOUT_MS,
+                      "OSS_TIMEOUT_MS",
+                  ),
+              }),
+        ...(environment.OSS_SIGNED_URL_TTL_SECONDS === undefined
+            ? {}
+            : {
+                  signedUrlTtlSeconds: parsePositiveInteger(
+                      environment.OSS_SIGNED_URL_TTL_SECONDS,
+                      "OSS_SIGNED_URL_TTL_SECONDS",
+                  ),
+              }),
+    };
 }
 
 function required(environment: ObjectStorageEnvironment, name: string): string {

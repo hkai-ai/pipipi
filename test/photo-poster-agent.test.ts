@@ -5,6 +5,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { expect, it, vi } from "vitest";
 import { PiPhotoPosterAgent } from "../src/processes/photo-poster/agent.pi.js";
+import { monoColorDesignInstructions } from "../src/processes/photo-poster/mono-color.js";
 import { createPhotoPosterSkillRefs } from "../src/processes/photo-poster/skills.js";
 import {
     photoPosterNames,
@@ -47,8 +48,18 @@ it.each(photoPosterStyles)(
                 } as unknown as CreateAgentSessionResult;
             },
         });
+        const design =
+            style === "mono-color"
+                ? monoColorDesignInstructions({
+                      sourceImageUrl: "https://example.com/reference.png",
+                      preset: "black_red_statement",
+                  })
+                : undefined;
         expect(
-            await agent.compile({ signal: new AbortController().signal }),
+            await agent.compile({
+                signal: new AbortController().signal,
+                design,
+            }),
         ).toEqual({ prompt: "compiled" });
         expect(sessionOptions).toMatchObject({
             noTools: "all",
@@ -59,6 +70,15 @@ it.each(photoPosterStyles)(
             `# ${photoPosterNames[style]}`,
         );
         expect(prompt).toHaveBeenCalledOnce();
+        if (design) {
+            expect(prompt.mock.calls[0]?.[0]).toContain(design);
+            expect(prompt.mock.calls[0]?.[0]).toContain(
+                "不再要求图片模型自行选色",
+            );
+            expect(prompt.mock.calls[0]?.[0]).not.toContain(
+                "https://example.com",
+            );
+        }
         expect(dispose).toHaveBeenCalledOnce();
     },
 );

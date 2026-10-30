@@ -152,3 +152,26 @@ CRT Runtime Skill 是 `TaiT-tt/tait-crt-interface-skill` 在 commit `972a99bc85f
 Skill 更新按依赖升级处理：解析新的不可变版本，比较目录差异，重新做安全和能力审查，更新 `skills.ts` 中的版本与 SHA-256，运行确定性测试与明确需要的真实集成或业务验收，再发布新的应用制品。出现回归时回滚应用制品或恢复上一个固定快照；不要在运行实例上原地拉取旧分支。
 
 业界实现与这一判断的官方资料摘要见 [`research/skill-source-patterns.md`](research/skill-source-patterns.md)。
+
+照片风格中的 `photo-fashion-manga-prompt@v1` 从用户提供的本地 Skill 适配为无 Tool 规则编译，复用单图编辑与存储。已审查目录、固定来源摘要和适配差异见 [来源记录](../.pi/skills/photo-fashion-manga-prompt/SOURCE.md)，正文随镜像发布，业务输入不能选择来源或工具。
+
+## 图片模板编译适配
+
+`meme-template-json-compiler` 从用户指定的本地仓库固定 commit 适配为无 Tool Runtime Skill，绑定 `template-from-image/v1`。开发期完整打包八份业务文档；原 Python 脚本、key 注册表和磁盘侧车不进入运行路径。模型先生成分析与共同语义，再由服务端投影草稿，下一次独立视觉调用核对输入计划摘要并直接交付必要补丁及十九项最终报告，服务端合并、投影并校验全部结构、语义和固定 Gallery Schema，直接传入受控图片附件。来源许可证记录为 `NOASSERTION`，授权范围为本地实现与测试。来源摘要、适配差异和权限见 [SOURCE.md](../.pi/skills/meme-template-json-compiler/SOURCE.md)，执行和验收见 [Process 文档](processes/memebuy/template-from-image/README.md)。
+
+## 图片生产策略快照
+
+`template-image-preparer@v1` 绑定固定来源提交的五份完整业务文档，来源目录清单与摘要保存在同目录 manifest，许可证记录为 NOASSERTION。更新时运行：
+
+```powershell
+npx tsx tools/build-template-image-skill.ts E:/Deployment/meme-template-production/skills/meme-template-image-producer
+npx tsx tools/build-template-image-skill.ts E:/Deployment/meme-template-production/skills/meme-template-image-producer --check
+```
+
+来源变化须先审查清单，重建版本与 production SHA-256；不要手改打包正文。两次原人工确认迁至 Memebuy 页面，Runtime Agent 仅规划；受控 Adapter 生图与上传。单项与原批量工具的差异记录在 SOURCE.md。
+
+模板编译的原始观察、语义投影、文字路由与程序证据分工见 [来源合同对齐](processes/memebuy/template-from-image/source-alignment.md)。文档打包一致与运行合同等价分别验证。
+
+`manga-panels-prompt@v1` 是 Agent Mangaka Forge 固定 MIT 版本的受限适配，只支持细节三格和粗笔拼页，不携带 img-memory、脚本或自动重绘。来源、完整目录审查与差异见 [来源记录](../.pi/skills/manga-panels-prompt/SOURCE.md)，运行时仅加载固定 SKILL.md。
+
+角色表情包使用固定 character-emoji-planner@v18 公共规则及 single/comic 对应模式 Skill，与专用 DeepSeek 4.1 Flash Pi Session；search_memes Tool 内部调用受控 DeepSeek Responses。完整调用预算、来源规则、Skill 生成命令与暂缓的持久化范围见 [角色表情包](processes/common/character-emoji/README.md)。

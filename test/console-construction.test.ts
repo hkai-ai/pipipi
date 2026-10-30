@@ -132,17 +132,25 @@ describe("operator console construction", () => {
             }[];
         };
         expect(catalog.skills.map((skill) => skill.name)).toEqual([
+            "character-emoji-comic",
+            "character-emoji-planner",
+            "character-emoji-single",
             "content-integrity",
             "content-optimization",
             "crayon-photo-poster-prompt",
             "dopamine-photo-poster-prompt",
+            "manga-panels-prompt",
+            "meme-template-json-compiler",
             "minimal-zine-poster-prompt",
             "mono-color-photo-poster-prompt",
             "monochrome-photo-poster-prompt",
             "news-image-narrative-monument-prompt",
             "news-image-pale-watercolor-prompt",
             "news-image-raw-humanism-prompt",
+            "photo-doodle-collage-prompt",
+            "photo-fashion-manga-prompt",
             "tait-crt-interface-prompt",
+            "template-image-preparer",
             "travel-abstraction-photo-poster-prompt",
             "woodcut-photo-poster-prompt",
         ]);

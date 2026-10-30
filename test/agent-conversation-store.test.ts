@@ -9,7 +9,7 @@ import {
 } from "./support/agent-conversation-store-contract.js";
 
 agentConversationStoreContract("In-memory", () =>
-    createInMemoryAgentConversationStore(),
+    createInMemoryAgentConversationStore({ clock: () => timestamp(0) }),
 );
 
 describe("In-memory Agent Conversation retention", () => {

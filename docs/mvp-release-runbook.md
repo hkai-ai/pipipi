@@ -92,7 +92,9 @@ Vercel Functions、Netlify Functions 和 Cloudflare Workers 不能直接运行�
 
 仓库通过 [production CI/CD](../.github/workflows/production-ci-cd.yml) 把同步 API 发布到一台 Linux Docker 服务器。Pull Request 并行执行确定性的 `Check and build` 与真实依赖的 `Async durable acceptance`；后者在隔离 PostgreSQL/Redis 中按固定顺序验证 Store、BullMQ/跨 Seam 和构建控制台的浏览器旅程，并始终执行 Compose 清理。新闻图片付费验收默认关闭，不影响非 Pull Request 候选；启用后，相关路径命中时必须先由 required reviewer 批准 `news-image-acceptance` Environment，并让准确 `github.sha` 完成三个真实 Process Run。`main` 推送和手动触发只有免费检查与已启用且需要的付费验收都成功后，才把镜像归档与生产 Compose 上传服务器并激活。生产 Job 使用 GitHub `production` Environment，并与新闻图片验收及异步 internal 发布共享 `pipipi-production-release` 并发组；服务器的 `shared/deployment.lock` 还会拒绝 Actions 之外的并发发布。
 
-生产镜像固定 Node.js 24、编译产物、生产依赖和十三个 Runtime Skill，不包含源码、`.env` 或凭证。服务器加载 `pipipi:<commit>` 镜像，再通过 [`compose.production.yaml`](../compose.production.yaml) 以同一镜像重建 `pipipi` 和 `pipipi-business-api` 两个容器。部署脚本校验两个容器的 image tag、revision label、liveness 和 readiness；失败时恢复部署前的镜像与 Compose 形状。release artifact 同时携带 `pipipi-<commit>.compose.async.yaml`，但自动部署不上传或激活它；该文件只供通过异步 Runbook 门禁后的显式叠加部署使用。若服务器存在任一异步角色容器，默认同步流水线会拒绝继续；发布人员必须先按异步手册停流、处理已接受 Run，并执行显式回退，不能借普通发布隐式删除 Worker。
+生产镜像固定 Node.js 24、编译产物、生产依赖和 Runtime Skill，不包含源码、`.env` 或凭证。服务器加载 `pipipi:<commit>` 镜像。发布锁内按当前容器选择更新路径：同步部署继续用 [`compose.production.yaml`](../compose.production.yaml) 更新 API 与 Business API；已有异步角色则调用 [`update-async-release.sh`](../ops/update-async-release.sh)，叠加异步 Compose 更新全部六个容器，保留原阶段、Queue identity 和角色环境文件。不完整的异步形状会拒绝发布，不会被当作同步部署覆盖。artifact 同时携带两份 Compose 与更新脚本，均来自本次 CI 的候选 commit。
+
+异步日常更新先核对现有角色版本、候选迁移文件摘要与逐角色环境预检，再暂停新异步提交，最多等待 300 秒排空已接受的 Run，随后切换镜像。它不执行数据库迁移、不执行 Queue Recovery，也不改变灰度流量。迁移文件变化需要按异步手册完成带备份审查的发布。切换后校验全部角色的 image tag、image ID、revision label、healthz 与 readyz；失败或收到终止信号时恢复原镜像和两份 Compose。只有更新成功或回滚验证成功才解除本次停流；人工已有的停流标记始终保留，回滚失败则保留快照与停流标记等待修复。
 
 异步 `internal` 使用独立的手动 [`Async internal release`](../.github/workflows/async-internal-release.yml)，不属于本同步流水线的自动步骤。它由 `async-internal` Environment 授权并复用本流水线产出的候选 artifact；完整配置、证据和回退要求见[异步发布手册](async-process-runs-runbook.md#受控-internal-发布入口)。
 
@@ -221,6 +223,16 @@ server {
 ```
 
 以上片段不包含证书和身份认证。生产入口必须按“发布边界”接入现有可信网关、mTLS 或 `auth_request`，不能直接匿名开放。只允许外部访问 SSH、HTTP 跳转和 HTTPS；阻止公网访问 `4300` 以及 Business API 的内部端口。
+
+#### 同步模板请求的网关超时
+
+`template-from-image/v1` 的 Registration 执行上限为 480 秒，Memebuy 模板调用等待 600 秒。承载该流程的 `location = /execute` 显式设置 `proxy_read_timeout 540s;`，让 Process 先结束，再由网关、调用方依次兜底。上面的 300 秒通用示例不能直接用于模板请求；调整流程预算时同步检查整条链路。
+
+新增精确匹配时，从现有代理保留完整的上游、身份头、鉴权和转发配置，只改变路径匹配与读取超时。生产 1Panel 配置位于 `/opt/1panel/www/sites/pi.ganjiuwanshi.com/proxy/10-pipipi-execute-timeout.conf`；它与 `root.conf` 共享代理行为，后续修改身份头或上游时须同步检查两个 location。
+
+变更前把原配置备份到 include 目录之外。配置检查通过后平滑重载，并检查有效配置、内外网 `/healthz` 和 `/readyz`、`/execute` 非法输入拒绝以及 Console 匿名访问限制。失败时恢复原配置，再检查并重载。重新创建 1Panel 反代后也须核对该超时覆盖。
+
+网关 504 不代表 Process 已停止，晚到的同步结果也不会自动回填调用方。已有失败记录先核对 Run Record；付费提取复测与结果恢复单独执行，避免重复生成。需要可靠接受和结果查询时，使用异步 Interface。
 
 ### 首次发布与日常发布
 
@@ -422,6 +434,8 @@ location /console {
 
 ## 构建并检查镜像
 
+Dockerfile 在成品镜像内以非 root 身份、禁网调用 `createProductionSkillBindings`，校验完整 production catalog 的固定 Skill（含可选 `composed-task`）。文件缺失、目录被 `.dockerignore` 过滤或摘要不匹配会直接使构建失败，不等到服务器激活。新增 Runtime Skill 时同步维护 Dockerfile 的复制清单和 `.dockerignore` 的允许清单。
+
 从干净的发布提交构建镜像，并记录生成的镜像摘要：
 
 ```bash
@@ -543,4 +557,18 @@ npm run accept:crt-business
 
 ## 照片海报发布检查
 
-本批六个照片海报 Process 尚未部署。发布前核对六个固定 Skill 的 LICENSE/SOURCE、用户补充的 Travel 授权范围及原帖提示词使用许可；镜像预检必须包含十三个 Runtime Skill。主 API 与内部图片服务使用同一镜像，`PHOTO_POSTER_API_TIMEOUT_MS` 默认 180000；图片服务需要供应商出站连接和工作目录容量。回滚恢复上一镜像及对应 catalog。真实验收见 [照片海报实验](experiments.md#照片海报业务验收)。
+本批照片海报 Process 尚未部署。发布前核对全部固定 Skill 的 LICENSE/SOURCE，包括摄影剪贴与涂鸦小人的来源授权；镜像预检必须包含新增 Runtime Skill。主 API 与内部图片服务使用同一镜像，`PHOTO_POSTER_API_TIMEOUT_MS` 默认 180000；图片服务需要供应商出站连接和工作目录容量。回滚恢复上一镜像及对应 catalog。真实验收见 [照片海报实验](experiments.md#照片海报业务验收)。
+
+#### 模板图片生产的部署与恢复
+
+新链路最长的 `template-from-source/v1` 为 570 秒。启用该能力的同步 `location = /execute` 使用 `proxy_read_timeout 600s;`，Memebuy 等待 660 秒；原图直接编译仍为 480 秒。不要把两次人工等待放进一个 HTTP 请求。网关修改保留原 Basic Auth、调用方身份头、精确 location 与其他路由；语法检查、匿名拒绝和鉴权访问均通过后再 reload。
+
+发布次序：先审查并执行 Memebuy 的 `20260915090000_template_image_preparation` 迁移（两个状态与 preparation JSONB）；再发布包含三个 Process 的 Pi API、Worker 和内部 Business API；最后发布 Memebuy API 与提取 Worker。旧候选无 preparation 时继续旧链路。迁移未执行时不得运行新 Memebuy 代码。回滚应用可保留新增可空字段和枚举，已进入新审核阶段的项留待兼容版本恢复，勿强改旧状态。
+
+内部图片服务使用既有 FAL_KEY 与 OSS 配置；模板存储仅在 `OSS_PUBLIC_BASE_URL=https://assets.memebuy.cn` 时装配为公读地址，不改变其他图片业务的访问策略。先核验 bucket/CDN 的公读映射与权限，再允许付费生图。缺少模板存储时 render 在提交前拒绝。固定 FAL 模型与参数见来源合同，不由环境或请求覆盖。
+
+`CRT_IMAGE_WORK_DIRECTORY/template-productions` 必须位于持久卷（生产 Compose 已挂载），包含未公开源图、审核图片与批准记录。保护目录权限并纳入备份与容量检查，不用 CRT 临时结果清理任务删除这些生产项。异步 Worker 的 lease 必须严格大于 570000ms，推荐 600000ms；不填写时由完整目录推导。
+
+重启后若存在 `operation.lock`：先停止该内部服务并确认没有旧容器处理该目录，备份单项目录，然后核对 attempt.json 与供应商记录。provider_pending 有 requestId 时可移除该项锁后恢复同一请求；submission_unknown 不得改回 approved 或再次生成，应人工对账。恢复运行前只处理精确 productionId 的锁，不批量删除目录。已上传的同摘要对象只校验复用，不覆盖；缺少真实批准记录时不能人工补“通过”。
+
+上线验收必须从 Memebuy 页面走完两次真实人工确认，再检查最终草稿封面、参考图和供应商单次请求。确定性测试通过不代表真实图片质量、OSS 公读或上线成功。

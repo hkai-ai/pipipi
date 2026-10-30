@@ -1,5 +1,6 @@
 /** CRT Rendering Capability Port 与 PNG 引用契约，生产实现见 capability.http.ts */
 import { z } from "zod";
+import type { ImageBackground } from "../image-background.js";
 import type { CrtAspectRatio, CrtGrain, CrtPalette } from "./style.js";
 
 export const crtImageSchema = z
@@ -52,6 +53,7 @@ export type CrtRenderingCapability = Readonly<{
     transform: (
         input: {
             sourceImageUrl: string;
+            background?: ImageBackground;
             prompt: string;
             palette: CrtPalette;
             aspectRatio: CrtAspectRatio;

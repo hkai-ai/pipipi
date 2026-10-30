@@ -55,6 +55,7 @@ jobs:
           docker save "pipipi:${GITHUB_SHA}" | gzip > "pipipi-${GITHUB_SHA}.image.tar.gz"
           cp compose.production.yaml "pipipi-${GITHUB_SHA}.compose.yaml"
           cp compose.production.async.yaml "pipipi-${GITHUB_SHA}.compose.async.yaml"
+          cp ops/update-async-release.sh "pipipi-${GITHUB_SHA}.update-async.sh"
 
       - name: Upload release
         if: github.event_name != 'pull_request'
@@ -65,6 +66,7 @@ jobs:
             pipipi-${{ github.sha }}.image.tar.gz
             pipipi-${{ github.sha }}.compose.yaml
             pipipi-${{ github.sha }}.compose.async.yaml
+            pipipi-${{ github.sha }}.update-async.sh
           if-no-files-found: error
           retention-days: 7
 
@@ -355,6 +357,8 @@ jobs:
           scp -o BatchMode=yes -o StrictHostKeyChecking=yes \
             "pipipi-${GITHUB_SHA}.image.tar.gz" \
             "pipipi-${GITHUB_SHA}.compose.yaml" \
+            "pipipi-${GITHUB_SHA}.compose.async.yaml" \
+            "pipipi-${GITHUB_SHA}.update-async.sh" \
             "$REMOTE_USER@$REMOTE_HOST:/tmp/"
 
       - name: Activate release
@@ -368,13 +372,19 @@ jobs:
             "$REMOTE_USER@$REMOTE_HOST" \
             bash -s -- "$REMOTE_PATH" "$GITHUB_SHA" \
               "/tmp/pipipi-${GITHUB_SHA}.image.tar.gz" \
-              "/tmp/pipipi-${GITHUB_SHA}.compose.yaml" <<'REMOTE'
+              "/tmp/pipipi-${GITHUB_SHA}.compose.yaml" \
+              "/tmp/pipipi-${GITHUB_SHA}.update-async.sh" \
+              "/tmp/pipipi-${GITHUB_SHA}.compose.async.yaml" <<'REMOTE'
           set -Eeuo pipefail
 
           app_root="$1"
           revision="$2"
           image_archive="$3"
           compose_source="$4"
+          async_update_script="$5"
+          async_compose_source="$6"
+          # 每次尝试都回收上传包，失败重试不会持续占满服务器 /tmp。
+          trap 'rm -f -- "$image_archive" "$compose_source" "$async_compose_source" "$async_update_script"' EXIT
           image="pipipi:$revision"
           shared_env="$app_root/shared/.env"
           compose_file="$app_root/shared/compose.production.yaml"
@@ -420,19 +430,25 @@ jobs:
               exit 1
           fi
 
-          # The default release cannot safely infer that accepted async Runs
-          # have drained. An operator must first use the explicit async
-          # rollback procedure, which removes these roles only after drain.
+          # 已有异步角色时保持原部署模式；更新脚本继承当前发布锁。
           for async_container in \
               pipipi-process-dispatcher \
               pipipi-process-worker \
               pipipi-webhook-worker \
               pipipi-retention-cleaner; do
               if docker inspect "$async_container" >/dev/null 2>&1; then
-                  echo "Explicit async deployment is present; refusing an implicit synchronous rollback" >&2
-                  exit 1
+                  bash "$async_update_script" "$app_root" "$revision" \
+                      "$image_archive" "$compose_source" "$async_compose_source"
+                  rm -f -- "$image_archive" "$compose_source" "$async_compose_source" "$async_update_script"
+                  exit 0
               fi
           done
+          # API 自身仍开启异步却没有 Worker 时属于不完整部署，不能回退同步。
+          if docker inspect pipipi --format '{{range .Config.Env}}{{println .}}{{end}}' 2>/dev/null |
+              grep -Fx 'ASYNC_PROCESS_RUNS_ENABLED=true' >/dev/null; then
+              echo "Async API has no background roles; repair the incomplete deployment" >&2
+              exit 1
+          fi
           gzip -dc "$image_archive" | docker load
 
           docker run --rm --env-file "$shared_env" \
@@ -578,6 +594,6 @@ jobs:
           if [ "$legacy_pm2" = "true" ]; then
               pm2 save --force >/dev/null
           fi
-          rm -f "$image_archive" "$compose_source" "$previous_compose"
+          rm -f "$image_archive" "$compose_source" "$previous_compose" "$async_compose_source" "$async_update_script"
           echo "Deployed revision $revision"
           REMOTE

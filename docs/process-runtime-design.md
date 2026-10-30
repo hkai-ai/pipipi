@@ -170,7 +170,7 @@ Activity Log 只允许 `runId`、Process identity、Attempt、固定 activity、
 ## Composition 与依赖
 
 [`constructProcessingService`](../src/app/api.ts) 拥有 API 的生产 Composition Root。
-它先校验通用配置，创建 Pino Process Run Log Adapter，再组装 catalog 中启用的精确 Registration（十三个常开项，以及默认关闭的 `composed-task/v1`）。`CONTENT_PROCESSING_MODE` 只在文本流程中
+它先校验通用配置，创建 Pino Process Run Log Adapter，再组装 catalog 中启用的精确 Registration（十四个常开项，以及默认关闭的 `composed-task/v1`）。`CONTENT_PROCESSING_MODE` 只在文本流程中
 选择 `direct` 或 `agent`；海报、CRT 与新闻图片流程始终构造无 Tool Agent，并复用 Structured Agent Session Module；`composed-task/v1` 构造只挂 Process Tool 的 Planner Agent，复用 Tool-bearing Structured Agent Session。共享的 provider/model 与 OpenAI API
 mode 在启动时成组校验；Installed Skill Catalog 在监听端口前读取本地 `SKILL.md`，校验准确名称、版本和 SHA-256。模型与远程 Business Capability 仍保持惰性，不影响 liveness。配置或本地 Skill 错误会在
 Application 监听端口前抛出。
@@ -300,4 +300,18 @@ Interface 提供足够 Depth。
 
 ## 照片海报 Registration
 
-六个准确风格共用 Photo Poster Module，Registration 绑定单个固定 Skill 与图片 Capability。无 Tool Agent 编译通用图像规则，不接收照片、URL 或产品文字；图片模型负责观察原图。用户文字由代码原样追加。图片服务复用持久化 claim/complete 幂等记录，请求摘要含固定 style、Prompt 和原图引用，磁盘只保留摘要与输出。已派发的失败或不确定状态返回付费后失败，禁止自动重试。全部风格使用 URL 直传参考图，只交付 1200×1600 独立风格化作品；旅行抽象仅追加档案字样，不拼接原图。图案质量由独立视觉验收确认。
+`manga-panels/v1` 在同一链路解析两个固定分镜预设，服务端约束同时参与无 Tool 编译与最终成图；三个重绘画格组成一个完整作品，原图仍不进入成品。不同 preset 保留在 accepted input，不能以同一幂等输入互换。公开契约见 [漫画分镜](api.md#漫画分镜)。
+
+照片海报风格共用 Photo Poster Module，Registration 绑定单个固定 Skill 与图片 Capability。无 Tool Agent 编译通用图像规则，不接收照片、URL 或产品文字；图片模型负责观察原图。用户文字由代码原样追加。图片服务复用持久化 claim/complete 幂等记录，请求摘要含固定 style、Prompt 和原图引用，磁盘只保留摘要与输出。已派发的失败或不确定状态返回付费后失败，禁止自动重试。全部风格使用 URL 直传参考图，只交付 1200×1600 独立风格化作品；旅行抽象仅追加档案字样，不拼接原图。图案质量由独立视觉验收确认。
+
+## 图片转模板的视觉输入
+
+`template-from-image/v1` 复用 Structured Agent 的无 Tool Session，通过受控图片下载与解码提供真实 PNG 附件。固定 Gallery Schema 与语义规则在服务端验证，Agent 不能选择服务器字段或写入模板库；最多一次候选修正不改变 Registration 的单次 Attempt 策略。过程和测试见 [图片转模板](processes/memebuy/template-from-image/README.md)。
+
+图片转模板保留完整来源业务规则，内部执行“生成分析与草稿 → 独立看图复核并返回必要补丁 → 程序投影与完整校验”。正常两次模型调用；仅首轮 JSON 或候选结构无法读取时允许一次重新编译，最多三次，不追加模型复核。公开 Gallery v2 草稿合同保持不变。实现与边界见 [图片转模板](processes/memebuy/template-from-image/README.md)。
+
+### 有界审核图片交接
+
+Registration 可在构造时固定 `outputMaxBytes`，默认 262,144 字节，最大 28,000,000 字节。当前仅 `template-image-render/v1` 使用特例，供受限运营审核完整 PNG。此参数不进入产品输入；其他 Process 的输出大小与错误行为不变。
+
+角色表情包 v2 的每格动作、位置、道具与可见反差由唯一 scene 字段拥有，图片编译只投影一次；准确文字与角色绑定独立保留。在同一次 Planning Activity 内由一个 Pi Agent 搜梗、构思及自检，搜索失败直接原创；不启动独立复核。JSON格式、可定位结构或配字错误共用一次修正机会，并共享 Registration 截止时间和调用预算；通过完整业务校验后进入 Rendering Activity。请求级观测只记录搜索结果、净化原因码、耗时与调用次数，Sink 失败不改变执行。精确合同见 [角色表情包](processes/common/character-emoji/README.md)。

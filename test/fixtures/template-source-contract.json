@@ -1,0 +1,536 @@
+{
+    "fixtureOnly": true,
+    "approvedImage": {
+        "schemaVersion": 2,
+        "status": "approved_uploaded",
+        "image": {
+            "uri": "https://assets.memebuy.cn/gallery/template-images/9d06e4abfc74edc08e4b4443ce6ecd0c21c21c7af1629bb0ab59084fbdd71008.png",
+            "sha256": "9d06e4abfc74edc08e4b4443ce6ecd0c21c21c7af1629bb0ab59084fbdd71008",
+            "width": 1024,
+            "height": 1024,
+            "mime": "image/png"
+        }
+    },
+    "analysis": {
+        "schemaVersion": 4,
+        "approvedImageSha256": "9d06e4abfc74edc08e4b4443ce6ecd0c21c21c7af1629bb0ab59084fbdd71008",
+        "visualMechanism": "中央主体紧抱宠物的温暖手绘场景",
+        "templateValue": {
+            "whySelected": "拥抱关系明确，替换中央主体后仍有直观情绪价值",
+            "templateHook": "把中央被拥抱对象换成用户指定的主体",
+            "fixedMechanism": ["双臂从前方紧抱中央主体", "中央近景构图"],
+            "backendOnlyFacts": ["身份目标完整重绘并统一为温暖手绘媒介"]
+        },
+        "playDecisionModel": {
+            "funProposition": "用力拥抱与宠物被挤在中央的反应形成温暖又有趣的互动",
+            "userRecreationWish": "用户想把自己的宠物放进被紧紧抱住的场景",
+            "coreUserDecisions": [
+                {
+                    "decisionId": "choose_hugged_subject",
+                    "description": "选择中央被拥抱的宠物身份",
+                    "slotId": "subject",
+                    "evidence": "中央宠物是用户个性化结果的焦点"
+                }
+            ]
+        },
+        "componentGraph": [
+            {
+                "componentId": "subject_main",
+                "role": "identity_subject",
+                "region": "center"
+            }
+        ],
+        "identityTopology": [
+            {
+                "identityUnitId": "subject",
+                "instanceIds": ["subject_main"]
+            }
+        ],
+        "textRegions": [],
+        "mediumComposition": {
+            "medium": "温暖手绘插画",
+            "styleTraits": ["简洁线条"],
+            "composition": ["主体居中"],
+            "colorAndLight": ["柔和暖色光"]
+        },
+        "spatialRelations": [
+            {
+                "type": "hug_contact",
+                "members": ["subject_main"]
+            }
+        ],
+        "containers": [],
+        "fixedStructure": ["centered-hug", "warm-handdrawn-medium"],
+        "editableCandidates": [
+            {
+                "slotId": "subject",
+                "componentId": "subject_main",
+                "selected": true,
+                "selectionReason": "identity_control",
+                "exclusionReason": null
+            }
+        ],
+        "slotCoverageReview": {
+            "selectedSlotIds": ["subject"],
+            "axes": {
+                "subject": {
+                    "candidateComponentIds": ["subject_main"],
+                    "selectedSlotIds": ["subject"],
+                    "evidence": "approved image reviewed for subject"
+                },
+                "text": {
+                    "candidateComponentIds": [],
+                    "selectedSlotIds": [],
+                    "evidence": "approved image reviewed for text"
+                },
+                "object": {
+                    "candidateComponentIds": [],
+                    "selectedSlotIds": [],
+                    "evidence": "approved image reviewed for object"
+                },
+                "clothing": {
+                    "candidateComponentIds": [],
+                    "selectedSlotIds": [],
+                    "evidence": "approved image reviewed for clothing"
+                },
+                "color": {
+                    "candidateComponentIds": [],
+                    "selectedSlotIds": [],
+                    "evidence": "approved image reviewed for color"
+                },
+                "prop": {
+                    "candidateComponentIds": [],
+                    "selectedSlotIds": [],
+                    "evidence": "approved image reviewed for prop"
+                },
+                "scene": {
+                    "candidateComponentIds": [],
+                    "selectedSlotIds": [],
+                    "evidence": "approved image reviewed for scene"
+                },
+                "nested_content": {
+                    "candidateComponentIds": [],
+                    "selectedSlotIds": [],
+                    "evidence": "approved image reviewed for nested_content"
+                }
+            }
+        },
+        "counts": {
+            "identityCount": 1,
+            "visualInstanceCount": 1,
+            "uploadAssetCount": 1,
+            "inputControlCount": 1
+        },
+        "fieldEvidence": {
+            "key": ["approved image evidence for key"],
+            "title": ["approved image evidence for title"],
+            "description": ["approved image evidence for description"],
+            "tags": ["approved image evidence for tags"],
+            "imageSize": ["approved image evidence for imageSize"],
+            "slots": ["approved image evidence for slots"],
+            "suggestions": ["approved image evidence for suggestions"],
+            "defaults": ["approved image evidence for defaults"],
+            "text": ["approved image evidence for text"],
+            "subjectsAndIdentityBindings": [
+                "approved image evidence for subjectsAndIdentityBindings"
+            ],
+            "promptTemplate": ["approved image evidence for promptTemplate"],
+            "visualContract": ["approved image evidence for visualContract"],
+            "inputBindings": ["approved image evidence for inputBindings"],
+            "clothingOwnership": [
+                "approved image evidence for clothingOwnership"
+            ],
+            "cover": ["approved image evidence for cover"],
+            "referenceImage": ["approved image evidence for referenceImage"]
+        },
+        "titleEvidence": {
+            "templateGrounded": true,
+            "usageMotivation": true,
+            "spokenNaturalness": true,
+            "slotPortability": true,
+            "userAppeal": true,
+            "discoveryValue": true,
+            "evidence": "标题只使用拥抱关系，替换主体后仍成立"
+        },
+        "descriptionEvidence": {
+            "userFacing": true,
+            "complementsTitle": true,
+            "spokenNaturalness": true,
+            "slotPortability": true,
+            "evidence": "描述用日常语言补充模板用法，且不锁定开放值"
+        },
+        "tagEvidence": {
+            "动物": {
+                "visualEvidence": "图中可见动物特征",
+                "searchIntent": "用户搜索动物相关模板",
+                "category": "subject"
+            },
+            "拥抱": {
+                "visualEvidence": "图中可见拥抱特征",
+                "searchIntent": "用户搜索拥抱相关模板",
+                "category": "mechanism"
+            },
+            "手绘": {
+                "visualEvidence": "图中可见手绘特征",
+                "searchIntent": "用户搜索手绘相关模板",
+                "category": "medium"
+            },
+            "温暖": {
+                "visualEvidence": "图中可见温暖特征",
+                "searchIntent": "用户搜索温暖相关模板",
+                "category": "emotion"
+            },
+            "互动": {
+                "visualEvidence": "图中可见互动特征",
+                "searchIntent": "用户搜索互动相关模板",
+                "category": "relation"
+            }
+        },
+        "slotEvidence": {
+            "subject": {
+                "userMotivation": true,
+                "independentUserChoice": true,
+                "meaningfulVariation": true,
+                "visuallyVisible": true,
+                "modelControllable": true,
+                "mechanismPreserved": true,
+                "selectionReason": "identity_control",
+                "decisionId": "choose_hugged_subject",
+                "defaultValue": "橘白猫",
+                "semanticAxis": "中央被拥抱主体的身份",
+                "granularity": "单一主体类型",
+                "defaultLanguageReview": {
+                    "natural": true,
+                    "concise": true,
+                    "modifierMinimal": true
+                },
+                "identityRecognition": {
+                    "status": "unrecognized",
+                    "canonicalName": null,
+                    "evidence": "当前图只支持识别为橘白猫，不支持具体命名身份"
+                },
+                "inputModeDecision": {
+                    "modes": ["text", "image"],
+                    "reason": "identity_subject",
+                    "evidence": "中央主体清晰可寻址，用户会自然提供单主体图片"
+                },
+                "suggestionChecks": [
+                    {
+                        "value": "三花猫",
+                        "sameAxis": true,
+                        "sameGranularity": true,
+                        "mechanismCompatible": true
+                    },
+                    {
+                        "value": "银渐层猫",
+                        "sameAxis": true,
+                        "sameGranularity": true,
+                        "mechanismCompatible": true
+                    },
+                    {
+                        "value": "黑白奶牛猫",
+                        "sameAxis": true,
+                        "sameGranularity": true,
+                        "mechanismCompatible": true
+                    }
+                ],
+                "openVisualFacts": [
+                    "橘白猫",
+                    "三花猫",
+                    "银渐层猫",
+                    "黑白奶牛猫"
+                ],
+                "bindingKind": "one_to_one",
+                "inheritFromUpload": ["可辨认身份特征", "服装", "表情"],
+                "keepFromTemplate": ["拥抱动作"],
+                "sourceIsolation": true,
+                "clothingOwnership": "source",
+                "featureAuthority": {
+                    "identity": {
+                        "authority": "source",
+                        "basis": "identity_fidelity",
+                        "evidence": "用户图决定主体身份"
+                    },
+                    "body": {
+                        "authority": "source",
+                        "basis": "identity_fidelity",
+                        "evidence": "体型属于身份辨识特征"
+                    },
+                    "ageStage": {
+                        "authority": "source",
+                        "basis": "identity_fidelity",
+                        "evidence": "当前模板没有年龄转换玩法"
+                    },
+                    "hair": {
+                        "authority": "source",
+                        "basis": "identity_fidelity",
+                        "evidence": "发型属于身份辨识特征"
+                    },
+                    "clothing": {
+                        "authority": "source",
+                        "basis": "appearance_continuity",
+                        "evidence": "普通服装不承担拥抱玩法"
+                    },
+                    "accessories": {
+                        "authority": "source",
+                        "basis": "appearance_continuity",
+                        "evidence": "普通配饰跟随身份外观"
+                    },
+                    "expression": {
+                        "authority": "template",
+                        "basis": "core_mechanism",
+                        "evidence": "温暖表情承担情绪钩子"
+                    },
+                    "pose": {
+                        "authority": "template",
+                        "basis": "composition_dependency",
+                        "evidence": "中心姿势决定构图"
+                    },
+                    "action": {
+                        "authority": "template",
+                        "basis": "core_mechanism",
+                        "evidence": "拥抱动作是模板机制"
+                    }
+                },
+                "visualEvidence": "中央主体清晰可寻址且替换后保留拥抱机制"
+            }
+        },
+        "promptCoverage": {
+            "allEditableContentCovered": true,
+            "slotIds": ["subject"],
+            "freeEditableRegionIds": []
+        },
+        "translationEquivalences": [],
+        "semanticModel": {
+            "promptTemplate": "双臂紧紧抱住画面中央的{{ subject | \"橘白猫\" }}。",
+            "runtimeSemantics": {
+                "version": 2,
+                "targetInstances": [
+                    {
+                        "id": "subject_main",
+                        "kind": "identity_subject",
+                        "role": "画面中心的拥抱主体",
+                        "region": "画面中心"
+                    }
+                ],
+                "inputBindings": {
+                    "subject": {
+                        "operation": "replace_identity",
+                        "targetIds": ["subject_main"],
+                        "bindingPolicy": "one_to_one",
+                        "renderingMode": "illustration_redraw",
+                        "allowedSourceGrouping": ["single_subject"],
+                        "groupToSinglePolicy": "reject",
+                        "clothingOwnership": "source"
+                    }
+                },
+                "visualContract": {
+                    "medium": "温暖手绘插画",
+                    "styleTraits": ["简洁线条"],
+                    "composition": ["主体居中"],
+                    "relations": [
+                        "保持拥抱接触",
+                        "身份目标完整重绘并统一为温暖手绘媒介"
+                    ],
+                    "colorAndLight": ["柔和暖色光"]
+                }
+            },
+            "componentCoverage": {
+                "subject_main": {
+                    "targetIds": ["subject_main"],
+                    "visualContractFields": [
+                        "medium",
+                        "styleTraits",
+                        "composition",
+                        "relations",
+                        "colorAndLight"
+                    ]
+                }
+            },
+            "dynamicFactSources": {
+                "subject": "inputSchema.slots.subject"
+            },
+            "completeRedrawByTarget": {
+                "subject_main": true
+            },
+            "sourceIsolationByInput": {
+                "subject": true
+            }
+        },
+        "selfReview": {
+            "status": "PASS",
+            "reviewedDraftSha256": "75a8c4156cbc972d86d3414f93e326e1374d1ad6295817596dd6e8735939564d",
+            "checks": {
+                "templateValueFocused": {
+                    "passed": true,
+                    "evidence": ["fixture:templateValueFocused"]
+                },
+                "playHypothesisGrounded": {
+                    "passed": true,
+                    "evidence": ["fixture:playHypothesisGrounded"]
+                },
+                "slotRecallComplete": {
+                    "passed": true,
+                    "evidence": ["fixture:slotRecallComplete"]
+                },
+                "slotPrecisionComplete": {
+                    "passed": true,
+                    "evidence": ["fixture:slotPrecisionComplete"]
+                },
+                "semanticUnitsCoherent": {
+                    "passed": true,
+                    "evidence": ["fixture:semanticUnitsCoherent"]
+                },
+                "slotScopeMinimal": {
+                    "passed": true,
+                    "evidence": ["fixture:slotScopeMinimal"]
+                },
+                "imageModesJustified": {
+                    "passed": true,
+                    "evidence": ["fixture:imageModesJustified"]
+                },
+                "groupPolicyJustified": {
+                    "passed": true,
+                    "evidence": ["fixture:groupPolicyJustified"]
+                },
+                "featureAuthorityComplete": {
+                    "passed": true,
+                    "evidence": ["fixture:featureAuthorityComplete"]
+                },
+                "textRoutingComplete": {
+                    "passed": true,
+                    "evidence": ["fixture:textRoutingComplete"]
+                },
+                "textEditLayersComplete": {
+                    "passed": true,
+                    "evidence": ["fixture:textEditLayersComplete"]
+                },
+                "titlePortable": {
+                    "passed": true,
+                    "evidence": ["fixture:titlePortable"]
+                },
+                "copyUserFacingAndSearchable": {
+                    "passed": true,
+                    "evidence": ["fixture:copyUserFacingAndSearchable"]
+                },
+                "promptUserFacing": {
+                    "passed": true,
+                    "evidence": ["fixture:promptUserFacing"]
+                },
+                "placeholdersExact": {
+                    "passed": true,
+                    "evidence": ["fixture:placeholdersExact"]
+                },
+                "suggestionsSubstituteNaturally": {
+                    "passed": true,
+                    "evidence": ["fixture:suggestionsSubstituteNaturally"]
+                },
+                "tagsValid": {
+                    "passed": true,
+                    "evidence": ["fixture:tagsValid"]
+                },
+                "defaultsNaturalAndIdentitySpecific": {
+                    "passed": true,
+                    "evidence": ["fixture:defaultsNaturalAndIdentitySpecific"]
+                },
+                "visualContractRespectsInputs": {
+                    "passed": true,
+                    "evidence": ["fixture:visualContractRespectsInputs"]
+                }
+            },
+            "issuesFound": [],
+            "revisionsApplied": []
+        },
+        "warnings": []
+    },
+    "formalDraft": {
+        "key": "hug-your-pet",
+        "status": "DRAFT",
+        "title": "紧紧抱住画面主角",
+        "description": "替换中央主角",
+        "imageSize": "1024x1024",
+        "imageN": 1,
+        "kind": "PROMPT",
+        "promptTemplate": "双臂紧紧抱住画面中央的{{ subject | \"橘白猫\" }}。",
+        "inputSchema": {
+            "version": 2,
+            "slots": [
+                {
+                    "id": "subject",
+                    "label": "主体",
+                    "required": false,
+                    "text": {
+                        "allowCustom": true,
+                        "placeholder": "输入中央主体，或上传1张清晰主体图",
+                        "suggestions": ["三花猫", "银渐层猫", "黑白奶牛猫"],
+                        "defaultValue": "橘白猫",
+                        "presentation": "suggestions"
+                    },
+                    "image": {
+                        "promptValue": "图片中的中央主体",
+                        "hint": "上传单个人物或宠物",
+                        "maxCount": 1,
+                        "minWidth": 256,
+                        "minHeight": 256,
+                        "private": true,
+                        "sourceOptions": [
+                            "upload",
+                            "recent_upload",
+                            "asset_library"
+                        ]
+                    },
+                    "resolutionStrategy": "image_over_text"
+                }
+            ]
+        },
+        "preprocessSteps": [],
+        "runtimeSemantics": {
+            "version": 2,
+            "targetInstances": [
+                {
+                    "id": "subject_main",
+                    "kind": "identity_subject",
+                    "role": "画面中心的拥抱主体",
+                    "region": "画面中心"
+                }
+            ],
+            "inputBindings": {
+                "subject": {
+                    "operation": "replace_identity",
+                    "targetIds": ["subject_main"],
+                    "bindingPolicy": "one_to_one",
+                    "renderingMode": "illustration_redraw",
+                    "allowedSourceGrouping": ["single_subject"],
+                    "groupToSinglePolicy": "reject",
+                    "clothingOwnership": "source"
+                }
+            },
+            "visualContract": {
+                "medium": "温暖手绘插画",
+                "styleTraits": ["简洁线条"],
+                "composition": ["主体居中"],
+                "relations": [
+                    "保持拥抱接触",
+                    "身份目标完整重绘并统一为温暖手绘媒介"
+                ],
+                "colorAndLight": ["柔和暖色光"]
+            }
+        },
+        "metadata": {
+            "tags": ["动物", "拥抱", "手绘", "温暖", "互动"]
+        }
+    },
+    "registryResponse": {
+        "registryRevision": "fixture-r1",
+        "decision": "NEW",
+        "resolvedKey": "hug-your-pet",
+        "matchedBy": [],
+        "evidence": [
+            {
+                "fixtureOnly": true,
+                "proposedKey": "hug-your-pet",
+                "available": true
+            }
+        ]
+    }
+}

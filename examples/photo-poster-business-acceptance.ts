@@ -12,6 +12,7 @@ import {
     photoPosterImageSchema,
     sourcePhotoSchema,
 } from "../src/processes/photo-poster/capability.js";
+import { mangaPanelsInputSchema } from "../src/processes/photo-poster/manga-panels.js";
 import { createPhotoPosterSkillRefs } from "../src/processes/photo-poster/skills.js";
 import {
     photoPosterNames,
@@ -41,10 +42,15 @@ if (
 const styles = photoPosterStyles.filter(
     (style) => !selected || selected.includes(style),
 );
-const source = await downloadSourcePhoto(
-    sourceImageUrl,
-    AbortSignal.timeout(30_000),
-);
+const mangaPreset = styles.includes("manga-panels")
+    ? mangaPanelsInputSchema.shape.preset.parse(
+          process.env.PHOTO_POSTER_MANGA_PRESET,
+      )
+    : undefined;
+// 验收可复用已核对的原图快照，生产请求仍只向图片供应商直传公网 URL。
+const source = process.env.PHOTO_POSTER_SOURCE_IMAGE_FILE
+    ? await readFile(process.env.PHOTO_POSTER_SOURCE_IMAGE_FILE)
+    : await downloadSourcePhoto(sourceImageUrl, AbortSignal.timeout(30_000));
 const original = await decodeSourcePhoto(source);
 await writeFile(
     join(directory, "source.png"),
@@ -115,6 +121,7 @@ try {
         ...process.env,
         NODE_ENV: "development",
         BUSINESS_API_BASE_URL: businessApi.url,
+        CRT_BUSINESS_API_BASE_URL: businessApi.url,
         PROCESS_TIMEOUT_MS: String(timeoutMs),
         PHOTO_POSTER_API_TIMEOUT_MS: "200000",
         ASYNC_PROCESS_RUNS_ENABLED: "false",
@@ -130,6 +137,7 @@ try {
         const before = calls.length;
         const item: Record<string, unknown> = {
             style,
+            ...(style === "manga-panels" ? { preset: mangaPreset } : {}),
             process: photoPosterProcessId(style),
             skill: createPhotoPosterSkillRefs(style)[0],
             passed: false,
@@ -143,6 +151,9 @@ try {
                     version: "v1",
                     input: {
                         sourceImageUrl,
+                        ...(style === "manga-panels"
+                            ? { preset: mangaPreset }
+                            : {}),
                         ...(style === "travel-abstraction"
                             ? {
                                   phrase: "QUIET AFTERNOON",

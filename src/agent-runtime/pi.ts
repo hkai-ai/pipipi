@@ -53,6 +53,14 @@ export function configureOpenAI(
     });
 }
 
+/** 区分已完成响应的 JSON 格式错误与模型调用失败，供业务流程有界修正。 */
+export class AgentJsonSyntaxError extends SyntaxError {
+    constructor(readonly responseText: string) {
+        super("模型响应不是合法 JSON");
+        this.name = "AgentJsonSyntaxError";
+    }
+}
+
 export function parseAgentJson(messages: readonly unknown[]): unknown {
     const message = messages.findLast(isAssistantMessage);
     if (
@@ -73,7 +81,11 @@ export function parseAgentJson(messages: readonly unknown[]): unknown {
         .join("")
         .trim();
     if (!text) throw new Error("The Agent response was empty");
-    return JSON.parse(text);
+    try {
+        return JSON.parse(text);
+    } catch {
+        throw new AgentJsonSyntaxError(text);
+    }
 }
 
 function isAssistantMessage(value: unknown): value is {

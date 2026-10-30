@@ -9,6 +9,10 @@ import {
     type ProcessRunLogSink,
 } from "../process-runtime/index.js";
 import type { ProcessRunRecords } from "../process-runtime/records.js";
+import {
+    characterEmojiProduction,
+    characterEmojiV3Production,
+} from "./character-emoji/production.js";
 import { composedProduction } from "./composed/production.js";
 import { contentProduction } from "./content/production.js";
 import { crtProduction } from "./crt/production.js";
@@ -20,13 +24,22 @@ import {
 import {
     crayonProduction,
     dopamineProduction,
+    mangaPanelsProduction,
     monoColorProduction,
     monochromeProduction,
+    photoDoodleCollageProduction,
+    photoFashionMangaProduction,
     travelAbstractionProduction,
     woodcutProduction,
 } from "./photo-poster/production.js";
 import { posterProduction } from "./poster/production.js";
 import type { ProductionProcess } from "./production.js";
+import { templateProduction } from "./template-from-image/production.js";
+import {
+    templatePlanProduction,
+    templateRenderProduction,
+    templateSourceProduction,
+} from "./template-from-source/production.js";
 import { titledContentProduction } from "./titled-content/production.js";
 
 /**
@@ -49,6 +62,15 @@ export const productionCatalog: readonly ProductionProcess[] = Object.freeze([
     crayonProduction,
     monochromeProduction,
     woodcutProduction,
+    photoDoodleCollageProduction,
+    photoFashionMangaProduction,
+    mangaPanelsProduction,
+    characterEmojiProduction,
+    characterEmojiV3Production,
+    templateProduction,
+    templatePlanProduction,
+    templateRenderProduction,
+    templateSourceProduction,
     composedProduction,
 ]);
 

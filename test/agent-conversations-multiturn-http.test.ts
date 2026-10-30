@@ -384,8 +384,13 @@ async function startFixture(
 ) {
     let turnSequence = 0;
     let clockSequence = 0;
-    const clock = () =>
-        new Date(Date.UTC(2026, 7, 30, 8, 0, clockSequence++)).toISOString();
+    let now = new Date(Date.UTC(2026, 7, 30, 8)).toISOString();
+    const clock = () => {
+        now = new Date(
+            Date.UTC(2026, 7, 30, 8, 0, clockSequence++),
+        ).toISOString();
+        return now;
+    };
     const registry: AgentRegistry = createAgentRegistry([
         defineAgentRegistration({
             id: "design-assistant",
@@ -400,7 +405,7 @@ async function startFixture(
             limits: options.limits,
         }),
     ]);
-    const store = createInMemoryAgentConversationStore();
+    const store = createInMemoryAgentConversationStore({ clock: () => now });
     const queue = createInMemoryAgentTurnQueue();
     const conversations = createAgentConversations({
         registry,

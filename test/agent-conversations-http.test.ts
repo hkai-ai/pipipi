@@ -464,7 +464,11 @@ async function startFixture(
     } = {},
 ) {
     const timestamps = [firstTimestamp, startedTimestamp, finishedTimestamp];
-    const clock = () => timestamps.shift() ?? finishedTimestamp;
+    let now = firstTimestamp;
+    const clock = () => {
+        now = timestamps.shift() ?? finishedTimestamp;
+        return now;
+    };
     const registry: AgentRegistry = createAgentRegistry([
         defineAgentRegistration({
             id: "design-assistant",
@@ -488,9 +492,10 @@ async function startFixture(
                 } satisfies InteractiveAgent),
         }),
     ]);
-    const store = createInMemoryAgentConversationStore(
-        options.admission ? { admission: options.admission } : {},
-    );
+    const store = createInMemoryAgentConversationStore({
+        clock: () => now,
+        ...(options.admission ? { admission: options.admission } : {}),
+    });
     const queue = createInMemoryAgentTurnQueue();
     let identitySequence = 0;
     const conversations = createAgentConversations({

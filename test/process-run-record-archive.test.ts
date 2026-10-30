@@ -38,10 +38,16 @@ describe("JSONL Process Run Record Archive", () => {
     it("keeps records readable after the writing process is gone", async () => {
         const directory = await createDirectory();
 
-        const writer = createJsonlProcessRunRecordArchive({ directory });
+        const writer = createJsonlProcessRunRecordArchive({
+            directory,
+            clock: () => new Date("2026-08-11T10:00:00.000Z"),
+        });
         await writer.store(record());
 
-        const reader = createJsonlProcessRunRecordArchive({ directory });
+        const reader = createJsonlProcessRunRecordArchive({
+            directory,
+            clock: () => new Date("2026-08-11T10:00:00.000Z"),
+        });
         const page = await reader.list();
 
         expect(page.records).toHaveLength(1);
@@ -107,7 +113,10 @@ describe("JSONL Process Run Record Archive", () => {
 
     it("replaces a CRT source image URL with a digest", async () => {
         const directory = await createDirectory();
-        const archive = createJsonlProcessRunRecordArchive({ directory });
+        const archive = createJsonlProcessRunRecordArchive({
+            directory,
+            clock: () => new Date("2026-08-11T10:00:00.000Z"),
+        });
 
         await archive.store(
             record({
@@ -182,7 +191,10 @@ describe("JSONL Process Run Record Archive", () => {
 
     it("stores business content only when the content policy allows it", async () => {
         const directory = await createDirectory();
-        const archive = createJsonlProcessRunRecordArchive({ directory });
+        const archive = createJsonlProcessRunRecordArchive({
+            directory,
+            clock: () => new Date("2026-08-11T10:00:00.000Z"),
+        });
         const records = createProcessRunRecords({
             adapter: archive,
             clock: () => "2026-08-11T10:00:00.000Z",
@@ -202,6 +214,7 @@ describe("JSONL Process Run Record Archive", () => {
         const stored = await archive.find(
             "00000000-0000-4000-8000-000000000009",
         );
+        expect(stored).toBeDefined();
         expect(stored?.content).toBeUndefined();
     });
 

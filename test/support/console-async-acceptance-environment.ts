@@ -59,7 +59,7 @@ export async function startConsoleAsyncAcceptanceEnvironment(
             PROCESS_RUN_RESULT_RETENTION_MS: "604800000",
             PROCESS_RUN_METADATA_RETENTION_MS: "2592000000",
             PROCESS_TIMEOUT_MS: "2000",
-            PROCESS_RUN_CLAIM_LEASE_MS: "5000",
+            // 按完整生产目录计算租约，避免短测试超时覆盖流程独立时限。
             ASYNC_POSTGRES_CONNECTION_TIMEOUT_MS: "500",
             ASYNC_REDIS_CONNECTION_TIMEOUT_MS: "500",
             RUNTIME_ROLE_READINESS_TIMEOUT_MS: "1000",

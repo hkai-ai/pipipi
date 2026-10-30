@@ -121,10 +121,13 @@ describe("Production CI/CD workflow", () => {
         const webhookWorker = composeService(asyncCompose, "webhook-worker");
         expect(webhookWorker).toContain('PORT: "4350"');
         expect(webhookWorker).toContain("http://127.0.0.1:4350/readyz");
-        expect(deploy).not.toContain("compose.async.yaml");
+        expect(deploy).toContain("compose.async.yaml");
+        expect(ci).toContain("ops/update-async-release.sh");
+        expect(ci).toContain(`pipipi-${workflowSha}.update-async.sh`);
+        expect(deploy).toContain('bash "$async_update_script"');
         expect(deploy).not.toContain("--remove-orphans");
         expect(deploy).toContain(
-            "Explicit async deployment is present; refusing an implicit synchronous rollback",
+            "Async API has no background roles; repair the incomplete deployment",
         );
         for (const container of [
             "pipipi-process-dispatcher",

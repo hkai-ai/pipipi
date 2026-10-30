@@ -1,6 +1,6 @@
 # 业务接口文档
 
-本文面向业务调用方和调用 Agent，记录十四个 Business Process（默认启用十三个）、Agent Conversations、重试与通知契约，以及临时开放的内部评测接口。场景列帮助产品找到契约；请求仍只提交准确 Process 或 Agent 版本和业务输入。其中 `composed-task/v1` 随应用发布但默认关闭；production Agent catalog 精确登记 `design-assistant/v1`，其四个业务路由由部署开关控制且默认关闭。
+本文面向业务调用方和调用 Agent，记录二十三个 Business Process（默认启用二十二个）、Agent Conversations、重试与通知契约，以及临时开放的内部评测接口。场景列帮助产品找到契约；请求仍只提交准确 Process 或 Agent 版本和业务输入。其中 `composed-task/v1` 随应用发布但默认关闭；production Agent catalog 精确登记 `design-assistant/v1`，其四个业务路由由部署开关控制且默认关闭。
 
 ## Agent 能力接入结论
 
@@ -296,7 +296,7 @@ Agent 先读取 [`https://pi.ganjiuwanshi.com/llms.txt`](https://pi.ganjiuwanshi
 | 鉴权 | `/execute` 由部署网关决定；Agent Conversations 必须由网关鉴权并向应用注入可信 caller identity |
 | 字符编码 | UTF-8 |
 | 请求体上限 | 当前应用上限为 262144 UTF-8 bytes；入口网关可以设置更小的限制 |
-| 执行时限 | 当前 Process 上限为 240 秒；同步客户端应预留网络开销并使用至少 260 秒的读取超时 |
+| 执行时限 | 图片转模板上限 480 秒，建议客户端读取超时至少 500 秒；其他 Process 上限 240 秒，建议至少 260 秒。网关超时也需相应配置 |
 | `X-Request-Id` | 可选。调用方自己的 trace id，会写入本次请求的每一条运行日志，包括没有 `runId` 的传输层拒绝。限 1–200 个字符，字符集 `A-Za-z0-9_.:-`；不合规的取值被忽略，不影响执行，也不回显 |
 
 请求使用严格 Schema。多余字段、错误类型、未知 Process 和未知版本都会被拒绝。
@@ -342,18 +342,108 @@ Content-Type: application/json
 
 | 场景 | process | 用途 |
 | --- | --- | --- |
+| `memebuy` | `template-from-image` | 从参考图编译可编辑模板草稿；对接 Memebuy 素材箱提取 Worker，保留 Pipipi 本地测试，尚未部署 |
 | `common` | `content-processing` | 处理一段业务文本 |
 | `common` | `titled-content-processing` | 处理标题和正文 |
 | `common` | `minimal-zine-poster` | 生成极简 Zine 海报 |
+| `common` | `photo-doodle-collage` | 生成摄影剪贴与互动黑线小人海报 |
+| `common` | `photo-fashion-manga` | 真人照片转日式手绘时装漫画 |
+| `common` | `manga-panels` | 无文字的漫画分镜 |
+| `common` | `character-emoji` | 固定 AI 角色的单图表情或多格漫画 |
 | `common` | `crt-interface-image` | 根据公网参考图生成 CRT 风格图片 |
 | `memene` | `news-image-narrative-monument` | 生成人物叙事碑式新闻图片 |
 | `memene` | `news-image-pale-watercolor` | 生成淡彩绘本新闻图片 |
 | `memene` | `news-image-raw-humanism` | 生成原质人文主义新闻图片 |
 | `common` | `composed-task` | 由服务端 Planner 在预算内组合上述 Process 完成一个目标；部署默认关闭，未开启时返回 `PROCESS_NOT_FOUND` |
 
-Memebuy 当前没有已登记 Process。完整场景归属见 [Business Process 场景目录](processes/README.md)。
+Memebuy 场景的图片转模板返回 Gallery v2 草稿，不直接写入 Memebuy。完整场景归属见 [Business Process 场景目录](processes/README.md)。
 
 调用方不能提交 Skill、Prompt、模型、Tool、图片供应商或存储配置。新闻图片风格由 `process` 固定，接口不接收 `style` 字段。
+
+## 角色表情包
+
+`character-emoji/v3` 支持同角色双版本登场：cast 按角色 + appearance 去重，最多 5 位；方案 actors 必填 appearance，漫画对白 speaker 使用 `character:appearance`，其余输入输出结构沿用 v2。参考图按 cast 顺序逐位绑定新版场景素材。v2 合同和旧参考图保留，详情见[双版本登场](processes/common/character-emoji/README.md#双版本登场-v3)。
+
+`character-emoji/v2` 基于 Memebuy 角色表情包接入单图与多格漫画，当前提示词已独立精简。`cast` 中的角色数量为 1–5，同一角色不能重复；`appearance` 为 `Chibi` 或 `Girl`。参考图、文本模型、图片模型和供应商均由服务端固定配置。构思使用 DeepSeek 4.1 Flash Pi Agent，搜索 Tool 内使用 DeepSeek，默认提供按角色和题材挑选的本地短卡，由 Agent 首轮选材改编或原创；服务端仅对明确搜索、核实或近期新闻/热梗等要求开放搜索工具，普通剧情无搜索工具；禁止搜索优先，允许时最多调用一次并取舍两个候选；缺引用的资料可作未核验灵感，搜索失败或素材不适用时直接按输入原创。来源与改编证据不返回给产品。单图按角色 ID 绑定参考图，允许方案中的角色排列不同。JSON格式、可定位结构或配字错误可在原预算内修正一次；构思模型失败、修正后方案仍无法读取或必要业务校验失败时返回 `AGENT_FAILURE`，不会调用生图；用户取消和整体截止仍停止执行。
+
+单图请求：
+
+```json
+{
+  "process": "character-emoji",
+  "version": "v2",
+  "input": {
+    "cast": [{ "character": "DeepSeek", "appearance": "Chibi" }],
+    "idea": "说好简单解释两句，角色却认真捧出一大摞论文，长长的稿纸拖到地上。",
+    "captionSetting": { "mode": "auto" }
+  }
+}
+```
+
+`captionSetting` 可省略，或使用 `{ "mode": "auto" }`、`{ "mode": "none" }`、`{ "mode": "custom", "text": "原样显示的台词" }`。`none` 仅关闭主台词，仍允许必要场景文字；idea 明确要求禁止任何文字时优先于配字设置，全部文字均关闭。其他情况下 custom 原样使用自定义台词，none 关闭主台词；auto 或缺省时结合 idea，明确不要对白则不配台词，仍允许必要场景文字。构思、校验和生图共用同一有效文字策略。自动台词不设置通用禁词。单图默认白底动漫贴纸，可按创意调整背景与风格。
+
+漫画请求把 `mode` 固定为 `comic`，每次生成 2–6 格，格数、画幅和自由布局由 Agent 按剧情决定，支持大小格、跨行跨列及明确嵌格：
+
+```json
+{
+  "process": "character-emoji",
+  "version": "v2",
+  "input": {
+    "mode": "comic",
+    "cast": [
+      { "character": "DeepSeek", "appearance": "Chibi" },
+      { "character": "Claude", "appearance": "Girl" }
+    ],
+    "idea": "角色刚修好一个 bug，电脑后面又爬出一群新 bug；用连续动作表现越修越多。"
+  }
+}
+```
+
+成功输出包含 `image`、`mode`、`plan`；单图另包含 `caption`。v2 的单图 `plan` 为 `{ scene, actors, caption, propMarks }`；漫画为 `{ page, panels }`，每格为 `{ index, frame, scene, actors, texts }`。`actors` 只包含 `{ character, identityMark }`；动作、位置、道具状态及可见笑点统一写入该格 `scene`。准确台词与标识保留原有文字对象。v1 的 `joke`、`composition`、`punchlineDetail`、角色表演字段及漫画 `continuity` 已移除。这是公开输出的不兼容变更：调用方应切换精确版本并读取 `scene`；当前 production catalog 同时注册 v2 和 v3，不自动回退版本。文本阶段由专用 DeepSeek 4.1 Flash Pi Agent 加载固定 Skill，通过受控搜梗 Tool 调用带原生 `web_search` 的 Responses 网关；不继承全局 `PI_MODEL`。图片阶段主用渠道将角色参考图读入内存后按原顺序上传文件，备用渠道保持公网 URL 直传；主用 Memene `gpt-image-2.5-flare`，主用报错时自动切换一次 Magikaru `gpt-image-2.5`，主动取消或整体截止除外；具体服务端配置与切换条件见[角色表情包专题](processes/common/character-emoji/README.md)。调用方不能选择模型或触发备用。取消或超时不代表 Gateway 已停止生成；已知任务应查原 `jobId`；主用提交未知仍按上述策略切换一次备用，产品调用方不要据此重投整个请求。当前正式入口尚未接通跨请求 Job 恢复，重复遇到 pending 会返回失败；方案持久化与正式恢复另行补充。
+
+漫画输出的 `page.layout`、`page.readingOrder` 和各格 `frame` 由 Agent 按剧情设计，支持不等大的画格、跨行跨列及明确嵌格；`panels` 按阅读顺序排列，程序只生成 `index`，不会改写布局。角色创作背景由服务端按角色注入，调用方不能上传或覆盖背景配置；用户剧情仍优先。
+
+既有 AI-Fanworks 角色参考图采用 CC BY-NC-SA 4.0，仅供非商业验证；豆包参考图单独记录来源，不沿用该许可。商用发布前确认各素材授权、署名和相同方式共享要求，详见 [Process 说明](processes/common/character-emoji/README.md#素材与授权)。
+
+## 图片转模板
+
+`template-from-image/v1` 当前对接 Memebuy 素材箱提取 Worker，候选需人工确认后导入；尚未部署，真实页面验收另行完成。主 API 启动后通过统一的 `/execute` 调用。
+
+```json
+{
+  "process": "template-from-image",
+  "version": "v1",
+  "input": {
+    "imageUrl": "https://your-public-assets.example/reference.png",
+    "note": "保留构图，让用户替换主角和文字"
+  }
+}
+```
+
+`imageUrl` 必填，公网 HTTPS、最多 2048 字符，无用户名密码。服务端下载一次，禁止私网和重定向，下载最多 20 MB / 30 秒；图片必须是静态 PNG/JPEG/WebP、宽高至少 64、最多 4000 万像素。`note` 可选，去首尾空格后 1–500 字符；它是编辑意图，不是运行配置。
+
+地址保护或 DNS 解析失败仍返回 `DEPENDENCY_FAILURE`，错误说明会区分受限地址、DNS 问题和图片读取问题；不会回显原图 URL。这些失败均发生在模型调用前。
+
+成功沿用统一响应壳：`{ runId, process, version, status: "succeeded", output: { template } }`。`template` 是完整 Gallery v2 对象：
+
+| 字段 | 返回值与含义 |
+| --- | --- |
+| `key`、`title`、`description` | 建议玩法名、中文标题和说明；key 尚未做业务注册表去重 |
+| `kind`、`status` | 固定 `PROMPT`、`DRAFT` |
+| `cover`、`referenceImage` | 原样引用本次输入地址；不会转存，短期 URL 会到期 |
+| `imageSize`、`imageN`、`preprocessSteps` | 根据原图比例选择固定尺寸；数量固定 1，预处理固定空数组 |
+| `promptTemplate` | 带默认值占位符的模板内容；属于草稿业务输出，不包含内部编译 Prompt |
+| `inputSchema` | version 2，1–4 个可选编辑槽位，每槽支持文字和三个推荐值；身份替换还支持私有图片输入 |
+| `runtimeSemantics` | version 2，明确目标、输入绑定、身份替换策略、服装归属和视觉约束 |
+| `metadata.tags` | 5–8 个发现标签，包含至少一个正式大类 |
+
+Process 最长 480 秒，成功前进行 Schema 与语义校验，先生成分析和草稿，再独立看图复核并返回必要字段补丁，程序合并后统一校验。正常两次视觉模型调用；仅首轮 JSON 或候选结构无法读取时允许一次重新编译，最多三次，之后仍须独立复核。复核或补丁未通过校验则失败，不自动追加模型请求。不向调用方返回内部 analysis、review、图片字节、模型或 Skill 配置。不生成成品、不入库、不发布。JSON 结构正确不代表视觉理解已经人工确认。
+
+已完成响应中的 JSON 语法错误与合同错误共用这一次修正预算。模型输入合同与服务端校验均将标题和描述限制为 20 字；单个多余末尾闭括号或 Markdown 包裹可被去除，但不补造草稿字段，且仍需完整校验。
+
+错误沿用统一错误壳：非法输入为 `INVALID_INPUT`；图片获取或解码失败为 `DEPENDENCY_FAILURE`；模型不支持视觉、执行失败或两次候选校验失败为 `AGENT_FAILURE`；超时返回 `PROCESS_TIMEOUT`；取消沿用共享 Runner 的 `INTERNAL_ERROR`，已断开的客户端可能收不到响应。同步调用无调用方幂等保证，网络失败不自动重试；图像下载失败不会调用模型。鉴权沿用部署平台策略。
+
+执行异常的提示区分编译、修正与复核阶段，并按可识别原因显示连接中断、限流、鉴权、超时或空响应；无法识别时只报告执行异常，不推定模型配置错误。调用方按错误码处理，不解析提示文案；原始异常、供应商地址和凭据不会返回。
 
 ## 内部新闻图片评测
 
@@ -969,9 +1059,15 @@ if (!response.ok || result.status !== "succeeded") {
 }
 ```
 
+## 图片背景参数
+
+CRT 与九个照片海报的 `v1` 接受可选 `background: auto | transparent | opaque`；省略时保留原行为。背景参数直接传给模型，不追加或改写提示词；CRT 后处理同步变换 alpha。透明成品必须同时存在可见与透明像素；不符合时失败且不自动重绘。该参数进入下游幂等摘要，不能用同一个键切换背景。发布时先部署 Pipipi，再开放 Memebuy 能力声明；本地验证不代表生产已生效。
+
+例如：`{"process":"woodcut-photo-poster","version":"v1","input":{"sourceImageUrl":"https://assets.example.com/photo.png","background":"transparent"}}`。其他 Process 未开放该字段。FAL 参数取值依据 [GPT Image 2 编辑接口](https://fal.ai/models/openai/gpt-image-2/edit/api)。
+
 ## 照片海报
 
-以下六个 Process 均使用 `POST /execute`，版本固定为 `v1`。每次处理一张照片；批量由调用方逐张提交，不能上传流程、Skill、模型或运行参数。
+以下九个 Process 均使用 `POST /execute`，版本固定为 `v1`。每次处理一张照片；批量由调用方逐张提交，不能上传流程、Skill、模型或运行参数。
 
 | process | style | 输出规格 |
 | --- | --- | --- |
@@ -981,11 +1077,89 @@ if (!response.ok || result.status !== "succeeded") {
 | `crayon-photo-poster` | `crayon` | 1200×1600 PNG |
 | `monochrome-photo-poster` | `monochrome` | 1200×1600 PNG |
 | `woodcut-photo-poster` | `woodcut` | 1200×1600 PNG |
+| `photo-doodle-collage` | `photo-doodle-collage` | 1200×1600 PNG |
+| `photo-fashion-manga` | `photo-fashion-manga` | 1200×1600 PNG |
+| `manga-panels` | `manga-panels` | 1200×1600 PNG |
 
-除旅行抽象外，input 为 `{ sourceImageUrl, text? }`。sourceImageUrl 必须为公网 HTTPS URL（最大 2048 字符，无凭据、片段、自定义端口或 IP 字面量）；text 为 1–200 字符的海报原文，不参与模型或风格选择。
+除旅行抽象、日式时装漫画与漫画分镜外，input 为 `{ sourceImageUrl, text? }`。sourceImageUrl 必须为公网 HTTPS URL（最大 2048 字符，无凭据、片段、自定义端口或 IP 字面量）；text 为 1–200 字符的海报原文，不参与模型或风格选择。
+
+### 漫画分镜
+
+`manga-panels/v1` 接收公网 HTTPS `sourceImageUrl`、可选 `preset` 与 `background`。只允许以下固定预设；省略时使用 `three-panel-details`。不接受 `dialogues`、`text`、画格数量、任意风格或 Prompt，越权字段与非法预设返回 `INVALID_INPUT`。
+
+| preset | 效果 | 构图 |
+| --- | --- | --- |
+| `three-panel-details` | C · 细节三格 | 上方约三分之一为两个细节格，下方约三分之二为主体；清晰墨线与克制网点 |
+| `sketchy-mixed-panels` | D · 粗笔拼页 | 约七成的斜向主格，加右上眼神与左下细节；粗细笔触、干笔及黑块 |
+
+两者均为三个画格、中性黑白、无文字。主格保留原图可见姿态，细节取自原图已有的脸、手或配饰；不补出不可见身体，不增加故事动作。原图 URL 不进入文本 Agent。`background` 沿用图片背景合同；固定黑白画法不改写背景参数。技术成功不证明视觉验收通过。
+
+Memebuy 可将两个模板分别绑定同一 Process 与固定 preset，用户只需上传参考图。返回 `style` 为 `manga-panels`，preset 保留于运行输入，不增加正式输出字段。
+
+```json
+{"process":"manga-panels","version":"v1","input":{"sourceImageUrl":"https://assets.example.com/person.png","preset":"sketchy-mixed-panels"}}
+```
+
+### 日式时装漫画文案
+
+`photo-fashion-manga/v1` 接收真实单人照片的 `sourceImageUrl`，以及可选的 `background` 和以下文案。画风固定为墨黑轻线、红蓝平涂与米白纸底；照片决定人物身份、服装类别、动作和可见身体范围，不补画照片外身体。暂不接收第二张风格图。
+
+| 字段 | 长度 | 省略时的默认值 | 位置与颜色 |
+| --- | --- | --- | --- |
+| `text` | 0–200 字符 | `WIBI\nSTYLE` | 下方主标题，首行暖红、次行灰蓝 |
+| `kicker` | 0–100 字符 | `EVERYDAY, REDRAWN.` | 上方墨黑小引题 |
+| `caption` | 0–100 字符 | `my own way.` | 头肩旁更小的墨黑小注 |
+
+每项独立覆盖，空字符串或纯空白表示去掉该项，`null` 无效。主标题保留明确分行；没有换行时按自然词界适配两行，单词不拆写。全部文案保留大小写与标点，仅作为待印刷文字，不参与规则编译；其他照片 Process 不接受 `kicker` 或 `caption`。
+
+```json
+{"process":"photo-fashion-manga","version":"v1","input":{"sourceImageUrl":"https://assets.example.com/person.jpg","text":"MY OWN\nSTYLE","kicker":"EVERYDAY, REDRAWN.","caption":""}}
+```
+
+### Mono Color 可编辑预设
+
+`mono-color-photo-poster/v1` 在上述输入之外接受以下可选业务参数。旧请求不传这些参数时，保持 Skill 自动搭配。只要提供设计参数而未指定 `preset`，基于 `blue_orange_overlap` 补齐默认值。显式设置优先于预设；`preset` 字符串作为调整项的值时表示跟随当前预设。
+
+| 字段 | 允许值 |
+| --- | --- |
+| `preset` | `blue_orange_overlap`（蓝橙穿字）、`blue_orange_diagonal_crop`（蓝橙斜切）、`black_red_statement`（黑红宣言）、`black_red_frame`（黑红取景框）、`black_red_diagonal_type`（黑红斜排） |
+| `palette` | `preset`、`cobalt_terracotta`、`charcoal_red`、`green_oxblood` |
+| `typography` | `preset`、`literary`、`condensed` |
+| `composition` | `preset`、`editorial_cover`、`diagonal_crop`、`statement`、`frame`、`diagonal_type` |
+| `emphasis` | `preset`、`gentle`、`balanced`、`bold` |
+| `texture` | `preset`、`light`、`standard`、`strong` |
+| `designNotes` | 1–500 字符的设计偏好；不覆盖结构化设置、主体保持、文字和输出规则 |
+
+```json
+{"process":"mono-color-photo-poster","version":"v1","input":{"sourceImageUrl":"https://assets.example.com/photo.png","preset":"blue_orange_diagonal_crop","palette":"charcoal_red","typography":"preset","text":"MY CAT","designNotes":"注释放左下角"}}
+```
+
+五个预设的默认设计如下；标题占比随 `emphasis` 调整，用户原文优先于分行要求，单词或长文案会适应版式，不补词或删词。
+
+| 预设 | 标题与版式 |
+| --- | --- |
+| `blue_orange_overlap` | 蓝色衬线大标题分两行占下部约 35–45%，与原有主体轮廓穿插，橙色仅点缀主体细节 |
+| `blue_orange_diagonal_crop` | 上部蓝色主标题与斜向裁切边界结合，短引导词可用橙色，露出主体焦点 |
+| `black_red_statement` | 炭黑大标题在下部紧密堆叠两行、约占 35–45%，红色点缀现有主体细节，不退化成底部单行字幕 |
+| `black_red_frame` | 上部较小红色标题、下部更大炭黑标题围合主体；仅保留原图已有的取景手势 |
+| `black_red_diagonal_type` | 炭黑两行大字从左下向中部上扬，与右侧主体穿插，深色交叠处留纸白轮廓，红色局部点缀 |
+
+五个预设默认使用接近白色的干净纸底、阴影细网点和清晰轮廓，不强制泛黄、粗网点或动漫化。线稿和阴影使用主色，背景留白，不铺大块辅色底板。显式覆盖配色或版式后，标题颜色分工跟随最终解析的配色与版式；显式 `texture: "strong"` 仍可使用粗网点。设计规则在编译前传入，并在最终图片指令中覆盖通用 Skill 的复古印刷要求。
+
+旧 `preset` 值仍兼容：`within_reach` → `blue_orange_overlap`、`half_hidden` → `blue_orange_diagonal_crop`、`your_move` → `black_red_statement`、`hold_still` → `black_red_frame`、`look_again` → `black_red_diagonal_type`。只在输入校验时转换，复用相同设计规则；新调用使用新标识，Process 仍为 `v1`。
+
+五个预设来自样图的设计归纳，不是作者公开的精确配方。它们调整版式和印刷处理，保留输入图主体、数量、动作及核心关系；不会为匹配示例额外制造伸手或手势。`text` 留空时按实际参考图提炼短英文，不把预设名印在画面上。只返回单张 1200×1600 PNG，不提供可编辑图层。其他照片 Process 不接受这些新增字段。
+
+### 其他照片海报示例
 
 ```json
 {"process":"dopamine-photo-poster","version":"v1","input":{"sourceImageUrl":"https://assets.example.com/photo.png","text":"SUMMER DAYS"}}
+```
+
+摄影剪贴与涂鸦小人示例：
+
+```json
+{"process":"photo-doodle-collage","version":"v1","input":{"sourceImageUrl":"https://assets.example.com/photo.png","text":"don't let go."}}
 ```
 
 旅行抽象 input 为 `{ sourceImageUrl, phrase, archiveNumber?, capturedOn? }`。phrase 是用户根据照片提供的 1–3 个大写英文单词，最多 60 字符；archiveNumber 为 1–999，默认 1，无跨请求计数；capturedOn 为 YYYY-MM-DD，缺省采用服务端 UTC 创建日期，不猜测拍摄日期。
@@ -994,8 +1168,42 @@ if (!response.ok || result.status !== "succeeded") {
 {"process":"travel-abstraction-photo-poster","version":"v1","input":{"sourceImageUrl":"https://assets.example.com/photo.png","phrase":"QUIET PAWS","archiveNumber":1,"capturedOn":"2026-09-07"}}
 ```
 
-成功 output 为 `{ style, image: { url, contentType: "image/png", width, height, expiresAt? } }`。正式输出不返回 Prompt、原图 URL、模型、Skill、供应商或存储配置。六项输出均为独立风格化成品，不附原照片、不分上下对照。旅行抽象的档案字样直接绘制在抽象成品上。
+成功 output 为 `{ style, image: { url, contentType: "image/png", width, height, expiresAt? } }`。正式输出不返回 Prompt、原图 URL、模型、Skill、供应商或存储配置。全部输出均为独立风格化成品，不附原照片、不分上下对照。旅行抽象的档案字样直接绘制在抽象成品上。
 
 输入或额外字段不合法返回 INVALID_INPUT；版本不匹配返回 PROCESS_NOT_FOUND；编译失败返回 AGENT_FAILURE；明确未发起图片调用时失败返回 DEPENDENCY_FAILURE；已发出图片调用、响应丢失、保存失败或内部 pending 返回 DEPENDENCY_FAILURE_AFTER_COMMIT。禁止对后者自动重试，先核对执行记录。Process 超时仍按统一 PROCESS_TIMEOUT 契约处理，图片费用可能已产生。
 
 内部图片服务 `POST /photo-posters` 是受控 Capability 协议，不供产品直连；使用 `CRT_BUSINESS_API_BASE_URL`，连接超时由服务端 `PHOTO_POSTER_API_TIMEOUT_MS` 配置，默认 180000 ms。
+
+## 模板图片生产与两次审核
+
+以下三个固定 Process 仅供受信任的 Memebuy 后台调用，均使用既有 `/execute` 或 `/process-runs` Interface。不得向普通用户开放可自行填写 reviewerRef 的调用入口。Process 身份、模型、Skill、存储与执行指令均由服务端固定；浏览器只提交候选 ID、当前摘要和审核决定。
+
+| Process / version | input | output | Process 预算 |
+| --- | --- | --- | --- |
+| `template-image-plan/v1` | `{ imageUrl, note? }`，沿用原图片编译输入限制 | `{ productionId, sourceImageSha256, strategySha256, strategy }` | 240 秒 |
+| `template-image-render/v1` | `{ productionId, objectSha256, reviewerRef }`，objectSha256 为方案摘要 | `{ productionId, imageSha256, reviewPackageSha256, width, height, imageDataUrl }` | 270 秒 |
+| `template-from-source/v1` | `{ productionId, objectSha256, reviewPackageSha256, reviewerRef, note? }`，objectSha256 为成图摘要，note 为本轮模板编译要求 | `{ template, coverImageUrl, preparedImage }` | 570 秒 |
+
+模板内容不满意时，调用方可用原成图审批发起新的编译轮次，并提交可选 `note`（去首尾空白后 1–500 字符）。新要求只覆盖本次编译的备注，不修改方案、生图指令或成图批准；省略时沿用原方案备注。已经上传的审核图片复用内容寻址对象，不重新生图或上传，返回的图片摘要保持不变。新轮次仍须人工审阅模板草稿；异步调用使用新轮次的幂等键，技术失败恢复沿用原运行。
+
+方案校验失败时可在原 240 秒预算内进行一次受限字段修正，仍不通过则返回 `AGENT_FAILURE`；不会自动生图或批准方案。
+
+productionId 为 UUID；摘要为小写 64 位 SHA-256；reviewerRef 为 1–191 字符的服务端审核者引用。字段闭合，不接受额外运行配置。strategy 是待人审阅的完整业务方案，包含替换目标、类别判断、组件分组、依赖与特征权限、文字/标记动作、冻结项、风险；准确结构由 `GET /processes` 的输出 Schema 给出，调用方不能用策略正文替代已持久化 productionId。新输出另含 execution：`{ version: "v2", prompt, promptSha256 }`，精确十二段指令由服务端从策略生成，与源图及策略一起纳入 strategySha256。原审批入参保持不变。
+
+targetCanvas 增加 carrierRole（none/apparel/device/mechanism）、reason、excludedScopes；frozenSet 改为 `{ scope: "design" | "carrier" | "environment", regionId, instruction }[]`；文字项增加 originalText、componentId，exactText 表示最终文字，删除为空串。replacementComponentIds 关联闭包中实际替换的组件。审核端应展示这些业务要求，旧记录缺失字段标记“未记录”。完整场景需显示依据并显式勾选确认。
+
+已保存的旧方案不自动转换：尚未提交生成的方案必须重新规划和确认；已知 requestId 继续恢复，已有成图继续原审批。明确拒绝、未知提交和需要重新批准的提示沿用现有公开错误分类。明确非重试 4xx 不恢复批准；未知提交禁止重投。
+
+imageDataUrl 是完整 PNG 的 Base64 Data URL，原 PNG 至多 20,000,000 字节，整个成图审核输出至多 28,000,000 字节。该特例只属于固定 render Registration，其他输出仍受默认上限约束。审核方必须保存交接结果并等待人工批准，不因收到图片而自动调用下一步。
+
+preparedImage 为 `{ url, sha256, width, height, contentType: "image/png" }`；url 固定为 `https://assets.memebuy.cn/gallery/template-images/<sha256>.png`。template.cover、template.referenceImage 和 coverImageUrl 均引用该图片。公开输出不包含原始策略、两次审批或业务备注。
+
+方案失败返回 `AGENT_FAILURE`；生图或上传编译不能确定完成时返回 `DEPENDENCY_FAILURE_AFTER_COMMIT`。这些错误不授权重新付费生图：人工恢复必须提交原 productionId 与原批准摘要。已知供应商请求继续查询，未知生成提交需要对账。重试编译可能重新调用编译模型，但不会再生成图片。
+
+## 可重复制作与成图版本
+
+Memebuy 分步工作台可保留同一替换方案反复生图。`template-image-render/v1` 兼容可选 UUID `renderId`；同一 `productionId + renderId` 恢复原成图，不同 `renderId` 表示人工明确的新生图。缺省保持旧单图语义。成图审核包摘要包含 `renderId`，`template-from-source/v1` 的图片审批须原样携带该字段，不能跨版本采用审批。每个成图独立保留 attempt、图片、审核与上传记录，提交未知时复用原身份仍禁止重投。模板重编译继续复用同一图片和审批，返回新候选；草稿身份、版本、采用和真实测试由 Memebuy 管理。
+
+先发布支持此字段的 Pi API 与内部图片 Business API，再发布 Memebuy Web 和 Worker；旧方案与旧成图文件原样兼容。
+
+豆包以 "Doubao" 身份提供原版头像延展的 Q 版（仅 "Chibi"），不提供少女版。固定参考图为修正肩颈比例后的版本，保留棕色侧分短发、黑色上衣和 3D 卡通质感。构思同步语音搭子预设及三条原创素材：悄悄问外放答、客气到挂不了电话、正经解答变唠家常；这些不是已核实的流行梗。参考来源为 https://apps.apple.com/cn/app/id6459478672 ，不沿用 AI-Fanworks 素材许可。先部署此角色支持，再解除调用方的远程保护。

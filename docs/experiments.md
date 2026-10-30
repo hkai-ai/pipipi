@@ -269,9 +269,9 @@ npm run smoke:staging
 
 ## 照片海报业务验收
 
-`npm run accept:photo-poster-business` 按表格顺序验证六个固定风格，跳过猫猫绘本。需要设置 `PHOTO_POSTER_SOURCE_IMAGE_URL` 为可使用的公网 HTTPS 照片。它使用本地 .env 中的 Pi 文本模型、FAL GPT Image 2 和 OSS 配置，临时监听回环端口并关闭异步入口、Worker 和共享 Run Record。
+`npm run accept:photo-poster-business` 按表格顺序验证九个固定风格，跳过猫猫绘本。需要设置 `PHOTO_POSTER_SOURCE_IMAGE_URL` 为可使用的公网 HTTPS 照片。它使用本地 .env 中的 Pi 文本模型、FAL GPT Image 2 和 OSS 配置，临时监听回环端口并关闭异步入口、Worker 和共享 Run Record。
 
-验收最多六次图片调用与六次结果 OSS PUT；每项正式 POST /execute 后下载 output.image.url，验证 PNG、尺寸、文件哈希和单次图片调用。全部风格校验 1200×1600 独立成品，是否夹带原图区域通过人工视觉检查。结果与图片写入 `artifacts/photo-poster-acceptance/<本次时间戳>/`，报告不保存原图 URL、Prompt 或凭据。失败不自动重绘。
+验收最多九次图片调用与九次结果 OSS PUT；每项正式 POST /execute 后下载 output.image.url，验证 PNG、尺寸、文件哈希和单次图片调用。全部风格校验 1200×1600 独立成品，是否夹带原图区域通过人工视觉检查。结果与图片写入 `artifacts/photo-poster-acceptance/<本次时间戳>/`，报告不保存原图 URL、Prompt 或凭据。失败不自动重绘。
 
 ```powershell
 $env:PHOTO_POSTER_SOURCE_IMAGE_URL = 'https://assets.example.com/photo.png'
@@ -294,10 +294,42 @@ npm run accept:photo-poster-business
 
 全量 `npm test` 最终为 783 通过、130 失败、65 跳过，失败集中在 12 个部署脚本测试文件；`npm run check` 有 247 个 CRLF 格式问题。本次 18 个相关代码文件的 Biome 检查和 `git diff --check` 通过。
 
-当前验收可用 `PHOTO_POSTER_ACCEPTANCE_STYLES` 指定逗号分隔的固定风格子集，默认六项全跑；用于只重测发生变化的风格，避免重复付费。
+当前验收可用 `PHOTO_POSTER_ACCEPTANCE_STYLES` 指定逗号分隔的固定风格子集，默认八项全跑；用于只重测发生变化的风格，避免重复付费。
+
+只验证日式时装漫画时设置 `PHOTO_POSTER_ACCEPTANCE_STYLES=photo-fashion-manga`，参考图使用真实单人照片。若本机代理 DNS 的 Fake-IP 被受控下载拒绝，可设置 `PHOTO_POSTER_SOURCE_IMAGE_FILE` 指向已核对的同一公网原图本地快照，仅供验收对照；公网 URL 仍原样交给图片供应商。该选项不进入生产 Interface，也不放宽公网校验。验收固定连接本次启动的本地图片 Business API，不继承 `.env` 的远程专用地址。
 
 ### 2026-09-07 独立成品复测
 
 用户修正输出目标后，移除五个 Skill 的上下对照规则及旅行抽象的原图拼接。以相同样图、文本模型、FAL GPT Image 2 low 和 OSS 链路依次重测多巴胺、旅行抽象、彩色蜡笔、黑白蜡笔、木刻；五次图片调用与五次结果存储全部成功，回读均为 1200×1600 PNG。逐张视觉检查确认仅含风格化作品，没有附加原照片或上下对照。本轮只确认输出形态修正，不代表全部风格细节已严格达标。双色整版未改动，未重复付费验证。
 
 当前图片与报告：`artifacts/photo-poster-acceptance/1788776174357/`。相关 200 项测试、五个变更 Skill 校验、类型检查、构建及 11 个相关代码文件的 Biome 检查通过。全量 check 仍有 247 个 CRLF 问题；全量测试本次为 782 通过、131 失败、65 跳过，包含原有 Windows/WSL 脚本失败和并发负载下 CRT finalizer 超时；后者单独复测 3/3 通过。未提交或部署。
+
+### 2026-09-29 日式时装漫画实测
+
+通过本地正式 `POST /execute` 执行 `photo-fashion-manga/v1`，文本模型编译固定 Skill 后调用 FAL GPT Image 2 low，一次生图、一次 OSS 结果写入，约 37 秒。返回 HTTP 200，运行 `bf2641c8-6d0a-4206-bf9c-1f788378d23f` 成功，成品为 1200×1600 PNG，OSS 回读、生成文件和上传字节摘要一致。
+
+参考为 Alina Matveycheva 的 [Unsplash 真人西装照片](https://unsplash.com/photos/young-woman-poses-in-oversized-blazer-zMeJPA3ZRAk)。本机 Fake-IP 被受控下载拒绝后，用同一公网图片的本地快照作验收对照，生成仍使用公网 URL。成图保留主要辨认特征和插袋姿势，默认四处文案及红蓝分工正确；标题仍较规整，未完全达到随意手刻感。原图为黑白照片，不能证明原肤色还原。单样本技术成功不代表视觉质量全面通过。
+
+图片和脱敏报告位于 `artifacts/photo-poster-acceptance/1790649560300/`，不纳入 Git。本次为本地 Pipipi 集成验收，不代表已部署线上或接入 Memebuy 模板。
+
+按用户选定的最初 Codex 成图重新校准文字材质：保留原人物与布局规则，去掉禁止任何印色缺口的附加约束，明确逐字手绘轮廓、细碎油墨边缘与少量露纸颗粒。相同照片、模型与 low 档位的两次本地实测均为一次生图、一次 OSS 写入，技术验证通过；报告分别位于 `artifacts/photo-poster-acceptance/1790656318971/` 和 `artifacts/photo-poster-acceptance/1790656446295/`。
+
+首轮 `e730dc6d-f93f-4e2d-ab69-9c9525919de4` 有颗粒但字形仍过规整；第二轮 `e9696f53-2507-4cb9-b9c9-63b44074edc0` 增强了不对称字形和细碎缺口，没有长刷毛拖尾，但局部仍有细白边、颗粒量少于基准图。基准图未作为供应商第二张输入；文字规则校准不证明模型能完整复现其视觉效果，也不代表已获用户视觉验收。
+
+根据文字过透、腿部贯穿标题的反馈，追加不透明实色笔画与衣摆附近取景规则，同照片及 low 档位复测运行 `b6afaa35-95b2-4c20-8436-a408388a4489`。约 35 秒完成一次生图及一次 OSS 写入，技术校验通过，产物位于 `artifacts/photo-poster-acceptance/1790656951306/`。人工核对本样本的红蓝笔画不再透出人物线条，仅在衣摆下、首行标题上方露一小段腿，标题区没有腿部延伸；保留手绘字边缘，颗粒仍比基准图克制。此结果仅证明当前样本的两项问题得到修正，不代表跨照片稳定性或已部署。
+
+本轮按原始 Skill 收敛：取消固定裁腿、强制颗粒与重复字形限制，恢复人物局部遮挡首行文字；保留自然手绘感与不透明印色。上面的实测对应历史规则，不能作为收敛后版本的视觉验收；新版需另行真实生图核验。
+
+## 两次审批的模板图片生产验收
+
+先运行 `npx vitest run test/template-image-production.test.ts test/aliyun-oss-storage.test.ts test/async-runtime-construction.test.ts`；这些测试走本地 HTTP 和替身，不产生模型、图片生成或 OSS 费用。
+
+真实验收按 Memebuy 页面逐次执行：提交一张原图 → 核对完整替换策略 → 人工通过 → 对照原图检查完整成图 → 人工通过 → 检查草稿的 cover/referenceImage 都是内容寻址的新图片。第一次通过会调用付费图片服务，第二次通过才写 OSS 并调用编译模型。不得用脚本自动批准两步；供应商提交未知时对账，不另建生成请求。
+
+## 漫画分镜验收
+
+真实验收会调用文本模型、FAL 和 OSS，产生费用与外部写入。设置参考图地址、`PHOTO_POSTER_ACCEPTANCE_STYLES=manga-panels`，通过 `PHOTO_POSTER_MANGA_PRESET` 分别选择 `three-panel-details` 与 `sketchy-mixed-panels`，每次执行 `npm run accept:photo-poster-business` 只测试一个预设。该选择变量仅属于本地验收程序，不是生产启动配置。
+
+验收必须走正式 Agent 编译、HTTP、图片 Capability 与存储回读，不把直接调用图片 Adapter 的预览当作完整链路通过。人工检查恰好三个画格、清楚的格间留白、同一人物与配饰、主格手指完整、细节取自原图、无字母和徽章文字残留。
+
+2026-10-07 的 C、D 预览仅验证人工提示词经 Pipipi 图片 Adapter 的效果；C 有原图字母残留，部分样图主格裁掉指尖。新接入已加入对应约束，但仍需真实模型验收，不能把规则存在当成视觉修复证明。历史图片保留在被忽略的 artifacts 目录，不作为 Runtime 资源或模板封面。

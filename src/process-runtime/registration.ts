@@ -156,6 +156,8 @@ export function defineProcessRegistration<
     activities?: readonly string[];
     retryPolicy?: ProcessRetryPolicy;
     timeoutMs?: number;
+    /** 受控图片审核可声明较大产物，调用方不能覆盖；其他 Process 保持默认上限。 */
+    outputMaxBytes?: number;
     execute: (
         input: z.output<InputSchema>,
         context: ProcessExecutionContext,
@@ -168,6 +170,15 @@ export function defineProcessRegistration<
     const retryPolicy = normalizeRetryPolicy(definition.retryPolicy);
     const activities = normalizeActivities(definition.activities);
     const timeoutMs = normalizeTimeout(definition.timeoutMs);
+    const maximumOutputBytes = definition.outputMaxBytes ?? outputMaxBytes;
+    if (
+        !Number.isSafeInteger(maximumOutputBytes) ||
+        maximumOutputBytes < 1 ||
+        maximumOutputBytes > 28_000_000
+    )
+        throw new Error(
+            "Process outputMaxBytes must be between 1 and 28000000",
+        );
 
     const identity = Object.freeze({
         id: definition.id,
@@ -265,7 +276,7 @@ export function defineProcessRegistration<
                 }
                 const outputSnapshot = createJsonSnapshot(
                     output.data,
-                    outputMaxBytes,
+                    maximumOutputBytes,
                 );
                 if (!outputSnapshot.success) {
                     return {

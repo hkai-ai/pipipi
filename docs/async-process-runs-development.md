@@ -24,11 +24,13 @@ npm run test:integration:async:local
 npm run test:acceptance:console:local
 ```
 
-修改跨 Seam 契约或 CI 编排时，运行完整本地验收：
+修改跨 Seam 契约、CI 编排、production catalog 或流程独立时限时，运行完整本地验收：
 
 ```bash
 npm run test:acceptance:async:local
 ```
+
+完整验收按顺序覆盖 PostgreSQL Store、观测、BullMQ 运行链和浏览器旅程。集成测试与 `test/support/` 的浏览器环境都构造完整生产目录，租约应使用 Worker 自动计算值；前一组通过不能替代后续浏览器验收。
 
 完成条件是命令自行清理依赖，并且断言只读取公共 HTTP、Client outcome 和 Process Run 状态，不穿透 PostgreSQL 布局或 BullMQ 私有字段。
 
