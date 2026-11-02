@@ -2,40 +2,25 @@ import type {
     ConsoleProcessDescription,
     ConsoleSkillDescription,
     ConsoleStats,
-} from "../src/api/http.js";
-import type { ProcessRunLogRecord } from "../src/process-runtime/logging.js";
-import type { ProcessRunRecord } from "../src/process-runtime/records.js";
+    ProcessRunLogRecord,
+    ProcessRunRecord,
+    RunFilters,
+    RunRecordPage,
+} from "../src/api/console-contract.js";
 
-/**
- * The console reads the server's own types. They are type-only imports, erased
- * at build time, so no server code reaches the browser — but the page and the
- * API can no longer disagree about the shape of a record, a timeline entry or a
- * summary.
- */
 export type {
     ConsoleProcessDescription,
     ConsoleSkillDescription,
     ConsoleStats,
     ProcessRunLogRecord,
     ProcessRunRecord,
+    RunFilters,
+    RunRecordPage,
 };
-
-export type RunRecordPage = Readonly<{
-    records: readonly ProcessRunRecord[];
-    nextBefore?: string;
-}>;
 
 export type RunTimeline = Readonly<{
     runId: string;
     activities: readonly ProcessRunLogRecord[];
-}>;
-
-export type RunFilters = Readonly<{
-    process?: string;
-    status?: "succeeded" | "failed";
-    errorCode?: string;
-    since?: string;
-    until?: string;
 }>;
 
 /**
@@ -59,6 +44,7 @@ export function listRuns(
         limit: String(options.limit ?? 50),
     });
     if (options.before) query.set("before", options.before);
+    if (options.version) query.set("version", options.version);
     if (options.process) query.set("process", options.process);
     if (options.status) query.set("status", options.status);
     if (options.errorCode) query.set("errorCode", options.errorCode);

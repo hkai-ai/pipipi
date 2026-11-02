@@ -306,6 +306,157 @@ export function describeRunObservationContract(
         ]);
     });
 
+    it("finds unknown identities and unregistered versions from failure aggregates", async () => {
+        const { archive, stats } = await createBackend();
+        await archive.store(
+            processRunRecord({
+                runId: "unknown-identity",
+                process: undefined,
+                version: undefined,
+                status: "failed",
+                errorCode: "INVALID_INPUT",
+                recordedAt: inWindow(1),
+            }),
+        );
+        await archive.store(
+            processRunRecord({
+                runId: "unregistered",
+                process: "character-emoji",
+                version: "next-candidate",
+                status: "failed",
+                errorCode: "PROCESS_NOT_FOUND",
+                recordedAt: inWindow(2),
+            }),
+        );
+        const summary = await stats.summarise({ since: windowStart });
+        expect(summary.failures).toHaveLength(2);
+        if (!summary.failures) throw new Error("Missing failure groups");
+        for (const group of summary.failures) {
+            const page = await archive.list({
+                process: group.process,
+                version: group.version,
+                status: "failed",
+                errorCode: group.errorCode,
+                since: windowStart,
+            });
+            expect(page.records).toHaveLength(group.count);
+        }
+    });
+
+    it("filters exact versions and retains them across cursor pages", async () => {
+        const { archive } = await createBackend();
+        for (const [runId, version] of [
+            ["v3-a", "v3"],
+            ["v3-b", "v3"],
+            ["v2-a", "v2"],
+        ]) {
+            await archive.store(
+                processRunRecord({
+                    runId,
+                    version,
+                    process: "character-emoji",
+                    recordedAt: inWindow(1),
+                }),
+            );
+        }
+        const first = await archive.list({
+            process: "character-emoji",
+            version: "v3",
+            limit: 1,
+        });
+        expect(first.records).toHaveLength(1);
+        expect(first.records[0].version).toBe("v3");
+        expect(first.nextBefore).toBeDefined();
+        const second = await archive.list({
+            process: "character-emoji",
+            version: "v3",
+            limit: 1,
+            before: first.nextBefore,
+        });
+        expect(second.records).toHaveLength(1);
+        expect(second.records[0].version).toBe("v3");
+        expect(second.records[0].runId).not.toBe(first.records[0].runId);
+        expect(second.nextBefore).toBeUndefined();
+    });
+
+    it("aggregates all failures by exact identity and bounds counts, recency and duration to one window", async () => {
+        const { archive, stats, activities, settle } = await createBackend();
+        for (let index = 0; index < 12; index += 1) {
+            await archive.store(
+                processRunRecord({
+                    runId: `failure-${index}`,
+                    process: "character-emoji",
+                    version: "v3",
+                    status: "failed",
+                    errorCode: "AGENT_FAILURE",
+                    recordedAt: inWindow(index),
+                }),
+            );
+        }
+        await archive.store(
+            processRunRecord({
+                runId: "other-version",
+                process: "character-emoji",
+                version: "v2",
+                status: "failed",
+                errorCode: "AGENT_FAILURE",
+                recordedAt: inWindow(2),
+            }),
+        );
+        await archive.store(
+            processRunRecord({ runId: "success", recordedAt: inWindow(3) }),
+        );
+        await archive.store(
+            processRunRecord({ runId: "at-end", recordedAt: inWindow(20) }),
+        );
+        activities.record(
+            processRunActivity({
+                event: "process_run_attempt_finished",
+                outcome: "succeeded",
+                durationMs: 100,
+                timestamp: inWindow(3),
+            }),
+        );
+        activities.record(
+            processRunActivity({
+                event: "process_run_attempt_finished",
+                outcome: "succeeded",
+                durationMs: 9999,
+                timestamp: inWindow(20),
+            }),
+        );
+        await settle();
+        const result = await stats.summarise({
+            since: windowStart,
+            until: inWindow(20),
+        });
+        expect(result.totals).toEqual({ succeeded: 1, failed: 13 });
+        expect(result.latestSucceededAt).toBe(inWindow(3));
+        expect(result.failures).toEqual([
+            {
+                process: "character-emoji",
+                version: "v3",
+                errorCode: "AGENT_FAILURE",
+                count: 12,
+                latestAt: inWindow(11),
+            },
+            {
+                process: "character-emoji",
+                version: "v2",
+                errorCode: "AGENT_FAILURE",
+                count: 1,
+                latestAt: inWindow(2),
+            },
+        ]);
+        expect(result.recentFailures).toHaveLength(10);
+        expect(result.attemptDurationMs).toEqual({
+            samples: 1,
+            p50: 100,
+            p95: 100,
+            max: 100,
+        });
+    });
+
     it("keeps combined filters active across pagination", async () => {
         const { archive } = await createBackend();
         for (const [runId, recordedAt, errorCode] of [

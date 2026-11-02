@@ -160,12 +160,16 @@ export function createJsonlRunObservationStats(
     const records = createRecordDayFiles(options, clock);
     const activities = createActivityDayFiles(options, clock);
     return Object.freeze({
-        summarise: async ({ since }) =>
+        summarise: async ({ since, until }) =>
             summariseRunObservation({
                 since,
-                records: await latestRecordsSince(records, since),
+                records: (await latestRecordsSince(records, since)).filter(
+                    (record) => !until || record.recordedAt < until,
+                ),
                 attemptDurationsMs: attemptDurationsOf(
-                    await activitiesSince(activities, since),
+                    (await activitiesSince(activities, since)).filter(
+                        (record) => !until || record.timestamp < until,
+                    ),
                     since,
                 ),
             }),
@@ -282,7 +286,10 @@ function matchesFilters(
     query: ProcessRunRecordQuery,
 ): boolean {
     return (
-        (query.process === undefined || record.process === query.process) &&
+        (query.process === undefined ||
+            (record.process ?? "unknown") === query.process) &&
+        (query.version === undefined ||
+            (record.version ?? "unknown") === query.version) &&
         (query.status === undefined || record.status === query.status) &&
         (query.errorCode === undefined ||
             record.errorCode === query.errorCode) &&

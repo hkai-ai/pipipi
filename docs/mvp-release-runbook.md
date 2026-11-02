@@ -347,15 +347,21 @@ Schema 由部署脚本在激活新容器前执行 `npm run db:migrate` 应用，
 | --- | --- |
 | `GET {base}` | 控制台页面。带不带尾斜杠都可以 |
 | `GET {base}/assets/<file>` | 构建产物。文件名带内容哈希，因此按不可变缓存返回 |
-| `GET {base}/runs?limit=&before=&process=&status=&errorCode=&since=&until=` | 按记录时间倒序读取 Run Record；组合筛选 Process、状态、错误码和时间范围。`since` 为闭区间、`until` 为开区间；`before` 是服务端返回的不透明稳定游标 |
+| `GET {base}/runs?limit=&before=&process=&version=&status=&errorCode=&since=&until=` | 按记录时间倒序读取 Run Record；组合筛选 Process、精确版本、状态、错误码和时间范围。`since` 为闭区间、`until` 为开区间；`before` 是服务端返回的不透明稳定游标 |
 | `GET {base}/runs/{runId}` | 读取单条 Run Record |
 | `GET {base}/runs/{runId}/activities` | 读取该 Run 的 Attempt 与活动时间线，按 Attempt 序号和 sequence 排序 |
 | `GET {base}/processes` | 读取生产 catalog：精确版本、固定活动名、Registration 级重试策略，以及输入输出字段表 |
 | `GET {base}/skills` | 读取随本次发布安装、并被已启用 Process 绑定的 Runtime Skill：精确 `name`/`version`/SHA-256、`description`、绑定它的 Process id、`SKILL.md` 指令正文、快照文件清单、封面信息与 `SOURCE.md` 来源记录 |
 | `GET {base}/skills/{name}@{version}/cover` | 读取该 Skill 快照目录内的封面图。无封面、身份不精确或格式不合法时返回 `404`；响应带 ETag，按 `no-cache` 重验证 |
-| `GET {base}/stats?hours=` | 窗口内的执行计数、按 Process 汇总、UTC 每日吞吐与错误码分布、最近失败、Attempt 耗时分位数，以及实时并发占用。`hours` 为 1–720，缺省 24 |
+| `GET {base}/stats?hours=` | 窗口内的执行计数、按 Process 汇总、UTC 每日吞吐与错误码分布、按业务版本与错误码聚合的全部失败及最近发生时间、最近成功时间、最近十条失败、Attempt 耗时分位数，以及当前 API 进程并发占用。`hours` 为 1–720，缺省 24 |
 
-页面是 Preact + Vite 构建的单页应用，五个视图：运行记录（检索、组合筛选、稳定翻页，以及声明活动顺序与各 Attempt 实际顺序的对照）、服务压力（每日吞吐、错误随时间分布和最近失败）、Process 目录、Skill 目录（封面卡片网格、按名称/描述/绑定 Process 筛选，点开查看指令正文、文件清单与来源记录）、提交任务。它由 `npm run build` 一并构建到 `dist/console`，随镜像发布，由 API 同源提供——服务不启用 CORS，控制台不能独立部署到其他源。
+页面是 Vite + Preact 构建的单页应用，主导航为概览、运行记录、异常排查；Process 目录、Skill 目录和提交任务归入开发工具。页面由 `npm run build` 构建到 `dist/console`，随镜像发布，由 API 同源提供。Worker 部署形状不因控制台迭代改变。
+
+概览默认查询最近 24 小时，可切换 1 小时、7 天或 30 天，支持手动刷新与可选的 30 秒自动刷新。统计响应的 `since`（含）与 `until`（不含）界定同一窗口，`generatedAt` 标记窗口截止时间。JSONL 与 PostgreSQL 的计数、活动耗时和最近失败均按该窗口读取；这不保证多个查询之间的数据库事务快照。`failures` 按 Process、version、errorCode 聚合完整窗口，并提供 count 与 latestAt；`latestSucceededAt` 在窗口内无成功记录时省略。兼容旧 Adapter 时这些新增字段可缺省，页面明确显示未提供，不用最近十条失败代替完整聚合。
+
+业务排行、失败聚合和 UTC 日柱可下钻到同一时间范围的记录。记录筛选保存在 hash 链接中，可分享、刷新或从详情返回；返回后重新读取第一页，再按需加载更早记录。未知业务或未注册版本仍可按归档原值筛选；缺失身份显示并按 `unknown` 查询。详情先显示结果和最后 Attempt 的失败活动，再展示时间线及默认折叠的输入输出 JSON。复制排障摘要仅包含运行标识、状态、时间、错误码和活动元数据，不包含业务正文或图片 URL。
+
+页面只展示已归档终态，不表示 queued/running 权威状态。日统计使用 UTC 日界，其他时间按浏览器本地时区显示；Attempt 分位数不是端到端耗时，API 进程并发不包括其他实例或异步 Worker。调用方与用户身份尚未采集，不推算人数或产品来源。接口失败会显示读取失败，不以零调用或无异常代替。失败提示只提供排查方向，不自动重放任务。
 
 Skill 目录来自生产 Composition Root 构建 Process 时使用的同一组 Skill 绑定，因此它只会列出本次发布真正装载、且被启用 Process 精确绑定的版本；被 `enabled` 关闭的 Process 不会贡献 Skill。目录只读：安装、更新或移除 Skill 仍是代码评审与发布动作，控制台不提供任何写入。封面按目录约定读取——在 Skill 快照目录放置 `cover.png`、`cover.jpg`、`cover.jpeg`、`cover.webp` 或 `cover.gif`（按此顺序取第一个非空、不超过 10 MiB 的文件）即可，不需要改 `SKILL.md`，也不影响其 SHA-256 完整性校验。封面在启动时定位、首次请求时读入并常驻内存。
 

@@ -10,12 +10,12 @@ export const billedFailureCode = "DEPENDENCY_FAILURE_AFTER_COMMIT";
 
 export function StatusLabel({ record }: { record: ProcessRunRecord }) {
     if (record.status === "succeeded") {
-        return <span class="status-succeeded">succeeded</span>;
+        return <span class="status-succeeded">成功</span>;
     }
     const billed = record.errorCode === billedFailureCode;
     return (
         <span class={billed ? "status-billed" : "status-failed"}>
-            {billed ? "已计费未交付" : "failed"}
+            {billed ? "副作用已提交，交付失败" : "失败"}
             {record.errorCode ? ` ${record.errorCode}` : ""}
         </span>
     );
@@ -25,7 +25,15 @@ export function formatTime(value: string): string {
     const parsed = new Date(value);
     return Number.isNaN(parsed.getTime())
         ? value
-        : parsed.toLocaleString(undefined, { hour12: false });
+        : parsed.toLocaleString("zh-CN", {
+              year: "numeric",
+              month: "2-digit",
+              day: "2-digit",
+              hour: "2-digit",
+              minute: "2-digit",
+              second: "2-digit",
+              hourCycle: "h23",
+          });
 }
 
 export function formatDuration(milliseconds: number | undefined): string {

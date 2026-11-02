@@ -79,7 +79,8 @@ export function createPostgresProcessRunRecordArchive(options: {
                         or (recorded_at = $1::timestamptz
                             and $8::text is not null
                             and run_id < $8::text))
-                   and ($3::text is null or process_id = $3::text)
+                   and ($3::text is null or coalesce(process_id, 'unknown') = $3::text)
+                   and ($9::text is null or coalesce(process_version, 'unknown') = $9::text)
                    and ($4::text is null or status = $4::text)
                    and ($5::text is null or error_code = $5::text)
                    and ($6::timestamptz is null or recorded_at >= $6::timestamptz)
@@ -95,6 +96,7 @@ export function createPostgresProcessRunRecordArchive(options: {
                     query.since ?? null,
                     query.until ?? null,
                     before?.runId ?? null,
+                    query.version ?? null,
                 ],
             );
             const records = rows.slice(0, limit).map(toRecord);
@@ -185,17 +187,18 @@ export function createPostgresRunObservationStats(options: {
     const pool = options.pool;
 
     return Object.freeze({
-        summarise: async ({ since }) => {
+        summarise: async ({ since, until }) => {
             const [counts, durations, recentFailures] = await Promise.all([
                 pool.query(
                     `select to_char(recorded_at at time zone 'UTC', 'YYYY-MM-DD') as day,
                             coalesce(process_id, 'unknown') as process_id,
                             coalesce(process_version, 'unknown') as process_version,
-                            status, error_code, count(*)::int as count
+                            status, error_code, count(*)::int as count, max(recorded_at) as latest_at
                        from process_run_records
                       where recorded_at >= $1
+                        and ($2::timestamptz is null or recorded_at < $2)
                       group by 1, 2, 3, 4, 5`,
-                    [since],
+                    [since, until ?? null],
                 ),
                 pool.query(
                     `select count(*)::int as samples,
@@ -204,9 +207,10 @@ export function createPostgresRunObservationStats(options: {
                             max(duration_ms) as max
                        from process_run_activities
                       where recorded_at >= $1
+                        and ($2::timestamptz is null or recorded_at < $2)
                         and event = 'process_run_attempt_finished'
                         and duration_ms is not null`,
-                    [since],
+                    [since, until ?? null],
                 ),
                 pool.query(
                     `select run_id, recorded_at,
@@ -215,11 +219,12 @@ export function createPostgresRunObservationStats(options: {
                             error_code
                        from process_run_records
                       where recorded_at >= $1
+                        and ($2::timestamptz is null or recorded_at < $2)
                         and status = 'failed'
                         and error_code is not null
                       order by recorded_at desc, run_id desc
                       limit 10`,
-                    [since],
+                    [since, until ?? null],
                 ),
             ]);
 
@@ -235,6 +240,7 @@ export function createPostgresRunObservationStats(options: {
                         ? {}
                         : { errorCode: row.error_code }),
                     count: row.count,
+                    latestAt: row.latest_at?.toISOString(),
                 })),
                 recentFailures: Object.freeze(
                     recentFailures.rows.map(toRecentFailure),
@@ -255,6 +261,7 @@ export function createPostgresRunObservationStats(options: {
 }
 
 type CountRow = Readonly<{
+    latest_at?: Date;
     day: string;
     process_id: string;
     process_version: string;

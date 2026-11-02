@@ -137,6 +137,10 @@ Process Definition 抛出的异常属于意外失败。Process Attempt Runner �
 `ContentProcessingUnavailable`，Registration 再把依赖或 Agent Runtime 失败转换为明确的
 领域失败。任何路径都不能把凭证、远端响应或模型错误暴露给调用方。
 
+## 运维观测查询
+
+控制台读取 Run Observation Module 的派生归档，不改变 Process Run 的权威状态。列表查询支持 Process、准确 version、状态、错误码、闭开时间窗口与稳定游标；JSONL 与 PostgreSQL 使用同一套契约测试。统计在相同闭开窗口内汇总全部终态，并按 Process/version/errorCode 聚合失败次数及最近发生时间，独立提供最多十条最近失败。前端通过 `src/api/console-contract.ts` 读取共享合同，错误提示与无正文排障摘要由控制台自己的模块生成；这不增加 Agent 调用或业务重试。
+
 ## Run Records 的内容语义
 
 <!-- markdownlint-disable MD013 -->
