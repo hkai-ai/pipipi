@@ -98,7 +98,7 @@ curl --fail -X POST http://127.0.0.1:4300/execute \
 | `npm run test:integration:agent-tools:local` | 在临时 Docker PostgreSQL 中验证 Tool Ledger 重放、预算、fencing 和 after-commit | 创建并清理隔离容器与 `_test` 数据库 |
 | `npm run build` | 构建服务端与控制台 | 重建 `dist/` |
 
-控制台只读页面修改后，先运行 `npm run build`，再用 `RUN_CONSOLE_OBSERVATION_BROWSER=1 npx vitest run test/console-observation.browser.test.ts` 验证概览、精确版本下钻、分页、详情返回、移动端、深色模式和读取失败。该测试使用本地 JSONL 与实际 HTTP Interface，不加载 `.env`、不调用模型，截图输出到 `artifacts/console-iteration/`；需要本机 Chrome，可用 `CHROME_PATH` 指定可执行文件。观测存储变更另用 `ASYNC_INTEGRATION_TEST_SCRIPT=test:integration:observation node --import tsx tools/run-async-integration.ts` 在自动清理的本地 PostgreSQL/Redis 容器中核对两套 Adapter 合同；首次运行可能下载镜像。
+控制台只读页面修改后，先运行 `npm run build`，再用 `RUN_CONSOLE_OBSERVATION_BROWSER=1 npx vitest run test/console-observation.browser.test.ts` 验证概览、精确版本下钻、流程版本链接与缺失提示、中文失败悬浮提示、侧栏固定、分页、详情返回、移动端、深色模式和读取失败。该测试使用本地 JSONL 与实际 HTTP Interface，不加载 `.env`、不调用模型，截图输出到 `artifacts/console-iteration/`；需要本机 Chrome，可用 `CHROME_PATH` 指定可执行文件。观测存储变更另用 `ASYNC_INTEGRATION_TEST_SCRIPT=test:integration:observation node --import tsx tools/run-async-integration.ts` 在自动清理的本地 PostgreSQL/Redis 容器中核对两套 Adapter 合同；首次运行可能下载镜像。
 
 修改异步执行、PostgreSQL、Redis、Queue、Webhook、恢复或控制台异步提交时，转到 [异步 Process Run 开发指南](async-process-runs-development.md)。修改或启用交互式 Agent 时同时阅读 [Agent Conversations 设计](agent-conversations-design.md) 与 [发布运维手册](agent-conversations-runbook.md)。真实 Agent、图片、模型、OSS 和已部署环境验证转到 [实验与真实集成](experiments.md)。
 

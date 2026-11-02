@@ -8,15 +8,15 @@ import { RunsView, RunView } from "./runs.jsx";
 import { ProcessesView, SkillsView, SkillView, SubmitView } from "./tools.jsx";
 import "./styles.css";
 
-const mainLinks: readonly { route: Route; label: string; symbol: string }[] = [
-    { route: { view: "overview" }, label: "概览", symbol: "◫" },
-    { route: { view: "runs" }, label: "运行记录", symbol: "≡" },
-    { route: { view: "exceptions" }, label: "异常排查", symbol: "!" },
+const mainLinks: readonly { route: Route; label: string }[] = [
+    { route: { view: "overview" }, label: "运行概览" },
+    { route: { view: "runs" }, label: "运行记录" },
+    { route: { view: "exceptions" }, label: "异常排查" },
 ];
 const toolLinks: readonly { route: Route; label: string }[] = [
-    { route: { view: "processes" }, label: "Process 目录" },
-    { route: { view: "skills" }, label: "Skill 目录" },
-    { route: { view: "submit" }, label: "提交任务" },
+    { route: { view: "processes" }, label: "业务流程" },
+    { route: { view: "skills" }, label: "Agent 技能" },
+    { route: { view: "submit" }, label: "手动调试" },
 ];
 function Console() {
     const route = useRoute();
@@ -31,7 +31,7 @@ function Console() {
         <div class="console-layout">
             <aside class="sidebar">
                 <a class="brand" href={hrefFor({ view: "overview" })}>
-                    Pipipi<span>运行管理</span>
+                    运行管理
                 </a>
                 <nav aria-label="运行管理">
                     {mainLinks.map((link) => (
@@ -42,13 +42,12 @@ function Console() {
                                 current === link.route.view ? "page" : undefined
                             }
                         >
-                            <span aria-hidden="true">{link.symbol}</span>
                             {link.label}
                         </a>
                     ))}
                 </nav>
-                <p class="nav-label">开发工具</p>
-                <nav aria-label="开发工具">
+                <p class="nav-label">流程与调试</p>
+                <nav aria-label="流程与调试">
                     {toolLinks.map((link) => (
                         <a
                             key={link.label}
@@ -101,7 +100,13 @@ function Console() {
                             back={route.back}
                         />
                     ) : null}
-                    {route.view === "processes" ? <ProcessesView /> : null}
+                    {route.view === "processes" ? (
+                        <ProcessesView
+                            key={hrefFor(route)}
+                            process={route.process}
+                            version={route.version}
+                        />
+                    ) : null}
                     {route.view === "skills" ? <SkillsView /> : null}
                     {route.view === "skill" ? (
                         <SkillView name={route.name} version={route.version} />

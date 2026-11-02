@@ -22,7 +22,7 @@ import {
     StatusLabel,
     Thumbnail,
 } from "./formatting.jsx";
-import { processName } from "./labels.js";
+import { activityName, processName } from "./labels.js";
 import { useAsync } from "./resource.js";
 import { hrefFor } from "./routing.js";
 import { Timeline } from "./timeline.jsx";
@@ -182,9 +182,9 @@ export function RunsView({
                             </select>
                         </label>
                         <label>
-                            版本
+                            流程版本
                             <select
-                                aria-label="版本"
+                                aria-label="流程版本"
                                 value={draft.version}
                                 onChange={(event) =>
                                     setDraft({
@@ -290,7 +290,7 @@ export function RunsView({
                             <thead>
                                 <tr>
                                     <th>记录时间</th>
-                                    <th>业务 / 版本</th>
+                                    <th>业务流程 / 版本</th>
                                     <th>结果</th>
                                     <th>产出</th>
                                     <th>运行 ID</th>
@@ -304,22 +304,13 @@ export function RunsView({
                                             <strong>
                                                 {processName(record.process)}
                                             </strong>
-                                            <span class="cell-meta">
-                                                {record.process ?? "unknown"} /{" "}
-                                                {record.version ?? "unknown"}
-                                            </span>
+                                            <ProcessVersion
+                                                process={record.process}
+                                                version={record.version}
+                                            />
                                         </td>
                                         <td>
                                             <StatusLabel record={record} />
-                                            {record.errorCode ? (
-                                                <span class="cell-meta">
-                                                    {
-                                                        explainError(
-                                                            record.errorCode,
-                                                        ).title
-                                                    }
-                                                </span>
-                                            ) : null}
                                         </td>
                                         <td>
                                             {imagesOf(record.content?.output)
@@ -434,18 +425,18 @@ export function RunView({
                     >
                         <div class="detail-facts">
                             <div>
-                                <span>业务版本</span>
-                                <strong>
-                                    {value.process ?? "unknown"} /{" "}
-                                    {value.version ?? "unknown"}
-                                </strong>
+                                <span>业务流程</span>
+                                <ProcessVersion
+                                    process={value.process}
+                                    version={value.version}
+                                />
                             </div>
                             <div>
                                 <span>记录时间</span>
                                 <strong>{formatTime(value.recordedAt)}</strong>
                             </div>
                             <div>
-                                <span>最后 Attempt 耗时</span>
+                                <span>最后一次执行耗时</span>
                                 <strong>
                                     {formatDuration(details.durationMs)}
                                 </strong>
@@ -469,18 +460,29 @@ export function RunView({
                         <section class="failure-notice">
                             <h2>{explainError(value.errorCode).title}</h2>
                             <p>
-                                <code>{value.errorCode}</code>
-                            </p>
-                            <p>
-                                失败活动：
+                                失败步骤：
                                 {timeline.loading
                                     ? "正在读取"
                                     : timeline.error
                                       ? "活动记录读取失败"
-                                      : (details.failedActivity ??
-                                        "没有足够活动证据")}
+                                      : details.failedActivity
+                                        ? activityName(details.failedActivity)
+                                        : "没有足够步骤记录"}
                             </p>
                             <p>{explainError(value.errorCode).next}</p>
+                            <details>
+                                <summary>技术标识</summary>
+                                <p>
+                                    错误码：
+                                    <code>{value.errorCode ?? "未记录"}</code>
+                                </p>
+                                <p>
+                                    步骤标识：
+                                    <code>
+                                        {details.failedActivity ?? "未记录"}
+                                    </code>
+                                </p>
+                            </details>
                             <a
                                 href={hrefFor({
                                     view: "runs",
@@ -496,7 +498,7 @@ export function RunView({
                             </a>
                         </section>
                     ) : null}
-                    <Panel title="活动时间线">
+                    <Panel title="执行过程">
                         {timeline.error ? (
                             <p role="alert" class="error">
                                 {timeline.error}
@@ -560,6 +562,26 @@ export function RunView({
                 </>
             ) : null}
         </>
+    );
+}
+
+function ProcessVersion({
+    process,
+    version,
+}: {
+    process?: string;
+    version?: string;
+}) {
+    if (!process || !version)
+        return <span class="cell-meta">流程版本未记录</span>;
+    return (
+        <a
+            class="cell-meta process-version"
+            href={hrefFor({ view: "processes", process, version })}
+            title={`${process} / ${version}：业务流程版本，点击查看当前流程定义与相关技能`}
+        >
+            流程版本 {version} ↗
+        </a>
     );
 }
 

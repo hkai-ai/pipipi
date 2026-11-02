@@ -6,7 +6,8 @@ export type Route =
     | Readonly<{ view: "overview" | "exceptions"; hours?: number }>
     | Readonly<{ view: "runs"; filters?: RunFilters }>
     | Readonly<{ view: "run"; runId: string; back?: string }>
-    | Readonly<{ view: "processes" | "skills" | "submit" }>
+    | Readonly<{ view: "skills" | "submit" }>
+    | Readonly<{ view: "processes"; process?: string; version?: string }>
     | Readonly<{ view: "skill"; name: string; version: string }>;
 
 export function parseRoute(hash: string): Route {
@@ -56,8 +57,13 @@ export function parseRoute(hash: string): Route {
                 hours: [1, 24, 168, 720].includes(hours) ? hours : 24,
             };
         }
-        if (head === "processes" || head === "skills" || head === "submit")
-            return { view: head };
+        if (head === "processes")
+            return {
+                view: "processes",
+                process: params.get("process") || undefined,
+                version: params.get("version") || undefined,
+            };
+        if (head === "skills" || head === "submit") return { view: head };
     } catch {
         /* A malformed shared link returns to the overview. */
     }
@@ -73,6 +79,10 @@ function safeBack(value?: string): string | undefined {
 export function hrefFor(route: Route): string {
     const query = new URLSearchParams();
     switch (route.view) {
+        case "processes":
+            if (route.process) query.set("process", route.process);
+            if (route.version) query.set("version", route.version);
+            return `#/processes${query.size ? `?${query}` : ""}`;
         case "run":
             if (safeBack(route.back)) query.set("back", route.back as string);
             return `#/run/${encodeURIComponent(route.runId)}${query.size ? `?${query}` : ""}`;

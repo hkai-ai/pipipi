@@ -2,6 +2,19 @@ import { describe, expect, it } from "vitest";
 import { hrefFor, parseRoute } from "./routing.js";
 
 describe("console navigation", () => {
+    it("links to an exact process version without confusing it with a skill", () => {
+        const route = {
+            view: "processes",
+            process: "character-emoji",
+            version: "v2",
+        } as const;
+        expect(parseRoute(hrefFor(route))).toEqual(route);
+        expect(parseRoute("#/processes?process=retired&version=v99")).toEqual({
+            view: "processes",
+            process: "retired",
+            version: "v99",
+        });
+    });
     it("keeps exact version, errors and timestamp boundaries through a shared link", () => {
         const route = {
             view: "runs",

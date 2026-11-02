@@ -36,7 +36,7 @@ export function Overview({
                             : "观察业务调用、成功交付与需要关注的异常。"}
                     </p>
                 </div>
-                <div class="actions">
+                <div class="actions overview-controls">
                     <label class="compact-label">
                         统计窗口
                         <select

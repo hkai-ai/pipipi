@@ -8,6 +8,7 @@ import {
     skillCoverHref,
 } from "./api.js";
 import { formatTime, Panel } from "./formatting.jsx";
+import { activityName, processName } from "./labels.js";
 import {
     type PendingProcessRun,
     type ProcessRunOutcome,
@@ -17,33 +18,112 @@ import {
 import { useAsync } from "./resource.js";
 import { hrefFor } from "./routing.js";
 
-export function ProcessesView() {
+export function ProcessesView({
+    process,
+    version,
+}: {
+    process?: string;
+    version?: string;
+}) {
     const catalog = useAsync(() => listProcesses(), []);
+    const skills = useAsync(() => listSkills(), []);
+    const entries = catalog.value?.processes.filter(
+        (entry) =>
+            (!process || entry.process === process) &&
+            (!version || entry.version === version),
+    );
     return (
-        <Panel title="Process 目录">
+        <Panel title="业务流程">
             <p class="hint">
-                字段约束由服务端执行校验的 Schema
-                推导，不是手写。错误语义与计费边界见业务接口文档。
+                查看当前服务支持的业务流程、版本和输入要求。展开流程查看参数与执行限制。
             </p>
+            <p class="hint">
+                流程版本定义一次业务调用的输入、输出与执行规则；技能版本定义
+                Agent 使用的指令。两者独立编号。
+            </p>
+            {process ? (
+                <p>
+                    <a href={hrefFor({ view: "processes" })}>
+                        查看全部业务流程
+                    </a>
+                </p>
+            ) : null}
             {catalog.error ? <p class="error">{catalog.error}</p> : null}
-            {catalog.value?.processes.map((entry) => (
+            {catalog.loading ? <p class="hint">正在读取业务流程…</p> : null}
+            {entries?.length === 0 ? (
+                <p class="notice">
+                    当前服务未注册 {processName(process)} 的流程版本{" "}
+                    {version ?? "（未指定）"}
+                    。它可能已下线，或请求指定的版本不存在；不能用其他版本代替查看。
+                </p>
+            ) : null}
+            {entries?.map((entry) => (
                 <ProcessEntry
                     key={`${entry.process}/${entry.version}`}
                     entry={entry}
+                    expanded={Boolean(process)}
                 />
             ))}
+            {process && entries?.length ? (
+                <section>
+                    <h3>相关 Agent 技能</h3>
+                    <p class="hint">
+                        以下为当前服务按业务流程关联的技能；目录未区分流程版本，不能据此还原历史运行的精确技能绑定。
+                    </p>
+                    {skills.error ? (
+                        <p class="error">技能目录读取失败。</p>
+                    ) : skills.loading ? (
+                        <p class="hint">读取中…</p>
+                    ) : (
+                        <>
+                            {skills.value?.skills
+                                .filter((skill) =>
+                                    skill.processes.includes(process),
+                                )
+                                .map((skill) => (
+                                    <p key={`${skill.name}@${skill.version}`}>
+                                        <a
+                                            href={hrefFor({
+                                                view: "skill",
+                                                name: skill.name,
+                                                version: skill.version,
+                                            })}
+                                        >
+                                            {skill.name} · 技能版本{" "}
+                                            {skill.version}
+                                        </a>
+                                    </p>
+                                ))}
+                            {!skills.value?.skills.some((skill) =>
+                                skill.processes.includes(process),
+                            ) ? (
+                                <p class="hint">
+                                    当前技能目录未列出此流程的关联技能。
+                                </p>
+                            ) : null}
+                        </>
+                    )}
+                </section>
+            ) : null}
         </Panel>
     );
 }
 
-function ProcessEntry({ entry }: { entry: ConsoleProcessDescription }) {
+function ProcessEntry({
+    entry,
+    expanded,
+}: {
+    entry: ConsoleProcessDescription;
+    expanded?: boolean;
+}) {
     return (
-        <details>
+        <details open={expanded}>
             <summary>
-                {entry.process} / {entry.version}
+                {processName(entry.process)} · 流程版本 {entry.version}
             </summary>
             <p class="hint">
-                活动：{entry.activities.join(" → ")}　最大 Attempt：
+                流程标识：{entry.process}。步骤：
+                {entry.activities.map(activityName).join(" → ")}。最多执行次数：
                 {entry.retry.maximumAttempts}
             </p>
             <SchemaTable label="输入" schema={entry.input} />
@@ -126,18 +206,17 @@ export function SkillsView() {
     );
 
     return (
-        <Panel title="Skill 目录">
+        <Panel title="Agent 技能">
             <p class="hint">
-                随本次发布安装、并被已启用 Process 精确绑定的 Runtime
-                Skill。目录只读：安装、更新或移除 Skill
-                都要经过代码评审与发布，不能在控制台操作。点击卡片查看指令正文与来源记录。
+                查看业务流程使用的 Agent 技能，了解指令、来源与关联流程。
+                技能随服务发布，此处只供查看；更新需通过代码评审与发布。
             </p>
             <div class="toolbar">
                 <label class="grow">
                     筛选
                     <input
                         type="search"
-                        placeholder="按名称、描述或绑定 Process 筛选"
+                        placeholder="按名称、描述或关联业务流程筛选"
                         value={query}
                         onInput={(event) => setQuery(event.currentTarget.value)}
                     />
@@ -152,7 +231,7 @@ export function SkillsView() {
             {catalog.value && skills.length === 0 ? (
                 <p class="empty">
                     {catalog.value.skills.length === 0
-                        ? "当前发布没有启用任何绑定 Runtime Skill 的 Process。"
+                        ? "当前服务没有启用使用 Agent 技能的业务流程。"
                         : "没有匹配的 Skill。"}
                 </p>
             ) : null}
@@ -248,7 +327,7 @@ export function SkillView({
     const skill = catalog.value?.skills.find(
         (entry) => entry.name === name && entry.version === version,
     );
-    const back = <a href={hrefFor({ view: "skills" })}>← 返回 Skill 目录</a>;
+    const back = <a href={hrefFor({ view: "skills" })}>← 返回 Agent 技能</a>;
 
     if (catalog.error) {
         return (
@@ -374,7 +453,7 @@ export function SubmitView({
         ) ?? processes[0];
     const fields = entry ? fieldsOf(entry) : [];
 
-    if (!entry) return <Panel title="提交任务">读取 Process 目录中…</Panel>;
+    if (!entry) return <Panel title="手动调试">正在读取业务流程…</Panel>;
 
     const execute = async (intent: "continue" | "new") => {
         const controller = new AbortController();
@@ -414,7 +493,7 @@ export function SubmitView({
     };
 
     return (
-        <Panel title="提交任务">
+        <Panel title="手动调试">
             <p class="cost-warning">
                 提交会真实执行生产流程并产生图片费用。控制台异步提交并查询结果，
                 默认等待 300 秒；关闭页面或等待超时不会取消服务端 Run。

@@ -35,7 +35,7 @@ export function explainError(code?: string) {
     return code && advice[code]
         ? advice[code]
         : {
-              title: code ?? "未知错误",
+              title: "执行失败，原因待确认",
               next: "查看活动时间线，并携带运行 ID 和错误码排查；缺少证据时不推断失败原因。",
           };
 }

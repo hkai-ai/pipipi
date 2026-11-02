@@ -150,7 +150,7 @@ browserDescribe("operator observation browser", () => {
             await group.getByRole("link", { name: "排查记录" }).click();
             await page.getByText("已加载 50 条").waitFor();
             expect(
-                await page.getByLabel("版本", { exact: true }).inputValue(),
+                await page.getByLabel("流程版本", { exact: true }).inputValue(),
             ).toBe("v3");
             expect(
                 await page.getByText("failure-v2", { exact: true }).count(),
@@ -158,12 +158,52 @@ browserDescribe("operator observation browser", () => {
             await page.getByRole("button", { name: "加载更早" }).click();
             await page.getByText("已加载 54 条").waitFor();
             const filteredUrl = page.url();
+            const failedRow = page
+                .getByRole("row")
+                .filter({ hasText: "failure-v3-00" });
+            expect(await failedRow.innerText()).not.toContain("AGENT_FAILURE");
+            await failedRow
+                .getByRole("button", { name: "Agent 执行失败" })
+                .hover();
+            await page.getByRole("tooltip").waitFor();
+            expect(await page.getByRole("tooltip").innerText()).toContain(
+                "检查模型依赖",
+            );
+            await page.keyboard.press("Escape");
+            await page.getByRole("tooltip").waitFor({ state: "hidden" });
+            await failedRow.getByRole("link", { name: "流程版本 v3" }).click();
+            await page
+                .getByText("流程版本定义一次业务调用", { exact: false })
+                .waitFor();
+            await page.locator("details[open]").waitFor();
+            expect(await page.locator("details[open]").count()).toBe(1);
+            expect(await page.locator("details[open]").innerText()).toContain(
+                "流程版本 v3",
+            );
+            await page.goto(
+                filteredUrl
+                    .replace("version=v3", "version=v99")
+                    .replace("#/runs", "#/processes"),
+            );
+            await page.getByText("当前服务未注册", { exact: false }).waitFor();
+            expect(await page.locator("details[open]").count()).toBe(0);
+            await page.goto(filteredUrl);
+            await page.getByText("已加载 50 条").waitFor();
+            await page.evaluate(() => window.scrollTo(0, 700));
+            expect(
+                await page
+                    .locator(".sidebar")
+                    .evaluate((element) =>
+                        Math.abs(element.getBoundingClientRect().top),
+                    ),
+            ).toBeLessThan(1);
+
             await page
                 .getByRole("link", { name: "failure-v3-00", exact: true })
                 .click();
             await page.getByRole("heading", { name: "运行详情" }).waitFor();
             await page
-                .getByText("失败活动：planning", { exact: true })
+                .getByText("失败步骤：业务处理步骤", { exact: true })
                 .waitFor();
             expect(await page.locator("details[open]").count()).toBe(0);
             await page.screenshot({
@@ -176,7 +216,7 @@ browserDescribe("operator observation browser", () => {
             await page.reload();
             await page.getByText("已加载 50 条").waitFor();
             expect(
-                await page.getByLabel("版本", { exact: true }).inputValue(),
+                await page.getByLabel("流程版本", { exact: true }).inputValue(),
             ).toBe("v3");
             await page.getByRole("link", { name: "清除筛选" }).click();
             await page.getByText("failure-v2", { exact: true }).waitFor();
@@ -214,7 +254,7 @@ browserDescribe("operator observation browser", () => {
             });
             await page.goto(`${url}#/run/failure-v3-00`);
             await page
-                .getByText("失败活动：planning", { exact: true })
+                .getByText("失败步骤：业务处理步骤", { exact: true })
                 .waitFor();
             await page.setViewportSize({ width: 320, height: 844 });
             expect(

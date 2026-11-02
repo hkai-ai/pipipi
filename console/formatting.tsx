@@ -1,5 +1,6 @@
 import type { ComponentChildren } from "preact";
 import type { ProcessRunRecord } from "./api.js";
+import { ErrorHint } from "./error-hint.jsx";
 
 /**
  * `DEPENDENCY_FAILURE_AFTER_COMMIT` means the image was generated and billed
@@ -12,13 +13,7 @@ export function StatusLabel({ record }: { record: ProcessRunRecord }) {
     if (record.status === "succeeded") {
         return <span class="status-succeeded">成功</span>;
     }
-    const billed = record.errorCode === billedFailureCode;
-    return (
-        <span class={billed ? "status-billed" : "status-failed"}>
-            {billed ? "副作用已提交，交付失败" : "失败"}
-            {record.errorCode ? ` ${record.errorCode}` : ""}
-        </span>
-    );
+    return <ErrorHint code={record.errorCode} />;
 }
 
 export function formatTime(value: string): string {
