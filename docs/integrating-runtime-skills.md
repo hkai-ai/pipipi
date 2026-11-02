@@ -6,6 +6,8 @@
 
 仓库中的“Agent + Skill”分为开发期和生产期。先区分调用方，再决定编辑位置：`AGENTS.md` 和 `.agents/skills/` 指导 Codex 开发仓库；`src/processes/` 中的流程专属 Agent Adapter、`src/agent-runtime/` 中的跨流程基础设施和 `.pi/skills/` 参与产品请求。Pi CLI 的 `.pi/extensions/` 或 `.pi/settings.json` 属于另一个开发宿主机制，本项目当前没有启用，也不进入生产 Runtime。
 
+Pi SDK 固定为 `@earendil-works/pi-coding-agent@1.4.0`，依赖树由 `package-lock.json` 锁定。共享 Session 为每次请求创建内存 SettingsManager，并与 ResourceLoader 共用，关闭缓存预热，不读取用户或项目 Pi settings。模板编译和角色表情包的专属配置同样关闭预热，继续保留各自的重试与压缩限制。升级 SDK 时必须验证空 Tool 集合、准确 Tool allow-list、配置隔离和不落盘行为；不能沿用新版 CLI 的默认权限或额外模型调用策略。
+
 | 角色 | 位置 | 调用方 | 拥有的事实 |
 | --- | --- | --- | --- |
 | 仓库协作规则 | [`../AGENTS.md`](../AGENTS.md) | Codex、维护者 | 开发入口、术语、Skill 路由和完成标准；不定义生产 Agent 行为 |

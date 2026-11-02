@@ -1,8 +1,11 @@
+import { mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
     type CreateAgentSessionOptions,
     type CreateAgentSessionResult,
     defineTool,
-    type ExtensionContext,
+    type ExtensionToolContext,
     ModelRuntime,
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
@@ -11,6 +14,7 @@ import {
     configureOpenAI,
     parseOpenAIApiMode,
 } from "../src/agent-runtime/pi.js";
+import { PiSessionSupport } from "../src/agent-runtime/session.js";
 import {
     PiStructuredAgent,
     type PiStructuredAgentSessionFactory,
@@ -106,6 +110,7 @@ describe("structured Pi Agent", () => {
             tools: [],
             customTools: [],
         });
+        expect(captured?.settingsManager?.getCacheWarmingMode()).toBe("off");
         const systemPrompt = captured?.resourceLoader?.getSystemPrompt();
         expect(systemPrompt).toContain("Compile one structured result.");
         expect(systemPrompt).toContain(
@@ -152,6 +157,70 @@ describe("structured Pi Agent", () => {
                     provider: "openai",
                 }),
         ).toThrow("Pi provider and model must be configured together");
+    });
+});
+
+describe("Pi SDK session isolation", () => {
+    it("ignores local settings and exposes only the supplied Tools without writing sessions", async () => {
+        const agentDir = mkdtempSync(join(tmpdir(), "pipipi-pi-settings-"));
+        writeFileSync(
+            join(agentDir, "settings.json"),
+            JSON.stringify({
+                cacheWarming: "streaming",
+                blockImages: true,
+                defaultTools: ["bash", "read", "codemode"],
+            }),
+        );
+        const support = new PiSessionSupport({
+            skills: createPosterSkillRefs(),
+            instructions: ["Compile one structured result."],
+            agentDir,
+            provider: "openai",
+            model: "gpt-5.6-terra",
+            modelRuntime: await createEmptyModelRuntime(),
+        });
+        const echo = defineTool({
+            name: "echo",
+            label: "Echo",
+            description: "Return the supplied text.",
+            parameters: Type.Object({ text: Type.String() }),
+            execute: async (_id, args) => ({
+                content: [{ type: "text", text: args.text }],
+                details: {},
+            }),
+        });
+        try {
+            for (const tools of [[], [echo]]) {
+                const session = await support.open({
+                    noTools: "all",
+                    tools: tools.map((tool) => tool.name),
+                    customTools: tools,
+                });
+                try {
+                    expect(session.settingsManager.getCacheWarmingMode()).toBe(
+                        "off",
+                    );
+                    expect(session.settingsManager.getBlockImages()).toBe(
+                        false,
+                    );
+                    expect(session.getActiveToolNames()).toEqual(
+                        tools.map((tool) => tool.name),
+                    );
+                    expect(session.getCallableToolNames()).toEqual(
+                        tools.map((tool) => tool.name),
+                    );
+                    expect(
+                        session.getAllTools().map((tool) => tool.name),
+                    ).toEqual(tools.map((tool) => tool.name));
+                    expect(session.messages).toEqual([]);
+                } finally {
+                    session.dispose();
+                }
+            }
+            expect(readdirSync(agentDir)).toEqual(["settings.json"]);
+        } finally {
+            rmSync(agentDir, { recursive: true, force: true });
+        }
     });
 });
 
@@ -473,8 +542,16 @@ describe("content Pi Agent", () => {
     });
 });
 
-function fakeExtensionContext(): ExtensionContext {
-    return {} as ExtensionContext;
+function fakeExtensionContext(): ExtensionToolContext {
+    const context: Pick<ExtensionToolContext, "tools" | "executeTool"> = {
+        tools: [],
+        executeTool: async () => {
+            throw new Error(
+                "Nested Tool execution is not available in this fixture",
+            );
+        },
+    };
+    return context as ExtensionToolContext;
 }
 
 async function createEmptyModelRuntime(): Promise<ModelRuntime> {

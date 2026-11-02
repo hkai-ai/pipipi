@@ -167,6 +167,7 @@ function harness(
         skills: createCharacterEmojiSkillRefs(),
         search,
         sessionFactory: async (config) => {
+            expect(config.settingsManager?.getCacheWarmingMode()).toBe("off");
             sessionConfigs.push(config);
             captured = config;
             const tool = config.customTools?.[0];

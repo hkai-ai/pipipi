@@ -19,6 +19,8 @@ cp .env.example .env
 
 `.env` 已被 Git 忽略。只在本地填写真实值，不要提交、粘贴到 issue，或写入测试夹具。CI 和可复现验证优先使用 `npm ci`。
 
+Pi 依赖按准确版本升级并同步锁文件。Session 配置边界见 [项目级 Agent 与 Skill](integrating-runtime-skills.md#项目级-agent-与-skill)；[`test/agent-runtime.test.ts`](../test/agent-runtime.test.ts) 用真实 SDK 离线创建 Session，验证本地配置隔离、Tool 白名单与不落盘行为。默认测试不调用真实模型。
+
 ## 本地开发
 
 只联调 Agent Conversations HTTP 契约时运行单进程文本服务：

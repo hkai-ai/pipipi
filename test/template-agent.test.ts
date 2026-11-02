@@ -65,6 +65,7 @@ async function agentFor(
             >[0],
         ) => {
             expect(options.settingsManager?.getRetryEnabled()).toBe(false);
+            expect(options.settingsManager?.getCacheWarmingMode()).toBe("off");
             expect(
                 options.settingsManager?.getProviderRetrySettings().maxRetries,
             ).toBe(0);

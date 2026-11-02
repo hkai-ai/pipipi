@@ -1,10 +1,4 @@
-/**
- * 请求级 Pi Session 的共享支撑：校验模型选项、固定 Skill 集合、编译系统提示、
- * 缓存 ModelRuntime，并为每次请求创建一个不落盘的内存 Session。
- *
- * 无 Tool 的 Structured Agent 与带 Tool 的 Tooled Agent 都建立在它之上；两者只决定
- * 各自的 Tool 表面和对结果的解释，不重复这些创建细节。
- */
+/** 为每次请求创建配置隔离、禁用缓存预热且不落盘的 Pi Session。 */
 import { resolve } from "node:path";
 import {
     type AgentSession,
@@ -15,6 +9,7 @@ import {
     getAgentDir,
     ModelRuntime,
     SessionManager,
+    SettingsManager,
 } from "@earendil-works/pi-coding-agent";
 import { configureOpenAI, type OpenAIApiMode } from "./pi.js";
 import { createSkillSet, type SkillRef, type SkillSet } from "./skills.js";
@@ -126,9 +121,13 @@ export class PiSessionSupport {
         systemPromptSuffix: readonly string[] = [],
     ): Promise<AgentSession> {
         const loaded = this.#skills.load();
+        const settingsManager = SettingsManager.inMemory({
+            cacheWarming: "off",
+        });
         const resourceLoader = new DefaultResourceLoader({
             cwd: this.#cwd,
             agentDir: this.#agentDir,
+            settingsManager,
             noExtensions: true,
             noSkills: true,
             noPromptTemplates: true,
@@ -162,6 +161,7 @@ export class PiSessionSupport {
                   ? { thinkingLevel: "off" as const }
                   : {}),
             resourceLoader,
+            settingsManager,
             sessionManager: SessionManager.inMemory(this.#cwd),
             ...toolSurface,
         });

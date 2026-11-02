@@ -83,7 +83,7 @@ Runbook 必须可按顺序执行。每一步都应说明前置条件、成功信
 
 `agents/` 保存工程 Skill 使用的 Issue Tracker、triage label 和领域文档消费配置。它约束自动化工具如何操作项目，不定义产品行为。
 
-`research/` 保存基于外部一手资料的带来源调研，不直接定义项目行为。当前调研包括 [`research/skill-source-patterns.md`](research/skill-source-patterns.md)、[`research/async-process-execution.md`](research/async-process-execution.md)、[`research/pi-agent-plugin-ecosystem.md`](research/pi-agent-plugin-ecosystem.md) 和 [模型梗与公共梗素材调研](research/model-meme-library-2026-10-20.md)；项目采用的规则以对应设计或集成文档为准。
+`research/` 保存基于外部一手资料的带来源调研，不直接定义项目行为。当前调研包括 [`research/skill-source-patterns.md`](research/skill-source-patterns.md)、[`research/async-process-execution.md`](research/async-process-execution.md)、[`research/pi-agent-plugin-ecosystem.md`](research/pi-agent-plugin-ecosystem.md)、[Pi Runtime 升级评估](research/pi-runtime-upgrade.md) 和 [模型梗与公共梗素材调研](research/model-meme-library-2026-10-20.md)；项目采用的规则以对应设计或集成文档为准。
 
 `history/` 保存已经完成、仍值得保留结论的实施记录，不进入日常开发路径。当前异步实现记录见 [`history/async-process-runs-implementation.md`](history/async-process-runs-implementation.md)。
 

@@ -35,6 +35,7 @@ export class PiTemplateAgent implements TemplateAgent {
                 (options.sessionFactory ?? createAgentSession)({
                     ...sessionOptions,
                     settingsManager: SettingsManager.inMemory({
+                        cacheWarming: "off",
                         retry: { enabled: false, provider: { maxRetries: 0 } },
                         compaction: { enabled: false },
                     }),

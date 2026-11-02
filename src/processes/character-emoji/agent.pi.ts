@@ -371,6 +371,7 @@ export class PiCharacterEmojiAgent
                                 )({
                                     ...options,
                                     settingsManager: SettingsManager.inMemory({
+                                        cacheWarming: "off",
                                         retry: {
                                             enabled: false,
                                             provider: { maxRetries: 0 },
