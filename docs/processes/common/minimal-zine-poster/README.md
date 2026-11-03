@@ -82,3 +82,5 @@ npm run accept:poster-business
 ```
 
 运行前必须确认凭证、费用和测试内容。环境变量、判据和 `artifacts/` 报告位置见 [`experiments.md`](../../../experiments.md)。当前版本不做自动看图质检、自动重绘或参考图转换。
+
+实际共享图片服务的单次验收使用 `examples/poster-shared-service-acceptance.ts`，不创建替代 Business API。运行条件、付费授权开关与脱敏报告见 [实验说明](../../../experiments.md)。

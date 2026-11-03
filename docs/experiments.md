@@ -46,6 +46,14 @@
 
 Runtime Skill 位于 `.pi/skills/minimal-zine-poster-prompt/`。它从上游 `gc-minimal-zine-poster-v0-1` 的固定哈希适配而来，只保留 Prompt 编译规则。`SOURCE.md` 记录来源、许可、审查清单、适配差异和回滚方式。Agent 没有 Tool；图片生成不属于 Skill 权限。
 
+正式共享图片服务的独立验收使用 `examples/poster-shared-service-acceptance.ts`，直接连接已运行的主 API，不创建临时 `/posters`。执行前须确认该环境的 `CRT_BUSINESS_API_BASE_URL` 指向实际共享图片服务、FAL 与 OSS 已按服务端发布配置就绪，并获得一次 Agent 编译、一次图片生成和一次对象存储写入的费用/写入授权。命令如下（地址和可选鉴权从受控环境注入，不写进报告）：
+
+```bash
+POSTER_ACCEPTANCE_ALLOW_PAID=1 node --import tsx examples/poster-shared-service-acceptance.ts
+```
+
+必需变量 `POSTER_ACCEPTANCE_API_URL` 指向主 API（HTTPS 或本机 HTTP）；需要鉴权时使用 `POSTER_ACCEPTANCE_AUTHORIZATION`。可用 `POSTER_ACCEPTANCE_REPORT_DIRECTORY` 指定受控报告目录。工具只提交一次 `/execute`，下载返回图片，校验 PNG、尺寸及比例，保存 runId、尺寸、字节数和 SHA-256；不保存 Prompt、完整 URL、签名或原始异常。费用字段明确为 API 未提供，须由服务端或供应商账单对账，不能把未报告费用当成零费用。失败后不自动重投，先核对同次运行状态。图片视觉质量、实际 OSS 配置和生产服务 revision 仍需人工或运行证据核验，不由下载成功推定。本工具不部署服务。
+
 正式运行已由共享内部图片服务提供 `/posters`；以下验收保留临时实现，用于模型与 Skill 实验，不证明正式图片服务部署可用。它显式覆盖两项 Business API 地址，避免本地配置误连正式服务。正式入口的离线 HTTP 验证见 `test/poster-process.test.ts` 和 `test/poster-business-api.test.ts`。
 
 业务验收启动生产 Composition，通过产品 `POST /execute` 提交请求。生产 catalog 解析 Process 后，Pi Agent 编译 Prompt，生产 HTTP Adapter 再调用临时启动的受控 `POST /posters` Business Capability。该 Capability 通过所选 OpenAI 或 FAL Adapter 调用 GPT Image 2，并写入本地 raster；配置对象存储时上传并返回远端 URL，否则启动临时图片 endpoint。验收会下载 Process 返回的 URL，并逐字节比较下载结果与生成产物：
