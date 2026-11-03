@@ -14,7 +14,6 @@ import {
     characterEmojiV3Production,
 } from "./character-emoji/production.js";
 import { composedProduction } from "./composed/production.js";
-import { contentProduction } from "./content/production.js";
 import { crtProduction } from "./crt/production.js";
 import {
     narrativeMonumentProduction,
@@ -40,7 +39,6 @@ import {
     templateRenderProduction,
     templateSourceProduction,
 } from "./template-from-source/production.js";
-import { titledContentProduction } from "./titled-content/production.js";
 
 /**
  * The explicit production catalog: one entry per exact `(id, version)`, each
@@ -49,8 +47,6 @@ import { titledContentProduction } from "./titled-content/production.js";
  * `composed-task` composes the others and ships switched off by default.
  */
 export const productionCatalog: readonly ProductionProcess[] = Object.freeze([
-    contentProduction,
-    titledContentProduction,
     posterProduction,
     crtProduction,
     paleWatercolorProduction,

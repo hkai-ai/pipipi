@@ -114,6 +114,9 @@ same_key_digest() {
     done
 }
 
+# 已下线的文本样板 Process 变量（BUSINESS_API_BASE_URL、BUSINESS_API_TIMEOUT_MS、
+# CONTENT_PROCESSING_*、TITLED_CONTENT_SEPARATOR、PI_SKILL_DIRECTORY）仍在允许清单中，
+# 以免已部署的旧环境文件被判为不隔离；应用不再读取它们，新生成的环境也不再写入。
 role_key_allowed() {
     local role="$1"
     local key="$2"

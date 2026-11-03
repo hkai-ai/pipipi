@@ -17,7 +17,6 @@ function production(version: "v2" | "v3") {
         id: "character-emoji",
         environment: [
             "CRT_BUSINESS_API_BASE_URL",
-            "BUSINESS_API_BASE_URL",
             "PHOTO_POSTER_API_TIMEOUT_MS",
             "CHARACTER_EMOJI_API_KEY",
             "CHARACTER_EMOJI_BASE_URL",

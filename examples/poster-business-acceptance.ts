@@ -201,7 +201,6 @@ const rendering: PosterRenderingCapability = {
 const businessApi = await startPosterBusinessApi(rendering);
 const { application } = constructProcessingService({
     ...process.env,
-    BUSINESS_API_BASE_URL: businessApi.url,
     CRT_BUSINESS_API_BASE_URL: businessApi.url,
     PI_PROVIDER: provider,
     PI_MODEL: agentModel,

@@ -5,11 +5,11 @@ import { createBullMqAgentTurnQueue } from "../agent-conversations/queue.bullmq.
 import { HttpOwnedAgentResourceService } from "../agent-conversations/resource.http.js";
 import { createOwnedServiceAgentResourceResolver } from "../agent-conversations/resource.js";
 import { createPostgresAgentConversationStore } from "../agent-conversations/store.postgres.js";
-import { createProductionAgentRuntime } from "../agents/catalog.js";
 import {
-    designAssistantDeletionGraceMs,
-    designAssistantRetentionMs,
-} from "../agents/design-assistant.js";
+    agentConversationDeletionGraceMs,
+    agentConversationRetentionMs,
+    createProductionAgentRuntime,
+} from "../agents/catalog.js";
 import { assertAgentRegistrationRevisions } from "../agents/postgres.js";
 import type { ProcessingHttpOptions } from "../api/http.js";
 import { createGatewayCallerIdentityResolver } from "../api/identity.js";
@@ -113,8 +113,8 @@ export function constructAgentConversationsApi(
     const admission = agentAdmission(environment);
     const store = createPostgresAgentConversationStore({
         pool,
-        retentionMs: designAssistantRetentionMs,
-        deletionGraceMs: designAssistantDeletionGraceMs,
+        retentionMs: agentConversationRetentionMs,
+        deletionGraceMs: agentConversationDeletionGraceMs,
         admission,
     });
     const resourceService = new HttpOwnedAgentResourceService({
@@ -139,7 +139,7 @@ export function constructAgentConversationsApi(
         store,
         queue,
         resourceResolver,
-        deletionGraceMs: designAssistantDeletionGraceMs,
+        deletionGraceMs: agentConversationDeletionGraceMs,
     });
     const callerIdentity = createGatewayCallerIdentityResolver({
         sharedSecret: required(

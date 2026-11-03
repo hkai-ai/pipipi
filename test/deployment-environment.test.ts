@@ -8,16 +8,16 @@ import {
 } from "../src/app/deployment-environment.js";
 
 describe("Deployment environment", () => {
-    it("requires only the Business Capability URL for the synchronous API", () => {
+    it("requires only the image Business API URL for the synchronous API", () => {
         expect(checkDeploymentEnvironment({}, "api")).toEqual({
             role: "api",
-            requiredVariables: ["BUSINESS_API_BASE_URL"],
-            missingVariables: ["BUSINESS_API_BASE_URL"],
+            requiredVariables: ["CRT_BUSINESS_API_BASE_URL"],
+            missingVariables: ["CRT_BUSINESS_API_BASE_URL"],
         });
         expect(
             checkDeploymentEnvironment(
                 {
-                    BUSINESS_API_BASE_URL: "https://business.example",
+                    CRT_BUSINESS_API_BASE_URL: "https://images.example",
                     ASYNC_PROCESS_RUNS_ENABLED: "false",
                 },
                 "api",
@@ -28,7 +28,7 @@ describe("Deployment environment", () => {
     it("reports every missing variable when the API enables Async Process Runs", () => {
         const check = checkDeploymentEnvironment(
             {
-                BUSINESS_API_BASE_URL: "https://business.example",
+                CRT_BUSINESS_API_BASE_URL: "https://images.example",
                 ASYNC_PROCESS_RUNS_ENABLED: "true",
                 DATABASE_URL: "   ",
             },
@@ -50,7 +50,7 @@ describe("Deployment environment", () => {
 
     it("requires the OpenAI credential for Agent deployment roles when selected", () => {
         const environment = {
-            BUSINESS_API_BASE_URL: "https://business.example",
+            CRT_BUSINESS_API_BASE_URL: "https://images.example",
             PI_PROVIDER: "openai",
         };
 
@@ -63,7 +63,7 @@ describe("Deployment environment", () => {
             }),
         ).toEqual({
             role: "api",
-            requiredVariables: ["BUSINESS_API_BASE_URL", "OPENAI_API_KEY"],
+            requiredVariables: ["CRT_BUSINESS_API_BASE_URL", "OPENAI_API_KEY"],
             missingVariables: ["OPENAI_API_KEY"],
         });
         expect(
@@ -75,7 +75,7 @@ describe("Deployment environment", () => {
 
     it("requires the Agent gateway, execution and backlog dependencies only when enabled", () => {
         const enabled = {
-            BUSINESS_API_BASE_URL: "https://business.example",
+            CRT_BUSINESS_API_BASE_URL: "https://images.example",
             AGENT_CONVERSATIONS_ENABLED: "true",
         };
 
@@ -122,7 +122,7 @@ describe("Deployment environment", () => {
         [
             "process-worker",
             [
-                "BUSINESS_API_BASE_URL",
+                "CRT_BUSINESS_API_BASE_URL",
                 "DATABASE_URL",
                 "REDIS_URL",
                 "PROCESS_RUN_ACCEPTED_INPUT_RETENTION_MS",
@@ -166,7 +166,7 @@ describe("Deployment environment", () => {
                 "process-worker",
             ),
         ).toThrow(
-            "Deployment environment for process-worker is missing required variables: BUSINESS_API_BASE_URL, REDIS_URL, PROCESS_RUN_ACCEPTED_INPUT_RETENTION_MS, PROCESS_RUN_RESULT_RETENTION_MS, PROCESS_RUN_METADATA_RETENTION_MS, PROCESS_RUN_RECORD_STORE, PROCESS_RUN_RECORD_CONTENT, PROCESS_RUN_RECORD_DIRECTORY",
+            "Deployment environment for process-worker is missing required variables: CRT_BUSINESS_API_BASE_URL, REDIS_URL, PROCESS_RUN_ACCEPTED_INPUT_RETENTION_MS, PROCESS_RUN_RESULT_RETENTION_MS, PROCESS_RUN_METADATA_RETENTION_MS, PROCESS_RUN_RECORD_STORE, PROCESS_RUN_RECORD_CONTENT, PROCESS_RUN_RECORD_DIRECTORY",
         );
 
         try {
@@ -182,7 +182,7 @@ describe("Deployment environment", () => {
 
     it("requires durable observation configuration for the Process Worker", () => {
         const base = {
-            BUSINESS_API_BASE_URL: "https://business.example",
+            CRT_BUSINESS_API_BASE_URL: "https://images.example",
             DATABASE_URL: "postgresql://service:secret@database.example/pipipi",
             REDIS_URL: "redis://cache.example/0",
             PROCESS_RUN_ACCEPTED_INPUT_RETENTION_MS: "86400000",
@@ -208,7 +208,7 @@ describe("Deployment environment", () => {
     it("forces the production Process Worker onto the Console PostgreSQL observation store", () => {
         const environment = {
             NODE_ENV: "production",
-            BUSINESS_API_BASE_URL: "https://business.example",
+            CRT_BUSINESS_API_BASE_URL: "https://images.example",
             DATABASE_URL: "postgresql://service:secret@database.example/pipipi",
             REDIS_URL: "redis://cache.example/0",
             PROCESS_RUN_ACCEPTED_INPUT_RETENTION_MS: "86400000",

@@ -1,5 +1,4 @@
 /** crt-interface-image/v1 的生产装配：Pi Agent 编译 Prompt，HTTP Capability 调用 CRT Business API 的 POST /crt-images */
-import { parseBusinessApiBaseUrl } from "../content/config.js";
 import {
     defineProductionProcess,
     type ProductionEnvironment,
@@ -14,7 +13,6 @@ export const crtProduction = defineProductionProcess({
     environment: [
         "PI_CRT_SKILL_DIRECTORY",
         "CRT_BUSINESS_API_BASE_URL",
-        "BUSINESS_API_BASE_URL",
         "CRT_API_TIMEOUT_MS",
     ],
     installedSkills: (environment) =>
@@ -29,12 +27,27 @@ export const crtProduction = defineProductionProcess({
         }),
 });
 
-/** The image Business API, which production Compose separates from the text one. */
+/** The internal image Business API; it never falls back to the text Capability address. */
 export function parseCrtBusinessApiBaseUrl(
     environment: ProductionEnvironment,
 ): string {
-    return parseBusinessApiBaseUrl(
-        environment.CRT_BUSINESS_API_BASE_URL ??
-            environment.BUSINESS_API_BASE_URL,
-    );
+    const name = "CRT_BUSINESS_API_BASE_URL";
+    const invalid = `${name} must be a valid HTTP(S) URL without credentials`;
+    const candidate = environment[name]?.trim();
+    if (!candidate) throw new Error(`${name} is required`);
+
+    let url: URL;
+    try {
+        url = new URL(candidate);
+    } catch {
+        throw new Error(invalid);
+    }
+    if (
+        (url.protocol !== "http:" && url.protocol !== "https:") ||
+        url.username.length > 0 ||
+        url.password.length > 0
+    ) {
+        throw new Error(invalid);
+    }
+    return url.toString();
 }

@@ -1,6 +1,6 @@
 # 业务接口文档
 
-本文面向业务调用方和调用 Agent，记录二十三个 Business Process（默认启用二十二个）、Agent Conversations、重试与通知契约，以及临时开放的内部评测接口。场景列帮助产品找到契约；请求仍只提交准确 Process 或 Agent 版本和业务输入。其中 `composed-task/v1` 随应用发布但默认关闭；production Agent catalog 精确登记 `design-assistant/v1`，其四个业务路由由部署开关控制且默认关闭。
+本文面向业务调用方和调用 Agent，记录二十一个 Business Process（默认启用二十个）、Agent Conversations、重试与通知契约，以及临时开放的内部评测接口。场景列帮助产品找到契约；请求仍只提交准确 Process 或 Agent 版本和业务输入。其中 `composed-task/v1` 随应用发布但默认关闭；production Agent catalog 当前为空（原 `design-assistant/v1` 已下线，待重新开发），因此四个 Agent Conversations 路由不能开启。
 
 ## Agent 能力接入结论
 
@@ -8,7 +8,7 @@
 
 两种 Interface 都由服务端选择 Agent、Runtime Skill、模型、Tool、Business Capability 和运行策略。服务没有通用 `/agent` 或兼容 Chat Completions 的接口，也不接受 `messages`、role、Prompt、模型名、Tool、Skill 或执行步骤。Agent Conversations 的“通用”是多个服务端 Agent 共用受控基础设施，不是调用方可配置的任意 Agent。
 
-现有 Process 是否一定调用 Agent 由服务端 Registration 决定，调用方不应依赖内部实现。`minimal-zine-poster/v1`、`crt-interface-image/v1` 和三个新闻图片 Process 当前使用受限 Agent；`content-processing/v1` 可由部署选择 Direct 或 Agent 路径；`composed-task/v1` 使用 Planner Agent，但默认关闭。
+现有 Process 是否一定调用 Agent 由服务端 Registration 决定，调用方不应依赖内部实现。`minimal-zine-poster/v1`、`crt-interface-image/v1` 和三个新闻图片 Process 当前使用受限 Agent；`composed-task/v1` 使用 Planner Agent，但默认关闭。
 
 Agent Conversations 当前支持可靠多轮文本、owner-scoped 图片资源、Registration 固定的受控 Business Process Tool，以及 owner 删除和 30 天闲置保留。production Composition Root 已装配 PostgreSQL、BullMQ、资源服务、请求级 Pi Session、Dispatcher、Worker、Reconciler 与 Cleaner；`AGENT_CONVERSATIONS_ENABLED=false` 是默认值，因此未启用的部署访问这些路由仍返回 404。当前阶段不提供图片上传、任意 URL 抓取、跨 Conversation 长期 Memory、SSE 或 Canvas Document。
 
@@ -16,23 +16,23 @@ Agent Conversations 当前支持可靠多轮文本、owner-scoped 图片资源�
 
 ### 最短接入路径
 
-1. 开发阶段先选一个准确的 Process 和版本。只验证 HTTP 接入时可用 `content-processing/v1`；验收真实 Agent 时使用部署方确认已开启的 Agent-backed Process。
+1. 开发阶段先选一个准确的 Process 和版本。只验证 HTTP 接入时，可向 `minimal-zine-poster/v1` 提交空 `input`，服务在调用 Agent 或图片服务前返回 `400 INVALID_INPUT`，不产生费用；有效输入会调用模型并生成图片。
 2. 向 `POST /execute` 发送 JSON，并把客户端读取超时设为至少 260 秒。同步入口不提供幂等保证。
 3. 同时判断 HTTP 状态和响应体 `status`。只有 `2xx` 且 `status` 为 `succeeded` 才表示成功。
 4. 保存 `runId` 和调用方生成的 `X-Request-Id`，用于排查失败。`X-Request-Id` 不提供幂等性。
 5. 图片 Process 会产生模型费用和外部写入。网络超时、`PROCESS_TIMEOUT`、`DEPENDENCY_FAILURE` 或 `DEPENDENCY_FAILURE_AFTER_COMMIT` 后不得自动重试。
 
-开发环境可以先使用以下最小请求；实际 Base URL 和网关凭证由部署方提供：
+开发环境可以先使用以下最小请求；实际 Base URL 和网关凭证由部署方提供。该请求会产生模型与图片费用：
 
 ```bash
 curl --request POST 'https://pi.ganjiuwanshi.com/execute' \
   --header 'content-type: application/json' \
   --header 'x-request-id: replace-with-your-trace-id' \
   --data '{
-    "process": "content-processing",
+    "process": "minimal-zine-poster",
     "version": "v1",
     "input": {
-      "content": "整理这段业务内容"
+      "brief": "为雨天旧书店做一张安静的海报"
     }
   }'
 ```
@@ -42,11 +42,11 @@ curl --request POST 'https://pi.ganjiuwanshi.com/execute' \
 ```json
 {
   "runId": "c48dfd91-973f-4ee1-9d04-dd2b46ba8c9c",
-  "process": "content-processing",
+  "process": "minimal-zine-poster",
   "version": "v1",
   "status": "succeeded",
   "output": {
-    "content": "已处理的业务内容"
+    "image": { "url": "https://..." }
   }
 }
 ```
@@ -55,14 +55,9 @@ curl --request POST 'https://pi.ganjiuwanshi.com/execute' \
 
 ## Agent Conversations（多轮文本与图片资源）
 
-production Agent catalog 只登记 `design-assistant/v1`，没有默认 Agent、版本回退或请求时发现。它面向设计建议和模板图片创建；固定绑定 `design-assistant/v1` Runtime Skill、同一 Conversation 的成功公共历史、Conversation-scoped 派生摘要、请求级 Pi Session，以及以下准确 Process Tool：
+production Agent catalog 当前为空：原 `design-assistant/v1` 已下线，待重新开发后再登记；没有默认 Agent、版本回退或请求时发现。在登记生产 Agent 之前，部署开启 `AGENT_CONVERSATIONS_ENABLED=true` 会在启动时失败。本节保留 Conversation 的公开契约，供本地 `npm run dev:agent` 契约桩和未来的 Agent 复用；示例中的 `design-assistant/v1` 仅为该契约桩使用的标识。
 
-| Tool | Process | side effect |
-| --- | --- | --- |
-| `advise_design` | `content-processing/v1` | 无外部副作用 |
-| `create_zine_poster` | `minimal-zine-poster/v1` | 可能收费 |
-
-Registration 固定每 Turn 最多 6 次 Tool、其中最多 1 次付费 Tool，每 Conversation 最多尝试 10 次付费 Tool；最多 50 个 Turn、最近 16 个成功历史 Turn、32K Context token 与 4K Summary token。模型、provider、endpoint、Prompt、Skill 位置、Secret、预算、输出策略和保留策略均由服务端配置，产品请求不能读取或覆盖。行为配置的确定性 SHA-256 作为 `configRevision` 写入 Conversation；发布若未保留活动 Conversation 依赖的旧 revision，`/readyz` 会失败，避免静默漂移。
+每个 Agent Registration 固定 Runtime Skill、同一 Conversation 的成功公共历史、Conversation-scoped 派生摘要、请求级 Pi Session、准确 Process Tool allow-list 与 Tool 预算。模型、provider、endpoint、Prompt、Skill 位置、Secret、预算、输出策略和保留策略均由服务端配置，产品请求不能读取或覆盖。行为配置的确定性 SHA-256 作为 `configRevision` 写入 Conversation；发布若未保留活动 Conversation 依赖的旧 revision，`/readyz` 会失败，避免静默漂移。
 
 路由仅在部署设置 `AGENT_CONVERSATIONS_ENABLED=true` 时挂载；默认返回 404。持久路径使用 PostgreSQL 权威 Store/Tool Ledger 与 BullMQ 最小 Job，并由 Dispatcher、Worker、Reconciler 和 Cleaner 处理至少一次调度。调用前应由部署方确认当前环境已开放。
 
@@ -213,7 +208,7 @@ Authorization: Bearer <deployment-issued-token>
 
 当本页之后还有历史时，响应包含 `nextCursor`；下一页把它原样传给 `after`。`limit` 必须为 1–100，并可能被 Agent Registration 进一步收紧。Conversation 的公共状态为 `busy` 或 `ready`；Turn 状态为 `queued`、`running`、`succeeded` 或 `failed`。busy 查询携带 `Retry-After`。未知、其他 caller 所有或不可访问的 Conversation 都返回同一 HTTP 404 `CONVERSATION_NOT_FOUND`。
 
-`expiresAt` 是 Conversation 的权威闲置期限。`design-assistant/v1` 每次接受新 Turn 后都将它滑动到该 Turn 创建时间之后 30 天；只读查询不续期。到期后查询、新 Turn、恢复扫描和迟到 Worker 提交都按 Conversation 不存在处理。
+`expiresAt` 是 Conversation 的权威闲置期限。每次接受新 Turn 后都将它滑动到该 Turn 创建时间之后 30 天；只读查询不续期。到期后查询、新 Turn、恢复扫描和迟到 Worker 提交都按 Conversation 不存在处理。
 
 owner 可以请求删除整个 Conversation：
 
@@ -307,7 +302,7 @@ Agent 先读取 [`https://pi.ganjiuwanshi.com/llms.txt`](https://pi.ganjiuwanshi
 | --- | --- | --- |
 | `POST /execute` | 调用方需要在同一个 HTTP 请求中等待结果 | 不提供调用方幂等键。网络超时不代表 Process 未执行；付费图片调用不得自动重试 |
 | `POST /process-runs` | 异步入口已开放，或调用方需要可靠接受、轮询和安全重放 | 必须使用稳定的 `Idempotency-Key`；提交响应丢失时用同一 key 和同一请求重试 |
-| `POST /agent-conversations` / `POST /agent-conversations/{id}/turns` / `GET/DELETE /agent-conversations/{id}` | 部署已开启 `design-assistant/v1`，且调用方需要 owner-scoped 多轮文本/图片、分页轮询或删除 | 创建和追加各使用稳定且独立的 `Idempotency-Key`；图片先上传到部署方另行提供的 owned resource service，本接口只接收 `resourceId` |
+| `POST /agent-conversations` / `POST /agent-conversations/{id}/turns` / `GET/DELETE /agent-conversations/{id}` | 部署已开启 Agent Conversations 并登记生产 Agent（当前没有），且调用方需要 owner-scoped 多轮文本/图片、分页轮询或删除 | 创建和追加各使用稳定且独立的 `Idempotency-Key`；图片先上传到部署方另行提供的 owned resource service，本接口只接收 `resourceId` |
 
 `X-Request-Id` 只用于排查请求，不提供幂等性。调用方需要安全重放时选择异步入口。
 
@@ -343,8 +338,6 @@ Content-Type: application/json
 | 场景 | process | 用途 |
 | --- | --- | --- |
 | `memebuy` | `template-from-image` | 从参考图编译可编辑模板草稿；对接 Memebuy 素材箱提取 Worker，保留 Pipipi 本地测试，尚未部署 |
-| `common` | `content-processing` | 处理一段业务文本 |
-| `common` | `titled-content-processing` | 处理标题和正文 |
 | `common` | `minimal-zine-poster` | 生成极简 Zine 海报 |
 | `common` | `photo-doodle-collage` | 生成摄影剪贴与互动黑线小人海报 |
 | `common` | `photo-fashion-manga` | 真人照片转日式手绘时装漫画 |
@@ -441,7 +434,7 @@ Process 最长 480 秒，成功前进行 Schema 与语义校验，先生成分�
 
 已完成响应中的 JSON 语法错误与合同错误共用这一次修正预算。模型输入合同与服务端校验均将标题和描述限制为 20 字；单个多余末尾闭括号或 Markdown 包裹可被去除，但不补造草稿字段，且仍需完整校验。
 
-错误沿用统一错误壳：非法输入为 `INVALID_INPUT`；图片获取或解码失败为 `DEPENDENCY_FAILURE`；模型不支持视觉、执行失败或两次候选校验失败为 `AGENT_FAILURE`；超时返回 `PROCESS_TIMEOUT`；取消沿用共享 Runner 的 `INTERNAL_ERROR`，已断开的客户端可能收不到响应。同步调用无调用方幂等保证，网络失败不自动重试；图像下载失败不会调用模型。鉴权沿用部署平台策略。
+错误沿用统一错误壳：非法输入为 `INVALID_INPUT`；图片获取或解码失败为 `DEPENDENCY_FAILURE`；模型不支持视觉、执行失败或两次候选校验失败为 `AGENT_FAILURE`；本地校验的未知程序异常为 `INTERNAL_ERROR`；超时返回 `PROCESS_TIMEOUT`；取消沿用共享 Runner 的 `INTERNAL_ERROR`，已断开的客户端可能收不到响应。同步调用无调用方幂等保证，网络失败不自动重试；图像下载失败不会调用模型。鉴权沿用部署平台策略。
 
 执行异常的提示区分编译、修正与复核阶段，并按可识别原因显示连接中断、限流、鉴权、超时或空响应；无法识别时只报告执行异常，不推定模型配置错误。调用方按错误码处理，不解析提示文案；原始异常、供应商地址和凭据不会返回。
 
@@ -530,7 +523,7 @@ durable acceptance 成功返回 HTTP `202`、`Location: /process-runs/{runId}`�
 ```json
 {
   "runId": "c48dfd91-973f-4ee1-9d04-dd2b46ba8c9c",
-  "process": "content-processing",
+  "process": "minimal-zine-poster",
   "version": "v1",
   "status": "queued",
   "createdAt": "2026-08-14T10:00:00.000Z"
@@ -551,7 +544,7 @@ Authorization: Bearer <same caller credential>
 ```json
 {
   "runId": "c48dfd91-973f-4ee1-9d04-dd2b46ba8c9c",
-  "process": "content-processing",
+  "process": "minimal-zine-poster",
   "version": "v1",
   "status": "running",
   "createdAt": "2026-08-14T10:00:00.000Z",
@@ -564,7 +557,7 @@ Authorization: Bearer <same caller credential>
 ```json
 {
   "runId": "c48dfd91-973f-4ee1-9d04-dd2b46ba8c9c",
-  "process": "content-processing",
+  "process": "minimal-zine-poster",
   "version": "v1",
   "status": "failed",
   "createdAt": "2026-08-14T10:00:00.000Z",
@@ -582,7 +575,7 @@ Authorization: Bearer <same caller credential>
 ```json
 {
   "runId": "c48dfd91-973f-4ee1-9d04-dd2b46ba8c9c",
-  "process": "content-processing",
+  "process": "minimal-zine-poster",
   "version": "v1",
   "status": "succeeded",
   "createdAt": "2026-08-14T10:00:00.000Z",
@@ -618,7 +611,7 @@ Authorization: Bearer <same caller credential>
   "createdAt": "2026-08-14T10:00:02.000Z",
   "data": {
     "runId": "c48dfd91-973f-4ee1-9d04-dd2b46ba8c9c",
-    "process": "content-processing",
+    "process": "minimal-zine-poster",
     "version": "v1",
     "status": "succeeded",
     "resultLocation": "/process-runs/c48dfd91-973f-4ee1-9d04-dd2b46ba8c9c"
@@ -648,61 +641,6 @@ expected = "v1," + base64(HMAC-SHA256(key, signed))
 Webhook 是至少一次投递，不保证跨 Run 的全局顺序。网络错误、超时、`429` 和 `5xx` 会重试；`3xx` 不跟随，`410` 会停用 Endpoint。重复或延迟通知不改变 Run 的权威状态。
 
 ## Process 契约
-
-### Process：`content-processing`（`v1`）
-
-完整请求 body：
-
-```json
-{
-  "process": "content-processing",
-  "version": "v1",
-  "input": {
-    "content": "整理这段业务内容"
-  }
-}
-```
-
-| 字段 | 类型 | 必填 | 约束 |
-| --- | --- | --- | --- |
-| `content` | string | 是 | 去除首尾空白后不能为空 |
-
-响应 `output`：
-
-```json
-{
-  "content": "已处理的业务内容"
-}
-```
-
-### Process：`titled-content-processing`（`v1`）
-
-完整请求 body：
-
-```json
-{
-  "process": "titled-content-processing",
-  "version": "v1",
-  "input": {
-    "title": "季度业务简报",
-    "body": "整理这段带标题的业务内容"
-  }
-}
-```
-
-| 字段 | 类型 | 必填 | 约束 |
-| --- | --- | --- | --- |
-| `title` | string | 是 | 去除首尾空白后不能为空 |
-| `body` | string | 是 | 去除首尾空白后不能为空 |
-
-响应 `output`：
-
-```json
-{
-  "title": "季度业务简报",
-  "content": "已处理的业务内容"
-}
-```
 
 ### Process：`minimal-zine-poster`（`v1`）
 
@@ -966,6 +904,8 @@ HTTP 层在执行前拒绝请求时，不返回 `runId`：
 
 错误响应不会返回 Prompt、模型响应、凭证或内部异常正文。
 
+`error.code` 保持稳定，`error.message` 是面向人的中文说明，可随诊断改进变化。照片海报、极简海报、CRT、新闻图片、内容优化及模板编译的可识别模型失败只说明阶段和已知原因；运维建议仅在控制台展示；不能识别时明确写“具体原因尚未确认”。整体超时仍返回 `PROCESS_TIMEOUT`；外部取消沿用 `INTERNAL_ERROR`，消息明确取消，运维活动终态标记 `cancelled`。这些说明不增加自动重试权限，已产生副作用时仍须先核对原请求。
+
 ## 重试判断
 
 | 结果 | 调用方动作 |
@@ -1026,9 +966,9 @@ curl --include --request POST 'https://pi.ganjiuwanshi.com/process-runs' \
   --header "idempotency-key: ${idempotency_key}" \
   --header 'content-type: application/json' \
   --data '{
-    "process": "content-processing",
+    "process": "minimal-zine-poster",
     "version": "v1",
-    "input": { "content": "整理这段业务内容" }
+    "input": { "brief": "为雨天旧书店做一张安静的海报" }
   }'
 
 curl --include \
@@ -1046,9 +986,9 @@ const response = await fetch("https://pi.ganjiuwanshi.com/execute", {
     "x-request-id": crypto.randomUUID(),
   },
   body: JSON.stringify({
-    process: "content-processing",
+    process: "minimal-zine-poster",
     version: "v1",
-    input: { content: "整理这段业务内容" },
+    input: { brief: "为雨天旧书店做一张安静的海报" },
   }),
   signal: AbortSignal.timeout(260_000),
 });
@@ -1066,6 +1006,8 @@ CRT 与九个照片海报的 `v1` 接受可选 `background: auto | transparent |
 例如：`{"process":"woodcut-photo-poster","version":"v1","input":{"sourceImageUrl":"https://assets.example.com/photo.png","background":"transparent"}}`。其他 Process 未开放该字段。FAL 参数取值依据 [GPT Image 2 编辑接口](https://fal.ai/models/openai/gpt-image-2/edit/api)。
 
 ## 照片海报
+
+规则编译失败仍为 HTTP 502 / `AGENT_FAILURE`，`error.message` 说明失败阶段与可识别原因，运维排查建议仅在控制台展示，例如“照片海报规则编译失败（校验编译规则：模型结果未通过规则校验）”。可区分鉴权、限流、连接、服务端拒绝或不可用、模型超时或取消、空响应、响应未完成、JSON 和 Schema 错误；不能识别时明确写“具体原因尚未确认”。调用方按错误码处理，不解析文案，不自动重试。响应不包含模型正文、字段原值、供应商地址或异常。整体超时仍为 `PROCESS_TIMEOUT`，外部取消沿用 Runner 的 `INTERNAL_ERROR`，活动标记为 `cancelled`。
 
 以下九个 Process 均使用 `POST /execute`，版本固定为 `v1`。每次处理一张照片；批量由调用方逐张提交，不能上传流程、Skill、模型或运行参数。
 

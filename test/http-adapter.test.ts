@@ -15,13 +15,11 @@ import {
     createProcessExecutor,
     type ProcessRuntimeOptions,
 } from "../src/processes/catalog.js";
-import type { ContentAgent } from "../src/processes/content/agent.js";
 import {
-    type ContentProcessingCapability,
-    ContentProcessingUnavailable,
-} from "../src/processes/content/capability.js";
-import { createContentRegistration } from "../src/processes/content/registration.js";
-import { createTitledContentRegistration } from "../src/processes/titled-content/registration.js";
+    createSampleTextRegistration,
+    type SampleTextCapability,
+    SampleTextUnavailable,
+} from "./support/sample-text.js";
 
 type RunningService = {
     url: string;
@@ -70,7 +68,7 @@ describe("controlled MVP HTTP boundary", () => {
                             throw new Error(sensitiveFailure);
                         return {
                             runId: "00000000-0000-4000-8000-000000000001",
-                            process: "content-processing",
+                            process: "sample-text",
                             version: "v1",
                             status: "succeeded",
                             output: { content: "recovered" },
@@ -93,7 +91,7 @@ describe("controlled MVP HTTP boundary", () => {
             method: "POST",
             headers: { "content-type": "application/json" },
             body: JSON.stringify({
-                process: "content-processing",
+                process: "sample-text",
                 version: "v1",
                 input: { content: "launch offer" },
             }),
@@ -144,7 +142,7 @@ describe("controlled MVP HTTP boundary", () => {
             method: "POST",
             headers: { "content-type": "text/plain" },
             body: JSON.stringify({
-                process: "content-processing",
+                process: "sample-text",
                 version: "v1",
                 input: { content: "launch offer" },
             }),
@@ -178,7 +176,7 @@ describe("controlled MVP HTTP boundary", () => {
             method: "POST",
             headers: { "content-type": "application/json" },
             body: JSON.stringify({
-                process: "content-processing",
+                process: "sample-text",
                 version: "v1",
                 input: { content: submittedContent },
             }),
@@ -210,7 +208,7 @@ describe("controlled MVP HTTP boundary", () => {
             method: "POST",
             headers: { "content-type": "application/json; charset=UTF-8" },
             body: JSON.stringify({
-                process: "content-processing",
+                process: "sample-text",
                 version: "v1",
                 input: { content: "launch offer" },
             }),
@@ -234,7 +232,7 @@ describe("controlled MVP HTTP boundary", () => {
             http: { maxRequestBodyBytes: 80 },
         });
         const requestBody = JSON.stringify({
-            process: "content-processing",
+            process: "sample-text",
             version: "v1",
             input: { content: "chunked-sensitive-content".repeat(10) },
         });
@@ -258,7 +256,7 @@ describe("controlled MVP HTTP boundary", () => {
     it("measures the request limit in bytes for multi-byte JSON", async () => {
         let capabilityCalls = 0;
         const requestBody = JSON.stringify({
-            process: "content-processing",
+            process: "sample-text",
             version: "v1",
             input: { content: "你".repeat(40) },
         });
@@ -367,7 +365,7 @@ describe("controlled MVP HTTP boundary", () => {
                 event: "process_run_completed",
                 timestamp: "2026-08-08T00:00:00.000Z",
                 runId: body.runId,
-                process: "content-processing",
+                process: "sample-text",
                 version: "v1",
                 status: "succeeded",
                 durationMs: 42,
@@ -411,7 +409,7 @@ describe("controlled MVP HTTP boundary", () => {
                 event: "process_run_completed",
                 timestamp: "2026-08-08T00:00:00.000Z",
                 runId: body.runId,
-                process: "content-processing",
+                process: "sample-text",
                 version: "v1",
                 status: "succeeded",
                 durationMs: 42,
@@ -596,7 +594,7 @@ describe("controlled MVP HTTP boundary", () => {
                 authorization: "Bearer authorization-secret",
             },
             body: JSON.stringify({
-                process: "content-processing",
+                process: "sample-text",
                 version: "v1",
                 input: { content: "prompt-secret and tool-input-secret" },
             }),
@@ -609,7 +607,7 @@ describe("controlled MVP HTTP boundary", () => {
             event: "process_run_completed",
             timestamp: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T/),
             runId: body.runId,
-            process: "content-processing",
+            process: "sample-text",
             version: "v1",
             status: "failed",
             durationMs: expect.any(Number),
@@ -633,7 +631,7 @@ describe("controlled MVP HTTP boundary", () => {
             registrations: contentRegistrations({
                 process: async (input) => {
                     if (input.content === "dependency-failure") {
-                        throw new ContentProcessingUnavailable();
+                        throw new SampleTextUnavailable();
                     }
                     if (input.content === "timeout")
                         return new Promise(() => {});
@@ -712,66 +710,6 @@ describe("controlled MVP HTTP boundary", () => {
         expect(capabilityCalls).toBe(1);
     });
 
-    it("keeps parallel Agent-backed requests isolated by sentinel content", async () => {
-        const agentInputs: string[] = [];
-        const capabilityInputs: string[] = [];
-        const service = await startProcessingService({
-            registrations: contentRegistrations(
-                {
-                    process: async (input) => {
-                        capabilityInputs.push(input.content);
-                        return { content: `Result for ${input.content}` };
-                    },
-                },
-                {
-                    agent: {
-                        optimize: async (request) => {
-                            agentInputs.push(request.content);
-                            await new Promise((resolve) =>
-                                setTimeout(
-                                    resolve,
-                                    request.content.endsWith("alpha") ? 15 : 5,
-                                ),
-                            );
-                            return request.capability.process(
-                                { content: `Tool input ${request.content}` },
-                                {
-                                    signal: request.signal,
-                                    idempotencyKey: request.idempotencyKey,
-                                },
-                            );
-                        },
-                    },
-                    mode: "agent",
-                },
-            ),
-            http: { maxConcurrentExecutions: 2, logSink: () => {} },
-        });
-
-        const [alphaResponse, betaResponse] = await Promise.all([
-            executeContent(service.url, "sentinel-alpha"),
-            executeContent(service.url, "sentinel-beta"),
-        ]);
-        const [alphaBody, betaBody] = await Promise.all([
-            alphaResponse.json(),
-            betaResponse.json(),
-        ]);
-
-        expect(alphaResponse.status).toBe(200);
-        expect(betaResponse.status).toBe(200);
-        expect(alphaBody.output).toEqual({
-            content: "Result for Tool input sentinel-alpha",
-        });
-        expect(betaBody.output).toEqual({
-            content: "Result for Tool input sentinel-beta",
-        });
-        expect(agentInputs.sort()).toEqual(["sentinel-alpha", "sentinel-beta"]);
-        expect(capabilityInputs.sort()).toEqual([
-            "Tool input sentinel-alpha",
-            "Tool input sentinel-beta",
-        ]);
-    });
-
     it("writes default production records as one-line JSON on stdout", async () => {
         const stdout = vi.spyOn(console, "log").mockImplementation(() => {});
         try {
@@ -790,7 +728,7 @@ describe("controlled MVP HTTP boundary", () => {
             expect(line).not.toContain("\n");
             expect(JSON.parse(String(line))).toMatchObject({
                 event: "process_run_completed",
-                process: "content-processing",
+                process: "sample-text",
                 version: "v1",
                 status: "succeeded",
             });
@@ -814,15 +752,10 @@ async function startProcessingService(
     return service;
 }
 
-/** Registers both content Processes over one capability, as production always does */
 function contentRegistrations(
-    capability: ContentProcessingCapability,
-    options: { agent?: ContentAgent; mode?: "direct" | "agent" } = {},
+    capability: SampleTextCapability,
 ): ProcessRegistration[] {
-    return [
-        createContentRegistration({ capability, ...options }),
-        createTitledContentRegistration({ capability }),
-    ];
+    return [createSampleTextRegistration(capability)];
 }
 
 async function startRequestListener(
@@ -900,7 +833,7 @@ function executeContent(
         method: "POST",
         headers: { "content-type": "application/json", ...headers },
         body: JSON.stringify({
-            process: "content-processing",
+            process: "sample-text",
             version: "v1",
             input: { content },
         }),

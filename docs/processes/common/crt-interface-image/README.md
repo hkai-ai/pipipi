@@ -89,7 +89,7 @@ GPT Image 2 的官方图片指南明确支持通过 Images API 编辑一张或�
 
 ## 实现 `POST /crt-images`
 
-生产 Adapter 会调用 `BUSINESS_API_BASE_URL` 下的 `POST /crt-images`：
+生产 Adapter 会调用 `CRT_BUSINESS_API_BASE_URL` 下的 `POST /crt-images`：
 
 ```http
 POST /crt-images HTTP/1.1

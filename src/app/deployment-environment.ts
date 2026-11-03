@@ -27,7 +27,7 @@ export type DeploymentEnvironmentCheckOptions = Readonly<{
 
 const variablesByRole: Readonly<Record<DeploymentRole, readonly string[]>> =
     Object.freeze({
-        api: Object.freeze(["BUSINESS_API_BASE_URL"]),
+        api: Object.freeze(["CRT_BUSINESS_API_BASE_URL"]),
         "crt-business-api": Object.freeze([
             "IMAGE_PROVIDER",
             "FAL_KEY",
@@ -39,7 +39,7 @@ const variablesByRole: Readonly<Record<DeploymentRole, readonly string[]>> =
         ]),
         "process-dispatcher": Object.freeze(["DATABASE_URL", "REDIS_URL"]),
         "process-worker": Object.freeze([
-            "BUSINESS_API_BASE_URL",
+            "CRT_BUSINESS_API_BASE_URL",
             "DATABASE_URL",
             "REDIS_URL",
             "PROCESS_RUN_ACCEPTED_INPUT_RETENTION_MS",

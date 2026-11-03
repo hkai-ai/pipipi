@@ -10,6 +10,7 @@ const names: Record<string, string> = {
     "dopamine-photo-poster": "多巴胺海报",
     "photo-doodle-collage": "照片涂鸦拼贴",
     "crt-interface-image": "CRT 图片",
+    // 已下线的文本样板 Process，保留名称以显示历史运行记录。
     "content-processing": "文本处理",
     "titled-content-processing": "标题与正文处理",
     "minimal-zine-poster": "极简 Zine 海报",

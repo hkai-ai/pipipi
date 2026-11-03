@@ -263,7 +263,7 @@ describe("照片海报的准确版本", () => {
     });
     it("生产 catalog 显式注册照片海报风格，未加入跳过的猫猫绘本", () => {
         const production = createProductionRuntime({
-            BUSINESS_API_BASE_URL: "https://business.example",
+            CRT_BUSINESS_API_BASE_URL: "https://business.example",
         });
         for (const style of photoPosterStyles)
             expect(
@@ -444,7 +444,7 @@ describe("漫画分镜无文字输出", () => {
             "THREE rectangular image panels",
         );
         const production = createProductionRuntime({
-            BUSINESS_API_BASE_URL: "https://business.example",
+            CRT_BUSINESS_API_BASE_URL: "https://business.example",
         });
         expect(
             production.registry.find({ id: "single-ink-manga", version: "v1" }),

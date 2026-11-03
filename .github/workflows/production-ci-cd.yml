@@ -463,6 +463,7 @@ jobs:
           docker run --rm --env-file "$shared_env" \
               --env PROCESS_RUN_RECORD_STORE=postgres \
               --env CONSOLE_ENABLED=true \
+              --env CRT_BUSINESS_API_BASE_URL=http://127.0.0.1:4400 \
               --entrypoint node "$image" \
               dist/bin/check-deployment-environment.js api
 

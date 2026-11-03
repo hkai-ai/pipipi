@@ -48,9 +48,7 @@ Business Processing Service 让产品调用方通过一个稳定的 HTTP Interfa
 | `memebuy` | `template-image-plan/v1` | 原图与备注 | 待审替换方案 | 固定来源规则，无 Tool |
 | `memebuy` | `template-image-render/v1` | 方案批准 | 待审 PNG | 固定单次 FAL 编辑 |
 | `memebuy` | `template-from-source/v1` | 成图批准 | 新图与 Gallery 草稿 | 不可变 OSS 与原编译器 |
-| `common` | `content-processing/v1` | `{ content: string }` | `{ content: string }` | 服务端可选择 Direct 或绑定多个 Runtime Skill 的 Agent 路径 |
-| `common` | `titled-content-processing/v1` | `{ title: string, body: string }` | `{ title: string, content: string }` | 复用 Content Processing Capability |
-| `common` | `minimal-zine-poster/v1` | `{ brief: string, text?: string }` | `{ prompt, recipe, interpretation, image }` | 无 Tool Agent 编译固定 Runtime Skill；Poster Rendering Capability 生成并持久化图片 |
+| `common` | `minimal-zine-poster/v1` | `{ brief: string, text?: string }` | `{ prompt, recipe, interpretation, image }` | 无 Tool Agent 编译固定 Runtime Skill；Poster Rendering Capability 复用内部图片服务生成并持久化图片 |
 | `common` | `crt-interface-image/v1` | `{ sourceImageUrl, palette, aspectRatio }` | `{ aspectRatio, image }` | 无 Tool Agent 编译固定 Runtime Skill；CRT Rendering Capability 用公网 HTTPS 参考图执行 FAL GPT Image 2 编辑、后处理并持久化 PNG |
 | `memene` | `news-image-narrative-monument/v1` | `{ title, summary }` | `{ style, image }` | 固定人物叙事碑式封面 Runtime Skill |
 | `memene` | `news-image-pale-watercolor/v1` | `{ title, summary }` | `{ style, image }` | 固定淡彩绘本 Runtime Skill |
@@ -78,7 +76,7 @@ Mono Color 支持五个按配色与版式命名的可编辑预设，旧标识在
 
 默认 HTTP Interface 提供健康检查和同步 `POST /execute`。异步提交、owner 查询、PostgreSQL Store、BullMQ Worker、Webhook、恢复和保留已经实现，但入口默认关闭。精确行为见 [异步设计](docs/async-process-runs-design.md)。
 
-production Agent catalog 精确登记 `design-assistant/v1`，Agent Conversations Module 提供可靠多轮文本、owner-scoped 图片资源、受控 Business Process Tool、PostgreSQL 权威状态和可恢复的 BullMQ 执行。Registration 固定指令、`design-assistant/v1` Runtime Skill 摘要、Conversation-scoped Context/Memory、请求级 Pi Session、准确 Tool allow-list、模型、6/1/10 Tool 预算、输出和 30 天保留，并把行为配置的确定性 `configRevision` 写入 Conversation。调用方用准确 Agent id/version 和 `Idempotency-Key` 创建首轮，用最后接受的 `afterTurnId` 追加，并按 owner 分页查询或删除。PostgreSQL Store 在一个事务内写入 Turn、单调 sequence、幂等 fingerprint 与最小调度 Outbox；行锁和数据库约束保证单活动 Turn，API 重启后仍可查询和重放。Dispatcher 对 Outbox 做 claim、ack 和失败 release；Worker 只凭最小 Turn identity 从 Store 认领准确 revision，并用 lease、attempt、revision 和 fencing 提交终态；Reconciler 可恢复租期过期或 Redis 中缺失的 Job。图片块只接受稳定 `resourceId`；priced Tool 进入结果不确定窗口后，Turn 以 `DEPENDENCY_FAILURE_AFTER_COMMIT` 失败且不自动重试。删除或过期会立即 fencing，并给出不超过 24 小时的物理清理期限；Cleaner 用短事务、`SKIP LOCKED` 和持久游标级联清理。production Composition Root 已装配 API、Dispatcher、Worker、Resource Resolver、revision drift readiness 和 Cleaner；`AGENT_CONVERSATIONS_ENABLED=false` 是默认发布门禁，所以默认服务仍返回 404。
+production Agent catalog 当前为空：原 `design-assistant/v1` 已下线，待重新开发后再登记；此时开启 `AGENT_CONVERSATIONS_ENABLED=true` 会在启动时失败。Agent Conversations Module 保留可靠多轮文本、owner-scoped 图片资源、受控 Business Process Tool、PostgreSQL 权威状态和可恢复的 BullMQ 执行。Agent Registration 固定指令、Runtime Skill 摘要、Conversation-scoped Context/Memory、请求级 Pi Session、准确 Tool allow-list、模型、Tool 预算和输出；catalog 统一固定 30 天保留，并把行为配置的确定性 `configRevision` 写入 Conversation。调用方用准确 Agent id/version 和 `Idempotency-Key` 创建首轮，用最后接受的 `afterTurnId` 追加，并按 owner 分页查询或删除。PostgreSQL Store 在一个事务内写入 Turn、单调 sequence、幂等 fingerprint 与最小调度 Outbox；行锁和数据库约束保证单活动 Turn，API 重启后仍可查询和重放。Dispatcher 对 Outbox 做 claim、ack 和失败 release；Worker 只凭最小 Turn identity 从 Store 认领准确 revision，并用 lease、attempt、revision 和 fencing 提交终态；Reconciler 可恢复租期过期或 Redis 中缺失的 Job。图片块只接受稳定 `resourceId`；priced Tool 进入结果不确定窗口后，Turn 以 `DEPENDENCY_FAILURE_AFTER_COMMIT` 失败且不自动重试。删除或过期会立即 fencing，并给出不超过 24 小时的物理清理期限；Cleaner 用短事务、`SKIP LOCKED` 和持久游标级联清理。production Composition Root 已装配 API、Dispatcher、Worker、Resource Resolver、revision drift readiness 和 Cleaner；`AGENT_CONVERSATIONS_ENABLED=false` 是默认发布门禁，所以默认服务仍返回 404。
 
 调用方本地开发可以使用 `npm run dev:agent` 启动只绑定回环地址的单进程文本契约服务。它复用正式 HTTP Interface 与内存 Store、Queue、Worker，以确定性 Scripted Agent 完成 Turn；不访问模型、资源服务或外部基础设施，退出即清空，因此不代表生产持久化和恢复形状。
 
@@ -94,9 +92,9 @@ production Agent catalog 精确登记 `design-assistant/v1`，Agent Conversation
 
 运维控制台以概览、运行记录和异常排查组织已归档终态，支持按准确 Process 版本和同一时间窗口下钻。它不把执行次数解释为用户人数，不把 API 进程并发解释为全局 Worker 状态，也不通过错误码推断供应商根因或自动重试付费操作。
 
-Run Observation Module 同时服务同步 API 和异步 Worker。Run Record 与活动日志只用于观测，不决定业务状态、重试或投递；写入失败不能改变 Process Result。异步调用方始终通过 owner-scoped Process Run Store 查询权威状态。
+Run Observation Module 同时服务同步 API 和异步 Worker。Run Record 与活动日志只用于观测，不决定业务状态、重试或投递；写入失败不能改变 Process Result。模型执行使用共享诊断分类，活动保留固定阶段、净化原因码和校验路径，控制台据此解释原因；未知异常、取消和整体超时分别收口，缺少诊断的旧记录不推断根因。异步调用方始终通过 owner-scoped Process Run Store 查询权威状态。 公开失败说明与运维建议分开投影；诊断不能改变业务副作用或重试合同。
 
-Agent 只获得 Registration 固定绑定的 Runtime Skill 与窄 Tool。文本 Agent 只能调用 Content Processing Capability；海报、CRT 和新闻图片 Agent 没有 Tool，只编译待校验计划；`character-emoji/v2` 的 Pi Agent 默认无 Tool，仅服务端识别到明确检索或近期事实要求时开放 `search_memes` Tool，由其内部调用固定 DeepSeek Responses 原生 `web_search`，首轮接收服务端挑选的本地短卡，允许无需搜索直接提交经校验的改编或原创方案；开放工具后按需搜索，搜索失败直接原创；`composed-task` 的 Planner Agent 只获得 allow-list 中其他 Process 的 Step Tool，每个 Step 仍经 Member Registration 自己的校验、幂等键和错误净化。Agent 不获得 Shell、文件读写、代码编辑或任意远程工具。Runtime Skill 随应用发布，调用方不能选择、增加或排序。
+Agent 只获得 Registration 固定绑定的 Runtime Skill 与窄 Tool。海报、CRT 和新闻图片 Agent 没有 Tool，只编译待校验计划；`character-emoji/v2` 的 Pi Agent 默认无 Tool，仅服务端识别到明确检索或近期事实要求时开放 `search_memes` Tool，由其内部调用固定 DeepSeek Responses 原生 `web_search`，首轮接收服务端挑选的本地短卡，允许无需搜索直接提交经校验的改编或原创方案；开放工具后按需搜索，搜索失败直接原创；`composed-task` 的 Planner Agent 只获得 allow-list 中其他 Process 的 Step Tool，每个 Step 仍经 Member Registration 自己的校验、幂等键和错误净化。Agent 不获得 Shell、文件读写、代码编辑或任意远程工具。Runtime Skill 随应用发布，调用方不能选择、增加或排序。
 
 图片 Process 的模型、FAL、OSS、证据和保留策略由服务端 Adapter 与部署环境拥有。产品只提交业务字段并接收图片引用。真实模型、存储和付费验收必须显式运行，凭证与敏感内容不进入日志、正式输出或证据。
 

@@ -29,7 +29,7 @@ Pi 依赖按准确版本升级并同步锁文件。Session 配置边界见 [项�
 npm run dev:agent
 ```
 
-该入口只监听 `127.0.0.1:4300`，使用内存 Store、Queue、Worker 和确定性 Scripted Agent；默认 Bearer Token 是 `pipipi-local-development-token`。可用 `PIPIPI_LOCAL_AGENT_PORT`、`PIPIPI_LOCAL_AGENT_ACCESS_TOKEN` 和 `PIPIPI_LOCAL_AGENT_CALLER_ID` 覆盖本地值。它提供正式的四个 v1 Conversation 路由，但只接受文本；不启动 PostgreSQL、Redis、Dispatcher、Cleaner 或资源服务，不访问模型，不执行 Process Tool，退出后清空所有 Conversation。它不能替代持久化、图片、真实 Agent 或故障恢复验收，也禁止在 `NODE_ENV=production` 下启动。
+该入口只监听 `127.0.0.1:4300`，使用内存 Store、Queue、Worker 和确定性 Scripted Agent（沿用 `design-assistant/v1` 作为调用方契约桩；生产 Agent catalog 当前为空，原设计 Agent 已下线待重新开发）；默认 Bearer Token 是 `pipipi-local-development-token`。可用 `PIPIPI_LOCAL_AGENT_PORT`、`PIPIPI_LOCAL_AGENT_ACCESS_TOKEN` 和 `PIPIPI_LOCAL_AGENT_CALLER_ID` 覆盖本地值。它提供正式的四个 v1 Conversation 路由，但只接受文本；不启动 PostgreSQL、Redis、Dispatcher、Cleaner 或资源服务，不访问模型，不执行 Process Tool，退出后清空所有 Conversation。它不能替代持久化、图片、真实 Agent 或故障恢复验收，也禁止在 `NODE_ENV=production` 下启动。
 
 创建首轮后按 `Location` 轮询：
 
@@ -46,7 +46,7 @@ curl --fail -X POST http://127.0.0.1:4300/agent-conversations \
 
 Memebuy 等调用方通过 BFF 把该 Base URL 和 Token 作为本地外部服务配置；浏览器仍不应直连。需要验证 owner 隔离、PostgreSQL 权威状态、BullMQ 恢复、图片和真实 Tool 时，再使用 Agent Conversations Runbook 的完整形状。
 
-终端一启动仓库内的演示 Business Capability：
+终端一启动内部图片 Business API：
 
 ```bash
 npm run dev:business-api
@@ -58,21 +58,23 @@ npm run dev:business-api
 npm run dev
 ```
 
-复制 `.env.example` 后，Direct 模式默认连接 `http://127.0.0.1:4000`，服务监听 `4300` 端口。用以下命令确认进程和一次完整执行：
+复制 `.env.example` 后，`CRT_BUSINESS_API_BASE_URL` 指向 `http://127.0.0.1:4400`，服务监听 `4300` 端口。用以下命令确认进程和 `/execute` 链路；空输入在调用模型或图片服务前返回 `400 INVALID_INPUT`，不产生费用：
 
 ```bash
 curl --fail http://127.0.0.1:4300/healthz
 
-curl --fail -X POST http://127.0.0.1:4300/execute \
+curl -X POST http://127.0.0.1:4300/execute \
   -H 'content-type: application/json' \
   -d '{
-    "process": "content-processing",
+    "process": "minimal-zine-poster",
     "version": "v1",
-    "input": { "content": "  local   check  " }
+    "input": {}
   }'
 ```
 
 `constructProcessingService` 是生产启动的唯一 Construction Seam。它在监听端口前完成配置解析、跨字段校验、Adapter 选择和 Application 组装。启动失败时先修正配置，不要把校验移到请求路径。
+
+联调极简海报时，内部图片服务提供正式 `POST /posters`，复用现有 FAL 与 OSS 配置；文本编译仍需 Pi 模型凭证。图片服务启动不生图，实际图片请求会产生费用与外部写入。配置说明见 [发布手册](mvp-release-runbook.md)，不付费的完整 HTTP 链路验证见 `test/poster-process.test.ts`。
 
 ### 新闻图片内部评测
 
@@ -84,9 +86,9 @@ curl --fail -X POST http://127.0.0.1:4300/execute \
 
 | 命令 | 用途 | 外部影响 |
 | --- | --- | --- |
-| `npm run dev` | 监听源码并启动同步 API | 请求时访问配置的 Business Capability |
+| `npm run dev` | 监听源码并启动同步 API | 请求时访问模型与内部图片服务 |
 | `npm run dev:agent` | 单进程启动文本 Agent Conversations 联调 API | 无；进程退出后清空内存数据 |
-| `npm run dev:business-api` | 启动确定性的本地演示 Capability | 无 |
+| `npm run dev:business-api` | 启动共享内部图片 Business API | 请求时调用图片供应商并写入对象存储 |
 | `npm run dev:console` | 启动 Vite 控制台 | 需要另行启动 API |
 | `npm run check` | 只读检查格式、lint 和 import 顺序 | 无 |
 | `npm run check:fix` | 应用 Biome 格式和安全修复 | 修改工作区 |
@@ -109,7 +111,7 @@ curl --fail -X POST http://127.0.0.1:4300/execute \
 | 现象 | 先检查 | 下一步 |
 | --- | --- | --- |
 | `npm run dev` 启动失败 | Node.js 版本、`.env` 和启动错误中的配置名 | 对照 [配置规则](#配置规则) 与 `.env.example` |
-| `/healthz` 可用但执行失败 | `npm run dev:business-api` 是否运行、`BUSINESS_API_BASE_URL` 是否指向本地服务 | 用本页的 Direct 请求复现 |
+| `/healthz` 可用但执行失败 | `npm run dev:business-api` 是否运行、`CRT_BUSINESS_API_BASE_URL` 是否指向它 | 用本页的 `/execute` 请求复现 |
 | PostgreSQL 或 Redis 测试跳过 | 对应测试 URL 是否设置 | 阅读 [异步开发指南](async-process-runs-development.md) |
 | 浏览器验收找不到 Chrome | 本机 Chrome 路径 | 设置 `CHROME_PATH=/absolute/path` |
 | 图片或 Agent 验收失败 | 是否明确提供凭证并批准费用和外部写入 | 阅读 [实验与真实集成](experiments.md) |
@@ -138,7 +140,7 @@ curl --fail -X POST http://127.0.0.1:4300/execute \
 | `src/release/` | 发布门禁逻辑：异步 internal smoke、付费 CRT 异步 smoke、新闻图片业务验收、smoke 状态审计、生产数据库身份审计和 migration 二次验证；只由 `bin/`、`examples/` 和 CI 调用，不进入请求路径 |
 | `src/process-runtime/` | 跨 Business Process 复用的 Registration、Registry、Runner、Attempt、结果和观测治理 |
 | `src/agent-runtime/` | 跨 Business Process 复用的 Pi provider 配置、请求级 Session 支撑、无 Tool 与带 Tool 两种 Structured Agent Session、Agent JSON 解析、Installed Skill Catalog 和 Runtime Skill 精确加载 |
-| `src/processes/` | production catalog 与生产装配契约，以及按 `content/`、`titled-content/`、`poster/`、`crt/`、`news-image/`、`character-emoji/`、`composed/` 分组的具体 Business Process；不放通用 Runtime |
+| `src/processes/` | production catalog 与生产装配契约，以及按 `poster/`、`crt/`、`news-image/`、`character-emoji/`、`composed/` 分组的具体 Business Process；不放通用 Runtime |
 | `src/process-runs/` | Async Process Runs，以及按 `store/`、`queue/`、`outbox/`、`worker/`、`recovery/`、`retention/` 和 `ops/` 分组的内部 Module |
 | `src/webhooks/` | Webhook Delivery，以及按 `delivery/`、`store/`、`queue/`、`outbox/` 分组的内部 Module |
 | `src/availability/` | 一次性 Availability Monitor、HTTP/Redis Probe 和异常 Webhook Notifier |
@@ -197,7 +199,7 @@ curl --fail -X POST http://127.0.0.1:4300/execute \
 | `src/agent-runtime/session.ts`、`structured.ts`、`tooled.ts` | 请求级 Pi Session 的共享支撑（选项校验、Skill 注入、模型选择、内存 Session），以及建立在它之上的无 Tool Structured Agent Session 与带 Tool 白名单和调用预算的 Tool-bearing Session |
 | `src/agent-runtime/process-tools.ts` | 受限 Agent 共用的精确 Process Tool allow-list、Schema 推导、稳定子 Run identity、Attempt 执行和净化结果；预算与账本留在调用方 Module |
 | `src/agent-conversations/` | Agent Registration/Registry、多轮 Conversation/Turn、owner-scoped 图片 Resource Resolver、准确 Process Tool allow-list、内存/PostgreSQL Tool Ledger、跨 Worker 预算与 after-commit、Pi Interactive Agent、caller 操作级幂等、原子顺序、分页、删除/过期与分批清理、Context Assembly、内存/PostgreSQL Store、Turn Outbox、BullMQ Queue/Worker、Dispatcher、Reconciler 和读取时资源投影 |
-| `src/agents/` | 显式 production Agent catalog、`design-assistant/v1` 固定行为配置、确定性 `configRevision` 与 PostgreSQL 活动 revision 完整性检查 |
+| `src/agents/` | 显式 production Agent catalog（当前为空，原 `design-assistant/v1` 已下线）、Conversation 保留期常量与 PostgreSQL 活动 revision 完整性检查 |
 | `src/app/agent-conversations.ts`、`agent-turn-dispatcher.ts`、`agent-turn-worker.ts`、`agent-retention-cleaner.ts` | 按默认关闭的部署开关组装 Agent API、Dispatcher/Reconciler、Worker 与 Cleaner，并在 readiness 校验所有依赖 |
 | `src/processes/catalog.ts` | 显式 production catalog（`productionCatalog` 数组）和通用 Process Runtime 组装 |
 | `src/processes/production.ts` | Process 模块自带的生产装配契约：声明安装的 Runtime Skill、启用条件与依赖的 Member Process，并由 `buildProductionRegistrations` 两阶段构建 |
@@ -205,12 +207,6 @@ curl --fail -X POST http://127.0.0.1:4300/execute \
 | `src/processes/composed/registration.ts` | `composed-task/v1` 的 Schema、预算、Planner 调用、Step 记账收敛、`result` 来源校验和稳定失败 |
 | `src/processes/composed/members.ts`、`tools.ts` | Member Process allow-list；把共享 Process Tool Runtime 投影成 Step Tool，并执行 composed-task 专属预算、串行化与记账 |
 | `src/processes/composed/agent.ts`、`agent.pi.ts`、`skills.ts` | 带 Step Tool 的 Planner Agent Port、它复用 Tool-bearing Session 的 Pi 实现，以及 `composed-task-planner` Runtime Skill 绑定 |
-| `src/processes/content/registration.ts` | `content-processing/v1` 的 Schema、Direct/Agent 流程、失败和 Tool 调用 invariant |
-| `src/processes/content/skills.ts` | `content-processing/v1` 获准使用的有序 Runtime Skill 集合与 Tool 名称 |
-| `src/processes/content/agent.ts`、`agent.pi.ts` | 窄 Content Agent Port，以及它的生产 Pi 实现 |
-| `src/processes/content/capability.ts`、`capability.http.ts` | Content Processing Capability Port、内容处理契约与它的生产 HTTP 实现 |
-| `src/processes/content/config.ts` | Business API Base URL 的解析与校验 |
-| `src/processes/titled-content/registration.ts` | Titled Content Processing Process Registration，拼接标题与正文后调用 Content Processing Capability |
 | `src/processes/poster/registration.ts` | `minimal-zine-poster/v1` 的 Schema、Prompt 校验、执行顺序和稳定失败 |
 | `src/processes/poster/agent.ts`、`agent.pi.ts` | 无 Tool 的 Poster Agent Port 与它的 Pi Prompt 编译实现 |
 | `src/processes/poster/capability.ts`、`capability.http.ts` | Poster Rendering Capability Port、图片引用契约与它的生产 HTTP 实现 |
@@ -274,8 +270,8 @@ curl --fail -X POST http://127.0.0.1:4300/execute \
 
 ### 利用作用域
 
-- 目录和文件已经表达的领域不在私有名称中重复。`content/registration.ts` 使用 `RegistrationOptions`，不用 `ContentProcessingRegistrationOptions`。
-- 跨 Module 导出保留“必要领域词 + 角色”。例如 `PiContentAgent` 同时说明 Adapter 和角色；`Agent` 太宽，`PiContentOptimizationAgentRuntime` 重复过多。
+- 目录和文件已经表达的领域不在私有名称中重复。`poster/registration.ts` 使用 `RegistrationOptions`，不用 `PosterProcessRegistrationOptions`。
+- 跨 Module 导出保留“必要领域词 + 角色”。例如 `PiPosterAgent` 同时说明 Adapter 和角色；`Agent` 太宽，`PiPosterPromptCompilationAgentRuntime` 重复过多。
 - 同一文件内优先使用 `mode`、`config`、`inputMaxBytes` 等短名。出现导入冲突时在导入处使用别名，不给所有声明添加前缀。
 - 集合使用复数名，布尔值使用 `is`、`has`、`can` 或 `should` 前缀。名称必须描述值，不描述它的历史来源。
 
@@ -303,10 +299,8 @@ curl --fail -X POST http://127.0.0.1:4300/execute \
 
 | 原名称 | 新名称 | 理由 |
 | --- | --- | --- |
-| `PiContentOptimizationAgentRuntime` | `PiContentAgent` | 所属 Module 与 Pi Adapter 已表达 Runtime 上下文 |
 | `constructBusinessProcessRuntime` | `createProductionRuntime` | 直接说明它创建生产 Runtime |
 | `createBusinessProcessRuntime` | `createProcessRuntime` | `Process` 已是仓库共同语言 |
-| `createContentProcessingRegistration` | `createContentRegistration` | 返回角色保留，目录上下文删除 |
 | `acceptedProcessInputPayloadMaxBytes` | `inputMaxBytes` | 私有常量无需重复 Registration 上下文 |
 
 ## 设计改动的工作方式
@@ -339,11 +333,11 @@ JSON-safe snapshot。业务 input payload 默认上限为 262144 UTF-8 bytes，�
 2. 新建 `create…Registration` factory，通过 `defineProcessRegistration` 声明固定 `id`、`version`、输入 Schema、输出 Schema、运行活动和 Process Definition。
 3. 把该流程获准使用的窄 Business Capability 和稳定策略传给 factory，并由闭包捕获。流程使用 Agent 时，在流程 Module 内定义准确、有序的 Skill 与 Tool 集合；Composition Root 只提供 Adapter 和部署配置。Execution Context 只携带 `runId`、`AbortSignal` 和受控 `runActivity` 等请求级信息。
 4. 用 `failProcess` 返回预期的 `AGENT_FAILURE` 或 `DEPENDENCY_FAILURE`。让意外异常继续抛出，由 Process Runner 转换为安全的 `INTERNAL_ERROR`。
-5. 在流程 Module 内新建 `production.ts`，用 `defineProductionProcess` 声明 Process id、安装的 Runtime Skill、自己读取的启动变量，以及如何从启动环境和共享 Pi 配置构造 Registration；再把它加入 [`src/processes/catalog.ts`](../src/processes/catalog.ts) 的 `productionCatalog` 数组。每项只代表一个准确 `(id, version)`；Composition Root 不再为单个 Process 增加字段。需要按环境开关发布时声明 `enabled(environment)`；需要运行其他 Process 时用 `members` 声明准确 identity，并从 `context.members` 取得已构造的 Registry 与 Attempt Runner（Member 自身不能再声明 `members`）。单次执行可能超过全局 `PROCESS_TIMEOUT_MS` 的 Process 在 `defineProcessRegistration` 里声明自己的 `timeoutMs`。新 Process 默认复用共享变量（`BUSINESS_API_BASE_URL`、`CRT_BUSINESS_API_BASE_URL`、`PROCESS_TIMEOUT_MS` 和 Pi 选择），只有真实部署需要单独调节时才新增专属变量；[`test/production-environment.test.ts`](../test/production-environment.test.ts) 会要求 `environment` 声明与实际读取一致，并且每个声明的变量都出现在 `.env.example` 和 `ops/` 的异步生产环境清单中。
+5. 在流程 Module 内新建 `production.ts`，用 `defineProductionProcess` 声明 Process id、安装的 Runtime Skill、自己读取的启动变量，以及如何从启动环境和共享 Pi 配置构造 Registration；再把它加入 [`src/processes/catalog.ts`](../src/processes/catalog.ts) 的 `productionCatalog` 数组。每项只代表一个准确 `(id, version)`；Composition Root 不再为单个 Process 增加字段。需要按环境开关发布时声明 `enabled(environment)`；需要运行其他 Process 时用 `members` 声明准确 identity，并从 `context.members` 取得已构造的 Registry 与 Attempt Runner（Member 自身不能再声明 `members`）。单次执行可能超过全局 `PROCESS_TIMEOUT_MS` 的 Process 在 `defineProcessRegistration` 里声明自己的 `timeoutMs`。新 Process 默认复用共享变量（图片 Process 用 `CRT_BUSINESS_API_BASE_URL`，以及 `PROCESS_TIMEOUT_MS` 和 Pi 选择），只有真实部署需要单独调节时才新增专属变量；[`test/production-environment.test.ts`](../test/production-environment.test.ts) 会要求 `environment` 声明与实际读取一致，并且每个声明的变量都出现在 `.env.example` 和 `ops/` 的异步生产环境清单中。
 6. 通过 Registration Seam 测试接受、JSON 往返、单次解析、策略和输出。Agent 流程还要验证 Tool 调用次数、下游幂等键和最终结果来源；通过 Process Attempt Runner 测试预分配 `runId`、超时、活动时间线、日志故障隔离与错误净化；通过真实本地 `/execute` 测试产品行为和 HTTP 映射。
 7. 创建或更新 `docs/processes/<scenario>/<process-id>/README.md` 和所属场景 README，再更新 README 的当前能力、`CONTEXT.md` 的产品契约，以及受影响的设计或发布文档。
 
-[`src/processes/titled-content/registration.ts`](../src/processes/titled-content/registration.ts) 是最小示例；[`src/processes/poster/registration.ts`](../src/processes/poster/registration.ts) 展示 Agent 编译后再调用 Business Capability 的两阶段流程；[`src/processes/crt/registration.ts`](../src/processes/crt/registration.ts) 展示如何把预上传资产保持为不透明业务字段。新版本必须新建 Registration 并显式加入 catalog；不要加入 `latest`、默认版本、自动发现或回退。
+[`src/processes/poster/registration.ts`](../src/processes/poster/registration.ts) 是较小的示例，展示 Agent 编译后再调用 Business Capability 的两阶段流程；[`src/processes/crt/registration.ts`](../src/processes/crt/registration.ts) 展示如何把预上传资产保持为不透明业务字段。新版本必须新建 Registration 并显式加入 catalog；不要加入 `latest`、默认版本、自动发现或回退。
 
 流程需要外部 Skill 时，先按 [`integrating-runtime-skills.md`](integrating-runtime-skills.md) 在开发期解析、审查和固定来源。Process Registration 可以绑定一个或多个随应用发布的本地 Runtime Skill；完整集合必须一起评审。产品请求不接收 Skill 名称、路径或 URL。
 
@@ -392,12 +386,11 @@ return defineProcessRegistration({
 ```ts
 import { createProcessingApplication } from "./src/api/application.js";
 import { createProcessExecutor } from "./src/processes/catalog.js";
-import { createContentRegistration } from "./src/processes/content/registration.js";
 import { createInMemoryProcessRunRecords } from "./src/process-runtime/records.js";
 
 const runRecords = createInMemoryProcessRunRecords({ maxRecords: 100 });
 const executor = createProcessExecutor({
-  registrations: [createContentRegistration({ capability: contentProcessing })],
+  registrations: [posterRegistration],
   runRecords,
 });
 const application = createProcessingApplication({ executor });
@@ -427,7 +420,7 @@ npm run check:deployment-env -- api
 - 只把稳定运行策略放入环境配置。Process 拓扑、Schema 和业务语义留在代码中。
 - 成组配置在启动时一起校验。例如 `PI_PROVIDER` 与 `PI_MODEL` 必须同时设置。
 - 异步功能关闭时忽略数据库和网关专用配置；启用后缺少任一必需值都在监听前失败。
-- `CONTENT_PROCESSING_MODE=direct` 只关闭文本 Agent；`minimal-zine-poster/v1` 与 `crt-interface-image/v1` 始终使用 Agent，因此共享的 Pi provider、model 和 API mode 仍须有效。
+- 海报、CRT 等 Agent-backed Process 始终使用 Agent，因此共享的 Pi provider、model 和 API mode 须有效。
 - `POSTER_API_TIMEOUT_MS` 只控制受控 `POST /posters` Adapter，默认 `90000`；Process 总超时仍由 `PROCESS_TIMEOUT_MS` 治理。
 - `CRT_API_TIMEOUT_MS` 只控制受控 `POST /crt-images` Adapter，默认 `180000`。受控发布必须让 `PROCESS_TIMEOUT_MS` 长于它，平台请求超时再长于 Process 总超时。
 - `IMAGE_PROVIDER=openai|fal` 选择真实图片集成 Adapter，默认 `openai`。OpenAI Adapter 可用 `OPENAI_IMAGE_API_KEY` 与 `OPENAI_IMAGE_BASE_URL` 脱离 Agent 网关；未设置时回退到 `OPENAI_API_KEY` 与 `OPENAI_BASE_URL`。FAL Adapter 只读取服务端 `FAL_KEY`，并固定调用 GPT Image 2 生成与编辑 endpoint。
@@ -435,7 +428,7 @@ npm run check:deployment-env -- api
 - `INTERNAL_EVAL_ENABLED=true` 挂载 `POST /internal/eval/execute`。该入口仅接受三个新闻图片 Process，复用正式 Executor、Registration、Agent 和图片 Capability，在同一次成功执行中返回实际 Prompt、文本模型与非敏感图片参数。响应使用 `no-store`，诊断内容不进入正式输出、日志或 Run Record；生产 Compose 当前开启，鉴权与 `/execute` 一并后续统一处理。
 - `CRT_IMAGE_EVIDENCE_MODE=off|metadata|full` 控制 `crt-interface-image/v1` 的服务端证据副本。产品请求不能覆盖它；本地完整验收默认 `full`，生产 `POST /crt-images` 必须默认 `off`。
 - `CRT_IMAGE_EVIDENCE_DIRECTORY` 只在 `metadata` 或 `full` 时使用。完整字段、敏感数据边界和清理责任见 [`crt-interface-image` 的证据保留说明](processes/common/crt-interface-image/evidence-retention.md)。
-- `PI_SKILL_DIRECTORY`、`PI_POSTER_SKILL_DIRECTORY` 与 `PI_CRT_SKILL_DIRECTORY` 分别覆盖一个固定绑定，不改变 Skill 名称、集合或顺序。
+- `PI_POSTER_SKILL_DIRECTORY` 与 `PI_CRT_SKILL_DIRECTORY` 分别覆盖一个固定绑定，不改变 Skill 名称、集合或顺序。
 - `.env.example` 把 `PROCESS_TIMEOUT_MS` 设为 `240000`，用于同时容纳 CRT edit 和 finalizer 的受控发布形状；未设置变量时，代码默认值仍为 `30000`。
 - Secret 只由本地 `.env` 或部署平台注入。日志和错误响应不得包含凭证、Base URL、远端正文或模型错误。
 
@@ -471,6 +464,10 @@ npm run check:deployment-env -- api
 - 不含 `.env`、真实业务内容、签名 URL、模型过程或其他敏感产物。
 
 ## 照片海报实现
+
+统一错误分类位于 `src/agent-runtime/diagnostics.ts`，照片目录的旧诊断入口仅兼容已有实验。公共错误、净化词表和工具选择见 [统一诊断](process-runtime-design.md#统一诊断与工具选择)。新增模型活动直接复用共用模块，不再各写一组错误正则或统一吞成空异常。
+
+Pi Adapter 保留会话、请求和响应阶段，`runActivity` 的可选诊断函数只返回固定分类，不改变调用预算；诊断或归档失败不覆盖原业务结果。诊断回归见 `test/agent-diagnostics.test.ts` 与 `test/photo-poster-diagnostics.test.ts`，覆盖跨 Process 分类、HTTP、文件回读、控制台投影、取消和 Sink 异步拒绝。
 
 `src/processes/photo-poster/` 统一拥有照片海报风格的精确 Registration、单文件 Skill、编译 Agent 和 HTTP Capability；`style.ts` 是固定顺序与身份的唯一来源。`production.ts` 声明各项生产装配及启动变量，`agent.pi.ts` 和 `capability.http.ts` 实现对应接口。图片阶段复用现有 FAL 和 OSS Adapter，内部路由为 `POST /photo-posters`。参考图 URL 直传图片供应商；旅行抽象的档案字样由 `src/business-api/photo-poster.ts` 绘制，`source-photo.ts` 仅供验收下载参考图。
 

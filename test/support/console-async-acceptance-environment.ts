@@ -66,7 +66,6 @@ export async function startConsoleAsyncAcceptanceEnvironment(
         } as const;
         const api = constructProcessingService({
             ...sharedEnvironment,
-            BUSINESS_API_BASE_URL: businessApi.url,
             ASYNC_PROCESS_RUNS_ENABLED: "true",
             ASYNC_GATEWAY_SHARED_SECRET: gatewaySecret,
             ASYNC_RELEASE_STAGE: "internal",
@@ -97,7 +96,6 @@ export async function startConsoleAsyncAcceptanceEnvironment(
         closeResources.push(dispatcher.application.close);
         const worker = constructProcessWorkerService({
             ...sharedEnvironment,
-            BUSINESS_API_BASE_URL: businessApi.url,
             BUSINESS_API_TIMEOUT_MS: "500",
             PROCESS_RUN_RECORD_STORE: "file",
             PROCESS_RUN_RECORD_DIRECTORY: records,

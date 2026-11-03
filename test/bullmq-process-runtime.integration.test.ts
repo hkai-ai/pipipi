@@ -1106,7 +1106,6 @@ integrationDescribe("BullMQ Process Runtime", () => {
             } as const;
             const api = constructProcessingService({
                 ...sharedEnvironment,
-                BUSINESS_API_BASE_URL: businessApi.url,
                 ASYNC_PROCESS_RUNS_ENABLED: "true",
                 ASYNC_GATEWAY_SHARED_SECRET: gatewaySecret,
                 ASYNC_RELEASE_STAGE: "internal",
@@ -1131,7 +1130,6 @@ integrationDescribe("BullMQ Process Runtime", () => {
             closeResources.push(dispatcher.application.close);
             const worker = constructProcessWorkerService({
                 ...sharedEnvironment,
-                BUSINESS_API_BASE_URL: businessApi.url,
                 BUSINESS_API_TIMEOUT_MS: "500",
                 PROCESS_WORKER_CONCURRENCY: "2",
                 PROCESS_WORKER_SHUTDOWN_GRACE_MS: "1000",

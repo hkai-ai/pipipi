@@ -139,8 +139,6 @@ describe("console Skill catalog", () => {
             "character-emoji-comic",
             "character-emoji-planner",
             "character-emoji-single",
-            "content-integrity",
-            "content-optimization",
             "crayon-photo-poster-prompt",
             "dopamine-photo-poster-prompt",
             "manga-panels-prompt",

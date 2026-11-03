@@ -7,10 +7,6 @@ import { afterEach, describe, expect, it } from "vitest";
 import { createInstalledSkillCatalog } from "../src/agent-runtime/catalog.js";
 import { createSkillSet } from "../src/agent-runtime/skills.js";
 import {
-    contentToolName,
-    createContentSkillRefs,
-} from "../src/processes/content/skills.js";
-import {
     createCrtSkillRefs,
     crtSkillName,
 } from "../src/processes/crt/skills.js";
@@ -112,44 +108,6 @@ describe("Runtime Skill set", () => {
         expect(() => skills.load()).toThrow(
             'Runtime Skill "clarity" must resolve exactly once',
         );
-    });
-
-    it("loads the two Skills bound to content-processing/v1", () => {
-        const refs = createContentSkillRefs();
-        const loaded = createSkillSet(refs, process.cwd()).load();
-
-        expect(loaded.names).toEqual([
-            "content-optimization",
-            "content-integrity",
-        ]);
-        expect(loaded.instructions).toContain(contentToolName);
-        expect(loaded.instructions).toContain(
-            "Preserve names, numbers, dates, links, claims, and the author's intent.",
-        );
-
-        const dockerfile = readFileSync("Dockerfile", "utf8");
-        const dockerignore = readFileSync(".dockerignore", "utf8");
-        for (const ref of refs) {
-            expect(dockerfile).toContain(
-                `COPY --chown=node:node ${ref.path} ./${ref.path}`,
-            );
-            expect(dockerignore).toContain(`!${ref.path}/**`);
-        }
-    });
-
-    it("only lets production configuration replace the optimization path", () => {
-        const defaults = createContentSkillRefs();
-        expect(
-            createContentSkillRefs({
-                optimizationPath: "/reviewed/content-optimization",
-            }),
-        ).toEqual([
-            {
-                ...defaults[0],
-                path: "/reviewed/content-optimization",
-            },
-            defaults[1],
-        ]);
     });
 
     it("loads the reviewed prompt-only Skill for minimal-zine-poster/v1", () => {
@@ -283,7 +241,6 @@ describe("Installed Runtime Skill catalog", () => {
     it("validates all code-defined production installations", () => {
         const catalog = createInstalledSkillCatalog(
             [
-                ...createContentSkillRefs(),
                 ...createPosterSkillRefs(),
                 ...createCrtSkillRefs(),
                 ...createPaleWatercolorSkillRefs(),
@@ -296,8 +253,6 @@ describe("Installed Runtime Skill catalog", () => {
         expect(
             catalog.list().map(({ name, version }) => `${name}@${version}`),
         ).toEqual([
-            "content-integrity@v1",
-            "content-optimization@v1",
             "minimal-zine-poster-prompt@v1",
             "news-image-narrative-monument-prompt@v1",
             "news-image-pale-watercolor-prompt@v1",

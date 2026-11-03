@@ -1,13 +1,13 @@
 ﻿# 受控 Business Process MVP 发布手册
 
-本手册面向发布与运维人员，用于发布现有同步 Business Process 服务，包括文本处理、`minimal-zine-poster/v1` 与 `crt-interface-image/v1`。生产 Compose 同时运行主 API 和内部 CRT Business API；后者负责 FAL GPT Image 2、确定性 finalizer 与阿里云 OSS。CRT 候选还依赖产品图片上传和来源权利确认；缺少任一门禁时不得开放该 Process。本文不发布异步作业或公网匿名接口。项目范围以
+本手册面向发布与运维人员，用于发布现有同步 Business Process 服务，包括 `minimal-zine-poster/v1`、`crt-interface-image/v1` 等图片 Process。生产 Compose 同时运行主 API 和内部 CRT Business API；后者负责 FAL GPT Image 2、确定性 finalizer 与阿里云 OSS。CRT 候选还依赖产品图片上传和来源权利确认；缺少任一门禁时不得开放该 Process。本文不发布异步作业或公网匿名接口。项目范围以
 [`CONTEXT.md`](../CONTEXT.md) 为准；文档维护要求见 [`docs/README.md`](README.md)。
 
 ## 发布边界
 
 只允许受控调用方通过私有入口或可信网关访问服务。入口必须终止 TLS、认证调用方，并阻止客户端绕过网关访问容器端口。浏览器通过现有后端或 BFF 调用；服务不启用 CORS。
 
-部署平台负责入口认证。应用继续根据服务端注册表决定可用的 Business Process、版本、Agent 模式和 Tool；调用方不能选择模型、Skill、Tool 或下游地址。
+部署平台负责入口认证。应用继续根据服务端注册表决定可用的 Business Process、版本、Agent 和 Tool；调用方不能选择模型、Skill、Tool 或下游地址。
 
 ## 初始容量与超时
 
@@ -16,7 +16,6 @@
 | 单实例执行并发 | 2–4 | `MAX_CONCURRENT_EXECUTIONS` 必须与平台实例并发相匹配 |
 | 最大实例数 | 2–5 | 在平台设置硬上限，形成模型费用上限 |
 | 请求体 | 262144 字节 | 用 `HTTP_MAX_REQUEST_BODY_BYTES` 调整 |
-| Business Capability 超时 | 10 秒 | `BUSINESS_API_TIMEOUT_MS=10000` |
 | Poster Rendering Capability 超时 | 90 秒 | `POSTER_API_TIMEOUT_MS=90000` |
 | CRT Rendering Capability 超时 | 180 秒 | `CRT_API_TIMEOUT_MS=180000` |
 | Process Run 超时 | 240 秒 | 本发布显式设置 `PROCESS_TIMEOUT_MS=240000`；代码默认 30 秒。`composed-task/v1` 本发布保持 `COMPOSED_TASK_ENABLED=false`；开启时它自带 `COMPOSED_TASK_TIMEOUT_MS`（默认 600 秒），平台请求超时必须随之调高 |
@@ -30,13 +29,10 @@
 
 | 变量 | 要求 |
 | --- | --- |
-| `BUSINESS_API_BASE_URL` | 必填；供文本和海报 Capability 使用。CRT 可以通过单独的 `CRT_BUSINESS_API_BASE_URL` 覆盖 |
-| `CRT_BUSINESS_API_BASE_URL` | Compose 固定为 `http://127.0.0.1:4400`，不要写入产品请求 |
+| `CRT_BUSINESS_API_BASE_URL` | 必填；极简海报、CRT 等共享图片服务地址；Compose 固定为 `http://127.0.0.1:4400`，不要写入产品请求 |
 | `PORT` | 可选；默认 `3000` |
-| `CONTENT_PROCESSING_MODE` | `direct` 或 `agent`；默认 `direct` |
 | `HTTP_MAX_REQUEST_BODY_BYTES` | 正整数；默认 `262144` |
 | `MAX_CONCURRENT_EXECUTIONS` | 正整数；默认 `4` |
-| `BUSINESS_API_TIMEOUT_MS` | 正整数；代码默认 `10000`，本发布显式设置 `10000` |
 | `POSTER_API_TIMEOUT_MS` | 正整数；代码默认 `90000`，本发布显式设置 `90000` |
 | `CRT_API_TIMEOUT_MS` | 正整数；代码默认 `180000`，本发布显式设置 `180000` |
 | `PROCESS_TIMEOUT_MS` | 正整数；代码默认 `30000`，本发布必须显式设置 `240000` |
@@ -53,7 +49,6 @@
 | `CONSOLE_BASE_PATH` | 控制台挂载路径；默认 `/console`，不得遮蔽 `/execute`、`/process-runs`、`/healthz` 或 `/readyz` |
 | `PI_PROVIDER`、`PI_MODEL` | 按组设置；海报与 CRT 流程始终使用 Agent |
 | `OPENAI_BASE_URL`、`OPENAI_API_MODE` | 使用 OpenAI 或兼容网关时设置 |
-| `PI_SKILL_DIRECTORY` | 可选；只覆盖固定的 `content-optimization` 路径，不改变 Skill 集合 |
 | `PI_POSTER_SKILL_DIRECTORY` | 可选；只覆盖固定的 `minimal-zine-poster-prompt` 路径 |
 | `PI_CRT_SKILL_DIRECTORY` | 可选；只覆盖固定的 `tait-crt-interface-prompt` 路径 |
 | `PI_PALE_WATERCOLOR_SKILL_DIRECTORY` | 可选；只覆盖固定的 `news-image-pale-watercolor-prompt` 路径 |
@@ -65,7 +60,7 @@
 | `OSS_REGION`、`OSS_BUCKET`、`OSS_ACCESS_KEY_ID`、`OSS_ACCESS_KEY_SECRET` | CRT 最终 PNG 的持久化配置 |
 | `OSS_URL_ACCESS` | `signed` 或 `public`；使用 `public` 时还必须设置 `OSS_PUBLIC_BASE_URL` |
 
-若 Business Capability 需要认证，优先使用私网身份、工作负载身份或服务网格。当前 HTTP Adapter 不发送调用方提供的任意认证头。`POST /posters` 与 `POST /crt-images` 必须以 `Idempotency-Key: <runId>` 去重，并返回在声明期限内可访问的 HTTP(S) 图片 URL；短期签名 URL 必须返回 `expiresAt`。CRT endpoint 接受经过主 API 校验的公网 HTTPS URL，并原样交给 FAL。生产 Compose 固定 `CRT_IMAGE_EVIDENCE_MODE=off`，产品请求不能覆盖证据策略。
+若 Business Capability 需要认证，优先使用私网身份、工作负载身份或服务网格。当前 HTTP Adapter 不发送调用方提供的任意认证头。`POST /posters` 与 `POST /crt-images` 必须以 `Idempotency-Key: <runId>` 去重，并返回在声明期限内可访问的 HTTP(S) 图片 URL；短期签名 URL 必须返回 `expiresAt`。仓库内 `/posters` 在现有持久化目录保存请求摘要及完成结果；相同 `runId` 的未完成记录（含提交未知或上传失败）在重启后仍禁止再次生图，不得为自动恢复而删除记录。新的同步 `/execute` 会生成新 `runId`，不能据此避免重复费用。CRT endpoint 接受经过主 API 校验的公网 HTTPS URL，并原样交给 FAL。生产 Compose 固定 `CRT_IMAGE_EVIDENCE_MODE=off`，产品请求不能覆盖证据策略。
 
 `PROCESS_TIMEOUT_MS=240000` 是本手册的受控发布覆盖值，不改变代码的 30 秒默认值。它必须长于 `CRT_API_TIMEOUT_MS`；候选镜像、部署平台和回滚配置都必须显式保留该覆盖值。启用异步 Worker 时，`PROCESS_RUN_CLAIM_LEASE_MS` 还必须长于 Process 总超时。
 
@@ -78,7 +73,7 @@ npm run check:deployment-env -- api
 npm run check:deployment-env -- crt-business-api
 ```
 
-同步 API 的无默认必填项是 `BUSINESS_API_BASE_URL`；设置 `PI_PROVIDER=openai` 时还必须提供 `OPENAI_API_KEY`。API 与 Process Worker 预检还会读取镜像内十三个 Runtime Skill，校验目录、`SKILL.md`、精确名称与版本、固定哈希和快照内容；失败时只输出脱敏事件并返回非零状态。生产部署在数据库迁移和容器切换前执行该预检，因此旧 `.env` 中失效的 Skill 路径覆盖不会进入活动服务。CRT Business API 预检要求 FAL、存储供应商和 OSS 凭证；Compose 固定供应商为 `fal` 与 `aliyun-oss`。若目标环境设置 `ASYNC_PROCESS_RUNS_ENABLED=true`，API 预检还会检查异步角色变量。缺少任一项时，命令一次列出全部变量名并返回非零状态；它不输出值，也不连接外部系统。
+同步 API 的无默认必填项是 `CRT_BUSINESS_API_BASE_URL`（Compose 注入，CI 预检显式传入同一值）；设置 `PI_PROVIDER=openai` 时还必须提供 `OPENAI_API_KEY`。API 与 Process Worker 预检还会读取镜像内全部生产 Runtime Skill，校验目录、`SKILL.md`、精确名称与版本、固定哈希和快照内容；失败时只输出脱敏事件并返回非零状态。生产部署在数据库迁移和容器切换前执行该预检，因此旧 `.env` 中失效的 Skill 路径覆盖不会进入活动服务。CRT Business API 预检要求 FAL、存储供应商和 OSS 凭证；Compose 固定供应商为 `fal` 与 `aliyun-oss`。若目标环境设置 `ASYNC_PROCESS_RUNS_ENABLED=true`，API 预检还会检查异步角色变量。缺少任一项时，命令一次列出全部变量名并返回非零状态；它不输出值，也不连接外部系统。
 
 实际生产启动会在创建 Adapter 前重复同一检查，再校验 URL、正整数、枚举和跨字段约束。预检通过不证明 Secret 有效或依赖可达。`PI_PROVIDER` 与 `PI_MODEL`、模型凭证、Business Capability 契约和图片持久化仍按本手册的 smoke 与发布门禁验证。
 
@@ -160,9 +155,6 @@ chmod 600 /opt/pipipi/shared/.env
 ```dotenv
 NODE_ENV=production
 PORT=4300
-BUSINESS_API_BASE_URL=https://business-api.example.internal
-CONTENT_PROCESSING_MODE=direct
-BUSINESS_API_TIMEOUT_MS=10000
 POSTER_API_TIMEOUT_MS=90000
 CRT_API_TIMEOUT_MS=180000
 PROCESS_TIMEOUT_MS=240000
@@ -183,7 +175,7 @@ CRT_IMAGE_TIMEOUT_MS=180000
 CRT_IMAGE_OBJECT_PREFIX=crt-interface-image
 ```
 
-即使文本流程使用 `direct`，海报和 CRT 流程仍使用 Agent。生产 catalog 包含这些流程时，必须配置可用的 `PI_PROVIDER`、`PI_MODEL`、`OPENAI_BASE_URL`、`OPENAI_API_MODE` 和对应模型凭证。Compose 会把 `CRT_BUSINESS_API_BASE_URL` 固定到内部 `127.0.0.1:4400`；不要在 `.env` 中覆盖它。`BUSINESS_API_BASE_URL` 继续服务文本和海报流程。
+海报和 CRT 流程使用 Agent。生产 catalog 包含这些流程时，必须配置可用的 `PI_PROVIDER`、`PI_MODEL`、`OPENAI_BASE_URL`、`OPENAI_API_MODE` 和对应模型凭证。Compose 会把 `CRT_BUSINESS_API_BASE_URL` 固定到内部 `127.0.0.1:4400`；不要在 `.env` 中覆盖它。极简海报现在使用同一内部图片服务的 `/posters`，不再需要独立海报服务。
 
 ### SSH 配置
 
@@ -424,7 +416,7 @@ docker image inspect pi-business-processing-service:rc --format '{{.Id}}'
 ```bash
 docker run --rm --entrypoint id pi-business-processing-service:rc -u
 docker run --rm --entrypoint sh pi-business-processing-service:rc -c \
-  'test -f llms.txt && test -f docs/api.md && test -f .pi/skills/content-optimization/SKILL.md && test -f .pi/skills/content-integrity/SKILL.md && test -f .pi/skills/minimal-zine-poster-prompt/SKILL.md && test -f .pi/skills/tait-crt-interface-prompt/SKILL.md && test -f .pi/skills/news-image-narrative-monument-prompt/SKILL.md && test -f .pi/skills/news-image-pale-watercolor-prompt/SKILL.md && test -f .pi/skills/news-image-raw-humanism-prompt/SKILL.md && test ! -d node_modules/typescript && test ! -d node_modules/vitest'
+  'test -f llms.txt && test -f docs/api.md && test -f .pi/skills/minimal-zine-poster-prompt/SKILL.md && test -f .pi/skills/tait-crt-interface-prompt/SKILL.md && test -f .pi/skills/news-image-narrative-monument-prompt/SKILL.md && test -f .pi/skills/news-image-pale-watercolor-prompt/SKILL.md && test -f .pi/skills/news-image-raw-humanism-prompt/SKILL.md && test ! -d node_modules/typescript && test ! -d node_modules/vitest'
 ```
 
 用生产形状的非秘密配置启动候选镜像。健康检查不得访问模型或 Business Capability：
@@ -432,8 +424,7 @@ docker run --rm --entrypoint sh pi-business-processing-service:rc -c \
 ```bash
 docker run --rm -d --name pi-business-processing-rc \
   -p 127.0.0.1:4300:4300 \
-  -e BUSINESS_API_BASE_URL=http://business-capability.internal \
-  -e BUSINESS_API_TIMEOUT_MS=10000 \
+  -e CRT_BUSINESS_API_BASE_URL=http://127.0.0.1:4400 \
   -e POSTER_API_TIMEOUT_MS=90000 \
   -e CRT_API_TIMEOUT_MS=180000 \
   -e PROCESS_TIMEOUT_MS=240000 \
@@ -468,20 +459,13 @@ docker build -t pi-business-processing-service:rc .
 3. 网关请求超时必须长于 `PROCESS_TIMEOUT_MS`。
 4. 平台实例并发不得高于应用并发闸门；平台必须设置最大实例数。
 5. 日志系统必须收到 Pino 单行 JSON，识别数值 `level`，能按 `runId`、`process`、`status|outcome` 和 `errorCode` 检索，并能按 `attemptNumber + sequence` 还原固定活动时间线；日志中不得出现业务内容、Prompt、Tool 参数、模型消息或内部异常正文。
-6. `BUSINESS_API_BASE_URL` 必须连接真实 Business Capability。
+6. `CRT_BUSINESS_API_BASE_URL` 必须连接内部图片 Business API。
 7. `POST /posters` 必须按 `runId` 去重，并验证图片 URL 的访问控制、有效期、媒体类型和尺寸。
 8. `POST /crt-images` 必须按 `runId` 去重，并验证资产权限、GPT Image 2 编辑、finalizer、PNG 引用、费用和删除生命周期；生产证据模式必须为 `off`，或有单独批准的数据保留策略。
 9. 启用 `NEWS_IMAGE_ACCEPTANCE_ENABLED=true` 后，新闻图片相关候选必须让同一 commit 的三个固定 Process 经真实 Agent、FAL 和 OSS 各成功一次，并验证准确 style、单次图片生成、批准的 OSS 路径和 1600×1200 PNG；未启用时跳过该付费门禁。
 10. 若候选版本注入了 Run Record Adapter，必须验证成功和失败记录可按 `runId` 查询，并验证存储故障不影响 `/execute` 结果。
 
-Agent 模式启用后，先在受控发布 runner 中连接真实模型和 Business Capability。该命令强制使用 Agent 模式；若 Agent 未恰好调用一次 Business Capability、最终输出并非来自 Tool 结果，或默认受保护内容在 Tool 输入中发生变化，命令会失败。它可能产生模型费用：
-
-```bash
-BUSINESS_API_BASE_URL=https://business-capability.staging.internal \
-npm run smoke:agent
-```
-
-随后确认部署平台已设置 `CONTENT_PROCESSING_MODE=agent`，再从授权入口检查已部署镜像：
+从授权入口检查已部署镜像（只验证健康检查与空输入拒绝契约，不产生费用）：
 
 ```bash
 STAGING_SERVICE_BASE_URL=https://private-agent.example.internal \
@@ -489,7 +473,7 @@ STAGING_AUTHORIZATION='Bearer replace-with-short-lived-token' \
 npm run smoke:staging
 ```
 
-第一条命令证明真实 Agent 和 Business Capability 都参与执行，并检查 Tool 调用次数、结果来源与默认受保护内容。第二条命令检查健康状态、一次结构化成功结果和一个字段严格受限的 `INVALID_INPUT` 失败响应。两条命令都不比较精确文案，也不输出业务内容、Tool 输入或认证值。
+该命令检查健康状态、一次结构化成功结果和一个字段严格受限的 `INVALID_INPUT` 失败响应；它不比较精确文案，也不输出业务内容或认证值。
 
 海报候选还必须运行本地业务验收。它会从产品 `POST /execute` 进入 production catalog，调用真实 Agent、production HTTP Adapter、受控 `POST /posters` Capability 与所选图片 Adapter；配置 OSS 时还会写远端对象。先确认测试主题、凭证、bucket、对象前缀和费用范围：
 
@@ -532,6 +516,10 @@ npm run accept:crt-business
 本次 MVP 不增加应用用户系统、RBAC、多租户、数据库、持久化或跨实例执行历史、Run Record 查询接口、通用幂等、队列、自动重试、CORS、生成后自动视觉质检、自动重绘或全量基础设施即代码。CRT 产品请求只提交公网 HTTPS `sourceImageUrl`；FAL 和 OSS 配置由服务端拥有。两个图片流程都有模型费用和图片持久化副作用，必须保持调用权限、`runId` 幂等、并发和费用门禁。
 
 ## 照片海报发布检查
+
+统一模型诊断现已复用到极简海报、CRT、新闻图片、内容优化和模板编译。未接入专用分类的失败活动记录未知原因；整体超时和取消诊断记录在 Attempt 终态，控制台优先展示。无需新增环境变量、外部监控服务或模型调用；不得通过采集完整异常来替代固定诊断。字段迁移仍按下一段执行。
+
+照片编译诊断写在 `process_run_activity_finished.diagnostic`，控制台运行详情显示中文原因、排查方向和净化校验路径。按 `runId` 关联；旧活动没有此字段时保持原因未知。PostgreSQL 部署须按既有备份与显式迁移发布流程应用 `014_activity_diagnostics.mjs` 后再切换镜像；普通更新不代跑迁移。JSONL 归档无需迁移。诊断存储失败不改变业务结果，但不能据此宣称归档完整；回滚应用可保留新增可空列。
 
 本批照片海报 Process 尚未部署。发布前核对全部固定 Skill 的 LICENSE/SOURCE，包括摄影剪贴与涂鸦小人的来源授权；镜像预检必须包含新增 Runtime Skill。主 API 与内部图片服务使用同一镜像，`PHOTO_POSTER_API_TIMEOUT_MS` 默认 180000；图片服务需要供应商出站连接和工作目录容量。回滚恢复上一镜像及对应 catalog。真实验收见 [照片海报实验](experiments.md#照片海报业务验收)。
 

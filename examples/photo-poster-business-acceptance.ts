@@ -120,7 +120,6 @@ try {
     application = constructProcessingService({
         ...process.env,
         NODE_ENV: "development",
-        BUSINESS_API_BASE_URL: businessApi.url,
         CRT_BUSINESS_API_BASE_URL: businessApi.url,
         PROCESS_TIMEOUT_MS: String(timeoutMs),
         PHOTO_POSTER_API_TIMEOUT_MS: "200000",

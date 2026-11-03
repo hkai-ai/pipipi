@@ -4,7 +4,7 @@ import { createProductionRuntime } from "../src/app/business-processes.js";
 import type { ProcessRegistry } from "../src/process-runtime/index.js";
 
 const registry: ProcessRegistry = createProductionRuntime({
-    BUSINESS_API_BASE_URL: "https://business.example",
+    CRT_BUSINESS_API_BASE_URL: "https://business.example",
 }).registry;
 
 /**
@@ -61,11 +61,6 @@ const validInputs: Readonly<Record<string, Record<string, unknown>>> = {
     "woodcut-photo-poster": {
         sourceImageUrl: "https://assets.example.com/source.png",
     },
-    "content-processing": { content: "整理这段业务内容" },
-    "titled-content-processing": {
-        title: "季度业务简报",
-        body: "整理这段内容",
-    },
     "minimal-zine-poster": { brief: "为雨天旧书店做一张安静的海报" },
     "crt-interface-image": {
         sourceImageUrl: "https://assets.example.com/source.png",
@@ -92,7 +87,6 @@ describe("Process catalog description", () => {
         ).toEqual([
             "character-emoji/v2",
             "character-emoji/v3",
-            "content-processing/v1",
             "crayon-photo-poster/v1",
             "crt-interface-image/v1",
             "dopamine-photo-poster/v1",
@@ -109,7 +103,6 @@ describe("Process catalog description", () => {
             "template-from-source/v1",
             "template-image-plan/v1",
             "template-image-render/v1",
-            "titled-content-processing/v1",
             "travel-abstraction-photo-poster/v1",
             "woodcut-photo-poster/v1",
         ]);
@@ -131,24 +124,6 @@ describe("Process catalog description", () => {
             maximumAttempts: 1,
             retryableErrorCodes: [],
         });
-    });
-
-    it("describes only the activities reachable in the fixed content mode", () => {
-        const direct = describeProcessCatalog(registry).find(
-            (entry) => entry.process === "content-processing",
-        );
-        const agent = describeProcessCatalog(
-            createProductionRuntime({
-                BUSINESS_API_BASE_URL: "https://business.example",
-                CONTENT_PROCESSING_MODE: "agent",
-            }).registry,
-        ).find((entry) => entry.process === "content-processing");
-
-        expect(direct?.activities).toEqual(["content_processing"]);
-        expect(agent?.activities).toEqual([
-            "content_optimization",
-            "content_processing",
-        ]);
     });
 
     it("derives an input and output Schema for every Process", () => {
@@ -237,12 +212,12 @@ describe("Process Registry listing", () => {
 
     it("exposes the Schemas used for validation", () => {
         const registration = registry.find({
-            id: "content-processing",
+            id: "minimal-zine-poster",
             version: "v1",
         });
 
         expect(
-            registration?.inputSchema.safeParse({ content: "内容" }).success,
+            registration?.inputSchema.safeParse({ brief: "雨天书店" }).success,
         ).toBe(true);
         expect(registration?.inputSchema.safeParse({}).success).toBe(false);
     });

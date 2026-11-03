@@ -1686,7 +1686,6 @@ postgresDescribe("PostgreSQL Process Run Store", () => {
     it("serves the authenticated async HTTP resource from Startup Construction", async () => {
         const gatewaySecret = "integration-gateway-secret-at-least-32-bytes";
         const constructed = constructProcessingService({
-            BUSINESS_API_BASE_URL: "https://business.example",
             ASYNC_PROCESS_RUNS_ENABLED: "true",
             DATABASE_URL: databaseUrl,
             ASYNC_GATEWAY_SHARED_SECRET: gatewaySecret,

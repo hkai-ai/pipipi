@@ -11,7 +11,6 @@ export const posterProduction = defineProductionProcess({
     environment: [
         "PI_POSTER_SKILL_DIRECTORY",
         "CRT_BUSINESS_API_BASE_URL",
-        "BUSINESS_API_BASE_URL",
         "POSTER_API_TIMEOUT_MS",
     ],
     installedSkills: (environment) =>

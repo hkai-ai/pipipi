@@ -9,7 +9,6 @@ import {
     type ProcessRegistration,
     type ProcessRunLogRecord,
 } from "../src/process-runtime/index.js";
-import { createContentRegistration } from "../src/processes/content/registration.js";
 import { createCrtRegistration } from "../src/processes/crt/registration.js";
 import { createNewsImageRegistration } from "../src/processes/news-image/registration.js";
 import { createPhotoPosterRegistration } from "../src/processes/photo-poster/registration.js";
@@ -69,17 +68,6 @@ const cases: {
             createPhotoPosterRegistration("travel-abstraction", {
                 agent: { compile },
                 capability: { render },
-            }),
-    },
-    {
-        name: "content",
-        input: { content: "test" },
-        attempts: 1,
-        build: (compile, render) =>
-            createContentRegistration({
-                mode: "agent",
-                agent: { optimize: compile },
-                capability: { process: render },
             }),
     },
 ];

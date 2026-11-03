@@ -4,9 +4,7 @@
 
 | Process | 文档 | 用途 |
 | --- | --- | --- |
-| `content-processing/v1` | [`content-processing/`](content-processing/) | 处理一段业务文本 |
-| `titled-content-processing/v1` | [`titled-content-processing/`](titled-content-processing/) | 组合标题与正文并复用文本处理能力 |
-| `minimal-zine-poster/v1` | [`minimal-zine-poster/`](minimal-zine-poster/) | 编译、生成并持久化极简 Zine 海报 |
+| `minimal-zine-poster/v1` | [`minimal-zine-poster/`](minimal-zine-poster/) | 编译极简 Zine 海报，复用内部图片服务生成与存储 |
 | `crt-interface-image/v1` | [`crt-interface-image/`](crt-interface-image/) | 根据公网参考图生成 CRT 风格 PNG |
 | `composed-task/v1` | [`composed-task/`](composed-task/) | 由服务端 Planner 在预算内组合 allow-list Process 完成一个目标；默认关闭 |
 | `dopamine-photo-poster/v1` | [dopamine-photo-poster/](dopamine-photo-poster/) | 多巴胺摄影插画海报 |
@@ -23,6 +21,8 @@
 产品采用通用 Process 时，在对应产品场景 README 中记录产品限制和采用关系，不复制 Process 契约。统一 HTTP 契约见 [`../../api.md`](../../api.md)。
 
 九个照片海报 Process 均输出完整 1200×1600 风格化作品，不附原图或对照布局。
+
+照片海报、极简海报、CRT 和内容优化复用统一模型错误分类，控制台按运行 ID 展示净化原因。CRT 原有两次编译预算不变，最终失败保留最后一次原因；错误契约见 [API](../../api.md)，扩展方式见 [统一诊断](../../process-runtime-design.md#统一诊断与工具选择)。 业务依赖失败显式记录，公开文案只解释已知原因，控制台保留原请求核对提示。
 
 CRT 与九个照片海报共享 [图片背景参数](../../api.md#图片背景参数)，省略时保持各自原有行为。
 

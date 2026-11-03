@@ -1,25 +1,14 @@
-import {
-    createServer,
-    type IncomingMessage,
-    type RequestListener,
-    type Server,
-    type ServerResponse,
-} from "node:http";
 import { afterEach, describe, expect, it } from "vitest";
 import { createProcessingApplication } from "../src/api/application.js";
-import type { ProcessRegistration } from "../src/process-runtime/index.js";
 import {
     createProcessExecutor,
     type ProcessRuntimeOptions,
 } from "../src/processes/catalog.js";
-import type { ContentAgent } from "../src/processes/content/agent.js";
-import { HttpContentProcessingCapability } from "../src/processes/content/capability.http.js";
 import {
-    type ContentProcessingCapability,
-    ContentProcessingUnavailable,
-} from "../src/processes/content/capability.js";
-import { createContentRegistration } from "../src/processes/content/registration.js";
-import { createTitledContentRegistration } from "../src/processes/titled-content/registration.js";
+    createSampleTextRegistration,
+    type SampleTextCapability,
+    SampleTextUnavailable,
+} from "./support/sample-text.js";
 
 type RunningServer = {
     url: string;
@@ -27,9 +16,9 @@ type RunningServer = {
 };
 
 const runningServers: RunningServer[] = [];
-const unusedContentProcessing: ContentProcessingCapability = {
+const unusedCapability: SampleTextCapability = {
     process: async () => {
-        throw new Error("Content processing should not run for this request");
+        throw new Error("The capability should not run for this request");
     },
 };
 
@@ -38,81 +27,53 @@ afterEach(async () => {
 });
 
 describe("business process execution", () => {
-    it("rejects incomplete Process Registration composition at startup", () => {
-        expect(() =>
-            createContentRegistration({
-                capability: undefined as unknown as ContentProcessingCapability,
-            }),
-        ).toThrow("Content Processing Capability is required");
-        expect(() =>
-            createContentRegistration({
-                capability: unusedContentProcessing,
-                mode: "unsupported" as "direct",
-            }),
-        ).toThrow("Content processing mode must be direct or agent");
-        expect(() =>
-            createContentRegistration({
-                capability: unusedContentProcessing,
-                mode: "agent",
-            }),
-        ).toThrow("Agent Runtime is required when Agent mode is enabled");
-        expect(() =>
-            createTitledContentRegistration({
-                capability: unusedContentProcessing,
-                separator: "",
-            }),
-        ).toThrow("The titled content separator cannot be empty");
-    });
-
-    it("returns validated content from the direct business API process", async () => {
-        let downstreamIdempotencyKey: string | undefined;
-        const businessApi = await startServer(async (request, response) => {
-            if (request.method !== "POST" || request.url !== "/process") {
-                response.writeHead(404).end();
-                return;
-            }
-
-            const requestBody = await readJson(request);
-            const idempotencyHeader = request.headers["idempotency-key"];
-            downstreamIdempotencyKey = Array.isArray(idempotencyHeader)
-                ? idempotencyHeader[0]
-                : idempotencyHeader;
-            const expectedBody = { content: "launch offer" };
-            if (JSON.stringify(requestBody) !== JSON.stringify(expectedBody)) {
-                response.writeHead(422).end();
-                return;
-            }
-
-            writeJson(response, 200, { content: "  Refined campaign copy  " });
+    it("returns validated output and passes the runId as the idempotency key", async () => {
+        const calls: { content: string; idempotencyKey: string }[] = [];
+        const processingService = await startProcessingService({
+            registrations: [
+                createSampleTextRegistration({
+                    process: async (input, options) => {
+                        calls.push({
+                            content: input.content,
+                            idempotencyKey: options.idempotencyKey,
+                        });
+                        return { content: "  Refined campaign copy  " };
+                    },
+                }),
+            ],
         });
-        const processingService = await startHttpBackedService(businessApi.url);
 
         const response = await executeProcess(processingService.url, {
-            process: "content-processing",
+            process: "sample-text",
             version: "v1",
             input: { content: "  launch   offer  " },
         });
+        const body = await response.json();
 
         expect(response.status).toBe(200);
-        expect(await response.json()).toEqual({
+        expect(body).toEqual({
             runId: expect.stringMatching(/^[0-9a-f-]{36}$/),
-            process: "content-processing",
+            process: "sample-text",
             version: "v1",
             status: "succeeded",
             output: { content: "Refined campaign copy" },
         });
-        expect(downstreamIdempotencyKey).toMatch(/^[0-9a-f-]{36}$/);
+        expect(calls).toEqual([
+            { content: "launch offer", idempotencyKey: body.runId },
+        ]);
     });
 
     it("maps invalid Process Definition output to a stable error", async () => {
         const processingService = await startProcessingService({
-            registrations: contentRegistrations({
-                process: async () => ({ content: "   " }),
-            }),
+            registrations: [
+                createSampleTextRegistration({
+                    process: async () => ({ content: "   " }),
+                }),
+            ],
         });
 
         const response = await executeProcess(processingService.url, {
-            process: "content-processing",
+            process: "sample-text",
             version: "v1",
             input: { content: "launch offer" },
         });
@@ -120,7 +81,7 @@ describe("business process execution", () => {
         expect(response.status).toBe(500);
         expect(await response.json()).toEqual({
             runId: expect.stringMatching(/^[0-9a-f-]{36}$/),
-            process: "content-processing",
+            process: "sample-text",
             version: "v1",
             status: "failed",
             error: {
@@ -132,11 +93,11 @@ describe("business process execution", () => {
 
     it("rejects invalid business input with a stable error", async () => {
         const processingService = await startProcessingService({
-            registrations: contentRegistrations(unusedContentProcessing),
+            registrations: [createSampleTextRegistration(unusedCapability)],
         });
 
         const response = await executeProcess(processingService.url, {
-            process: "content-processing",
+            process: "sample-text",
             version: "v1",
             input: { content: "   \n  " },
         });
@@ -144,7 +105,7 @@ describe("business process execution", () => {
         expect(response.status).toBe(400);
         expect(await response.json()).toEqual({
             runId: expect.stringMatching(/^[0-9a-f-]{36}$/),
-            process: "content-processing",
+            process: "sample-text",
             version: "v1",
             status: "failed",
             error: {
@@ -156,7 +117,7 @@ describe("business process execution", () => {
 
     it("treats malformed JSON as invalid input", async () => {
         const processingService = await startProcessingService({
-            registrations: contentRegistrations(unusedContentProcessing),
+            registrations: [createSampleTextRegistration(unusedCapability)],
         });
 
         const response = await postExecution(processingService.url, "{");
@@ -174,11 +135,11 @@ describe("business process execution", () => {
 
     it("rejects caller-supplied process mechanics", async () => {
         const processingService = await startProcessingService({
-            registrations: contentRegistrations(unusedContentProcessing),
+            registrations: [createSampleTextRegistration(unusedCapability)],
         });
 
         const response = await executeProcess(processingService.url, {
-            process: "content-processing",
+            process: "sample-text",
             version: "v1",
             input: { content: "launch offer" },
             steps: [{ type: "api", url: "https://untrusted.example/process" }],
@@ -187,7 +148,7 @@ describe("business process execution", () => {
         expect(response.status).toBe(400);
         expect(await response.json()).toEqual({
             runId: expect.stringMatching(/^[0-9a-f-]{36}$/),
-            process: "content-processing",
+            process: "sample-text",
             version: "v1",
             status: "failed",
             error: {
@@ -199,11 +160,11 @@ describe("business process execution", () => {
 
     it("rejects an unknown process version without choosing a fallback", async () => {
         const processingService = await startProcessingService({
-            registrations: contentRegistrations(unusedContentProcessing),
+            registrations: [createSampleTextRegistration(unusedCapability)],
         });
 
         const response = await executeProcess(processingService.url, {
-            process: "content-processing",
+            process: "sample-text",
             version: "v2",
             input: { content: "launch offer" },
         });
@@ -211,7 +172,7 @@ describe("business process execution", () => {
         expect(response.status).toBe(404);
         expect(await response.json()).toEqual({
             runId: expect.stringMatching(/^[0-9a-f-]{36}$/),
-            process: "content-processing",
+            process: "sample-text",
             version: "v2",
             status: "failed",
             error: {
@@ -221,16 +182,19 @@ describe("business process execution", () => {
         });
     });
 
-    it("maps a remote business API failure to a safe dependency error", async () => {
-        const businessApi = await startServer((_request, response) => {
-            writeJson(response, 503, {
-                internalMessage: "database credentials were rejected",
-            });
+    it("maps an unavailable dependency to a safe dependency error", async () => {
+        const processingService = await startProcessingService({
+            registrations: [
+                createSampleTextRegistration({
+                    process: async () => {
+                        throw new SampleTextUnavailable();
+                    },
+                }),
+            ],
         });
-        const processingService = await startHttpBackedService(businessApi.url);
 
         const response = await executeProcess(processingService.url, {
-            process: "content-processing",
+            process: "sample-text",
             version: "v1",
             input: { content: "launch offer" },
         });
@@ -238,88 +202,30 @@ describe("business process execution", () => {
         expect(response.status).toBe(502);
         expect(await response.json()).toEqual({
             runId: expect.stringMatching(/^[0-9a-f-]{36}$/),
-            process: "content-processing",
+            process: "sample-text",
             version: "v1",
             status: "failed",
             error: {
                 code: "DEPENDENCY_FAILURE",
-                message: "业务依赖暂时不可用",
-            },
-        });
-    });
-
-    it("maps an invalid business API response to a dependency error", async () => {
-        const businessApi = await startServer((_request, response) => {
-            writeJson(response, 200, { unexpected: "internal response" });
-        });
-        const processingService = await startHttpBackedService(businessApi.url);
-
-        const response = await executeProcess(processingService.url, {
-            process: "content-processing",
-            version: "v1",
-            input: { content: "launch offer" },
-        });
-
-        expect(response.status).toBe(502);
-        expect(await response.json()).toEqual({
-            runId: expect.stringMatching(/^[0-9a-f-]{36}$/),
-            process: "content-processing",
-            version: "v1",
-            status: "failed",
-            error: {
-                code: "DEPENDENCY_FAILURE",
-                message: "业务依赖暂时不可用",
-            },
-        });
-    });
-
-    it("times out a stalled business API dependency", async () => {
-        const businessApi = await startServer((request, response) => {
-            request.once("close", () => response.destroy());
-        });
-        const processingService = await startHttpBackedService(
-            businessApi.url,
-            {
-                businessApiTimeoutMs: 20,
-            },
-        );
-
-        const response = await executeProcess(
-            processingService.url,
-            {
-                process: "content-processing",
-                version: "v1",
-                input: { content: "launch offer" },
-            },
-            AbortSignal.timeout(1_000),
-        );
-
-        expect(response.status).toBe(502);
-        expect(await response.json()).toEqual({
-            runId: expect.stringMatching(/^[0-9a-f-]{36}$/),
-            process: "content-processing",
-            version: "v1",
-            status: "failed",
-            error: {
-                code: "DEPENDENCY_FAILURE",
-                message: "业务依赖暂时不可用",
+                message: "A required business service is unavailable",
             },
         });
     });
 
     it("enforces the total process time limit", async () => {
-        const neverCompletes: ContentProcessingCapability = {
-            process: () => new Promise(() => {}),
-        };
         const processingService = await startProcessingService({
-            registrations: contentRegistrations(neverCompletes),
+            registrations: [
+                createSampleTextRegistration({
+                    process: () => new Promise(() => {}),
+                }),
+            ],
             processTimeoutMs: 20,
         });
 
         const response = await executeProcess(
             processingService.url,
             {
-                process: "content-processing",
+                process: "sample-text",
                 version: "v1",
                 input: { content: "launch offer" },
             },
@@ -329,7 +235,7 @@ describe("business process execution", () => {
         expect(response.status).toBe(504);
         expect(await response.json()).toEqual({
             runId: expect.stringMatching(/^[0-9a-f-]{36}$/),
-            process: "content-processing",
+            process: "sample-text",
             version: "v1",
             status: "failed",
             error: {
@@ -338,476 +244,7 @@ describe("business process execution", () => {
             },
         });
     });
-
-    it("can enable Agent optimization without changing the product contract", async () => {
-        const requests: string[] = [];
-        const capabilityInputs: string[] = [];
-        const contentProcessing: ContentProcessingCapability = {
-            process: async (input) => {
-                capabilityInputs.push(input.content);
-                return { content: `Agent-refined ${input.content}` };
-            },
-        };
-        const agent: ContentAgent = {
-            optimize: async (request) => {
-                requests.push(request.content);
-                return request.capability.process(
-                    {
-                        content: request.content.replace(
-                            "launch offer",
-                            "campaign copy",
-                        ),
-                    },
-                    {
-                        signal: request.signal,
-                        idempotencyKey: request.idempotencyKey,
-                    },
-                );
-            },
-        };
-        const processingService = await startProcessingService({
-            registrations: contentRegistrations(contentProcessing, {
-                agent,
-                mode: "agent",
-            }),
-        });
-
-        const response = await executeProcess(processingService.url, {
-            process: "content-processing",
-            version: "v1",
-            input: { content: "  launch   offer  " },
-        });
-
-        expect(response.status).toBe(200);
-        expect(await response.json()).toEqual({
-            runId: expect.stringMatching(/^[0-9a-f-]{36}$/),
-            process: "content-processing",
-            version: "v1",
-            status: "succeeded",
-            output: { content: "Agent-refined campaign copy" },
-        });
-        expect(requests).toEqual(["launch offer"]);
-        expect(capabilityInputs).toEqual(["campaign copy"]);
-    });
-
-    it("lets the Agent path call the existing business capability as its Tool", async () => {
-        const capabilityInputs: string[] = [];
-        let downstreamIdempotencyKey: string | undefined;
-        const contentProcessing: ContentProcessingCapability = {
-            process: async (input, options) => {
-                capabilityInputs.push(input.content);
-                downstreamIdempotencyKey = options.idempotencyKey;
-                return { content: `Business result: ${input.content}` };
-            },
-        };
-        const agent: ContentAgent = {
-            optimize: async (request) =>
-                request.capability.process(
-                    { content: `Optimize ${request.content}` },
-                    {
-                        signal: request.signal,
-                        idempotencyKey: "agent-selected-key",
-                    },
-                ),
-        };
-        const processingService = await startProcessingService({
-            registrations: contentRegistrations(contentProcessing, {
-                agent,
-                mode: "agent",
-            }),
-        });
-
-        const response = await executeProcess(processingService.url, {
-            process: "content-processing",
-            version: "v1",
-            input: { content: "launch offer" },
-        });
-
-        expect(response.status).toBe(200);
-        const body = await response.json();
-        expect(body.output).toEqual({
-            content: "Business result: Optimize launch offer",
-        });
-        expect(capabilityInputs).toEqual(["Optimize launch offer"]);
-        expect(downstreamIdempotencyKey).toBe(body.runId);
-    });
-
-    it("rejects an Agent that omits the Business Capability Tool", async () => {
-        const agent: ContentAgent = {
-            optimize: async () => ({ content: "Unverified Agent output" }),
-        };
-        const processingService = await startProcessingService({
-            registrations: contentRegistrations(unusedContentProcessing, {
-                agent,
-                mode: "agent",
-            }),
-        });
-
-        const response = await executeProcess(processingService.url, {
-            process: "content-processing",
-            version: "v1",
-            input: { content: "launch offer" },
-        });
-
-        expect(response.status).toBe(502);
-        expect((await response.json()).error).toEqual({
-            code: "AGENT_FAILURE",
-            message: expect.stringContaining("模型结果不符合业务要求"),
-        });
-    });
-
-    it("prevents a second Agent Tool call from reaching the dependency", async () => {
-        const capabilityInputs: string[] = [];
-        const contentProcessing: ContentProcessingCapability = {
-            process: async (input) => {
-                capabilityInputs.push(input.content);
-                return { content: `Business result: ${input.content}` };
-            },
-        };
-        const agent: ContentAgent = {
-            optimize: async (request) => {
-                const first = await request.capability.process(
-                    { content: request.content },
-                    {
-                        signal: request.signal,
-                        idempotencyKey: request.idempotencyKey,
-                    },
-                );
-                try {
-                    await request.capability.process(
-                        { content: "second attempt" },
-                        {
-                            signal: request.signal,
-                            idempotencyKey: request.idempotencyKey,
-                        },
-                    );
-                } catch {
-                    // A misbehaving Agent may swallow a Tool error.
-                }
-                return first;
-            },
-        };
-        const processingService = await startProcessingService({
-            registrations: contentRegistrations(contentProcessing, {
-                agent,
-                mode: "agent",
-            }),
-        });
-
-        const response = await executeProcess(processingService.url, {
-            process: "content-processing",
-            version: "v1",
-            input: { content: "launch offer" },
-        });
-
-        expect(response.status).toBe(502);
-        expect((await response.json()).error.code).toBe("AGENT_FAILURE");
-        expect(capabilityInputs).toEqual(["launch offer"]);
-    });
-
-    it("rejects Agent output that differs from the Tool result", async () => {
-        const contentProcessing: ContentProcessingCapability = {
-            process: async () => ({ content: "Approved Tool result" }),
-        };
-        const agent: ContentAgent = {
-            optimize: async (request) => {
-                await request.capability.process(
-                    { content: request.content },
-                    {
-                        signal: request.signal,
-                        idempotencyKey: request.idempotencyKey,
-                    },
-                );
-                return { content: "Different Agent result" };
-            },
-        };
-        const processingService = await startProcessingService({
-            registrations: contentRegistrations(contentProcessing, {
-                agent,
-                mode: "agent",
-            }),
-        });
-
-        const response = await executeProcess(processingService.url, {
-            process: "content-processing",
-            version: "v1",
-            input: { content: "launch offer" },
-        });
-
-        expect(response.status).toBe(502);
-        expect((await response.json()).error.code).toBe("AGENT_FAILURE");
-    });
-
-    it("preserves a Business Capability failure from the Agent Tool path", async () => {
-        const contentProcessing: ContentProcessingCapability = {
-            process: async () => {
-                throw new ContentProcessingUnavailable();
-            },
-        };
-        const agent: ContentAgent = {
-            optimize: async (request) =>
-                request.capability.process(
-                    { content: request.content },
-                    {
-                        signal: request.signal,
-                        idempotencyKey: request.idempotencyKey,
-                    },
-                ),
-        };
-        const processingService = await startProcessingService({
-            registrations: contentRegistrations(contentProcessing, {
-                agent,
-                mode: "agent",
-            }),
-        });
-
-        const response = await executeProcess(processingService.url, {
-            process: "content-processing",
-            version: "v1",
-            input: { content: "launch offer" },
-        });
-
-        expect(response.status).toBe(502);
-        expect(await response.json()).toMatchObject({
-            status: "failed",
-            error: {
-                code: "DEPENDENCY_FAILURE",
-                message: "业务依赖暂时不可用",
-            },
-        });
-    });
-
-    it("maps invalid structured Agent output to a stable processing error", async () => {
-        const contentProcessing: ContentProcessingCapability = {
-            process: async () => ({ content: "Approved Tool result" }),
-        };
-        const agent: ContentAgent = {
-            optimize: async (request) => {
-                await request.capability.process(
-                    { content: request.content },
-                    {
-                        signal: request.signal,
-                        idempotencyKey: request.idempotencyKey,
-                    },
-                );
-                return { unexpected: "not business content" };
-            },
-        };
-        const processingService = await startProcessingService({
-            registrations: contentRegistrations(contentProcessing, {
-                agent,
-                mode: "agent",
-            }),
-        });
-
-        const response = await executeProcess(processingService.url, {
-            process: "content-processing",
-            version: "v1",
-            input: { content: "launch offer" },
-        });
-
-        expect(response.status).toBe(502);
-        expect(await response.json()).toEqual({
-            runId: expect.stringMatching(/^[0-9a-f-]{36}$/),
-            process: "content-processing",
-            version: "v1",
-            status: "failed",
-            error: {
-                code: "AGENT_FAILURE",
-                message: expect.stringContaining("模型结果未通过规则校验"),
-            },
-        });
-    });
-
-    it("maps Agent execution failures without leaking internal details", async () => {
-        const agent: ContentAgent = {
-            optimize: async () => {
-                throw new Error("provider key abc-secret was rejected");
-            },
-        };
-        const processingService = await startProcessingService({
-            registrations: contentRegistrations(unusedContentProcessing, {
-                agent,
-                mode: "agent",
-            }),
-        });
-
-        const response = await executeProcess(processingService.url, {
-            process: "content-processing",
-            version: "v1",
-            input: { content: "launch offer" },
-        });
-
-        expect(response.status).toBe(502);
-        expect(await response.json()).toEqual({
-            runId: expect.stringMatching(/^[0-9a-f-]{36}$/),
-            process: "content-processing",
-            version: "v1",
-            status: "failed",
-            error: {
-                code: "AGENT_FAILURE",
-                message: expect.stringContaining("具体原因尚未确认"),
-            },
-        });
-    });
-
-    it("routes a second process with its own schemas through the shared capability", async () => {
-        const capabilityInputs: string[] = [];
-        const contentProcessing: ContentProcessingCapability = {
-            process: async (input) => {
-                capabilityInputs.push(input.content);
-                return { content: `Published: ${input.content}` };
-            },
-        };
-        const processingService = await startProcessingService({
-            registrations: contentRegistrations(contentProcessing, {
-                separator: " — ",
-            }),
-        });
-
-        const response = await executeProcess(processingService.url, {
-            process: "titled-content-processing",
-            version: "v1",
-            input: { title: "  Launch  ", body: "  body   copy  " },
-        });
-
-        expect(response.status).toBe(200);
-        expect(await response.json()).toEqual({
-            runId: expect.stringMatching(/^[0-9a-f-]{36}$/),
-            process: "titled-content-processing",
-            version: "v1",
-            status: "succeeded",
-            output: {
-                title: "Launch",
-                content: "Published: Launch — body copy",
-            },
-        });
-        expect(capabilityInputs).toEqual(["Launch — body copy"]);
-    });
-
-    it("keeps each process configuration isolated", async () => {
-        const agentInputs: string[] = [];
-        const capabilityInputs: string[] = [];
-        const agent: ContentAgent = {
-            optimize: async (request) => {
-                agentInputs.push(request.content);
-                return request.capability.process(
-                    { content: `Agent: ${request.content}` },
-                    {
-                        signal: request.signal,
-                        idempotencyKey: request.idempotencyKey,
-                    },
-                );
-            },
-        };
-        const contentProcessing: ContentProcessingCapability = {
-            process: async (input) => {
-                capabilityInputs.push(input.content);
-                return { content: `Direct: ${input.content}` };
-            },
-        };
-        const processingService = await startProcessingService({
-            registrations: contentRegistrations(contentProcessing, {
-                agent,
-                mode: "agent",
-                separator: ": ",
-            }),
-        });
-
-        const firstResponse = await executeProcess(processingService.url, {
-            process: "content-processing",
-            version: "v1",
-            input: { content: "first" },
-        });
-        const secondResponse = await executeProcess(processingService.url, {
-            process: "titled-content-processing",
-            version: "v1",
-            input: { title: "Second", body: "process" },
-        });
-
-        expect((await firstResponse.json()).output).toEqual({
-            content: "Direct: Agent: first",
-        });
-        expect((await secondResponse.json()).output).toEqual({
-            title: "Second",
-            content: "Direct: Second: process",
-        });
-        expect(agentInputs).toEqual(["first"]);
-        expect(capabilityInputs).toEqual(["Agent: first", "Second: process"]);
-    });
-
-    it("enforces the second process input schema independently", async () => {
-        const processingService = await startProcessingService({
-            registrations: contentRegistrations(unusedContentProcessing),
-        });
-
-        const response = await executeProcess(processingService.url, {
-            process: "titled-content-processing",
-            version: "v1",
-            input: { content: "valid only for the first process" },
-        });
-
-        expect(response.status).toBe(400);
-        expect((await response.json()).error).toEqual({
-            code: "INVALID_INPUT",
-            message: "The process input is invalid",
-        });
-    });
-
-    it("rejects an unknown second-process version without version drift", async () => {
-        const processingService = await startProcessingService({
-            registrations: contentRegistrations(unusedContentProcessing),
-        });
-
-        const response = await executeProcess(processingService.url, {
-            process: "titled-content-processing",
-            version: "v2",
-            input: { title: "Launch", body: "body copy" },
-        });
-
-        expect(response.status).toBe(404);
-        expect((await response.json()).error).toEqual({
-            code: "PROCESS_NOT_FOUND",
-            message: "The requested process version is not registered",
-        });
-    });
 });
-
-async function startHttpBackedService(
-    businessApiBaseUrl: string,
-    options: { businessApiTimeoutMs?: number; processTimeoutMs?: number } = {},
-): Promise<RunningServer> {
-    return startProcessingService({
-        registrations: contentRegistrations(
-            new HttpContentProcessingCapability({
-                baseUrl: businessApiBaseUrl,
-                timeoutMs: options.businessApiTimeoutMs,
-            }),
-        ),
-        processTimeoutMs: options.processTimeoutMs,
-    });
-}
-
-function contentRegistrations(
-    capability: ContentProcessingCapability,
-    options: {
-        agent?: ContentAgent;
-        mode?: "direct" | "agent";
-        separator?: string;
-    } = {},
-): ProcessRegistration[] {
-    return [
-        createContentRegistration({
-            capability,
-            agent: options.agent,
-            mode: options.mode,
-        }),
-        createTitledContentRegistration({
-            capability,
-            separator: options.separator,
-        }),
-    ];
-}
 
 async function startProcessingService(
     options: ProcessRuntimeOptions,
@@ -840,50 +277,4 @@ async function postExecution(
         body,
         signal,
     });
-}
-
-async function startServer(handler: RequestListener): Promise<RunningServer> {
-    const server = createServer(handler);
-    const url = await listen(server);
-    const runningServer = { url, close: () => close(server) };
-    runningServers.push(runningServer);
-    return runningServer;
-}
-
-async function listen(server: Server): Promise<string> {
-    await new Promise<void>((resolve, reject) => {
-        server.once("error", reject);
-        server.listen(0, "127.0.0.1", () => {
-            server.off("error", reject);
-            resolve();
-        });
-    });
-
-    const address = server.address();
-    if (!address || typeof address === "string") {
-        throw new Error("Expected an IP address for test server");
-    }
-    return `http://127.0.0.1:${address.port}`;
-}
-
-async function close(server: Server): Promise<void> {
-    if (!server.listening) return;
-    await new Promise<void>((resolve, reject) => {
-        server.close((error) => (error ? reject(error) : resolve()));
-    });
-}
-
-async function readJson(request: IncomingMessage): Promise<unknown> {
-    let body = "";
-    for await (const chunk of request) body += chunk;
-    return JSON.parse(body);
-}
-
-function writeJson(
-    response: ServerResponse,
-    status: number,
-    body: unknown,
-): void {
-    response.writeHead(status, { "content-type": "application/json" });
-    response.end(JSON.stringify(body));
 }

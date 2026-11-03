@@ -2,6 +2,13 @@
 
 本文面向验证 Agent、Skill、图片生成、对象存储和已部署环境的开发者。这些命令是 production Process 的真实 smoke 或独立实验，可能访问外部系统、产生费用或写入远端存储；默认测试套件不运行它们。
 
+## 2026-11-03 照片编译失败诊断
+
+本地正式入口的运行 `b015a256-88cb-4237-8477-bb0205434d1f` 在 `photo_poster_compilation` 执行 16,589 ms 后返回 `AGENT_FAILURE`，未进入图片生成。旧报告只保留总类，无法追溯具体异常；这不是线上容器复测。
+
+随后用相同照片风格及本地 `openai / gpt-5.4-mini` 配置进行一次受控文字编译探测，15,412 ms 后得到 `request/provider_unavailable`，表示模型调用错误包含 5xx 服务端信号。报告见 `artifacts/agent-diagnostics/compile-probe-report.json`；未保存模型正文、原图 URL 或凭证，图片调用为零。该证据确认当前文字模型链路失败，不能区分中转站与上游，也不能证明旧失败具有相同原因。此次探测不重试完整图片流程。
+
+重跑该探测会访问网络并产生文字模型费用，需显式启用；它不属于 `npm test`。确定性回归使用 `npx vitest run test/photo-poster-diagnostics.test.ts`；PostgreSQL 合同可通过隔离的本地 Docker 运行 `ASYNC_INTEGRATION_TEST_SCRIPT=test:integration:observation node --import tsx tools/run-async-integration.ts`，不得指向生产数据库。
 ## 安全约束
 
 运行前复制 `.env.example` 为本地 `.env`，再由环境变量或部署平台注入真实凭证。
@@ -16,35 +23,16 @@
 
 | 命令 | 验证目标 | 外部影响 | 主要产物 |
 | --- | --- | --- | --- |
-| `npm run smoke:agent` | Pi Agent 确实调用唯一获准 Business Capability | 模型调用、业务请求 | 终端判据 |
-| `SKILL_AB_DRY_RUN=1 npm run test:skill-ab` | 三组实验结构和 Skill 装载预检 | 无模型调用 | 终端判据 |
-| `npm run test:skill-ab` | Direct、控制 Skill、候选 Skill 的行为差异 | 多次模型调用、业务请求 | `artifacts/skill-ab/latest.*` |
 | `npm run accept:poster-business`（兼容别名：`smoke:poster-process`、`test:gpt-image-2`） | 从产品 HTTP Interface 验收 `minimal-zine-poster/v1` | Agent、OpenAI Images 或 FAL 请求，可选 OSS PUT | `artifacts/gpt-image-2/latest.*` |
 | `npm run smoke:crt-gpt-image` | 用一张本地参考图验证 GPT Image 2 edit stage | 读取本地图片、OpenAI Images 或 FAL 请求、本地写入 | `artifacts/crt-interface-image/latest.*` |
 | `npm run accept:crt-business` | 从公网图片 URL 与产品 HTTP Interface 验收 `crt-interface-image/v1` | Agent、FAL、可选 OSS 与本地产物写入 | `artifacts/crt-interface-image/acceptance/latest.*` |
 | `npm run accept:news-image-business` | 从产品 HTTP Interface 验收三个新闻图片 Process、FAL 与 OSS | 三次 Agent、三次 FAL 图片生成与三次 OSS PUT | `artifacts/news-image-acceptance/evidence.json` |
 | `npm run smoke:oss` | 已有文件的上传、URL 生成和首字节读取 | OSS PUT 与 GET | `artifacts/object-storage/latest.json` |
-| `npm run smoke:staging` | 已部署环境的健康、成功与拒绝契约 | 受控环境请求 | 终端判据 |
+| `npm run smoke:staging` | 已部署环境的健康检查与 `minimal-zine-poster/v1` 空输入拒绝契约 | 受控环境请求，不调用模型、不生图 | 终端判据 |
 
 ## Pi Agent 路径
 
-生产内容处理流程可以由服务端切换到 Agent 模式，产品请求和输出契约不变：
-
-```bash
-CONTENT_PROCESSING_MODE=agent npm run dev
-```
-
-Agent 每次请求创建独立内存会话，并按流程 Module 的准确绑定加载 `.pi/skills/content-optimization/SKILL.md` 与 `.pi/skills/content-integrity/SKILL.md`。Agent 只允许调用 `process_business_content`。这个 Tool 包装现有 Content Processing Capability；Registration 最多让一次调用触达下游，并只接受与 Tool 结果一致的 Agent 输出。Shell、文件读写和代码编辑不会暴露给 Agent。
-
 默认从 `.env` 读取 Pi 模型与 OpenAI 兼容配置。`PI_PROVIDER` 和 `PI_MODEL` 必须同时设置。`OPENAI_API_MODE` 可以是 `chat-completions` 或 `responses`；兼容网关还可通过 `OPENAI_BASE_URL` 配置。图片阶段默认使用 OpenAI Adapter：`OPENAI_IMAGE_BASE_URL` 和 `OPENAI_IMAGE_API_KEY` 可脱离 Agent 网关。设置 `IMAGE_PROVIDER=fal` 与服务端 `FAL_KEY` 后，付费图片命令改用 FAL；产品输入不能选择供应商。
-
-先启动本地演示 Business Capability，再执行真实 Agent smoke：
-
-```bash
-BUSINESS_API_BASE_URL=http://127.0.0.1:4000 npm run smoke:agent
-```
-
-Smoke 会临时启动 Agent 模式服务，完成一次 `/execute` 请求，并确认 Agent 恰好调用一次 Business Capability、最终输出来自 Tool 结果。未设置 `AGENT_SMOKE_CONTENT` 时，它还检查姓名、日期、数字和链接在 Tool 输入中保持不变。它不输出业务内容或 Tool 入参，但可能产生模型费用。
 
 ### 当前 Skill 执行范围
 
@@ -52,50 +40,13 @@ Smoke 会临时启动 Agent 模式服务，完成一次 `/execute` 请求，并�
 
 海报、CRT 与新闻图片流程都只让 Agent 编译 Prompt；Registration 校验结果后调用各自的窄 Rendering Capability。生产 HTTP Adapter 要求 Capability 返回已持久化图片的 URL。当前流程仍没有自动视觉检查、有限重绘或跨 Run 变化记忆；不要为了补齐这些能力直接开放 Coding Tools。
 
-## Skill A/B 对比
-
-实验比较三组路径：
-
-1. 确定性 Direct 路径；
-2. 使用透传控制 Skill 的 Agent；
-3. 使用候选 `writing-clearly-and-concisely` Skill 的 Agent。
-
-三组使用同一输入和 Business Capability。实验记录 Business Capability 实际收到的 Tool 入参，并检查候选 Skill canary、目标冗余短语、文本长度、Tool 调用次数和最终输出来源。
-
-A/B 实验故意为每个 Agent arm 只绑定一个候选 Skill，以隔离变量；生产 `content-processing/v1` 使用前述两个 Skill。
-
-先运行不调用模型的结构预检：
-
-```bash
-SKILL_AB_DRY_RUN=1 npm run test:skill-ab
-```
-
-再运行完整实验：
-
-```bash
-npm run test:skill-ab
-```
-
-用一次性环境变量覆盖模型时，仍要同时设置 provider 和 model：
-
-```bash
-PI_PROVIDER=openai \
-PI_MODEL=gpt-5.6-terra \
-npm run test:skill-ab
-```
-
-`passed: true` 表示结构和行为判据全部成立。真实实验把完整证据写入：
-
-- `artifacts/skill-ab/latest.json`
-- `artifacts/skill-ab/latest.md`
-
-Dry run 不覆盖最近一次真实报告。实验只在临时目录生成 Skill 适配文件，结束后删除；第三方 Skill 原文件保持不变。
-
 ## 海报 Process 与 GPT Image 2
 
 `minimal-zine-poster/v1` 的顺序由 [`src/processes/poster/registration.ts`](../src/processes/poster/registration.ts) 固定：Pi Agent 读取 `minimal-zine-poster-prompt`，返回四段 Prompt、六轴 recipe 和解释；Registration 完成结构与原文校验；Poster Rendering Capability 再生成并持久化图片。产品输入不包含 Skill、模型、Tool 或存储配置。
 
 Runtime Skill 位于 `.pi/skills/minimal-zine-poster-prompt/`。它从上游 `gc-minimal-zine-poster-v0-1` 的固定哈希适配而来，只保留 Prompt 编译规则。`SOURCE.md` 记录来源、许可、审查清单、适配差异和回滚方式。Agent 没有 Tool；图片生成不属于 Skill 权限。
+
+正式运行已由共享内部图片服务提供 `/posters`；以下验收保留临时实现，用于模型与 Skill 实验，不证明正式图片服务部署可用。它显式覆盖两项 Business API 地址，避免本地配置误连正式服务。正式入口的离线 HTTP 验证见 `test/poster-process.test.ts` 和 `test/poster-business-api.test.ts`。
 
 业务验收启动生产 Composition，通过产品 `POST /execute` 提交请求。生产 catalog 解析 Process 后，Pi Agent 编译 Prompt，生产 HTTP Adapter 再调用临时启动的受控 `POST /posters` Business Capability。该 Capability 通过所选 OpenAI 或 FAL Adapter 调用 GPT Image 2，并写入本地 raster；配置对象存储时上传并返回远端 URL，否则启动临时图片 endpoint。验收会下载 Process 返回的 URL，并逐字节比较下载结果与生成产物：
 
@@ -245,7 +196,7 @@ npm run smoke:oss
 
 ## 已部署环境 smoke
 
-`smoke:staging` 验证受控入口，不负责部署。运行前确认目标允许当前调用方访问，并使用短期认证值：
+`smoke:staging` 验证受控入口，不负责部署。它只检查 `/healthz` 与空输入返回固定 `400 INVALID_INPUT`，不产生模型或生图费用；成功路径由各业务 acceptance 脚本单独付费验证。运行前确认目标允许当前调用方访问，并使用短期认证值：
 
 ```bash
 STAGING_SERVICE_BASE_URL=https://private-agent.example.internal \

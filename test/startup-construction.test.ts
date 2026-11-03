@@ -8,6 +8,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ProcessingApplication } from "../src/api/application.js";
 import { constructProcessingService } from "../src/app/api.js";
 import { createProductionRuntime } from "../src/app/business-processes.js";
+import { PiPosterAgent } from "../src/processes/poster/agent.pi.js";
 
 type RunningServer = {
     url: string;
@@ -29,7 +30,7 @@ afterEach(async () => {
 describe("Startup Construction", () => {
     it("registers minimal-zine-poster/v1 in the production catalog", () => {
         const runtime = createProductionRuntime({
-            BUSINESS_API_BASE_URL: "https://business.example",
+            CRT_BUSINESS_API_BASE_URL: "https://business.example",
         });
 
         const registration = runtime.registry.find({
@@ -51,7 +52,7 @@ describe("Startup Construction", () => {
 
     it("registers crt-interface-image/v1 in the production catalog", () => {
         const runtime = createProductionRuntime({
-            BUSINESS_API_BASE_URL: "https://business.example",
+            CRT_BUSINESS_API_BASE_URL: "https://business.example",
         });
 
         const registration = runtime.registry.find({
@@ -72,19 +73,9 @@ describe("Startup Construction", () => {
         ).toMatchObject({ accepted: true });
     });
 
-    it("constructs the default direct service from an explicit environment", async () => {
-        const businessInputs: unknown[] = [];
-        const businessApi = await startServer(async (request, response) => {
-            if (request.method !== "POST" || request.url !== "/process") {
-                response.writeHead(404).end();
-                return;
-            }
-            businessInputs.push(await readJson(request));
-            writeJson(response, 200, { content: "Refined campaign copy" });
-        });
-
+    it("constructs the default service from an explicit environment", async () => {
         const constructed = constructProcessingService({
-            BUSINESS_API_BASE_URL: `  ${businessApi.url}/legacy-base  `,
+            CRT_BUSINESS_API_BASE_URL: "  https://images.example/base  ",
         });
         expect(constructed.port).toBe(3000);
 
@@ -93,83 +84,29 @@ describe("Startup Construction", () => {
 
         const healthResponse = await fetch(`${url}/healthz`);
         expect(healthResponse.status).toBe(200);
-        expect(businessInputs).toEqual([]);
 
         const executeResponse = await fetch(`${url}/execute`, {
             method: "POST",
             headers: { "content-type": "application/json" },
             body: JSON.stringify({
-                process: "content-processing",
+                process: "minimal-zine-poster",
                 version: "v1",
-                input: { content: "Campaign   copy" },
+                input: {},
             }),
         });
-
-        expect(executeResponse.status).toBe(200);
-        expect(businessInputs).toEqual([{ content: "Campaign copy" }]);
-        expect(await executeResponse.json()).toEqual({
-            runId: expect.any(String),
-            process: "content-processing",
+        expect(executeResponse.status).toBe(400);
+        expect(await executeResponse.json()).toMatchObject({
+            process: "minimal-zine-poster",
             version: "v1",
-            status: "succeeded",
-            output: { content: "Refined campaign copy" },
+            status: "failed",
+            error: { code: "INVALID_INPUT" },
         });
-    });
-
-    it("uses the 10000-millisecond Business Capability timeout by default", async () => {
-        const businessRequestStarted = deferred<void>();
-        const releaseBusinessRequest = deferred<void>();
-        const businessApi = await startServer(async (_request, response) => {
-            businessRequestStarted.resolve();
-            await releaseBusinessRequest.promise;
-            if (!response.destroyed) {
-                writeJson(response, 200, { content: "Released response" });
-            }
-        });
-        const constructed = constructProcessingService({
-            BUSINESS_API_BASE_URL: businessApi.url,
-        });
-        runningApplications.push(constructed.application);
-        const { url } = await constructed.application.listen();
-        useControllableAbortTimeouts();
-        vi.useFakeTimers();
-
-        let responseSettled = false;
-        const responsePromise = executeContentProcess(url).then((response) => {
-            responseSettled = true;
-            return response;
-        });
-        await businessRequestStarted.promise;
-
-        try {
-            await vi.advanceTimersByTimeAsync(9_999);
-            expect(responseSettled).toBe(false);
-            await vi.advanceTimersByTimeAsync(1);
-
-            const response = await responsePromise;
-            expect(response.status).toBe(502);
-            expect(await response.json()).toMatchObject({
-                status: "failed",
-                error: { code: "DEPENDENCY_FAILURE" },
-            });
-        } finally {
-            releaseBusinessRequest.resolve();
-        }
     });
 
     it("uses the 30000-millisecond Process Runner timeout by default", async () => {
-        const businessRequestStarted = deferred<void>();
-        const releaseBusinessRequest = deferred<void>();
-        const businessApi = await startServer(async (_request, response) => {
-            businessRequestStarted.resolve();
-            await releaseBusinessRequest.promise;
-            if (!response.destroyed) {
-                writeJson(response, 200, { content: "Released response" });
-            }
-        });
+        const compile = holdPosterCompile();
         const constructed = constructProcessingService({
-            BUSINESS_API_BASE_URL: businessApi.url,
-            BUSINESS_API_TIMEOUT_MS: "60000",
+            CRT_BUSINESS_API_BASE_URL: "https://images.example",
         });
         runningApplications.push(constructed.application);
         const { url } = await constructed.application.listen();
@@ -177,11 +114,11 @@ describe("Startup Construction", () => {
         vi.useFakeTimers();
 
         let responseSettled = false;
-        const responsePromise = executeContentProcess(url).then((response) => {
+        const responsePromise = executePosterProcess(url).then((response) => {
             responseSettled = true;
             return response;
         });
-        await businessRequestStarted.promise;
+        await compile.started;
 
         try {
             await vi.advanceTimersByTimeAsync(29_999);
@@ -195,27 +132,21 @@ describe("Startup Construction", () => {
                 error: { code: "PROCESS_TIMEOUT" },
             });
         } finally {
-            releaseBusinessRequest.resolve();
+            compile.release();
         }
     });
 
     it("uses the 262144-byte HTTP request-body limit by default", async () => {
-        const businessInputs: unknown[] = [];
-        const businessApi = await startServer(async (request, response) => {
-            businessInputs.push(await readJson(request));
-            writeJson(response, 200, { content: "Accepted boundary request" });
-        });
         const constructed = constructProcessingService({
-            BUSINESS_API_BASE_URL: businessApi.url,
+            CRT_BUSINESS_API_BASE_URL: "https://images.example",
         });
         runningApplications.push(constructed.application);
         const { url } = await constructed.application.listen();
-        const boundaryBody = executeRequestBodyWithBytes(262_144);
 
         const boundaryResponse = await fetch(`${url}/execute`, {
             method: "POST",
             headers: { "content-type": "application/json" },
-            body: boundaryBody,
+            body: executeRequestBodyWithBytes(262_144),
         });
         const oversizedResponse = await fetch(`${url}/execute`, {
             method: "POST",
@@ -223,52 +154,41 @@ describe("Startup Construction", () => {
             body: executeRequestBodyWithBytes(262_145),
         });
 
-        expect(boundaryResponse.status).toBe(200);
+        // The boundary body passes the transport limit and reaches the
+        // Process input Schema, which rejects a brief this long.
+        expect(boundaryResponse.status).toBe(400);
         expect(oversizedResponse.status).toBe(413);
-        expect(businessInputs).toHaveLength(1);
     });
 
     it("uses four concurrent executions as the default capacity", async () => {
-        const fourExecutionsStarted = deferred<void>();
-        const releaseExecutions = deferred<void>();
-        let executionCount = 0;
-        const businessApi = await startServer(async (_request, response) => {
-            executionCount += 1;
-            if (executionCount === 4) fourExecutionsStarted.resolve();
-            if (executionCount <= 4) await releaseExecutions.promise;
-            writeJson(response, 200, { content: "Completed" });
-        });
+        const compile = holdPosterCompile(4);
         const constructed = constructProcessingService({
-            BUSINESS_API_BASE_URL: businessApi.url,
+            CRT_BUSINESS_API_BASE_URL: "https://images.example",
         });
         runningApplications.push(constructed.application);
         const { url } = await constructed.application.listen();
 
         const admittedResponses = Array.from({ length: 4 }, () =>
-            executeContentProcess(url),
+            executePosterProcess(url),
         );
-        await fourExecutionsStarted.promise;
+        await compile.started;
 
         try {
-            const capacityResponse = await executeContentProcess(url);
+            const capacityResponse = await executePosterProcess(url);
             expect(capacityResponse.status).toBe(503);
-            expect(executionCount).toBe(4);
+            expect(compile.calls()).toBe(4);
         } finally {
-            releaseExecutions.resolve();
+            compile.release();
         }
 
-        expect(
-            await Promise.all(
-                admittedResponses.map(
-                    async (response) => (await response).status,
-                ),
-            ),
-        ).toEqual([200, 200, 200, 200]);
+        for (const response of await Promise.all(admittedResponses)) {
+            expect(response.status).not.toBe(503);
+        }
     });
 
     it("returns an explicitly configured listen port", () => {
         const constructed = constructProcessingService({
-            BUSINESS_API_BASE_URL: "https://business.example",
+            CRT_BUSINESS_API_BASE_URL: "https://business.example",
             PORT: "4100",
         });
 
@@ -280,7 +200,7 @@ describe("Startup Construction", () => {
         (port) => {
             expect(() =>
                 constructProcessingService({
-                    BUSINESS_API_BASE_URL: "https://business.example",
+                    CRT_BUSINESS_API_BASE_URL: "https://business.example",
                     PORT: port,
                 }),
             ).toThrow("PORT must be an integer between 1 and 65535");
@@ -288,133 +208,34 @@ describe("Startup Construction", () => {
     );
 
     it("applies the configured Process Runner timeout", async () => {
-        const businessApi = await startServer((_request, response) => {
-            setTimeout(() => {
-                if (!response.destroyed) {
-                    writeJson(response, 200, {
-                        content: "Late business response",
-                    });
-                }
-            }, 100);
-        });
+        const compile = holdPosterCompile();
         const constructed = constructProcessingService({
-            BUSINESS_API_BASE_URL: businessApi.url,
-            BUSINESS_API_TIMEOUT_MS: "1000",
+            CRT_BUSINESS_API_BASE_URL: "https://images.example",
             PROCESS_TIMEOUT_MS: "20",
         });
         runningApplications.push(constructed.application);
         const { url } = await constructed.application.listen();
 
-        const response = await fetch(`${url}/execute`, {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify({
-                process: "content-processing",
-                version: "v1",
-                input: { content: "Bound this request" },
-            }),
-        });
+        try {
+            const response = await executePosterProcess(url);
 
-        expect(response.status).toBe(504);
-        expect(await response.json()).toMatchObject({
-            status: "failed",
-            error: {
-                code: "PROCESS_TIMEOUT",
-                message: "流程超过执行时限，请核对步骤耗时和下游请求状态",
-            },
-        });
+            expect(response.status).toBe(504);
+            expect(await response.json()).toMatchObject({
+                status: "failed",
+                error: {
+                    code: "PROCESS_TIMEOUT",
+                    message: "流程超过执行时限，请核对步骤耗时和下游请求状态",
+                },
+            });
+        } finally {
+            compile.release();
+        }
     });
-
-    it("applies the configured Business Capability timeout", async () => {
-        const businessApi = await startServer((_request, response) => {
-            setTimeout(() => {
-                if (!response.destroyed) {
-                    writeJson(response, 200, {
-                        content: "Late business response",
-                    });
-                }
-            }, 100);
-        });
-        const constructed = constructProcessingService({
-            BUSINESS_API_BASE_URL: businessApi.url,
-            BUSINESS_API_TIMEOUT_MS: "20",
-            PROCESS_TIMEOUT_MS: "1000",
-        });
-        runningApplications.push(constructed.application);
-        const { url } = await constructed.application.listen();
-
-        const response = await fetch(`${url}/execute`, {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify({
-                process: "content-processing",
-                version: "v1",
-                input: { content: "Bound this dependency" },
-            }),
-        });
-
-        expect(response.status).toBe(502);
-        expect(await response.json()).toMatchObject({
-            status: "failed",
-            error: {
-                code: "DEPENDENCY_FAILURE",
-                message: "业务依赖暂时不可用",
-            },
-        });
-    });
-
-    it("applies the configured titled-content separator", async () => {
-        const businessInputs: unknown[] = [];
-        const businessApi = await startServer(async (request, response) => {
-            businessInputs.push(await readJson(request));
-            writeJson(response, 200, { content: "Refined titled content" });
-        });
-        const constructed = constructProcessingService({
-            BUSINESS_API_BASE_URL: businessApi.url,
-            TITLED_CONTENT_SEPARATOR: " — ",
-        });
-        runningApplications.push(constructed.application);
-        const { url } = await constructed.application.listen();
-
-        const response = await fetch(`${url}/execute`, {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify({
-                process: "titled-content-processing",
-                version: "v1",
-                input: { title: "Release", body: "Ready" },
-            }),
-        });
-
-        expect(response.status).toBe(200);
-        expect(businessInputs).toEqual([{ content: "Release — Ready" }]);
-        expect(await response.json()).toMatchObject({
-            process: "titled-content-processing",
-            version: "v1",
-            status: "succeeded",
-            output: {
-                title: "Release",
-                content: "Refined titled content",
-            },
-        });
-    });
-
-    it.each(["", "agents", "DIRECT"])(
-        "rejects unknown content-processing mode %j before listening",
-        (mode) => {
-            expect(() =>
-                constructProcessingService({
-                    BUSINESS_API_BASE_URL: "https://business.example",
-                    CONTENT_PROCESSING_MODE: mode,
-                }),
-            ).toThrow("CONTENT_PROCESSING_MODE must be direct or agent");
-        },
-    );
 
     it("rejects an unknown Process Run log level before listening", () => {
         expect(() =>
             constructProcessingService({
-                BUSINESS_API_BASE_URL: "https://business.example",
+                CRT_BUSINESS_API_BASE_URL: "https://business.example",
                 PROCESS_RUN_LOG_LEVEL: "verbose",
             }),
         ).toThrow(
@@ -429,8 +250,7 @@ describe("Startup Construction", () => {
             response.writeHead(500).end();
         });
         const constructed = constructProcessingService({
-            BUSINESS_API_BASE_URL: externalSentinel.url,
-            CONTENT_PROCESSING_MODE: "agent",
+            CRT_BUSINESS_API_BASE_URL: externalSentinel.url,
             PI_PROVIDER: "openai",
             PI_MODEL: "gpt-5.6-terra",
             PI_AGENT_DIR: "/must-not-be-read/pi-agent",
@@ -453,8 +273,7 @@ describe("Startup Construction", () => {
         (agentEnvironment) => {
             expect(() =>
                 constructProcessingService({
-                    BUSINESS_API_BASE_URL: "https://business.example",
-                    CONTENT_PROCESSING_MODE: "agent",
+                    CRT_BUSINESS_API_BASE_URL: "https://business.example",
                     ...agentEnvironment,
                 }),
             ).toThrow("Pi provider and model must be configured together");
@@ -464,8 +283,7 @@ describe("Startup Construction", () => {
     it("rejects an unknown OpenAI API mode used by an Agent process", () => {
         expect(() =>
             constructProcessingService({
-                BUSINESS_API_BASE_URL: "https://business.example",
-                CONTENT_PROCESSING_MODE: "agent",
+                CRT_BUSINESS_API_BASE_URL: "https://business.example",
                 OPENAI_API_MODE: "legacy-completions",
             }),
         ).toThrow("OPENAI_API_MODE must be responses or chat-completions");
@@ -474,8 +292,7 @@ describe("Startup Construction", () => {
     it("preserves compatible-gateway validation for Agent processes", () => {
         expect(() =>
             constructProcessingService({
-                BUSINESS_API_BASE_URL: "https://business.example",
-                CONTENT_PROCESSING_MODE: "agent",
+                CRT_BUSINESS_API_BASE_URL: "https://business.example",
                 OPENAI_BASE_URL: "https://gateway.example/v1",
             }),
         ).toThrow(
@@ -485,8 +302,7 @@ describe("Startup Construction", () => {
 
     it("accepts explicit Agent overrides without contacting the provider", () => {
         const constructed = constructProcessingService({
-            BUSINESS_API_BASE_URL: "https://business.example",
-            CONTENT_PROCESSING_MODE: "agent",
+            CRT_BUSINESS_API_BASE_URL: "https://business.example",
             PI_PROVIDER: "openai",
             PI_MODEL: "gpt-5.6-terra",
             PI_AGENT_DIR: "/tmp/pi-agent",
@@ -500,7 +316,7 @@ describe("Startup Construction", () => {
     it("rejects an unavailable installed Runtime Skill before listening", () => {
         expect(() =>
             constructProcessingService({
-                BUSINESS_API_BASE_URL: "https://business.example",
+                CRT_BUSINESS_API_BASE_URL: "https://business.example",
                 PI_POSTER_SKILL_DIRECTORY: "/missing/poster-prompt",
             }),
         ).toThrow(
@@ -510,22 +326,22 @@ describe("Startup Construction", () => {
 
     it("ships composed-task/v1 switched off and only registers it when enabled", () => {
         const off = createProductionRuntime({
-            BUSINESS_API_BASE_URL: "https://business.example",
+            CRT_BUSINESS_API_BASE_URL: "https://business.example",
         });
         const on = createProductionRuntime({
-            BUSINESS_API_BASE_URL: "https://business.example",
+            CRT_BUSINESS_API_BASE_URL: "https://business.example",
             COMPOSED_TASK_ENABLED: "true",
         });
         const identity = { id: "composed-task", version: "v1" };
 
         expect(off.registry.find(identity)).toBeUndefined();
-        expect(off.registry.list()).toHaveLength(22);
+        expect(off.registry.list()).toHaveLength(20);
         const registration = on.registry.find(identity);
         expect(registration?.identity).toEqual(identity);
         expect(registration?.timeoutMs).toBe(600_000);
         expect(
             registration?.accept({
-                goal: "Refine the copy and make a poster",
+                goal: "Make a poster from this copy",
                 material: { copy: "Quiet rain over the bookstore" },
             }),
         ).toMatchObject({ accepted: true });
@@ -535,12 +351,12 @@ describe("Startup Construction", () => {
                 skills: ["anything"],
             }),
         ).toEqual({ accepted: false });
-        expect(on.registry.list()).toHaveLength(23);
+        expect(on.registry.list()).toHaveLength(21);
     });
 
     it("validates the Planner Skill only when composed-task/v1 is enabled", () => {
         const environment = {
-            BUSINESS_API_BASE_URL: "https://business.example",
+            CRT_BUSINESS_API_BASE_URL: "https://business.example",
             PI_COMPOSED_SKILL_DIRECTORY: "/missing/composed-planner",
         };
 
@@ -564,7 +380,7 @@ describe("Startup Construction", () => {
     it("requires an OpenAI credential for a production Agent deployment", () => {
         const environment = {
             NODE_ENV: "production",
-            BUSINESS_API_BASE_URL: "https://business.example",
+            CRT_BUSINESS_API_BASE_URL: "https://business.example",
             PI_PROVIDER: "openai",
             PI_MODEL: "gpt-5.6-terra",
         };
@@ -580,37 +396,9 @@ describe("Startup Construction", () => {
         ).toBe(3000);
     });
 
-    it("executes direct content without invoking the poster Agent", async () => {
-        const businessInputs: unknown[] = [];
-        const businessApi = await startServer(async (request, response) => {
-            businessInputs.push(await readJson(request));
-            writeJson(response, 200, { content: "Direct response" });
-        });
-        const constructed = constructProcessingService({
-            BUSINESS_API_BASE_URL: businessApi.url,
-            CONTENT_PROCESSING_MODE: "direct",
-            PI_PROVIDER: "openai",
-            PI_MODEL: "gpt-5.6-terra",
-            PI_AGENT_DIR: "/must-not-be-read/pi-agent",
-            OPENAI_BASE_URL: "https://gateway.example/v1",
-            OPENAI_API_MODE: "responses",
-        });
-        runningApplications.push(constructed.application);
-        const { url } = await constructed.application.listen();
-
-        const response = await executeContentProcess(url);
-
-        expect(response.status).toBe(200);
-        expect(await response.json()).toMatchObject({
-            status: "succeeded",
-            output: { content: "Direct response" },
-        });
-        expect(businessInputs).toEqual([{ content: "Startup review" }]);
-    });
-
     it("applies the configured HTTP request-body limit", async () => {
         const constructed = constructProcessingService({
-            BUSINESS_API_BASE_URL: "https://business.example",
+            CRT_BUSINESS_API_BASE_URL: "https://business.example",
             HTTP_MAX_REQUEST_BODY_BYTES: "80",
         });
         runningApplications.push(constructed.application);
@@ -620,9 +408,9 @@ describe("Startup Construction", () => {
             method: "POST",
             headers: { "content-type": "application/json" },
             body: JSON.stringify({
-                process: "content-processing",
+                process: "minimal-zine-poster",
                 version: "v1",
-                input: { content: "x".repeat(100) },
+                input: { brief: "x".repeat(100) },
             }),
         });
 
@@ -637,38 +425,19 @@ describe("Startup Construction", () => {
     });
 
     it("applies the configured concurrent-execution limit", async () => {
-        const executionStarted = deferred<void>();
-        const releaseExecution = deferred<void>();
-        const businessApi = await startServer(async (_request, response) => {
-            executionStarted.resolve();
-            await releaseExecution.promise;
-            writeJson(response, 200, { content: "Completed" });
-        });
+        const compile = holdPosterCompile();
         const constructed = constructProcessingService({
-            BUSINESS_API_BASE_URL: businessApi.url,
+            CRT_BUSINESS_API_BASE_URL: "https://images.example",
             MAX_CONCURRENT_EXECUTIONS: "1",
         });
         runningApplications.push(constructed.application);
         const { url } = await constructed.application.listen();
-        const requestBody = JSON.stringify({
-            process: "content-processing",
-            version: "v1",
-            input: { content: "Concurrent request" },
-        });
 
-        const firstResponsePromise = fetch(`${url}/execute`, {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: requestBody,
-        });
-        await executionStarted.promise;
+        const firstResponsePromise = executePosterProcess(url);
+        await compile.started;
 
         try {
-            const secondResponse = await fetch(`${url}/execute`, {
-                method: "POST",
-                headers: { "content-type": "application/json" },
-                body: requestBody,
-            });
+            const secondResponse = await executePosterProcess(url);
 
             expect(secondResponse.status).toBe(503);
             expect(secondResponse.headers.get("retry-after")).toBe("1");
@@ -680,49 +449,54 @@ describe("Startup Construction", () => {
                 },
             });
         } finally {
-            releaseExecution.resolve();
+            compile.release();
         }
 
-        expect((await firstResponsePromise).status).toBe(200);
+        expect((await firstResponsePromise).status).not.toBe(503);
     });
 
     it.each([undefined, "", "   "])(
-        "requires a Business Capability URL for environment value %j",
+        "requires the image Business API URL for environment value %j",
         (baseUrl) => {
             expect(() =>
-                constructProcessingService({ BUSINESS_API_BASE_URL: baseUrl }),
+                constructProcessingService({
+                    CRT_BUSINESS_API_BASE_URL: baseUrl,
+                }),
             ).toThrow(
-                "Deployment environment for api is missing required variables: BUSINESS_API_BASE_URL",
+                "Deployment environment for api is missing required variables: CRT_BUSINESS_API_BASE_URL",
             );
         },
     );
 
     it.each([
-        "not-a-url-with-secret-value",
-        "file:///private/business-api",
-        "https://user:secret-value@business.example",
-    ])(
-        "rejects unsafe Business Capability URL %j without echoing it",
-        (baseUrl) => {
-            let error: unknown;
-            try {
-                constructProcessingService({ BUSINESS_API_BASE_URL: baseUrl });
-            } catch (caught) {
-                error = caught;
-            }
+        ["CRT_BUSINESS_API_BASE_URL", "not-a-url-with-secret-value"],
+        ["CRT_BUSINESS_API_BASE_URL", "file:///private/business-api"],
+        [
+            "CRT_BUSINESS_API_BASE_URL",
+            "https://user:secret-value@business.example",
+        ],
+    ])("rejects unsafe %s %j without echoing it", (name, baseUrl) => {
+        let error: unknown;
+        try {
+            constructProcessingService({
+                CRT_BUSINESS_API_BASE_URL: "https://images.example",
+                [name]: baseUrl,
+            });
+        } catch (caught) {
+            error = caught;
+        }
 
-            expect(error).toBeInstanceOf(Error);
-            expect((error as Error).message).toBe(
-                "BUSINESS_API_BASE_URL must be a valid HTTP(S) URL without credentials",
-            );
-            expect((error as Error).message).not.toContain(baseUrl);
-            expect((error as Error).message).not.toContain("secret-value");
-        },
-    );
+        expect(error).toBeInstanceOf(Error);
+        expect((error as Error).message).toBe(
+            `${name} must be a valid HTTP(S) URL without credentials`,
+        );
+        expect((error as Error).message).not.toContain(baseUrl);
+        expect((error as Error).message).not.toContain("secret-value");
+    });
 
     it.each(["1", "65535"])("accepts listen-port boundary %j", (port) => {
         const constructed = constructProcessingService({
-            BUSINESS_API_BASE_URL: "https://business.example",
+            CRT_BUSINESS_API_BASE_URL: "https://business.example",
             PORT: port,
         });
 
@@ -730,48 +504,25 @@ describe("Startup Construction", () => {
     });
 
     it.each([
-        "BUSINESS_API_TIMEOUT_MS",
         "POSTER_API_TIMEOUT_MS",
         "CRT_API_TIMEOUT_MS",
         "PROCESS_TIMEOUT_MS",
-        "CONTENT_PROCESSING_RETRY_MAX_ATTEMPTS",
-        "CONTENT_PROCESSING_RETRY_INITIAL_DELAY_MS",
-        "CONTENT_PROCESSING_RETRY_MAX_DELAY_MS",
         "HTTP_MAX_REQUEST_BODY_BYTES",
         "MAX_CONCURRENT_EXECUTIONS",
     ])("rejects invalid positive-integer values for %s", (name) => {
         for (const value of ["", "0", "-1", "1.5", "not-a-number"]) {
             expect(() =>
                 constructProcessingService({
-                    BUSINESS_API_BASE_URL: "https://business.example",
+                    CRT_BUSINESS_API_BASE_URL: "https://business.example",
                     [name]: value,
                 }),
             ).toThrow(`${name} must be a positive integer`);
         }
     });
 
-    it("bounds the server-owned content-processing retry policy", () => {
-        expect(() =>
-            constructProcessingService({
-                BUSINESS_API_BASE_URL: "https://business.example",
-                CONTENT_PROCESSING_RETRY_MAX_ATTEMPTS: "6",
-            }),
-        ).toThrow("CONTENT_PROCESSING_RETRY_MAX_ATTEMPTS must not exceed 5");
-        expect(() =>
-            constructProcessingService({
-                BUSINESS_API_BASE_URL: "https://business.example",
-                CONTENT_PROCESSING_RETRY_MAX_ATTEMPTS: "2",
-                CONTENT_PROCESSING_RETRY_INITIAL_DELAY_MS: "2000",
-                CONTENT_PROCESSING_RETRY_MAX_DELAY_MS: "1000",
-            }),
-        ).toThrow(
-            "Process retry maximum delay must be between the initial delay and 300000",
-        );
-    });
-
     it("keeps invalid async-only configuration inert while the feature is off", () => {
         const constructed = constructProcessingService({
-            BUSINESS_API_BASE_URL: "https://business.example",
+            CRT_BUSINESS_API_BASE_URL: "https://business.example",
             ASYNC_PROCESS_RUNS_ENABLED: "false",
             DATABASE_URL: "not-a-database-url",
             ASYNC_GATEWAY_SHARED_SECRET: "short",
@@ -786,7 +537,7 @@ describe("Startup Construction", () => {
         (value) => {
             expect(() =>
                 constructProcessingService({
-                    BUSINESS_API_BASE_URL: "https://business.example",
+                    CRT_BUSINESS_API_BASE_URL: "https://business.example",
                     ASYNC_PROCESS_RUNS_ENABLED: value,
                 }),
             ).toThrow("ASYNC_PROCESS_RUNS_ENABLED must be true or false");
@@ -798,7 +549,7 @@ describe("Startup Construction", () => {
         (value) => {
             expect(() =>
                 constructProcessingService({
-                    BUSINESS_API_BASE_URL: "https://business.example",
+                    CRT_BUSINESS_API_BASE_URL: "https://business.example",
                     INTERNAL_EVAL_ENABLED: value,
                 }),
             ).toThrow("INTERNAL_EVAL_ENABLED must be true or false");
@@ -926,7 +677,7 @@ function asyncEnvironment(
     overrides: Record<string, string | undefined> = {},
 ): Record<string, string | undefined> {
     return {
-        BUSINESS_API_BASE_URL: "https://business.example",
+        CRT_BUSINESS_API_BASE_URL: "https://business.example",
         ASYNC_PROCESS_RUNS_ENABLED: "true",
         DATABASE_URL: "postgres://service:secret@database.example/pipipi",
         ASYNC_GATEWAY_SHARED_SECRET: "gateway-secret-that-is-at-least-32-bytes",
@@ -941,31 +692,58 @@ function asyncEnvironment(
     };
 }
 
-function executeContentProcess(url: string): Promise<Response> {
+function executePosterProcess(url: string): Promise<Response> {
     return fetch(`${url}/execute`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
-            process: "content-processing",
+            process: "minimal-zine-poster",
             version: "v1",
-            input: { content: "Startup review" },
+            input: { brief: "Startup review" },
         }),
     });
 }
 
+/**
+ * Holds the poster Agent's compile step so a production Process stays in
+ * flight without a model; released calls fail instead of rendering.
+ */
+function holdPosterCompile(startedAfter = 1): {
+    started: Promise<void>;
+    release: () => void;
+    calls: () => number;
+} {
+    const started = deferred<void>();
+    const released = deferred<void>();
+    let calls = 0;
+    vi.spyOn(PiPosterAgent.prototype, "compile").mockImplementation(
+        async () => {
+            calls += 1;
+            if (calls === startedAfter) started.resolve();
+            await released.promise;
+            throw new Error("Released test compile");
+        },
+    );
+    return {
+        started: started.promise,
+        release: () => released.resolve(),
+        calls: () => calls,
+    };
+}
+
 function executeRequestBodyWithBytes(byteLength: number): string {
-    const createBody = (content: string) =>
+    const createBody = (brief: string) =>
         JSON.stringify({
-            process: "content-processing",
+            process: "minimal-zine-poster",
             version: "v1",
-            input: { content },
+            input: { brief },
         });
     const emptyBody = createBody("");
-    const contentByteLength = byteLength - Buffer.byteLength(emptyBody);
-    if (contentByteLength < 1) {
+    const briefByteLength = byteLength - Buffer.byteLength(emptyBody);
+    if (briefByteLength < 1) {
         throw new Error("Requested test body is too small");
     }
-    const body = createBody("x".repeat(contentByteLength));
+    const body = createBody("x".repeat(briefByteLength));
     if (Buffer.byteLength(body) !== byteLength) {
         throw new Error("Could not construct the requested test body size");
     }
@@ -1008,21 +786,6 @@ async function close(server: Server): Promise<void> {
     await new Promise<void>((resolve, reject) => {
         server.close((error) => (error ? reject(error) : resolve()));
     });
-}
-
-async function readJson(request: AsyncIterable<Uint8Array>): Promise<unknown> {
-    const chunks: Uint8Array[] = [];
-    for await (const chunk of request) chunks.push(chunk);
-    return JSON.parse(Buffer.concat(chunks).toString("utf8"));
-}
-
-function writeJson(
-    response: ServerResponse,
-    status: number,
-    body: unknown,
-): void {
-    response.writeHead(status, { "content-type": "application/json" });
-    response.end(JSON.stringify(body));
 }
 
 function deferred<T>(): {

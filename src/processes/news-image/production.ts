@@ -42,7 +42,6 @@ function newsImageProduction(style: NewsImageStyle): ProductionProcess {
         environment: [
             skillDirectoryVariables[style],
             "CRT_BUSINESS_API_BASE_URL",
-            "BUSINESS_API_BASE_URL",
             "NEWS_IMAGE_API_TIMEOUT_MS",
         ],
         installedSkills: installedSkills[style],

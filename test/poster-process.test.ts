@@ -40,91 +40,84 @@ const posterImage = {
 };
 
 describe("minimal-zine-poster/v1", () => {
-    it.each([true, false])(
-        "renders through production /execute and the image service (dedicated URL: %s)",
-        async (dedicated) => {
-            const directory = await mkdtemp(join(tmpdir(), "poster-process-"));
-            const bytes = await sharp({
-                create: {
-                    width: 1024,
-                    height: 1696,
-                    channels: 3,
-                    background: "white",
-                },
-            })
-                .png()
-                .toBuffer();
-            const generate = vi.fn(async () => ({
-                bytes,
-                mimeType: "image/png",
-                outputFormat: "png" as const,
-            }));
-            const businessApi = await startCrtBusinessApi({
-                directory,
-                imageClient: { edit: vi.fn() },
-                generationClient: { generate },
-            });
-            const compile = vi
-                .spyOn(PiPosterAgent.prototype, "compile")
-                .mockResolvedValue(compiledPoster);
-            const { application } = constructProcessingService({
-                BUSINESS_API_BASE_URL: dedicated
-                    ? "http://127.0.0.1:1"
-                    : businessApi.url,
-                ...(dedicated
-                    ? { CRT_BUSINESS_API_BASE_URL: businessApi.url }
-                    : {}),
-                PROCESS_RUN_LOG_LEVEL: "silent",
-            });
-            const { url } = await application.listen();
+    it("renders through production /execute and the image service at CRT_BUSINESS_API_BASE_URL", async () => {
+        const directory = await mkdtemp(join(tmpdir(), "poster-process-"));
+        const bytes = await sharp({
+            create: {
+                width: 1024,
+                height: 1696,
+                channels: 3,
+                background: "white",
+            },
+        })
+            .png()
+            .toBuffer();
+        const generate = vi.fn(async () => ({
+            bytes,
+            mimeType: "image/png",
+            outputFormat: "png" as const,
+        }));
+        const businessApi = await startCrtBusinessApi({
+            directory,
+            imageClient: { edit: vi.fn() },
+            generationClient: { generate },
+        });
+        const compile = vi
+            .spyOn(PiPosterAgent.prototype, "compile")
+            .mockResolvedValue(compiledPoster);
+        const { application } = constructProcessingService({
+            // The text Capability address must never receive image calls.
+            CRT_BUSINESS_API_BASE_URL: businessApi.url,
+            PROCESS_RUN_LOG_LEVEL: "silent",
+        });
+        const { url } = await application.listen();
 
-            try {
-                const response = await fetch(`${url}/execute`, {
-                    method: "POST",
-                    headers: { "content-type": "application/json" },
-                    body: JSON.stringify({
-                        process: "minimal-zine-poster",
-                        version: "v1",
-                        input: {
-                            brief: "A rainy used bookstore",
-                            text: "PIPIPI ZINE",
-                        },
-                    }),
-                });
-
-                expect(response.status).toBe(200);
-                const result = await response.json();
-                expect(result).toMatchObject({
+        try {
+            const response = await fetch(`${url}/execute`, {
+                method: "POST",
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({
                     process: "minimal-zine-poster",
                     version: "v1",
-                    status: "succeeded",
-                    output: {
-                        ...compiledPoster,
-                        image: {
-                            url: `${businessApi.url}/posters/${result.runId}.png`,
-                            width: 1024,
-                            height: 1696,
-                            contentType: "image/png",
-                        },
+                    input: {
+                        brief: "A rainy used bookstore",
+                        text: "PIPIPI ZINE",
                     },
-                });
-                expect(generate).toHaveBeenCalledExactlyOnceWith(
-                    expect.objectContaining({
-                        prompt: compiledPoster.prompt,
-                        size: "1024x1696",
-                        outputFormat: "png",
-                    }),
-                );
-                const image = await fetch(result.output.image.url);
-                expect(Buffer.from(await image.arrayBuffer())).toEqual(bytes);
-            } finally {
-                await application.close();
-                compile.mockRestore();
-                await businessApi.close();
-                await rm(directory, { recursive: true, force: true });
-            }
-        },
-    );
+                }),
+            });
+
+            expect(response.status).toBe(200);
+            const result = await response.json();
+            expect(result).toMatchObject({
+                process: "minimal-zine-poster",
+                version: "v1",
+                status: "succeeded",
+                output: {
+                    ...compiledPoster,
+                    image: {
+                        url: `${businessApi.url}/posters/${result.runId}.png`,
+                        width: 1024,
+                        height: 1696,
+                        contentType: "image/png",
+                    },
+                },
+            });
+            expect(generate).toHaveBeenCalledExactlyOnceWith(
+                expect.objectContaining({
+                    prompt: compiledPoster.prompt,
+                    size: "1024x1696",
+                    outputFormat: "png",
+                }),
+            );
+            const image = await fetch(result.output.image.url);
+            expect(Buffer.from(await image.arrayBuffer())).toEqual(bytes);
+        } finally {
+            await application.close();
+            compile.mockRestore();
+            await businessApi.close();
+            await rm(directory, { recursive: true, force: true });
+        }
+    });
 
     it("compiles the brief, renders once, and returns the structured poster", async () => {
         const agentRequests: PosterAgentRequest[] = [];

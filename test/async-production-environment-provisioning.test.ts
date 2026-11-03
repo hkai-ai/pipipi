@@ -251,9 +251,7 @@ describe("Async production environment provisioning", () => {
         expect(contents[1]).not.toContain("OPENAI_API_KEY");
         expect(contents[2]).toContain("OPENAI_API_KEY=openai-secret");
         for (const content of [contents[0], contents[2]]) {
-            expect(content).toContain(
-                "TITLED_CONTENT_SEPARATOR=custom-separator",
-            );
+            expect(content).not.toContain("TITLED_CONTENT_SEPARATOR");
             expect(content).toContain("PROCESS_RUN_RECORD_POOL_MAX=7");
             expect(content).toContain(
                 "PROCESS_RUN_OBSERVATION_TIMEOUT_MS=1800",
@@ -586,7 +584,6 @@ describe("Async production environment provisioning", () => {
         await writeFile(
             path.join(shared, ".env"),
             [
-                "BUSINESS_API_BASE_URL=http://127.0.0.1:4400",
                 options.quotedStandardConnections
                     ? `DATABASE_URL="${DATABASE_URL}" # approved fallback`
                     : `DATABASE_URL=${options.standardConnections ? DATABASE_URL : ORIGINAL_DATABASE_URL}`,

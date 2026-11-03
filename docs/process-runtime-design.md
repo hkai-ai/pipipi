@@ -1,4 +1,4 @@
-﻿# Process Runtime 设计
+# Process Runtime 设计
 
 本文面向修改 Process Runtime 的开发者，记录 Business Processing 的当前 Module 设计。领域词汇以
 [`CONTEXT.md`](../CONTEXT.md) 为准；文档分类与维护要求见
@@ -38,7 +38,7 @@ flowchart LR
     Definition --> Capability["Business Capability Adapter"]
     Definition --> Agent["Restricted Agent<br/>request-local Session"]
     Agent --> Skills["Runtime Skill Set<br/>exact local refs"]
-    Agent -->|"content Tool only"| Capability
+    Agent -->|"allow-listed Tool only"| Capability
     Runner --> Records["Process Run Records<br/>best-effort recording"]
 ```
 
@@ -80,7 +80,6 @@ Process Definition、依赖、策略和输出验证都留在 Module 内。生产
 | Installed Skill Catalog | `resolve([{ name, version }])`、`list()` | 全局安装项、启动期名称/版本/SHA-256 校验、准确版本解析和不可变结果 |
 | Runtime Skill Set | `createSkillSet(refs, cwd)`、`load()` | 非空与重名校验、准确名称解析、顺序、首次读取、缓存和 Prompt 编译 |
 | Structured Agent Session | `run({ prompt, signal })` → `{ output, modelId? }` | 无 Tool Pi Session、固定 Skill 注入、模型选择、请求隔离、取消、资源释放和 JSON 解析 |
-| Content Processing Capability | `process(input, { signal })` | 远程协议、超时、响应校验和依赖错误转换 |
 | Poster Rendering Capability | `render({ prompt, aspectRatio: "3:5" }, { signal, idempotencyKey })` | 图片生成、持久化、URL 生命周期、远程协议和依赖错误转换 |
 | CRT Rendering Capability | `transform({ sourceImageUrl, prompt, palette, aspectRatio }, { signal, idempotencyKey })` | FAL 公网 URL 参考图编辑、确定性后处理、服务端证据策略、持久化、URL 生命周期和依赖错误转换 |
 | Process Run Records | `record(completion)` 与 `find(runId)` | 内容保留策略、防御性复制、容量和存储 Adapter |
@@ -120,6 +119,29 @@ Registration 会捕获 Definition 的 Schema 与执行函数，Registry 会复�
 
 ## 错误归属
 
+### 统一诊断与工具选择
+
+公开错误码负责稳定的业务分类，公开中文消息解释阶段与已知原因，运维下一步仅在控制台展示；调用方不得解析消息文案决定重试。未知异常明确写“具体原因尚未确认”，不根据业务正文中的数字推测鉴权或限流。整体超时、外部取消和未知异常由 Attempt Runner 分别收口，活动中的固定诊断仅用于排查。
+
+`src/agent-runtime/diagnostics.ts` 统一模型调用、JSON、Zod 和业务合同错误；`failure.ts` 在 Pi 会话和请求边界保留固定类别。照片海报、极简海报、CRT、三个新闻图片 Process、内容优化及模板编译复用此分类。复杂模板仍保留自己的字段级诊断与修正合同。未传分类器的活动默认记录 execution/internal_failure。Business Capability 活动显式识别已知依赖错误为 dependency/dependency_failure，未知程序错误仍记 internal_failure；模板本地校验不使用模型兜底。CRT 沿用两次编译预算，最终失败反映最后一次错误。
+
+`src/process-runtime/diagnostics.ts` 拥有展示词表与净化规则。字段路径只保留固定模型合同中的字段名与有界数组下标，其他部分替换为 `*`；最多八个问题、八层路径。JSON 原文、Zod 消息、未识别键、供应商异常及 `Error.cause` 均不序列化。新增字段未加入词表时会自动隐藏。控制台优先显示终态的超时或取消诊断，避免把此前已尝试恢复的模型错误当成最终原因；已产生副作用的错误始终保留禁止直接重放的提示。日志 Sink 的同步抛错和异步拒绝均不能改变业务结果。
+
+当前沿用 Pino、Zod、Run Observation 和现有控制台，不新增运行依赖或遥测上报。工具各有职责：
+
+| 工具 | 当前选择 | 边界 |
+| --- | --- | --- |
+| [Pino](https://github.com/pinojs/pino/blob/main/docs/redaction.md) | 继续使用结构化日志与固定路径脱敏 | 原始 Error 的默认序列化仍可能带 message/stack；只把净化后的字段传给 Sink |
+| [Zod](https://zod.dev/error-formatting) | 继续校验，读取 issues 的固定 code/path | 通用格式化函数可能包含动态键和原始校验消息，不能直接返回给调用方 |
+| [Sentry](https://docs.sentry.io/product/issues/issue-details/) | 后续需要异常聚合与告警时再接入 | 上报前仍必须投影为白名单数据；不能靠接入 SDK 自动补齐已被吞掉的原因 |
+| [OpenTelemetry](https://opentelemetry.io/docs/languages/js/) | 跨 API、Worker、图片服务的追踪需求增长后评估 | 负责链路观测，不替代业务错误码、中文说明与重试治理 |
+
+Pi 错误字符串格式绑定 `@earendil-works/pi-ai@1.4.0`，由 Pi Adapter 的 `stopReason=error` 路径解释：接受 `OpenAI API error (<status>): ...`、`HTTP <status>: ...` 与 `<status>: ...`；裸数字后接空格及任意正文不作为状态证据。Chat Completions 缺少结构化状态的裸数字消息降为未知；升级 Pi 必须运行 `test/diagnostic-review.test.ts` 中直接调用 formatter 的合同测试。自有配置失败直接抛出具名的 `session/configuration`，不靠文案匹配。
+
+诊断词表属于私有 Implementation，调用方使用分类、解释与净化 Interface；模板不直接索引文案表。控制台页面及复制摘要始终保留两类 DEPENDENCY 错误的处置约束，通用 internal_failure 不覆盖依赖总类。
+
+新的 Agent 活动通过 `runActivity(name, operation, agentDiagnostic)` 接入；公开失败通过 `agentFailureMessage` 生成。若本地合同不通过，应抛出实际 Zod 错误或 `AgentContractFailure`，不能先换成空白 `Error` 再分类。付费、副作用与自动重试仍由原 Registration 合同拥有，诊断分类不得修改调用次数。
+
 <!-- markdownlint-disable MD013 -->
 
 | 归属 | 错误 | 规则 |
@@ -133,9 +155,8 @@ Registration 会捕获 Definition 的 Schema 与执行函数，Registry 会复�
 <!-- markdownlint-enable MD013 -->
 
 Process Definition 抛出的异常属于意外失败。Process Attempt Runner 将其转换为不包含内部消息的
-`INTERNAL_ERROR`。Content Processing Adapter 把已知传输失败转换为
-`ContentProcessingUnavailable`，Registration 再把依赖或 Agent Runtime 失败转换为明确的
-领域失败。任何路径都不能把凭证、远端响应或模型错误暴露给调用方。
+`INTERNAL_ERROR`。各 HTTP Capability Adapter 把已知传输失败转换为流程专属的依赖不可用错误，
+Registration 再把依赖或 Agent Runtime 失败转换为明确的领域失败。任何路径都不能把凭证、远端响应或模型错误暴露给调用方。
 
 ## 运维观测查询
 
@@ -163,19 +184,20 @@ Process Definition 抛出的异常属于意外失败。Process Attempt Runner �
 
 ## 运行活动日志
 
-Process Run Activity Logging 位于 Process Attempt Runner Seam。同步 `/execute` 和异步 Worker 使用同一份 `ProcessRunLogRecord` schema；每个 Attempt 从 `sequence: 1` 开始，日志平台按 `runId + attemptNumber + sequence` 还原时间线。固定事件为 Attempt started、activity started、activity finished 和 Attempt finished。finish 记录只包含净化后的 outcome、耗时和可选公开错误码。
+Process Run Activity Logging 位于 Process Attempt Runner Seam。同步 `/execute` 和异步 Worker 使用同一份 `ProcessRunLogRecord` schema；每个 Attempt 从 `sequence: 1` 开始，日志平台按 `runId + attemptNumber + sequence` 还原时间线。固定事件为 Attempt started、activity started、activity finished 和 Attempt finished。finish 记录包含净化后的 outcome、耗时和可选公开错误码；失败 activity 可附加固定结构的 diagnostic。
 
 Production Composition Root 把 `ProcessRunLogSink` 绑定到同一个 Pino Adapter。Adapter 输出 newline-delimited JSON，并添加 Pino `level`、`pid`、`hostname`、`service`、`module` 和 `msg`；事件自己的 ISO `timestamp` 是唯一时间字段。started 与成功 finish 使用 `info`，失败或取消的 activity 及预期失败、超时或取消的 Attempt 使用 `warn`，以 `INTERNAL_ERROR` 结束的失败 Attempt 使用 `error`。`PROCESS_RUN_LOG_LEVEL` 默认 `info`，也接受 `fatal|error|warn|debug|trace|silent`。
 
 Process author 必须在 `defineProcessRegistration` 中声明最多 32 个固定 activity 名，并使用小写 snake case；Registration 拒绝未声明、重复或不安全的名称。`runActivity` 包住一个有业务意义的操作，自动记录开始、成功、失败或取消。日志 sink 和时钟是 best-effort 依赖：抛错、不可用或写入失败都不能改变操作、Process Result 或持久化状态。
 
-Activity Log 只允许 `runId`、Process identity、Attempt、固定 activity、顺序、时间、结果、耗时和稳定公开错误码。它不接收 accepted input、output、Prompt、Tool 参数、模型消息、隐藏推理、Secret、远端正文或内部异常消息。Pino Adapter 还移除一组常见敏感字段名，作为类型化 record 之外的兜底保护；该配置不能替代源头的字段白名单。Activity Log 不是 Process Event 或 Run Record，不参与查询、恢复、Webhook、重试或状态转换。
+Activity Log 只允许 `runId`、Process identity、Attempt、固定 activity、顺序、时间、结果、耗时、稳定公开错误码和白名单 diagnostic。它不接收 accepted input、output、Prompt、Tool 参数、模型消息、隐藏推理、Secret、远端正文或内部异常消息。Pino Adapter 还移除一组常见敏感字段名，作为类型化 record 之外的兜底保护；该配置不能替代源头的字段白名单。Activity Log 不是 Process Event 或 Run Record，不参与恢复、Webhook、重试或状态转换。
+
+`runActivity` 可接收错误分类函数；统一诊断使用固定 stage/code 和最多八个校验问题。记录前再按白名单净化，路径中的动态部分为 `*`，不接受自由消息；取消不运行故障分类。分类函数抛错与 Sink 写入失败均不影响原异常和调用预算。JSONL、PostgreSQL 和控制台使用同一可选诊断合同，旧活动保持兼容；JSONL 回读与控制台技术详情均使用完整活动白名单投影。PostgreSQL 写入端保证净化诊断不超过 4096 字节，异常超限时省略诊断，保留基本活动；不能仅依赖会拒绝整条 INSERT 的 CHECK。新增列通过显式 migration 发布。Run Record 仍只保存总类，详情通过同一 runId 关联活动诊断。
 
 ## Composition 与依赖
 
 [`constructProcessingService`](../src/app/api.ts) 拥有 API 的生产 Composition Root。
-它先校验通用配置，创建 Pino Process Run Log Adapter，再组装 catalog 中启用的精确 Registration（十四个常开项，以及默认关闭的 `composed-task/v1`）。`CONTENT_PROCESSING_MODE` 只在文本流程中
-选择 `direct` 或 `agent`；海报、CRT 与新闻图片流程始终构造无 Tool Agent，并复用 Structured Agent Session Module；`composed-task/v1` 构造只挂 Process Tool 的 Planner Agent，复用 Tool-bearing Structured Agent Session。共享的 provider/model 与 OpenAI API
+它先校验通用配置，创建 Pino Process Run Log Adapter，再组装 catalog 中启用的精确 Registration（默认启用的各业务 Process，以及默认关闭的 `composed-task/v1`）。海报、CRT 与新闻图片流程始终构造无 Tool Agent，并复用 Structured Agent Session Module；`composed-task/v1` 构造只挂 Process Tool 的 Planner Agent，复用 Tool-bearing Structured Agent Session。共享的 provider/model 与 OpenAI API
 mode 在启动时成组校验；Installed Skill Catalog 在监听端口前读取本地 `SKILL.md`，校验准确名称、版本和 SHA-256。模型与远程 Business Capability 仍保持惰性，不影响 liveness。配置或本地 Skill 错误会在
 Application 监听端口前抛出。
 
@@ -210,9 +232,7 @@ Member Registry 与一个共享 Sink、默认超时的 Process Attempt Runner放
 
 每个 Registration factory 只捕获该流程获准使用的依赖：
 
-- `content-processing/v1` 捕获 Content Processing Capability、可选 Agent 和 `mode`。流程 Module 的 `skills.ts` 拥有两个准确 Runtime Skill 的名称、版本、SHA-256、顺序、默认路径和唯一 Tool 名称；Composition Root 只提供路径覆盖、模型和供应商等部署配置。Installed Skill Catalog 在启动时校验所有本地安装项，Pi Adapter 只加载 Catalog 按准确版本解析的集合，不扫描、回退或启用其他 Skill。Agent 首次使用时再次校验内容完整性并缓存指令；启动后文件被替换、重复解析或空正文会映射为 `AGENT_FAILURE`。Registration 最多让一次 Agent Tool 调用触达 Business Capability，始终使用 `runId` 作为下游幂等键，并只接受与该 Tool 结果一致的 Agent 输出。
-- `titled-content-processing/v1` 捕获 Content Processing Capability 和 `separator`。
-- `minimal-zine-poster/v1` 捕获 Poster Agent 与 Poster Rendering Capability。Agent 只加载 `minimal-zine-poster-prompt`，不获得 Tool；Registration 要求四段 Prompt、六个固定 recipe 轴和可选原文逐字保留。验证通过后，Registration 只调用一次 Capability，并以 `runId` 作为下游幂等键。Capability 必须返回 HTTP(S) 图片 URL、受限媒体类型、尺寸和可选过期时间；原始图片字节不进入 Process output。
+- `minimal-zine-poster/v1` 捕获 Poster Agent 与 Poster Rendering Capability。Agent 只加载 `minimal-zine-poster-prompt`，不获得 Tool；Registration 要求四段 Prompt、六个固定 recipe 轴和可选原文逐字保留。验证通过后，Registration 只调用一次 Capability，并以 `runId` 作为下游幂等键。Capability 必须返回 HTTP(S) 图片 URL、受限媒体类型、尺寸和可选过期时间；原始图片字节不进入 Process output。 HTTP Adapter 只连接必填的共享图片服务地址 `CRT_BUSINESS_API_BASE_URL`，不回退到文本 Capability 地址。内部 `/posters` 复用图片生成与存储 Adapter，并持久化输入摘要和结果；同一键未完成时不再次生图，完成后重放结果。
 - `crt-interface-image/v1` 捕获 CRT Agent 与 CRT Rendering Capability。产品只提交公网 HTTPS `sourceImageUrl`、固定调色板和画幅；Agent 只加载 `tait-crt-interface-prompt`，不获得 Tool，也看不到参考图 URL。Registration 要求四段 Prompt、十四个固定 recipe 轴、请求画幅、准确调色板和核心 CRT 约束；验证通过后只调用一次 Capability，并以 `runId` 作为下游幂等键。Capability 必须返回符合 GPT Image 2 尺寸边界和请求比例的 PNG 引用；Prompt、recipe、来源 URL 和图片字节不进入 Process output。图片 Business API 在自己的 Composition Root 固定 FAL、证据和存储策略。完整边界见 [`processes/common/crt-interface-image/`](processes/common/crt-interface-image/)。
 - 三个语义化新闻图片 Process 分别固定人物叙事碑式、淡彩绘本和原质人文主义 Runtime Skill。它们共享同一组受控 Prompt Agent、Rendering Capability 与 HTTP Adapter，但产品请求只能选择准确的 Process id/version，不能提交 Skill、模型或供应商。Registration 校验固定风格标识并只渲染一次，生产 Business API 按服务端配置选择 OSS 对象前缀。
 - `composed-task/v1` 捕获 Planner Agent、Process Tool Set 和 `maxSteps`/`maxPricedSteps`/`timeoutMs` 限制。共享 Process Tool Runtime 在构造期把 `members.ts` 的 allow-list 与 `context.members` 的 Registry 精确匹配，每个 Member 成为一个 Step Tool，参数 Schema 由 Member 自己的 `inputSchema` 推导；Process Tool Set 只保留 composed-task 专属预算、串行化、活动与 Step 记账。Planner 每调用一次 Tool，就在父活动 `process_step` 内以派生 `runId`（`${父runId}.${步骤号}`）经 Process Attempt Runner 执行一个 Step Run；Member 的 `accept`、超时、取消、幂等键和活动日志原样生效，父 `signal` 传给 Step。预算耗尽后 Tool 返回 `STEP_BUDGET_EXHAUSTED` 或 `PRICED_BUDGET_EXHAUSTED` 而不运行 Member；Tool-bearing Session 另有 `maxSteps + 2` 次调用的硬上限。Planner 只回传 `{ summary, result }`，Registration 用自己的 Step 记账生成 `steps`，并要求 `result` 逐字取自某个成功 Step 的输出子树或由这类子树组成的平铺对象；否则按 `AGENT_FAILURE`，已有付费 Step 成功时按 `DEPENDENCY_FAILURE_AFTER_COMMIT`。该 Process 不重试。
@@ -225,7 +245,7 @@ Member Registry 与一个共享 Sink、默认超时的 Process Attempt Runner放
 | 依赖 | 类别 | Adapter 策略 |
 | --- | --- | --- |
 | Zod Schema、Registry Map、结果映射 | in-process | 留在深 Module 内，不增加 Adapter |
-| 受控 Business API | remote but owned | `ContentProcessingCapability`、`PosterRenderingCapability` 与 `CrtRenderingCapability` port；生产使用 HTTP Adapter，测试使用内存 Adapter |
+| 受控 Business API | remote but owned | `PosterRenderingCapability` 与 `CrtRenderingCapability` 等 port；生产使用 HTTP Adapter，测试使用内存 Adapter |
 | Pi Agent Runtime | true external | `agent.ts` 定义流程专属窄 Port；海报、CRT 与新闻图片的 `agent.pi.ts` 实现复用无 Tool Structured Agent Session，composed-task 的实现复用 Tool-bearing Session，测试使用注入的 Session factory 或 mock Agent Adapter |
 | Runtime Skill 快照 | bundled resource | 流程拥有准确安装项；`src/agent-runtime/catalog.ts` 在启动期校验并按版本解析，`skills.ts` 精确加载，不自动发现或扩大 Tool 权限 |
 | Run Record 存储 | 可替换存储 Seam | disabled、内存和持久化 Adapter 共用 `ProcessRunRecordAdapter` |
