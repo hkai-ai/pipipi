@@ -1,5 +1,7 @@
 /** production Business Process Runtime：向 catalog 中每个 Process 提供共享配置并组装 Runner */
+
 import { parseOpenAIApiMode } from "../agent-runtime/pi.js";
+import { resolveTextGateway } from "../agent-runtime/text-gateway.js";
 import {
     combineProcessRunLogSinks,
     createProcessAttemptRunner,
@@ -58,10 +60,12 @@ export function createProductionRuntime(
         name,
         fallback,
     ) => parsePositiveInteger(environment[name], fallback, name);
+    const gateway = resolveTextGateway(environment);
     const pi: ProductionContext["pi"] = {
         provider: environment.PI_PROVIDER,
         model: environment.PI_MODEL,
-        openAIBaseUrl: environment.OPENAI_BASE_URL,
+        openAIBaseUrl: gateway.baseUrl,
+        openAIApiKey: gateway.apiKey,
         openAIApiMode: parseOpenAIApiMode(environment.OPENAI_API_MODE),
         agentDir: environment.PI_AGENT_DIR,
     };

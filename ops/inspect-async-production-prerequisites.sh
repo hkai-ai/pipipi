@@ -121,6 +121,8 @@ role_key_allowed() {
     local role="$1"
     local key="$2"
     local allowed=""
+    # Legacy CHARACTER_EMOJI_PLANNER_* names remain readable in existing role files;
+    # application ignores them and provisioning no longer copies them.
     case "$role" in
         api)
             allowed="BUSINESS_API_BASE_URL DATABASE_URL ASYNC_GATEWAY_SHARED_SECRET

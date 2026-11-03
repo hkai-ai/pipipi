@@ -73,7 +73,7 @@ npm run check:deployment-env -- api
 npm run check:deployment-env -- crt-business-api
 ```
 
-同步 API 的无默认必填项是 `CRT_BUSINESS_API_BASE_URL`（Compose 注入，CI 预检显式传入同一值）；设置 `PI_PROVIDER=openai` 时还必须提供 `OPENAI_API_KEY`。API 与 Process Worker 预检还会读取镜像内全部生产 Runtime Skill，校验目录、`SKILL.md`、精确名称与版本、固定哈希和快照内容；失败时只输出脱敏事件并返回非零状态。生产部署在数据库迁移和容器切换前执行该预检，因此旧 `.env` 中失效的 Skill 路径覆盖不会进入活动服务。CRT Business API 预检要求 FAL、存储供应商和 OSS 凭证；Compose 固定供应商为 `fal` 与 `aliyun-oss`。若目标环境设置 `ASYNC_PROCESS_RUNS_ENABLED=true`，API 预检还会检查异步角色变量。缺少任一项时，命令一次列出全部变量名并返回非零状态；它不输出值，也不连接外部系统。
+同步 API 的无默认必填项是 `CRT_BUSINESS_API_BASE_URL`（Compose 注入，CI 预检显式传入同一值）；文本网关统一配置 `CHARACTER_EMOJI_BASE_URL` 与 `CHARACTER_EMOJI_API_KEY`；配置任一新值必须补齐整对。两者均未配置时，`PI_PROVIDER=openai` 的预检才要求旧 `OPENAI_API_KEY`，并使用配套旧 `OPENAI_BASE_URL`（省略时为官方地址）。API 与 Process Worker 预检还会读取镜像内全部生产 Runtime Skill，校验目录、`SKILL.md`、精确名称与版本、固定哈希和快照内容；失败时只输出脱敏事件并返回非零状态。生产部署在数据库迁移和容器切换前执行该预检，因此旧 `.env` 中失效的 Skill 路径覆盖不会进入活动服务。CRT Business API 预检要求 FAL、存储供应商和 OSS 凭证；Compose 固定供应商为 `fal` 与 `aliyun-oss`。若目标环境设置 `ASYNC_PROCESS_RUNS_ENABLED=true`，API 预检还会检查异步角色变量。缺少任一项时，命令一次列出全部变量名并返回非零状态；它不输出值，也不连接外部系统。
 
 实际生产启动会在创建 Adapter 前重复同一检查，再校验 URL、正整数、枚举和跨字段约束。预检通过不证明 Secret 有效或依赖可达。`PI_PROVIDER` 与 `PI_MODEL`、模型凭证、Business Capability 契约和图片持久化仍按本手册的 smoke 与发布门禁验证。
 

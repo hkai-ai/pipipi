@@ -18,6 +18,7 @@ export type PiAgentConfig = Readonly<{
     provider?: string;
     model?: string;
     openAIBaseUrl?: string;
+    openAIApiKey?: string;
     openAIApiMode?: OpenAIApiMode;
     agentDir?: string;
 }>;

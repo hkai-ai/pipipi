@@ -353,3 +353,9 @@ Interface 提供足够 Depth。
 Registration 可在构造时固定 `outputMaxBytes`，默认 262,144 字节，最大 28,000,000 字节。当前仅 `template-image-render/v1` 使用特例，供受限运营审核完整 PNG。此参数不进入产品输入；其他 Process 的输出大小与错误行为不变。
 
 角色表情包 v2 的每格动作、位置、道具与可见反差由唯一 scene 字段拥有，图片编译只投影一次；准确文字与角色绑定独立保留。在同一次 Planning Activity 内由一个 Pi Agent 搜梗、构思及自检，搜索失败直接原创；不启动独立复核。JSON格式、可定位结构或配字错误共用一次修正机会，并共享 Registration 截止时间和调用预算；通过完整业务校验后进入 Rendering Activity。请求级观测只记录搜索结果、净化原因码、耗时与调用次数，Sink 失败不改变执行。精确合同见 [角色表情包](processes/common/character-emoji/README.md)。
+
+### 共享文本模型网关
+
+Composition Root 通过单一配置解析入口选择文本 base URL 与 API key，优先采用完整 CHARACTER_EMOJI 网关变量；部分配置直接失败，不与旧 OPENAI 凭证拼接。新变量都缺省时，兼容旧 OPENAI 配置。解析结果注入普通 Pi Agent、表情包构思与 Responses 搜梗，不由各 Process 读不同的网关变量。API/Worker 预检使用同一选择规则；现有角色文件中的旧 PLANNER 字段只作可读取兼容，不再影响路由。
+
+显式凭证只放入 Agent 私有内存 ModelRuntime，不改 process.env，也不写全局 Pi auth/models 文件。不同 Agent 的并发请求各自保留注入的凭证。图片服务继续读取原图片专用配置，不借文本网关替换 FAL、Flare、Magikaru 或 OSS 凭证。

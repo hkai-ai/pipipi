@@ -222,3 +222,5 @@ CRT 与照片海报将背景模式作为可选业务参数；省略时保持原�
 角色表情包主用 Flare 按 Memebuy 方式将参考图读入内存、按顺序通过 multipart 文件表单上传，不落临时文件；备用 Magikaru 保持公网 URL 直传。角色表情包按所选角色注入已维护的创作背景；v2 漫画由 Agent 决定自由布局和各格大小，程序仅补编号。每格仍只有一份 scene；page 与 frame 只描述画格几何，关键行动或可辨认痕迹在 scene 呈现，同次自检核对肢体占用与道具支撑；配字优先级及创作规则见[角色表情包专题](docs/processes/common/character-emoji/README.md)。
 
 豆包（Doubao）新增原版 Q 版参考图、个性和三条原创语音素材，仅支持 Chibi；详见角色表情包专题，部署服务端后再开放调用方。
+
+文本模型网关由 Composition Root 统一解析：优先使用完整的 `CHARACTER_EMOJI_BASE_URL` / `CHARACTER_EMOJI_API_KEY`，两者都未配置才使用 OPENAI 旧网关配置。表情包构思与搜梗也复用同一对；旧 PLANNER 网关覆盖不再生效。模型、协议与调用预算保持各 Registration 原定义，图片服务凭证不参与这项解析。

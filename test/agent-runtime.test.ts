@@ -51,6 +51,44 @@ describe("OpenAI-compatible provider configuration", () => {
 });
 
 describe("structured Pi Agent", () => {
+    it("keeps an explicitly selected non-OpenAI provider independent of the shared OpenAI gateway", async () => {
+        const modelRuntime = await createEmptyModelRuntime();
+        const model = modelRuntime.getModels("anthropic")[0];
+        if (!model) throw new Error("Missing built-in Anthropic model");
+        const setKey = vi.spyOn(modelRuntime, "setRuntimeApiKey");
+        const agent = new PiStructuredAgent({
+            skills: createPosterSkillRefs(),
+            instructions: ["Synthetic"],
+            provider: "anthropic",
+            model: model.id,
+            openAIBaseUrl: "https://text.example/v1",
+            openAIApiKey: "shared-key",
+            openAIApiMode: "chat-completions",
+            modelRuntime,
+            sessionFactory: async (options) => {
+                expect(options.model?.provider).toBe("anthropic");
+                return fakeSessionResult({
+                    prompt: async () => {},
+                    abort: async () => {},
+                    dispose: () => {},
+                    messages: [
+                        {
+                            role: "assistant",
+                            content: [{ type: "text", text: "{}" }],
+                            stopReason: "stop",
+                        },
+                    ],
+                });
+            },
+        });
+        await expect(
+            agent.run({
+                prompt: "Synthetic",
+                signal: AbortSignal.timeout(5000),
+            }),
+        ).resolves.toMatchObject({ output: {} });
+        expect(setKey).not.toHaveBeenCalled();
+    });
     it("runs one isolated JSON session with fixed Skills and no Tools", async () => {
         const modelRuntime = await createEmptyModelRuntime();
         const prompt = vi.fn(async () => undefined);

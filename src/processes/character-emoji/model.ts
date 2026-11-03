@@ -1,4 +1,5 @@
 /** 注册表情包专用 DeepSeek 4.1 Flash 模型与内存凭证，隔离全局 Pi 配置。 */
+import { InMemoryCredentialStore } from "@earendil-works/pi-ai";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 
 export const characterEmojiModel = "deepseek-v4.1-flash";
@@ -14,6 +15,7 @@ export async function createCharacterEmojiModel(
 ) {
     if (!config.apiKey.trim()) throw new Error("表情包需要配置专用模型凭证");
     const runtime = await ModelRuntime.create({
+        credentials: new InMemoryCredentialStore(),
         modelsPath: null,
         refreshOnCreate: false,
         allowModelNetwork: false,

@@ -12,6 +12,7 @@ export type PiCrtAgentOptions = {
     provider?: string;
     model?: string;
     openAIBaseUrl?: string;
+    openAIApiKey?: string;
     openAIApiMode?: OpenAIApiMode;
     modelRuntime?: ModelRuntime;
 };

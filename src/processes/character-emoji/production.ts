@@ -18,18 +18,12 @@ function production(version: "v2" | "v3") {
         environment: [
             "CRT_BUSINESS_API_BASE_URL",
             "PHOTO_POSTER_API_TIMEOUT_MS",
-            "CHARACTER_EMOJI_API_KEY",
-            "CHARACTER_EMOJI_BASE_URL",
-            "CHARACTER_EMOJI_PLANNER_BASE_URL",
-            "CHARACTER_EMOJI_PLANNER_API_KEY",
         ],
         installedSkills: () => createCharacterEmojiSkillRefs(),
-        build: ({ environment, skills, positiveInteger }) => {
+        build: ({ environment, pi, skills, positiveInteger }) => {
             const config = {
-                apiKey: environment.CHARACTER_EMOJI_API_KEY ?? "",
-                baseUrl:
-                    environment.CHARACTER_EMOJI_BASE_URL?.trim() ||
-                    "https://llmapi.memene.cn/openai/v1",
+                apiKey: pi.openAIApiKey ?? "",
+                baseUrl: pi.openAIBaseUrl ?? "",
             };
             return createCharacterEmojiRegistration({
                 version,
@@ -37,12 +31,7 @@ function production(version: "v2" | "v3") {
                 onObservation: (record) => logger.info(record, record.event),
                 agent: new PiCharacterEmojiAgent({
                     version,
-                    apiKey:
-                        environment.CHARACTER_EMOJI_PLANNER_API_KEY?.trim() ||
-                        config.apiKey,
-                    baseUrl:
-                        environment.CHARACTER_EMOJI_PLANNER_BASE_URL?.trim() ||
-                        config.baseUrl,
+                    ...config,
                     skills,
                     search: new ResponsesMemeSearch(config),
                 }),
