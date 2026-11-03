@@ -52,7 +52,7 @@ Runtime Skill 位于 `.pi/skills/minimal-zine-poster-prompt/`。它从上游 `gc
 POSTER_ACCEPTANCE_ALLOW_PAID=1 node --import tsx examples/poster-shared-service-acceptance.ts
 ```
 
-必需变量 `POSTER_ACCEPTANCE_API_URL` 指向主 API（HTTPS 或本机 HTTP）；需要鉴权时使用 `POSTER_ACCEPTANCE_AUTHORIZATION`。可用 `POSTER_ACCEPTANCE_REPORT_DIRECTORY` 指定受控报告目录。工具只提交一次 `/execute`，下载返回图片，校验 PNG、尺寸及比例，保存 runId、尺寸、字节数和 SHA-256；不保存 Prompt、完整 URL、签名或原始异常。费用字段明确为 API 未提供，须由服务端或供应商账单对账，不能把未报告费用当成零费用。失败后不自动重投，先核对同次运行状态。图片视觉质量、实际 OSS 配置和生产服务 revision 仍需人工或运行证据核验，不由下载成功推定。本工具不部署服务。
+必需变量 `POSTER_ACCEPTANCE_API_URL` 指向主 API（HTTPS 或本机 HTTP）；需要鉴权时使用 `POSTER_ACCEPTANCE_AUTHORIZATION`。可用 `POSTER_ACCEPTANCE_REPORT_DIRECTORY` 指定受控报告目录。工具只提交一次 `/execute`，拒绝跟随 POST 重定向。发请求前以本次 acceptanceId 保存未知受理状态，并使用同值 X-Request-Id 关联日志；取得成功 Run 后先保存 runId，再下载返回图片、校验 PNG、尺寸及比例。下载或解码失败仍保留已成功提交的 Run 身份，不能当作未生图重投。报告按 acceptanceId 命名，保存阶段、受理状态、runId、尺寸、字节数和 SHA-256；不保存 Prompt、完整 URL、签名或原始异常。费用字段明确为 API 未提供，须由服务端或供应商账单对账，不能把未报告费用当成零费用。失败后不自动重投，先核对同次运行状态。图片视觉质量、实际 OSS 配置和生产服务 revision 仍需人工或运行证据核验，不由下载成功推定。本工具不部署服务。
 
 正式运行已由共享内部图片服务提供 `/posters`；以下验收保留临时实现，用于模型与 Skill 实验，不证明正式图片服务部署可用。它显式覆盖两项 Business API 地址，避免本地配置误连正式服务。正式入口的离线 HTTP 验证见 `test/poster-process.test.ts` 和 `test/poster-business-api.test.ts`。
 
