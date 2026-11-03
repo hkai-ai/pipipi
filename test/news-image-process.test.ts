@@ -235,6 +235,44 @@ function createNewsImageExecutor(
     });
 }
 
+it.each(cases)(
+    "$style records dependency diagnosis",
+    async ({ style, process }) => {
+        const events: unknown[] = [];
+        const executor = createProcessExecutor({
+            registrations: [
+                createNewsImageRegistration(style, {
+                    agent: {
+                        compile: async () => ({
+                            output: compilation(style),
+                            promptModel: "fixture",
+                        }),
+                    },
+                    capability: {
+                        render: async () => {
+                            throw new NewsImageRenderingUnavailable();
+                        },
+                    },
+                }),
+            ],
+            runLogSink: (event) => events.push(event),
+        });
+        expect(
+            await executor.execute({
+                process,
+                version: "v1",
+                input: { title: "城市更新", summary: "公共空间分阶段改造。" },
+            }),
+        ).toMatchObject({ error: { code: "DEPENDENCY_FAILURE" } });
+        expect(events).toContainEqual(
+            expect.objectContaining({
+                activity: "news_image_rendering",
+                diagnostic: { stage: "dependency", code: "dependency_failure" },
+            }),
+        );
+    },
+);
+
 function compilation(style: Style) {
     return {
         newsIdentity: "A city renewal program begins in stages.",

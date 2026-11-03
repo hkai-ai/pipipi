@@ -1,6 +1,11 @@
 /** 照片海报 Process 的准确版本契约与执行定义。 */
 import { z } from "zod";
 import {
+    agentDiagnostic,
+    agentFailureMessage,
+} from "../../agent-runtime/diagnostics.js";
+import { dependencyDiagnostic } from "../../process-runtime/diagnostics.js";
+import {
     defineProcessRegistration,
     failProcess,
     type ProcessRegistration,
@@ -103,9 +108,14 @@ export function createPhotoPosterRegistration(
                                 ...(design ? { design } : {}),
                             }),
                         ).prompt,
+                    agentDiagnostic,
                 );
-            } catch {
-                return failProcess("AGENT_FAILURE", "照片海报规则编译失败");
+            } catch (error) {
+                context.signal.throwIfAborted();
+                return failProcess(
+                    "AGENT_FAILURE",
+                    agentFailureMessage("照片海报规则编译", error),
+                );
             }
             context.signal.throwIfAborted();
             const travel =
@@ -178,6 +188,11 @@ export function createPhotoPosterRegistration(
                         }
                         return result;
                     },
+                    (error) =>
+                        dependencyDiagnostic(
+                            error instanceof PhotoPosterRenderingUnavailable ||
+                                error instanceof z.ZodError,
+                        ),
                 );
                 return { style, image };
             } catch (error) {

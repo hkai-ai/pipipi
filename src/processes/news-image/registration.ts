@@ -1,6 +1,11 @@
 /** 三个新闻图片 Process 共用的 Registration 工厂：按固定风格选择 Prompt 契约校验规则，编排 Prompt 编译与渲染活动并处理失败 */
 import { z } from "zod";
 import {
+    agentDiagnostic,
+    agentFailureMessage,
+} from "../../agent-runtime/diagnostics.js";
+import { dependencyDiagnostic } from "../../process-runtime/diagnostics.js";
+import {
     defineProcessRegistration,
     failProcess,
     type ProcessRegistration,
@@ -27,7 +32,6 @@ type NewsImagePolicy = Readonly<{
     id: `news-image-${NewsImageStyle}`;
     agentRequiredMessage: string;
     capabilityRequiredMessage: string;
-    agentFailureMessage: string;
     promptErrorMessage: string;
     hasPromptContract: (prompt: string) => boolean;
 }>;
@@ -38,8 +42,6 @@ const policies = {
         agentRequiredMessage: "Narrative Monument Agent is required",
         capabilityRequiredMessage:
             "Narrative Monument Rendering Capability is required",
-        agentFailureMessage:
-            "The narrative monument prompt agent could not complete the request",
         promptErrorMessage: "Narrative monument prompt is invalid",
         hasPromptContract: hasNarrativeMonumentPromptContract,
     },
@@ -48,8 +50,6 @@ const policies = {
         agentRequiredMessage: "News Image Agent is required",
         capabilityRequiredMessage:
             "News Image Rendering Capability is required",
-        agentFailureMessage:
-            "The news image prompt agent could not complete the request",
         promptErrorMessage: "News image prompt contract is invalid",
         hasPromptContract: hasPaleWatercolorPromptContract,
     },
@@ -58,8 +58,6 @@ const policies = {
         agentRequiredMessage: "Raw Humanism News Image Agent is required",
         capabilityRequiredMessage:
             "Raw Humanism Rendering Capability is required",
-        agentFailureMessage:
-            "The raw humanism prompt agent could not complete the request",
         promptErrorMessage: "Raw humanism prompt contract is invalid",
         hasPromptContract: hasRawHumanismPromptContract,
     },
@@ -110,18 +108,24 @@ export function createNewsImageRegistration(
                             summary: normalizeWhitespace(input.summary),
                             signal: context.signal,
                         });
-                        const output = compiledSchema.safeParse(result.output);
-                        const model = result.promptModel.trim();
-                        if (!output.success || !model || model.length > 200) {
-                            throw new Error();
-                        }
-                        return { output: output.data, promptModel: model };
+                        const output = compiledSchema.parse(result.output);
+                        const { promptModel } = z
+                            .object({
+                                promptModel: z.string().trim().min(1).max(200),
+                            })
+                            .parse(result);
+                        return { output, promptModel };
                     },
+                    agentDiagnostic,
                 );
                 compiled = compilation.output;
                 promptModel = compilation.promptModel;
-            } catch {
-                return failProcess("AGENT_FAILURE", policy.agentFailureMessage);
+            } catch (error) {
+                context.signal.throwIfAborted();
+                return failProcess(
+                    "AGENT_FAILURE",
+                    agentFailureMessage("新闻图片规则编译", error),
+                );
             }
 
             try {
@@ -139,6 +143,10 @@ export function createNewsImageRegistration(
                                 idempotencyKey: context.runId,
                             },
                         ),
+                    (error) =>
+                        dependencyDiagnostic(
+                            error instanceof NewsImageRenderingUnavailable,
+                        ),
                 );
                 context.captureEvaluation({
                     generation: {
@@ -155,7 +163,7 @@ export function createNewsImageRegistration(
                 if (error instanceof NewsImageRenderingUnavailable) {
                     return failProcess(
                         "DEPENDENCY_FAILURE",
-                        "The news image rendering service is unavailable",
+                        "新闻图片依赖暂时不可用",
                     );
                 }
                 throw error;

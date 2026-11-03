@@ -1,6 +1,12 @@
 /** minimal-zine-poster/v1 的 Schema、Prompt 校验、执行顺序和稳定失败 */
 import { z } from "zod";
 import {
+    AgentContractFailure,
+    agentDiagnostic,
+    agentFailureMessage,
+} from "../../agent-runtime/diagnostics.js";
+import { dependencyDiagnostic } from "../../process-runtime/diagnostics.js";
+import {
     defineProcessRegistration,
     failProcess,
     type ProcessRegistration,
@@ -154,18 +160,22 @@ export function createPosterRegistration(
                                 signal: context.signal,
                             }),
                         );
+                        if (!result.success) throw result.error;
                         if (
-                            !result.success ||
-                            (text !== undefined &&
-                                !result.data.prompt.includes(text))
-                        ) {
-                            throw new PosterPromptActivityFailure();
-                        }
+                            text !== undefined &&
+                            !result.data.prompt.includes(text)
+                        )
+                            throw new AgentContractFailure();
                         return result.data;
                     },
+                    agentDiagnostic,
                 );
-            } catch {
-                return agentFailure();
+            } catch (error) {
+                context.signal.throwIfAborted();
+                return failProcess(
+                    "AGENT_FAILURE",
+                    agentFailureMessage("海报规则编译", error),
+                );
             }
 
             try {
@@ -179,13 +189,17 @@ export function createPosterRegistration(
                                 idempotencyKey: context.runId,
                             },
                         ),
+                    (error) =>
+                        dependencyDiagnostic(
+                            error instanceof PosterRenderingUnavailable,
+                        ),
                 );
                 return { ...compiled, image };
             } catch (error) {
                 if (error instanceof PosterRenderingUnavailable) {
                     return failProcess(
                         "DEPENDENCY_FAILURE",
-                        "The poster rendering service is unavailable",
+                        "海报图片依赖暂时不可用",
                     );
                 }
                 throw error;
@@ -193,8 +207,6 @@ export function createPosterRegistration(
         },
     });
 }
-
-class PosterPromptActivityFailure extends Error {}
 
 function normalizeWhitespace(value: string): string {
     return value.replace(/\s+/g, " ");
@@ -221,12 +233,5 @@ function hasCoreVisualRules(value: string): boolean {
         ) &&
         /scan/iu.test(value) &&
         /avoid/iu.test(value)
-    );
-}
-
-function agentFailure() {
-    return failProcess(
-        "AGENT_FAILURE",
-        "The poster prompt agent could not complete the request",
     );
 }

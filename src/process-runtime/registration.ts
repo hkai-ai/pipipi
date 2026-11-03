@@ -248,13 +248,13 @@ export function defineProcessRegistration<
                         signal: context.signal,
                         captureEvaluation:
                             context.captureEvaluation ?? (() => {}),
-                        runActivity: (activity, operation) => {
+                        runActivity: (activity, operation, diagnose) => {
                             if (!activities.has(activity)) {
                                 throw new Error(
                                     `Process activity ${activity} is not declared`,
                                 );
                             }
-                            return runActivity(activity, operation);
+                            return runActivity(activity, operation, diagnose);
                         },
                     }),
                 );

@@ -223,6 +223,7 @@ async function start(
     loadImage = vi.fn(async () => image),
     onDiagnostic?: (record: TemplateDiagnostic) => void,
 ) {
+    const events: unknown[] = [];
     const app = createProcessingApplication({
         executor: createProcessExecutor({
             registrations: [
@@ -232,13 +233,14 @@ async function start(
                     onDiagnostic,
                 }),
             ],
-            runLogSink: () => {},
+            runLogSink: (event) => events.push(event),
         }),
         http: { logSink: () => {} },
     });
     servers.push(app);
     const { url } = await app.listen();
     return {
+        events,
         compile,
         review,
         loadImage,
@@ -532,7 +534,7 @@ describe("模板真实 HTTP 生成与独立复核", () => {
             else review.mockRejectedValue(failure);
             const service = await start(compile, review);
             const result = await (await service.execute()).json();
-            expect(result.error.message).toContain("模型连接中断");
+            expect(result.error.message).toContain("模型连接失败");
             expect(JSON.stringify(result)).not.toMatch(
                 /secret-token|private\.example/,
             );
@@ -562,6 +564,40 @@ describe("模板真实 HTTP 生成与独立复核", () => {
         const text = await (await service.execute()).text();
         expect(text).toContain("DEPENDENCY_FAILURE");
         expect(text).not.toContain("private-test");
+        expect(service.events).toContainEqual(
+            expect.objectContaining({
+                activity: "template_image_loading",
+                outcome: "failed",
+                diagnostic: { stage: "dependency", code: "dependency_failure" },
+            }),
+        );
         expect(service.compile).not.toHaveBeenCalled();
     });
+});
+
+it("本地模板校验的内部异常不归因于模型", async () => {
+    const service = await start(
+        undefined,
+        undefined,
+        vi.fn(async () => ({
+            ...image,
+            get width(): number {
+                throw new Error("PRIVATE_METADATA_FAILURE");
+            },
+        })),
+    );
+    const result = await (await service.execute()).json();
+    expect(result).toMatchObject({ error: { code: "INTERNAL_ERROR" } });
+    expect(service.events).toContainEqual(
+        expect.objectContaining({
+            activity: "template_validation",
+            outcome: "failed",
+            diagnostic: { stage: "execution", code: "internal_failure" },
+        }),
+    );
+    expect(JSON.stringify({ result, events: service.events })).not.toMatch(
+        /PRIVATE_METADATA_FAILURE|模型执行失败/,
+    );
+    expect(service.compile).toHaveBeenCalledOnce();
+    expect(service.review).toHaveBeenCalledOnce();
 });

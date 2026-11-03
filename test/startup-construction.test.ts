@@ -320,7 +320,7 @@ describe("Startup Construction", () => {
             status: "failed",
             error: {
                 code: "PROCESS_TIMEOUT",
-                message: "The process exceeded its time limit",
+                message: "流程超过执行时限，请核对步骤耗时和下游请求状态",
             },
         });
     });
@@ -358,7 +358,7 @@ describe("Startup Construction", () => {
             status: "failed",
             error: {
                 code: "DEPENDENCY_FAILURE",
-                message: "A required business service is unavailable",
+                message: "业务依赖暂时不可用",
             },
         });
     });

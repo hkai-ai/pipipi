@@ -243,7 +243,7 @@ describe("business process execution", () => {
             status: "failed",
             error: {
                 code: "DEPENDENCY_FAILURE",
-                message: "A required business service is unavailable",
+                message: "业务依赖暂时不可用",
             },
         });
     });
@@ -268,7 +268,7 @@ describe("business process execution", () => {
             status: "failed",
             error: {
                 code: "DEPENDENCY_FAILURE",
-                message: "A required business service is unavailable",
+                message: "业务依赖暂时不可用",
             },
         });
     });
@@ -302,7 +302,7 @@ describe("business process execution", () => {
             status: "failed",
             error: {
                 code: "DEPENDENCY_FAILURE",
-                message: "A required business service is unavailable",
+                message: "业务依赖暂时不可用",
             },
         });
     });
@@ -334,7 +334,7 @@ describe("business process execution", () => {
             status: "failed",
             error: {
                 code: "PROCESS_TIMEOUT",
-                message: "The process exceeded its time limit",
+                message: "流程超过执行时限，请核对步骤耗时和下游请求状态",
             },
         });
     });
@@ -452,8 +452,7 @@ describe("business process execution", () => {
         expect(response.status).toBe(502);
         expect((await response.json()).error).toEqual({
             code: "AGENT_FAILURE",
-            message:
-                "The content optimization agent could not complete the request",
+            message: expect.stringContaining("模型结果不符合业务要求"),
         });
     });
 
@@ -573,7 +572,7 @@ describe("business process execution", () => {
             status: "failed",
             error: {
                 code: "DEPENDENCY_FAILURE",
-                message: "A required business service is unavailable",
+                message: "业务依赖暂时不可用",
             },
         });
     });
@@ -615,8 +614,7 @@ describe("business process execution", () => {
             status: "failed",
             error: {
                 code: "AGENT_FAILURE",
-                message:
-                    "The content optimization agent could not complete the request",
+                message: expect.stringContaining("模型结果未通过规则校验"),
             },
         });
     });
@@ -648,8 +646,7 @@ describe("business process execution", () => {
             status: "failed",
             error: {
                 code: "AGENT_FAILURE",
-                message:
-                    "The content optimization agent could not complete the request",
+                message: expect.stringContaining("具体原因尚未确认"),
             },
         });
     });

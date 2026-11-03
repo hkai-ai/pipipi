@@ -1,4 +1,4 @@
-/** CRT Business API 本地 HTTP 服务：编排图片编辑/生成、幂等与结果落盘、CRT 终稿与新闻图渲染、对象存储上传与错误归因 */
+/** 内部图片 Business API：编排海报、CRT 等图片生成编辑、持久化幂等、成品交付与对象存储。 */
 import { createHash } from "node:crypto";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import {
@@ -40,6 +40,10 @@ import {
     photoPosterImageSchema,
     photoPosterRenderSchema,
 } from "../processes/photo-poster/capability.js";
+import {
+    parsePosterImage,
+    posterRenderInputSchema,
+} from "../processes/poster/capability.js";
 import { TemplateImagePreparationError } from "../processes/template-from-source/capability.js";
 import {
     type CrtEvidencePolicy,
@@ -139,6 +143,8 @@ export async function startCrtBusinessApi(
     listenOptions: { host?: string; port?: number } = {},
 ): Promise<CrtBusinessApi> {
     const directory = options.directory;
+    const posterOutputDirectory = join(directory, "posters");
+    const posterResultDirectory = join(directory, "poster-results");
     const photoOutputDirectory = join(directory, "photo-posters");
     const photoResultDirectory = join(directory, "photo-poster-results");
     const emojiOutputDirectory = join(directory, "character-emojis");
@@ -154,6 +160,8 @@ export async function startCrtBusinessApi(
     const newsOutputDirectory = join(directory, "news-images");
     const newsResultDirectory = join(directory, "news-results");
     await Promise.all([
+        mkdir(posterOutputDirectory, { recursive: true }),
+        mkdir(posterResultDirectory, { recursive: true }),
         mkdir(photoOutputDirectory, { recursive: true }),
         mkdir(photoResultDirectory, { recursive: true }),
         mkdir(emojiOutputDirectory, { recursive: true }),
@@ -220,6 +228,10 @@ export async function startCrtBusinessApi(
             writeJson(response, 200, { status: "ok" });
             return;
         }
+        if (request.method === "POST" && request.url === "/posters") {
+            await generatePoster(request, response);
+            return;
+        }
         if (request.method === "POST" && request.url === "/crt-images") {
             await transformAsset(request, response);
             return;
@@ -264,6 +276,27 @@ export async function startCrtBusinessApi(
                                 : "incomplete",
                     },
                 });
+            }
+            return;
+        }
+        const posterMatch =
+            request.method === "GET"
+                ? /^\/posters\/([A-Za-z0-9_-]+(?:\.[1-9][0-9]*)*)\.png$/u.exec(
+                      request.url ?? "",
+                  )
+                : null;
+        if (posterMatch) {
+            try {
+                const bytes = await readFile(
+                    join(posterOutputDirectory, `${posterMatch[1]}.png`),
+                );
+                response.writeHead(200, {
+                    "content-type": "image/png",
+                    "content-length": bytes.length,
+                });
+                response.end(bytes);
+            } catch {
+                writeJson(response, 404, { error: { code: "NOT_FOUND" } });
             }
             return;
         }
@@ -584,6 +617,129 @@ export async function startCrtBusinessApi(
                         : "PHOTO_POSTER_REJECTED",
                 },
             });
+        } finally {
+            response.off("close", abort);
+        }
+    }
+
+    async function generatePoster(
+        request: IncomingMessage,
+        response: ServerResponse,
+    ): Promise<void> {
+        let input: ReturnType<typeof posterRenderInputSchema.parse>;
+        let key: string;
+        try {
+            input = posterRenderInputSchema.parse(
+                JSON.parse((await readBody(request, 65_536)).toString("utf8")),
+            );
+            const value = singleHeader(request.headers["idempotency-key"]);
+            // Process Tool 使用父 Run 加数字调用序号；仍禁止路径分隔符和空段。
+            if (
+                !value ||
+                value.length > 200 ||
+                !/^[A-Za-z0-9_-]+(?:\.[1-9][0-9]*)*$/u.test(value)
+            ) {
+                throw new Error("Poster idempotency key is invalid");
+            }
+            key = value;
+        } catch {
+            writeJson(response, 400, { error: { code: "POSTER_REJECTED" } });
+            return;
+        }
+        const generationClient = options.generationClient;
+        if (!generationClient) {
+            writeJson(response, 503, {
+                error: { code: "POSTER_CONFIGURATION_MISSING" },
+            });
+            return;
+        }
+        const digest = sha256(JSON.stringify(input));
+        const controller = new AbortController();
+        const abort = () => {
+            if (!response.writableEnded) controller.abort();
+        };
+        response.once("close", abort);
+        if (response.destroyed) controller.abort();
+        try {
+            const claim = await claimTransform(
+                posterResultDirectory,
+                key,
+                digest,
+                parsePosterImage,
+                "poster",
+            );
+            if (claim.kind === "conflict") {
+                writeJson(response, 409, {
+                    error: { code: "IDEMPOTENCY_CONFLICT" },
+                });
+                return;
+            }
+            if (claim.kind === "pending") {
+                writeJson(response, 503, {
+                    error: { code: "POSTER_INCOMPLETE" },
+                });
+                return;
+            }
+            if (claim.kind === "complete") {
+                writeJson(response, 200, claim.result);
+                return;
+            }
+            const signal = controller.signal;
+            signal.throwIfAborted();
+            const generated = await generationClient.generate({
+                prompt: input.prompt,
+                model,
+                size: "1024x1696",
+                quality,
+                outputFormat: "png",
+                signal,
+            });
+            signal.throwIfAborted();
+            const metadata = await sharp(generated.bytes).metadata();
+            if (
+                generated.mimeType !== "image/png" ||
+                metadata.format !== "png" ||
+                !metadata.width ||
+                !metadata.height ||
+                metadata.width > 16_384 ||
+                metadata.height > 16_384 ||
+                Math.abs(metadata.width / metadata.height - 3 / 5) >= 0.03
+            ) {
+                throw new Error("海报图片格式或比例不正确");
+            }
+            signal.throwIfAborted();
+            const stored = options.storage
+                ? await options.storage.upload(
+                      {
+                          objectKey: `minimal-zine-poster/${key}.png`,
+                          bytes: generated.bytes,
+                          contentType: "image/png",
+                          cacheControl: "private, max-age=31536000, immutable",
+                      },
+                      { signal },
+                  )
+                : undefined;
+            const result = parsePosterImage({
+                url: stored?.url ?? `${serviceUrl}/posters/${key}.png`,
+                contentType: "image/png",
+                width: metadata.width,
+                height: metadata.height,
+                ...(stored?.urlExpiresAt
+                    ? { expiresAt: stored.urlExpiresAt }
+                    : {}),
+            });
+            await writeFile(
+                join(posterOutputDirectory, `${key}.png`),
+                generated.bytes,
+                {
+                    mode: 0o600,
+                },
+            );
+            await completeTransform(posterResultDirectory, key, digest, result);
+            writeJson(response, 200, result);
+        } catch {
+            // 未完成记录保留，避免供应商已受理或上传失败后重放时重复生图。
+            writeJson(response, 503, { error: { code: "POSTER_INCOMPLETE" } });
         } finally {
             response.off("close", abort);
         }

@@ -31,6 +31,90 @@ const base = {
     sequence: 1,
 } as const;
 describe("operator diagnostics", () => {
+    it("prefers terminal cancellation to an earlier recoverable model error", () => {
+        const timeline: RunTimeline = {
+            runId: record.runId,
+            activities: [
+                {
+                    ...base,
+                    attemptNumber: 1,
+                    event: "process_run_activity_finished",
+                    activity: "compile",
+                    outcome: "failed",
+                    durationMs: 20,
+                    diagnostic: { stage: "request", code: "connection" },
+                },
+                {
+                    ...base,
+                    attemptNumber: 1,
+                    sequence: 2,
+                    event: "process_run_attempt_finished",
+                    outcome: "cancelled",
+                    durationMs: 30,
+                    errorCode: "INTERNAL_ERROR",
+                    diagnostic: {
+                        stage: "execution",
+                        code: "process_cancelled",
+                    },
+                },
+            ],
+        };
+        expect(diagnosticSummary(record, timeline)).toContain("流程已取消");
+        expect(diagnosticSummary(record, timeline)).not.toContain(
+            "模型连接失败",
+        );
+        const unknownEnd: RunTimeline = {
+            ...timeline,
+            activities: timeline.activities.map((entry) =>
+                entry.event === "process_run_attempt_finished"
+                    ? {
+                          ...entry,
+                          outcome: "failed",
+                          errorCode: "INTERNAL_ERROR",
+                          diagnostic: {
+                              stage: "execution",
+                              code: "internal_failure",
+                          },
+                      }
+                    : entry,
+            ),
+        };
+        expect(diagnosticSummary(record, unknownEnd)).toContain("模型连接失败");
+        expect(
+            diagnosticSummary(
+                { ...record, errorCode: "DEPENDENCY_FAILURE_AFTER_COMMIT" },
+                timeline,
+            ),
+        ).toContain("不应直接重新生成");
+    });
+    it("includes only sanitized diagnostic metadata in the copied summary", () => {
+        const timeline: RunTimeline = {
+            runId: record.runId,
+            activities: [
+                {
+                    ...base,
+                    attemptNumber: 1,
+                    event: "process_run_activity_finished",
+                    activity: "photo_poster_compilation",
+                    outcome: "failed",
+                    durationMs: 100,
+                    diagnostic: {
+                        stage: "schema",
+                        code: "invalid_schema",
+                        issues: [
+                            { path: "/PRIVATE_BODY", code: "PRIVATE_BODY" },
+                        ],
+                    },
+                },
+            ],
+        };
+        const summary = diagnosticSummary(record, timeline);
+        expect(summary).toContain("模型结果未通过规则校验");
+        expect(summary).toContain("校验: /* (custom)");
+        expect(summary).not.toMatch(
+            /PRIVATE_BODY|private-input|private-output/,
+        );
+    });
     it("uses the last Attempt, not an earlier recovered failure", () => {
         const timeline: RunTimeline = {
             runId: record.runId,

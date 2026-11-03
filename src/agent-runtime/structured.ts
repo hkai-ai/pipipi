@@ -1,4 +1,6 @@
 /** 为文本或受控图片附件创建请求级无 Tool Session，并解析模型的 JSON 结果。 */
+
+import { AgentExecutionFailure, agentExecutionDiagnostic } from "./failure.js";
 import { parseAgentJson } from "./pi.js";
 import {
     type PiSessionFactory,
@@ -48,11 +50,18 @@ export class PiStructuredAgent {
             throw new Error("Structured Agent prompt is required");
         }
 
-        const session = await this.#support.open({
-            noTools: "all",
-            customTools: [],
-            tools: [],
-        });
+        const session = await this.#support
+            .open({
+                noTools: "all",
+                customTools: [],
+                tools: [],
+            })
+            .catch((error: unknown) => {
+                throw new AgentExecutionFailure(
+                    agentExecutionDiagnostic(error, "session"),
+                    error,
+                );
+            });
         return withAbortableSession(session, request.signal, async () => {
             const api = session.model?.api;
             if (
@@ -60,7 +69,10 @@ export class PiStructuredAgent {
                 api !== "openai-completions" &&
                 api !== "openai-responses"
             )
-                throw new Error("当前模型协议不支持 JSON Schema 输出");
+                throw new AgentExecutionFailure({
+                    stage: "session",
+                    code: "configuration",
+                });
             if (
                 this.#jsonSchema ||
                 (this.#jsonMode && api === "openai-completions")
@@ -106,18 +118,34 @@ export class PiStructuredAgent {
             }
             if (request.images?.length) {
                 if (!session.model?.input.includes("image")) {
-                    throw new Error("当前模型不支持图片输入");
+                    throw new AgentExecutionFailure({
+                        stage: "session",
+                        code: "configuration",
+                    });
                 }
-                await session.prompt(request.prompt, {
-                    images: request.images.map((image) => ({
-                        type: "image",
-                        ...image,
-                    })),
-                    expandPromptTemplates: false,
-                });
+                await session
+                    .prompt(request.prompt, {
+                        images: request.images.map((image) => ({
+                            type: "image",
+                            ...image,
+                        })),
+                        expandPromptTemplates: false,
+                    })
+                    .catch((error: unknown) => {
+                        throw new AgentExecutionFailure(
+                            agentExecutionDiagnostic(error, "request"),
+                            error,
+                        );
+                    });
             } else {
-                await session.prompt(request.prompt);
+                await session.prompt(request.prompt).catch((error: unknown) => {
+                    throw new AgentExecutionFailure(
+                        agentExecutionDiagnostic(error, "request"),
+                        error,
+                    );
+                });
             }
+            request.signal.throwIfAborted();
             return Object.freeze({
                 output: parseAgentJson(session.messages),
                 ...(session.model?.id ? { modelId: session.model.id } : {}),

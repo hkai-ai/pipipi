@@ -7,6 +7,7 @@
  * 名称唯一、只有列出的 Tool 可见，以及超过预算后 Session 被中止。
  */
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
+import { AgentExecutionFailure, agentExecutionDiagnostic } from "./failure.js";
 import { parseAgentJson } from "./pi.js";
 import {
     type PiSessionOptions,
@@ -81,15 +82,27 @@ export class PiTooledAgent {
             },
         }));
 
-        const session = await this.#support.open({
-            customTools: guardedTools,
-            tools: [...names],
-        });
+        const session = await this.#support
+            .open({
+                customTools: guardedTools,
+                tools: [...names],
+            })
+            .catch((error: unknown) => {
+                throw new AgentExecutionFailure(
+                    agentExecutionDiagnostic(error, "session"),
+                    error,
+                );
+            });
         abortSession = () => {
             void session.abort();
         };
         return withAbortableSession(session, request.signal, async () => {
-            await session.prompt(request.prompt);
+            await session.prompt(request.prompt).catch((error: unknown) => {
+                throw new AgentExecutionFailure(
+                    agentExecutionDiagnostic(error, "request"),
+                    error,
+                );
+            });
             if (budgetExceeded) throw new ToolCallBudgetExceeded();
             return Object.freeze({
                 output: parseAgentJson(session.messages),

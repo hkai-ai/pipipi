@@ -1,6 +1,15 @@
 /** Poster Rendering Capability Port 与图片引用契约，生产实现见 capability.http.ts */
 import { z } from "zod";
 
+export const posterRenderInputSchema = z.strictObject({
+    prompt: z
+        .string()
+        .min(1)
+        .max(12_000)
+        .refine((value) => value.trim().length > 0),
+    aspectRatio: z.literal("3:5"),
+});
+
 export const posterImageSchema = z.strictObject({
     url: z
         .string()
@@ -17,7 +26,7 @@ export type PosterImage = z.infer<typeof posterImageSchema>;
 
 export type PosterRenderingCapability = Readonly<{
     render: (
-        input: { prompt: string; aspectRatio: "3:5" },
+        input: z.infer<typeof posterRenderInputSchema>,
         options: { signal: AbortSignal; idempotencyKey: string },
     ) => Promise<PosterImage>;
 }>;

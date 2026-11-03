@@ -1,4 +1,10 @@
 /** 从净化错误码和活动证据生成排查提示，不推断未知根因或费用。 */
+
+import {
+    type ActivityDiagnostic,
+    explainDiagnostic,
+    sanitizeActivityDiagnostic,
+} from "../src/process-runtime/diagnostics.js";
 import type { ProcessRunRecord, RunTimeline } from "./api.js";
 
 const advice: Record<string, { title: string; next: string }> = {
@@ -40,6 +46,26 @@ export function explainError(code?: string) {
           };
 }
 
+/** 业务依赖的处置约束不能被活动诊断替换。 */
+export function dependencyAdvice(code?: string): string | undefined {
+    return code === "DEPENDENCY_FAILURE" ||
+        code === "DEPENDENCY_FAILURE_AFTER_COMMIT"
+        ? explainError(code).next
+        : undefined;
+}
+
+export function explainRunFailure(
+    code: string | undefined,
+    diagnostic?: ActivityDiagnostic,
+) {
+    if (
+        dependencyAdvice(code) &&
+        (!diagnostic || diagnostic.code === "internal_failure")
+    )
+        return explainError(code);
+    return diagnostic ? explainDiagnostic(diagnostic) : explainError(code);
+}
+
 export function describeTimeline(timeline?: RunTimeline) {
     const entries = timeline?.activities ?? [];
     const latestAttempt = Math.max(
@@ -58,10 +84,24 @@ export function describeTimeline(timeline?: RunTimeline) {
     const finished = attempt.findLast(
         (entry) => entry.event === "process_run_attempt_finished",
     );
+    const terminalDiagnostic =
+        finished && "diagnostic" in finished
+            ? sanitizeActivityDiagnostic(finished.diagnostic)
+            : undefined;
+    const activityDiagnostic =
+        failed && "diagnostic" in failed
+            ? sanitizeActivityDiagnostic(failed.diagnostic)
+            : undefined;
+    const diagnostic =
+        terminalDiagnostic?.code === "process_cancelled" ||
+        terminalDiagnostic?.code === "process_timeout"
+            ? terminalDiagnostic
+            : (activityDiagnostic ?? terminalDiagnostic);
     return {
         attempt: latestAttempt,
         failedActivity:
             failed && "activity" in failed ? failed.activity : undefined,
+        ...(diagnostic ? { diagnostic } : {}),
         durationMs:
             finished && "durationMs" in finished
                 ? finished.durationMs
@@ -80,8 +120,21 @@ export function diagnosticSummary(
         `状态: ${record.status}`,
         `记录时间: ${record.recordedAt}`,
         `错误码: ${record.errorCode ?? "无"}`,
+        ...(dependencyAdvice(record.errorCode)
+            ? [dependencyAdvice(record.errorCode)]
+            : []),
         `最后 Attempt: ${detail.attempt || "无记录"}`,
         `失败活动: ${detail.failedActivity ?? "无可用证据"}`,
+        ...(detail.diagnostic
+            ? [
+                  `失败原因: ${explainRunFailure(record.errorCode, detail.diagnostic).title}`,
+                  `下一步: ${explainRunFailure(record.errorCode, detail.diagnostic).next}`,
+                  `诊断码: ${detail.diagnostic.stage}/${detail.diagnostic.code}`,
+                  ...(detail.diagnostic.issues ?? []).map(
+                      (issue) => `校验: ${issue.path} (${issue.code})`,
+                  ),
+              ]
+            : ["细分原因: 未记录，无法从总类判断根因"]),
         `Attempt 耗时: ${detail.durationMs === undefined ? "无记录" : `${detail.durationMs} ms`}`,
     ].join("\n");
 }

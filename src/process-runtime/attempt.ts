@@ -131,12 +131,16 @@ export function createProcessAttemptRunner(
                     const result = processFailure(
                         attempt.runId,
                         "INTERNAL_ERROR",
-                        "The process could not be completed",
+                        "流程已取消，请核对取消来源和下游请求状态",
                         identity,
                     );
                     log.finish({
                         outcome: "cancelled",
                         errorCode: "INTERNAL_ERROR",
+                        diagnostic: {
+                            stage: "execution",
+                            code: "process_cancelled",
+                        },
                     });
                     return result;
                 }
@@ -147,24 +151,32 @@ export function createProcessAttemptRunner(
                     const result = processFailure(
                         attempt.runId,
                         "PROCESS_TIMEOUT",
-                        "The process exceeded its time limit",
+                        "流程超过执行时限，请核对步骤耗时和下游请求状态",
                         identity,
                     );
                     log.finish({
                         outcome: "timed_out",
                         errorCode: "PROCESS_TIMEOUT",
+                        diagnostic: {
+                            stage: "execution",
+                            code: "process_timeout",
+                        },
                     });
                     return result;
                 }
                 const result = processFailure(
                     attempt.runId,
                     "INTERNAL_ERROR",
-                    "The process could not be completed",
+                    "流程执行发生异常，具体原因尚未确认；请携带运行 ID 排查",
                     identity,
                 );
                 log.finish({
                     outcome: "failed",
                     errorCode: "INTERNAL_ERROR",
+                    diagnostic: {
+                        stage: "execution",
+                        code: "internal_failure",
+                    },
                 });
                 return result;
             } finally {

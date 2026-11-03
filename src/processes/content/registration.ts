@@ -1,6 +1,12 @@
 /** content-processing/v1 的 Schema、Direct/Agent 流程、失败和 Tool 调用 invariant */
 import { z } from "zod";
 import {
+    AgentContractFailure,
+    agentDiagnostic,
+    agentFailureMessage,
+} from "../../agent-runtime/diagnostics.js";
+import { dependencyDiagnostic } from "../../process-runtime/diagnostics.js";
+import {
     defineProcessRegistration,
     type ExpectedProcessFailure,
     failProcess,
@@ -92,11 +98,17 @@ async function executeDirect(
     capability: ContentProcessingCapability,
 ): Promise<{ content: string } | ExpectedProcessFailure> {
     try {
-        return await context.runActivity("content_processing", async () =>
-            capability.process(
-                { content },
-                { signal: context.signal, idempotencyKey: context.runId },
-            ),
+        return await context.runActivity(
+            "content_processing",
+            async () =>
+                capability.process(
+                    { content },
+                    { signal: context.signal, idempotencyKey: context.runId },
+                ),
+            (error) =>
+                dependencyDiagnostic(
+                    error instanceof ContentProcessingUnavailable,
+                ),
         );
     } catch (error) {
         if (error instanceof ContentProcessingUnavailable) {
@@ -136,6 +148,10 @@ async function executeWithAgent(
                             ]),
                             idempotencyKey: context.runId,
                         }),
+                    (error) =>
+                        dependencyDiagnostic(
+                            error instanceof ContentProcessingUnavailable,
+                        ),
                 );
                 observed.result = result;
                 return result;
@@ -149,34 +165,40 @@ async function executeWithAgent(
     };
 
     try {
-        return await context.runActivity("content_optimization", async () => {
-            const rawOutput = await agent.optimize({
-                content,
-                signal: context.signal,
-                idempotencyKey: context.runId,
-                capability: permittedCapability,
-            });
-            if (observed.dependencyUnavailable) {
-                throw new ContentDependencyActivityFailure();
-            }
-            if (observed.calls !== 1 || !observed.result) {
-                throw new ContentAgentActivityFailure();
-            }
+        return await context.runActivity(
+            "content_optimization",
+            async () => {
+                const rawOutput = await agent.optimize({
+                    content,
+                    signal: context.signal,
+                    idempotencyKey: context.runId,
+                    capability: permittedCapability,
+                });
+                if (observed.dependencyUnavailable) {
+                    throw new ContentDependencyActivityFailure();
+                }
+                if (observed.calls !== 1 || !observed.result) {
+                    throw new AgentContractFailure();
+                }
 
-            const output = contentProcessOutputSchema.safeParse(rawOutput);
-            const toolResult = contentProcessOutputSchema.safeParse(
-                observed.result,
-            );
-            if (
-                !output.success ||
-                !toolResult.success ||
-                output.data.content !== toolResult.data.content
-            ) {
-                throw new ContentAgentActivityFailure();
-            }
-            return toolResult.data;
-        });
+                const output = contentProcessOutputSchema.safeParse(rawOutput);
+                const toolResult = contentProcessOutputSchema.safeParse(
+                    observed.result,
+                );
+                if (!output.success) throw output.error;
+                if (!toolResult.success) throw toolResult.error;
+                if (output.data.content !== toolResult.data.content)
+                    throw new AgentContractFailure();
+                return toolResult.data;
+            },
+            (error) =>
+                observed.dependencyUnavailable ||
+                error instanceof ContentDependencyActivityFailure
+                    ? { stage: "dependency", code: "dependency_failure" }
+                    : agentDiagnostic(error),
+        );
     } catch (error) {
+        context.signal.throwIfAborted();
         if (
             error instanceof ContentDependencyActivityFailure ||
             error instanceof ContentProcessingUnavailable ||
@@ -184,24 +206,15 @@ async function executeWithAgent(
         ) {
             return dependencyFailure();
         }
-        return agentFailure();
+        return failProcess(
+            "AGENT_FAILURE",
+            agentFailureMessage("内容优化", error),
+        );
     }
 }
 
-class ContentAgentActivityFailure extends Error {}
-
 class ContentDependencyActivityFailure extends Error {}
 
-function agentFailure(): ExpectedProcessFailure {
-    return failProcess(
-        "AGENT_FAILURE",
-        "The content optimization agent could not complete the request",
-    );
-}
-
 function dependencyFailure(): ExpectedProcessFailure {
-    return failProcess(
-        "DEPENDENCY_FAILURE",
-        "A required business service is unavailable",
-    );
+    return failProcess("DEPENDENCY_FAILURE", "业务依赖暂时不可用");
 }

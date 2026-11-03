@@ -1,5 +1,6 @@
 /** 同一组 Interface 的 PostgreSQL Adapter */
 import type { Pool } from "pg";
+import { sanitizeActivityDiagnostic } from "../process-runtime/diagnostics.js";
 import type {
     ProcessErrorCode,
     ProcessRunLogRecord,
@@ -128,13 +129,27 @@ export function createPostgresProcessRunActivityArchive(options: {
 
     return Object.freeze({
         record: (record) => {
+            const diagnostic =
+                "diagnostic" in record
+                    ? sanitizeActivityDiagnostic(record.diagnostic)
+                    : undefined;
+            // 缩进 JSON 的字节数保守覆盖 PostgreSQL jsonb::text 的分隔空格。
+            // 即使未来词表扩展超限，也只省略诊断，不让 CHECK 丢失整条活动。
+            const encoded =
+                diagnostic &&
+                Buffer.byteLength(
+                    JSON.stringify(diagnostic, null, 1),
+                    "utf8",
+                ) <= 4096
+                    ? JSON.stringify(diagnostic)
+                    : null;
             const write = pool
                 .query(
                     `insert into process_run_activities
                        (run_id, recorded_at, process_id, process_version,
                         attempt_number, sequence, event, activity, outcome,
-                        duration_ms, error_code)
-                     values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+                        duration_ms, error_code, diagnostic)
+                     values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
                     [
                         record.runId,
                         record.timestamp,
@@ -147,6 +162,7 @@ export function createPostgresProcessRunActivityArchive(options: {
                         "outcome" in record ? record.outcome : null,
                         "durationMs" in record ? record.durationMs : null,
                         "errorCode" in record ? record.errorCode : null,
+                        encoded,
                     ],
                 )
                 .then(
@@ -165,7 +181,7 @@ export function createPostgresProcessRunActivityArchive(options: {
             const { rows } = await pool.query(
                 `select run_id, recorded_at, process_id, process_version,
                         attempt_number, sequence, event, activity, outcome,
-                        duration_ms, error_code
+                        duration_ms, error_code, diagnostic
                    from process_run_activities
                   where run_id = $1
                   order by attempt_number, sequence, id`,
@@ -324,6 +340,7 @@ type RecordRow = Readonly<{
 }>;
 
 type ActivityRow = Readonly<{
+    diagnostic?: unknown;
     run_id: string;
     recorded_at: Date;
     process_id: string;
@@ -357,6 +374,7 @@ function toRecord(row: RecordRow): ProcessRunRecord {
 }
 
 function toActivity(row: ActivityRow): ProcessRunLogRecord {
+    const diagnostic = sanitizeActivityDiagnostic(row.diagnostic);
     return {
         schemaVersion: 1,
         timestamp: row.recorded_at.toISOString(),
@@ -370,6 +388,7 @@ function toActivity(row: ActivityRow): ProcessRunLogRecord {
         ...(row.outcome === null ? {} : { outcome: row.outcome }),
         ...(row.duration_ms === null ? {} : { durationMs: row.duration_ms }),
         ...(row.error_code === null ? {} : { errorCode: row.error_code }),
+        ...(diagnostic ? { diagnostic } : {}),
     } as ProcessRunLogRecord;
 }
 

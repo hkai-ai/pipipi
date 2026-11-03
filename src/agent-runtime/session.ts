@@ -11,6 +11,7 @@ import {
     SessionManager,
     SettingsManager,
 } from "@earendil-works/pi-coding-agent";
+import { AgentExecutionFailure } from "./failure.js";
 import { configureOpenAI, type OpenAIApiMode } from "./pi.js";
 import { createSkillSet, type SkillRef, type SkillSet } from "./skills.js";
 
@@ -112,7 +113,10 @@ export class PiSessionSupport {
             this.#provider &&
             (!this.#model || !models.getModel(this.#provider, this.#model))
         ) {
-            throw new Error("The configured Pi model is unavailable");
+            throw new AgentExecutionFailure({
+                stage: "session",
+                code: "configuration",
+            });
         }
     }
 
@@ -147,7 +151,10 @@ export class PiSessionSupport {
                 ? models.getModel(this.#provider, this.#model)
                 : undefined;
         if (this.#provider && !selectedModel) {
-            throw new Error("The configured Pi model is unavailable");
+            throw new AgentExecutionFailure({
+                stage: "session",
+                code: "configuration",
+            });
         }
 
         const { session } = await this.#sessionFactory({

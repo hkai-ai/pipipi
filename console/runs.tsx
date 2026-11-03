@@ -10,9 +10,10 @@ import {
     type RunFilters,
 } from "./api.js";
 import {
+    dependencyAdvice,
     describeTimeline,
     diagnosticSummary,
-    explainError,
+    explainRunFailure,
 } from "./diagnostics.js";
 import {
     formatDuration,
@@ -458,7 +459,14 @@ export function RunView({
                     </Panel>
                     {value.status === "failed" ? (
                         <section class="failure-notice">
-                            <h2>{explainError(value.errorCode).title}</h2>
+                            <h2>
+                                {
+                                    explainRunFailure(
+                                        value.errorCode,
+                                        details.diagnostic,
+                                    ).title
+                                }
+                            </h2>
                             <p>
                                 失败步骤：
                                 {timeline.loading
@@ -469,7 +477,24 @@ export function RunView({
                                         ? activityName(details.failedActivity)
                                         : "没有足够步骤记录"}
                             </p>
-                            <p>{explainError(value.errorCode).next}</p>
+                            <p>
+                                {
+                                    explainRunFailure(
+                                        value.errorCode,
+                                        details.diagnostic,
+                                    ).next
+                                }
+                            </p>
+                            {details.diagnostic &&
+                            dependencyAdvice(value.errorCode) ? (
+                                <p>{dependencyAdvice(value.errorCode)}</p>
+                            ) : null}
+                            {details.diagnostic?.issues?.map((issue) => (
+                                <p key={`${issue.path}:${issue.code}`}>
+                                    校验字段：<code>{issue.path}</code>；规则：
+                                    <code>{issue.code}</code>
+                                </p>
+                            ))}
                             <details>
                                 <summary>技术标识</summary>
                                 <p>

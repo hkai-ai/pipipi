@@ -524,7 +524,7 @@ describe("crt-interface-image/v1", () => {
             status: "failed",
             error: {
                 code: "DEPENDENCY_FAILURE",
-                message: "The CRT rendering service is unavailable",
+                message: "CRT 图片依赖暂时不可用",
             },
         });
         expect(JSON.stringify(result)).not.toContain("private provider detail");
@@ -558,7 +558,7 @@ describe("crt-interface-image/v1", () => {
             error: {
                 code: "DEPENDENCY_FAILURE_AFTER_COMMIT",
                 message:
-                    "The CRT image was rendered but could not be delivered",
+                    "CRT 图片已提交生成但交付失败，请先核对原请求，不要直接重新生成",
             },
         });
         expect(JSON.stringify(result)).not.toContain("private storage detail");
@@ -693,6 +693,48 @@ function createCrtExecutor(
         processTimeoutMs,
     });
 }
+
+it.each([true, false])(
+    "CRT rendering classifies known dependency=%s",
+    async (known) => {
+        const events: unknown[] = [];
+        const executor = createProcessExecutor({
+            registrations: [
+                createCrtRegistration({
+                    agent: { compile: async () => compiledCrt },
+                    capability: {
+                        transform: async () => {
+                            throw known
+                                ? new CrtRenderingUnavailable()
+                                : new Error("PRIVATE_BUG");
+                        },
+                    },
+                }),
+            ],
+            runLogSink: (event) => events.push(event),
+        });
+        const result = await executor.execute({
+            process: "crt-interface-image",
+            version: "v1",
+            input: {
+                sourceImageUrl: "https://images.example.com/photo.png",
+                palette: "经典",
+                aspectRatio: "4:3",
+            },
+        });
+        expect(result).toMatchObject({
+            error: { code: known ? "DEPENDENCY_FAILURE" : "INTERNAL_ERROR" },
+        });
+        expect(events).toContainEqual(
+            expect.objectContaining({
+                activity: "crt_rendering",
+                diagnostic: known
+                    ? { stage: "dependency", code: "dependency_failure" }
+                    : { stage: "execution", code: "internal_failure" },
+            }),
+        );
+    },
+);
 
 function crtPrompt(palette: "经典" | "如图", aspectRatio: "4:3" | "9:16") {
     const paletteInstruction =

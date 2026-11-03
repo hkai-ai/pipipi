@@ -1,8 +1,10 @@
 /** 同一组 Interface 的 JSONL Adapter */
+
 import type {
     ProcessRunLogRecord,
     ProcessRunLogSink,
 } from "../process-runtime/index.js";
+import { sanitizeProcessRunLogRecord } from "../process-runtime/logging.js";
 import type { ProcessRunRecord } from "../process-runtime/records.js";
 import {
     defaultProcessRunActivityRetentionDays,
@@ -111,10 +113,12 @@ export function createJsonlProcessRunActivityArchive(
     const files = createActivityDayFiles(options, clock);
 
     const record: ProcessRunLogSink = (entry) => {
+        const safe = sanitizeProcessRunLogRecord(entry);
+        if (!safe) return;
         // Persisting is best effort: it happens off the response path and
         // must never change a Process Run's result.
         void files
-            .append(utcDayOf(entry.timestamp, clock), entry)
+            .append(utcDayOf(safe.timestamp, clock), safe)
             .catch(() => {});
     };
 
@@ -225,7 +229,7 @@ function createActivityDayFiles(
             defaultProcessRunActivityRetentionDays,
         ),
         clock,
-        parse: (value) => (isActivityRecord(value) ? value : undefined),
+        parse: sanitizeProcessRunLogRecord,
     });
 }
 
@@ -317,18 +321,5 @@ function isProcessRunRecord(value: unknown): value is ProcessRunRecord {
         typeof candidate.recordedAt === "string" &&
         typeof candidate.runId === "string" &&
         (candidate.status === "succeeded" || candidate.status === "failed")
-    );
-}
-
-function isActivityRecord(value: unknown): value is ProcessRunLogRecord {
-    if (typeof value !== "object" || value === null) return false;
-    const candidate = value as Record<string, unknown>;
-    return (
-        candidate.schemaVersion === 1 &&
-        typeof candidate.timestamp === "string" &&
-        typeof candidate.runId === "string" &&
-        typeof candidate.event === "string" &&
-        Number.isSafeInteger(candidate.attemptNumber) &&
-        Number.isSafeInteger(candidate.sequence)
     );
 }

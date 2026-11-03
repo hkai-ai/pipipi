@@ -83,6 +83,41 @@ const requestFor = (style: PhotoPosterStyle) => ({
     version: "v1",
     input: inputFor(style),
 });
+
+it.each([false, true])(
+    "照片海报依赖诊断保留 committed=%s 合同",
+    async (committed) => {
+        const events: unknown[] = [];
+        const executor = createProcessRunner({
+            registry: createProcessRegistry([
+                createPhotoPosterRegistration("dopamine", {
+                    agent: { compile: async () => ({ prompt }) },
+                    capability: {
+                        render: async () => {
+                            throw new PhotoPosterRenderingUnavailable({
+                                committed,
+                            });
+                        },
+                    },
+                }),
+            ]),
+            runLogSink: (event) => events.push(event),
+        });
+        expect(await executor.execute(requestFor("dopamine"))).toMatchObject({
+            error: {
+                code: committed
+                    ? "DEPENDENCY_FAILURE_AFTER_COMMIT"
+                    : "DEPENDENCY_FAILURE",
+            },
+        });
+        expect(events).toContainEqual(
+            expect.objectContaining({
+                activity: "photo_poster_rendering",
+                diagnostic: { stage: "dependency", code: "dependency_failure" },
+            }),
+        );
+    },
+);
 const png = (width: number, height: number, background = "#F3F0E8") =>
     sharp({ create: { width, height, channels: 3, background } })
         .png()
@@ -175,7 +210,12 @@ describe("照片海报的准确版本", () => {
         );
         expect(
             await bad.executor.execute(requestFor("dopamine")),
-        ).toMatchObject({ error: { code: "AGENT_FAILURE" } });
+        ).toMatchObject({
+            error: {
+                code: "AGENT_FAILURE",
+                message: expect.stringContaining("模型结果未通过规则校验"),
+            },
+        });
         expect(bad.render).not.toHaveBeenCalled();
         for (const committed of [false, true]) {
             const run = runtime(

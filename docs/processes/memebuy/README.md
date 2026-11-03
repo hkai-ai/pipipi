@@ -2,6 +2,8 @@
 
 本页路由 Memebuy 独有的 Business Process。已登记 [`template-from-image/v1`](template-from-image/README.md)：由参考图编译 Gallery v2 可编辑模板草稿，当前对接 Memebuy 素材箱提取 Worker，人工确认后保存草稿；部署与真实页面验收另行完成。
 
+模板编译的模型调用错误复用 [统一诊断](../../process-runtime-design.md#统一诊断与工具选择)，编译、复核与校验活动可以在控制台查看原因；原有合同级诊断和有界修正预算保持不变。 参考图读取归为依赖失败，本地校验的未知程序异常归为内部失败；运维建议仅在控制台展示。
+
 新增 Memebuy 能力时，先固定产品输入、输出、稳定错误和副作用，再按 [`../README.md`](../README.md#新增或修改-process) 建立准确 Process Registration 与同名文档目录。若多个产品可以原样复用同一契约，将该 Process 放入 [`../common/`](../common/)。
 
 Memebuy 的 Mono Color C 类模板以 `gallery.mono_color` 绑定通用 `mono-color-photo-poster/v1`。五个预设及可编辑项属于业务内容，由 Memebuy 收集并经现有 RemoteRun `/execute` Adapter 提交；Pipipi 固定默认搭配、渲染与输出约束。参考图由 Memebuy 私有资产准备链生成短期可读 URL，结果复用原有审核与转存链路。输入字段以 [API 文档](../../api.md#mono-color-可编辑预设) 为准。

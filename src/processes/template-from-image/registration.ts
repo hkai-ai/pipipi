@@ -1,7 +1,12 @@
 /** 编排模板生成与独立复核，复核直接补丁修正，结果不生图或入库。 */
 
+import { agentDiagnostic } from "../../agent-runtime/diagnostics.js";
 import { AgentJsonSyntaxError } from "../../agent-runtime/pi.js";
 import { isPublicHttpTargetPolicyError } from "../../network/public-http.js";
+import {
+    type ActivityDiagnostic,
+    dependencyDiagnostic,
+} from "../../process-runtime/diagnostics.js";
 import {
     defineProcessRegistration,
     failProcess,
@@ -101,6 +106,7 @@ export function createTemplateRegistration(options: {
                 image = await context.runActivity(
                     "template_image_loading",
                     () => loadImage(input.imageUrl, context.signal),
+                    () => dependencyDiagnostic(true),
                 );
             } catch (error) {
                 return failProcess(
@@ -131,6 +137,7 @@ export function createTemplateRegistration(options: {
                                 correction,
                                 signal: context.signal,
                             }),
+                        templateActivityDiagnostic,
                     );
                 } catch (error) {
                     diagnose(
@@ -205,14 +212,17 @@ export function createTemplateRegistration(options: {
             }
             let reviewed: unknown;
             try {
-                reviewed = await context.runActivity("template_review", () =>
-                    options.agent.review({
-                        image,
-                        note: input.note,
-                        plan,
-                        issues: [...new Set(issues)],
-                        signal: context.signal,
-                    }),
+                reviewed = await context.runActivity(
+                    "template_review",
+                    () =>
+                        options.agent.review({
+                            image,
+                            note: input.note,
+                            plan,
+                            issues: [...new Set(issues)],
+                            signal: context.signal,
+                        }),
+                    templateActivityDiagnostic,
                 );
             } catch (error) {
                 diagnose("review", 1, error);
@@ -245,22 +255,38 @@ export function createTemplateRegistration(options: {
                                 input.imageUrl,
                                 image,
                             ),
+                        templateValidationDiagnostic,
                     ),
                 };
             } catch (error) {
                 diagnose("validation", 2, error);
-                if (error instanceof TemplateContractError) {
+                if (
+                    error instanceof TemplateContractError ||
+                    error instanceof TemplateProjectionError
+                ) {
                     return failProcess(
                         "AGENT_FAILURE",
                         "模板在独立复核修正后仍未通过校验，本次未生成可用模板",
                     );
                 }
-                const failure = templateExecutionFailure(error);
-                return failProcess(
-                    "AGENT_FAILURE",
-                    `模板校验未完成：${failure.message}`,
-                );
+                throw error;
             }
         },
     });
+}
+
+function templateActivityDiagnostic(error: unknown): ActivityDiagnostic {
+    if (
+        error instanceof TemplateContractError ||
+        error instanceof TemplateProjectionError
+    )
+        return { stage: "schema", code: "invalid_contract" };
+    return agentDiagnostic(error);
+}
+
+function templateValidationDiagnostic(error: unknown): ActivityDiagnostic {
+    return error instanceof TemplateContractError ||
+        error instanceof TemplateProjectionError
+        ? { stage: "schema", code: "invalid_contract" }
+        : { stage: "execution", code: "internal_failure" };
 }

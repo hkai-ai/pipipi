@@ -1,6 +1,12 @@
 /** crt-interface-image/v1 的上传资产引用、Prompt/recipe 校验、顺序和稳定失败 */
 import { z } from "zod";
 import {
+    AgentContractFailure,
+    agentDiagnostic,
+    agentFailureMessage,
+} from "../../agent-runtime/diagnostics.js";
+import { dependencyDiagnostic } from "../../process-runtime/diagnostics.js";
+import {
     defineProcessRegistration,
     failProcess,
     type ProcessRegistration,
@@ -200,12 +206,16 @@ export function createCrtRegistration(
                             input,
                             context.signal,
                         );
-                        if (!result) throw new CrtPromptActivityFailure();
                         return result;
                     },
+                    agentDiagnostic,
                 );
-            } catch {
-                return agentFailure();
+            } catch (error) {
+                context.signal.throwIfAborted();
+                return failProcess(
+                    "AGENT_FAILURE",
+                    agentFailureMessage("CRT 规则编译", error),
+                );
             }
 
             try {
@@ -228,6 +238,10 @@ export function createCrtRegistration(
                                 idempotencyKey: context.runId,
                             },
                         ),
+                    (error) =>
+                        dependencyDiagnostic(
+                            error instanceof CrtRenderingUnavailable,
+                        ),
                 );
                 return {
                     aspectRatio: input.aspectRatio,
@@ -239,11 +253,11 @@ export function createCrtRegistration(
                     return error.committed
                         ? failProcess(
                               "DEPENDENCY_FAILURE_AFTER_COMMIT",
-                              "The CRT image was rendered but could not be delivered",
+                              "CRT 图片已提交生成但交付失败，请先核对原请求，不要直接重新生成",
                           )
                         : failProcess(
                               "DEPENDENCY_FAILURE",
-                              "The CRT rendering service is unavailable",
+                              "CRT 图片依赖暂时不可用",
                           );
                 }
                 throw error;
@@ -252,16 +266,16 @@ export function createCrtRegistration(
     });
 }
 
-class CrtPromptActivityFailure extends Error {}
-
 async function compileAgentResult(
     agent: CrtAgent,
     input: z.infer<typeof inputSchema>,
     signal: AbortSignal,
-): Promise<z.infer<typeof compiledSchema> | undefined> {
+): Promise<z.infer<typeof compiledSchema>> {
+    let lastError: unknown;
     for (let attempt = 0; attempt < agentCompileAttempts; attempt += 1) {
+        signal.throwIfAborted();
         try {
-            const result = compiledSchema.safeParse(
+            const result = compiledSchema.parse(
                 await agent.compile({
                     palette: input.palette,
                     aspectRatio: input.aspectRatio,
@@ -269,22 +283,19 @@ async function compileAgentResult(
                 }),
             );
             if (
-                result.success &&
-                matchesRequest(
-                    result.data.prompt,
-                    input.palette,
-                    input.aspectRatio,
-                )
+                matchesRequest(result.prompt, input.palette, input.aspectRatio)
             ) {
-                return result.data;
+                return result;
             }
-        } catch {
+            throw new AgentContractFailure();
+        } catch (error) {
+            lastError = error;
             // The Agent has no side effects, so one malformed response is safe
             // to retry before any rendering call can occur.
         }
-        if (signal.aborted) return undefined;
+        signal.throwIfAborted();
     }
-    return undefined;
+    throw lastError;
 }
 
 type RecipeCompatibility = {
@@ -353,12 +364,5 @@ function matchesRequest(
     return (
         /source image/iu.test(prompt) &&
         /(?:2[-– ]5|two[- ]to[- ]five).{0,30}(?:color|colour)/iu.test(prompt)
-    );
-}
-
-function agentFailure() {
-    return failProcess(
-        "AGENT_FAILURE",
-        "The CRT prompt agent could not complete the request",
     );
 }

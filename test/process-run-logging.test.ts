@@ -166,6 +166,7 @@ describe("Process Run activity logging", () => {
                 activity: "call_dependency",
                 outcome: "failed",
                 durationMs: 10,
+                diagnostic: { stage: "execution", code: "internal_failure" },
             }),
         );
         expect(records.at(-1)).toEqual(
