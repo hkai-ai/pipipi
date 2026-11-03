@@ -121,6 +121,8 @@ Registration 会捕获 Definition 的 Schema 与执行函数，Registry 会复�
 
 ### 统一诊断与工具选择
 
+公开文案按“失败事实、调用方约束、运维操作”区分。公开响应说明已知失败事实；仅当会影响调用方是否发起新副作用时，保留明确约束，例如“可能已产生费用，请勿直接重新生成或重放付费操作”。核对凭证、DNS/Fake-IP、日志、取消来源、步骤耗时或下游请求状态属于运维排查，只在控制台展示；不使用“核对后再试”暗示完成检查就允许重投。Attempt 的取消、超时和未知异常只陈述结果，图片读取只陈述无法读取/解码或已知地址拒绝。已有公开错误码与重试合同不变。
+
 公开错误码负责稳定的业务分类，公开中文消息解释阶段与已知原因，运维下一步仅在控制台展示；调用方不得解析消息文案决定重试。未知异常明确写“具体原因尚未确认”，不根据业务正文中的数字推测鉴权或限流。整体超时、外部取消和未知异常由 Attempt Runner 分别收口，活动中的固定诊断仅用于排查。
 
 `src/agent-runtime/diagnostics.ts` 统一模型调用、JSON、Zod 和业务合同错误；`failure.ts` 在 Pi 会话和请求边界保留固定类别。照片海报、极简海报、CRT、三个新闻图片 Process、内容优化及模板编译复用此分类。复杂模板仍保留自己的字段级诊断与修正合同。未传分类器的活动默认记录 execution/internal_failure。Business Capability 活动显式识别已知依赖错误为 dependency/dependency_failure，未知程序错误仍记 internal_failure；模板本地校验不使用模型兜底。CRT 沿用两次编译预算，最终失败反映最后一次错误。
@@ -136,9 +138,21 @@ Registration 会捕获 Definition 的 Schema 与执行函数，Registry 会复�
 | [Sentry](https://docs.sentry.io/product/issues/issue-details/) | 后续需要异常聚合与告警时再接入 | 上报前仍必须投影为白名单数据；不能靠接入 SDK 自动补齐已被吞掉的原因 |
 | [OpenTelemetry](https://opentelemetry.io/docs/languages/js/) | 跨 API、Worker、图片服务的追踪需求增长后评估 | 负责链路观测，不替代业务错误码、中文说明与重试治理 |
 
-Pi 错误字符串格式绑定 `@earendil-works/pi-ai@1.4.0`，由 Pi Adapter 的 `stopReason=error` 路径解释：接受 `OpenAI API error (<status>): ...`、`HTTP <status>: ...` 与 `<status>: ...`；裸数字后接空格及任意正文不作为状态证据。Chat Completions 缺少结构化状态的裸数字消息降为未知；升级 Pi 必须运行 `test/diagnostic-review.test.ts` 中直接调用 formatter 的合同测试。自有配置失败直接抛出具名的 `session/configuration`，不靠文案匹配。
+Pi 字符串错误合同绑定 `@earendil-works/pi-ai@1.4.0` 与其当前解析到的 `openai@7.19.0`。Pi Adapter 仅在 `stopReason=error` 时解释以下格式；通用分类器仍优先使用结构化状态：
 
-诊断词表属于私有 Implementation，调用方使用分类、解释与净化 Interface；模板不直接索引文案表。控制台页面及复制摘要始终保留两类 DEPENDENCY 错误的处置约束，通用 internal_failure 不覆盖依赖总类。
+| 接受的格式 | 已核验的源码来源 |
+| --- | --- |
+| `OpenAI API error (<status>): ...` | Pi `dist/api/openai-responses.js` 调用 `dist/utils/error-body.js` 的 formatProviderError 并传入固定前缀 |
+| `<status>: ...` | Pi formatProviderError 在状态与 body 已提取、message 尚未包含 body 时输出 |
+| `<status> status code (no body)`，整句完全匹配 | OpenAI `core/error.mjs` 的 APIError.makeMessage 在只有状态而无正文时输出；Pi Chat Completions 保留此消息 |
+
+`HTTP <status>:` 没有本次核验的来源，移出白名单。只有带任意正文的裸数字消息降为未知；空 body 的 SDK 固定句不能与其混为一类。测试从真实 APIError.generate 构造异常，再经 Pi formatter 和项目解析器验证 502/504，附加正文或换行的近似文本不匹配。升级任一依赖时重新核验合同。自有配置错误直接携带 session/configuration，不靠文案匹配。
+
+SDK 与 Pi 都会记录失败：SDK 抛出异常，Pi Adapter 捕获后输出 error 事件及 `stopReason: error`/errorMessage；Pi Agent loop 结束该轮，prompt 的 Promise 可以正常完成。项目必须检查最终消息，parseAgentJson 将失败消息转为 AgentExecutionFailure，Registration 再返回 AGENT_FAILURE。只在 prompt 周围 try/catch 不足以判断成功；未知分类不等于成功或没有错误。
+
+诊断词表属于私有 Implementation，调用方使用分类、解释与净化 Interface；模板不直接索引文案表。两类 DEPENDENCY 错误的标题和下一步始终使用公开错误码的解释，每项只出现一次；这保证 DEPENDENCY_FAILURE_AFTER_COMMIT 的醒目标题仍为“副作用已提交，交付失败”。活动诊断仅补充阶段、固定诊断码与净化字段。默认 internal_failure 在存在非 INTERNAL_ERROR 的公开错误码时，也采用该错误码的标题和下一步。复制摘要此时省略默认阶段和诊断码，改为“细分原因：未记录，仅有默认内部诊断”；记录无法区分未传分类器与未知兜底，不据此声称活动未接入分类。页面与复制摘要共同使用 explainRunFailure，不再额外追加一遍 dependencyAdvice。
+
+控制台只从最新 Attempt 的最后一个已结束活动选取失败证据：该活动必须失败或取消；其后已有成功活动时，不再显示此前失败的活动名和诊断。Attempt 终态的总超时或取消仍优先，可用的其他终态诊断仍可解释结果；缺少终因证据时显示“未记录”，不把已修复错误当作最终原因。成功运行的复制摘要不输出失败活动、原因、阶段、诊断码、校验字段、未记录原因或下一步，历史活动仍保留在时间线中。
 
 新的 Agent 活动通过 `runActivity(name, operation, agentDiagnostic)` 接入；公开失败通过 `agentFailureMessage` 生成。若本地合同不通过，应抛出实际 Zod 错误或 `AgentContractFailure`，不能先换成空白 `Error` 再分类。付费、副作用与自动重试仍由原 Registration 合同拥有，诊断分类不得修改调用次数。
 

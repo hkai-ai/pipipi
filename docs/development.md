@@ -465,7 +465,7 @@ npm run check:deployment-env -- api
 
 ## 照片海报实现
 
-统一错误分类位于 `src/agent-runtime/diagnostics.ts`，照片目录的旧诊断入口仅兼容已有实验。公共错误、净化词表和工具选择见 [统一诊断](process-runtime-design.md#统一诊断与工具选择)。新增模型活动直接复用共用模块，不再各写一组错误正则或统一吞成空异常。
+统一错误分类位于 `src/agent-runtime/diagnostics.ts`，照片目录的旧诊断转发入口已删除，实验脚本也直接使用共用 Interface。公共错误、净化词表和工具选择见 [统一诊断](process-runtime-design.md#统一诊断与工具选择)。新增模型活动直接复用共用模块，不再各写一组错误正则或统一吞成空异常。
 
 Pi Adapter 保留会话、请求和响应阶段，`runActivity` 的可选诊断函数只返回固定分类，不改变调用预算；诊断或归档失败不覆盖原业务结果。诊断回归见 `test/agent-diagnostics.test.ts` 与 `test/photo-poster-diagnostics.test.ts`，覆盖跨 Process 分类、HTTP、文件回读、控制台投影、取消和 Sink 异步拒绝。
 

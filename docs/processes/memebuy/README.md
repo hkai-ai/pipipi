@@ -2,7 +2,7 @@
 
 本页路由 Memebuy 独有的 Business Process。已登记 [`template-from-image/v1`](template-from-image/README.md)：由参考图编译 Gallery v2 可编辑模板草稿，当前对接 Memebuy 素材箱提取 Worker，人工确认后保存草稿；部署与真实页面验收另行完成。
 
-模板编译的模型调用错误复用 [统一诊断](../../process-runtime-design.md#统一诊断与工具选择)，编译、复核与校验活动可以在控制台查看原因；原有合同级诊断和有界修正预算保持不变。 参考图读取归为依赖失败，本地校验的未知程序异常归为内部失败；运维建议仅在控制台展示。
+模板编译的模型调用错误复用 [统一诊断](../../process-runtime-design.md#统一诊断与工具选择)，编译、复核与校验活动可以在控制台查看原因；原有合同级诊断和有界修正预算保持不变。 参考图读取归为依赖失败，本地校验的未知程序异常归为内部失败；图片读取公开文案只说明已知失败事实，DNS/Fake-IP 等运维排查不进入公开响应；统一规则见上述诊断文档。
 
 新增 Memebuy 能力时，先固定产品输入、输出、稳定错误和副作用，再按 [`../README.md`](../README.md#新增或修改-process) 建立准确 Process Registration 与同名文档目录。若多个产品可以原样复用同一契约，将该 Process 放入 [`../common/`](../common/)。
 

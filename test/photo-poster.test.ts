@@ -108,6 +108,9 @@ it.each([false, true])(
                 code: committed
                     ? "DEPENDENCY_FAILURE_AFTER_COMMIT"
                     : "DEPENDENCY_FAILURE",
+                message: committed
+                    ? "照片海报生成或交付失败，可能已产生费用，请勿直接重新生成或重放付费操作"
+                    : "照片海报图片依赖暂时不可用",
             },
         });
         expect(events).toContainEqual(

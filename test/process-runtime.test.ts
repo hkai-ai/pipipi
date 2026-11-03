@@ -526,7 +526,7 @@ describe("Process Runtime", () => {
             status: "failed",
             error: {
                 code: "PROCESS_TIMEOUT",
-                message: "流程超过执行时限，请核对步骤耗时和下游请求状态",
+                message: "流程超过执行时限",
             },
         });
         expect(executionWasAborted).toBe(true);
@@ -719,7 +719,7 @@ describe("Process Runtime", () => {
             status: "failed",
             error: {
                 code: "PROCESS_TIMEOUT",
-                message: "流程超过执行时限，请核对步骤耗时和下游请求状态",
+                message: "流程超过执行时限",
             },
         });
         expect(executionWasAborted).toBe(true);
@@ -883,8 +883,7 @@ describe("Process Runtime", () => {
             status: "failed",
             error: {
                 code: "INTERNAL_ERROR",
-                message:
-                    "流程执行发生异常，具体原因尚未确认；请携带运行 ID 排查",
+                message: "流程执行发生异常，具体原因尚未确认",
             },
         });
         expect(JSON.stringify(result)).not.toContain(

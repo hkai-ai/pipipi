@@ -131,7 +131,7 @@ export function createProcessAttemptRunner(
                     const result = processFailure(
                         attempt.runId,
                         "INTERNAL_ERROR",
-                        "流程已取消，请核对取消来源和下游请求状态",
+                        "流程已取消",
                         identity,
                     );
                     log.finish({
@@ -151,7 +151,7 @@ export function createProcessAttemptRunner(
                     const result = processFailure(
                         attempt.runId,
                         "PROCESS_TIMEOUT",
-                        "流程超过执行时限，请核对步骤耗时和下游请求状态",
+                        "流程超过执行时限",
                         identity,
                     );
                     log.finish({
@@ -167,7 +167,7 @@ export function createProcessAttemptRunner(
                 const result = processFailure(
                     attempt.runId,
                     "INTERNAL_ERROR",
-                    "流程执行发生异常，具体原因尚未确认；请携带运行 ID 排查",
+                    "流程执行发生异常，具体原因尚未确认",
                     identity,
                 );
                 log.finish({

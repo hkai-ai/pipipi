@@ -55,6 +55,18 @@ const message = (stopReason: string, text: string, errorMessage?: string) => ({
 
 it.each([
     [
+        message("error", secret, "502 status code (no body)"),
+        "provider_unavailable",
+        "request",
+        "模型服务暂时不可用",
+    ],
+    [
+        message("error", secret, "504 status code (no body)"),
+        "provider_unavailable",
+        "request",
+        "模型服务暂时不可用",
+    ],
+    [
         message("error", secret, `OpenAI API error (401): ${secret}`),
         "authentication",
         "request",
@@ -317,7 +329,9 @@ it("外部取消保持 cancelled 活动，不记录模型依赖故障", async ()
         acceptedInput: accepted.acceptedInput,
         signal: controller.signal,
     });
-    expect(result).toMatchObject({ error: { code: "INTERNAL_ERROR" } });
+    expect(result).toMatchObject({
+        error: { code: "INTERNAL_ERROR", message: "流程已取消" },
+    });
     expect(events).toContainEqual(
         expect.objectContaining({
             event: "process_run_attempt_finished",

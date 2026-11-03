@@ -240,7 +240,7 @@ describe("business process execution", () => {
             status: "failed",
             error: {
                 code: "PROCESS_TIMEOUT",
-                message: "流程超过执行时限，请核对步骤耗时和下游请求状态",
+                message: "流程超过执行时限",
             },
         });
     });

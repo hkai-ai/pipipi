@@ -1,5 +1,6 @@
 /** 运行记录筛选、分页与详情，使用可分享链接串联异常排查。 */
 import { useEffect, useState } from "preact/hooks";
+import { explainDiagnostic } from "../src/process-runtime/diagnostics.js";
 import {
     type ConsoleProcessDescription,
     findRun,
@@ -10,7 +11,6 @@ import {
     type RunFilters,
 } from "./api.js";
 import {
-    dependencyAdvice,
     describeTimeline,
     diagnosticSummary,
     explainRunFailure,
@@ -485,9 +485,14 @@ export function RunView({
                                     ).next
                                 }
                             </p>
-                            {details.diagnostic &&
-                            dependencyAdvice(value.errorCode) ? (
-                                <p>{dependencyAdvice(value.errorCode)}</p>
+                            {details.diagnostic ? (
+                                <p>
+                                    失败阶段：
+                                    {
+                                        explainDiagnostic(details.diagnostic)
+                                            .stage
+                                    }
+                                </p>
                             ) : null}
                             {details.diagnostic?.issues?.map((issue) => (
                                 <p key={`${issue.path}:${issue.code}`}>

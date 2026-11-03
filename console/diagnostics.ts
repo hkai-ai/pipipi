@@ -46,21 +46,26 @@ export function explainError(code?: string) {
           };
 }
 
-/** 业务依赖的处置约束不能被活动诊断替换。 */
-export function dependencyAdvice(code?: string): string | undefined {
-    return code === "DEPENDENCY_FAILURE" ||
-        code === "DEPENDENCY_FAILURE_AFTER_COMMIT"
-        ? explainError(code).next
-        : undefined;
+function isFallbackDiagnostic(
+    code: string | undefined,
+    diagnostic?: ActivityDiagnostic,
+) {
+    return (
+        diagnostic?.code === "internal_failure" &&
+        code !== undefined &&
+        code !== "INTERNAL_ERROR"
+    );
 }
 
+/** 保留业务依赖处置约束，默认内部诊断不覆盖已知公开错误分类。 */
 export function explainRunFailure(
     code: string | undefined,
     diagnostic?: ActivityDiagnostic,
 ) {
     if (
-        dependencyAdvice(code) &&
-        (!diagnostic || diagnostic.code === "internal_failure")
+        code === "DEPENDENCY_FAILURE" ||
+        code === "DEPENDENCY_FAILURE_AFTER_COMMIT" ||
+        isFallbackDiagnostic(code, diagnostic)
     )
         return explainError(code);
     return diagnostic ? explainDiagnostic(diagnostic) : explainError(code);
@@ -75,12 +80,13 @@ export function describeTimeline(timeline?: RunTimeline) {
     const attempt = entries.filter(
         (entry) => entry.attemptNumber === latestAttempt,
     );
-    const failed = attempt.findLast(
-        (entry) =>
-            entry.event === "process_run_activity_finished" &&
-            "outcome" in entry &&
-            entry.outcome !== "succeeded",
+    const lastActivity = attempt.findLast(
+        (entry) => entry.event === "process_run_activity_finished",
     );
+    const failed =
+        lastActivity && lastActivity.outcome !== "succeeded"
+            ? lastActivity
+            : undefined;
     const finished = attempt.findLast(
         (entry) => entry.event === "process_run_attempt_finished",
     );
@@ -114,27 +120,36 @@ export function diagnosticSummary(
     timeline?: RunTimeline,
 ): string {
     const detail = describeTimeline(timeline);
+    const failure =
+        record.status === "failed"
+            ? explainRunFailure(record.errorCode, detail.diagnostic)
+            : undefined;
     return [
         `运行 ID: ${record.runId}`,
         `业务: ${record.process ?? "未知"}/${record.version ?? "未知"}`,
         `状态: ${record.status}`,
         `记录时间: ${record.recordedAt}`,
         `错误码: ${record.errorCode ?? "无"}`,
-        ...(dependencyAdvice(record.errorCode)
-            ? [dependencyAdvice(record.errorCode)]
-            : []),
         `最后 Attempt: ${detail.attempt || "无记录"}`,
-        `失败活动: ${detail.failedActivity ?? "无可用证据"}`,
-        ...(detail.diagnostic
+        ...(failure
             ? [
-                  `失败原因: ${explainRunFailure(record.errorCode, detail.diagnostic).title}`,
-                  `下一步: ${explainRunFailure(record.errorCode, detail.diagnostic).next}`,
-                  `诊断码: ${detail.diagnostic.stage}/${detail.diagnostic.code}`,
-                  ...(detail.diagnostic.issues ?? []).map(
-                      (issue) => `校验: ${issue.path} (${issue.code})`,
-                  ),
+                  `失败活动: ${detail.failedActivity ?? "无可用证据"}`,
+                  `失败原因: ${failure.title}`,
+                  `下一步: ${failure.next}`,
+                  ...(isFallbackDiagnostic(record.errorCode, detail.diagnostic)
+                      ? ["细分原因: 未记录，仅有默认内部诊断"]
+                      : detail.diagnostic
+                        ? [
+                              `失败阶段: ${explainDiagnostic(detail.diagnostic).stage}`,
+                              `诊断码: ${detail.diagnostic.stage}/${detail.diagnostic.code}`,
+                              ...(detail.diagnostic.issues ?? []).map(
+                                  (issue) =>
+                                      `校验: ${issue.path} (${issue.code})`,
+                              ),
+                          ]
+                        : ["细分原因: 未记录，无法从总类判断根因"]),
               ]
-            : ["细分原因: 未记录，无法从总类判断根因"]),
+            : []),
         `Attempt 耗时: ${detail.durationMs === undefined ? "无记录" : `${detail.durationMs} ms`}`,
     ].join("\n");
 }
