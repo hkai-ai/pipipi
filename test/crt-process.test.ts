@@ -558,7 +558,7 @@ describe("crt-interface-image/v1", () => {
             error: {
                 code: "DEPENDENCY_FAILURE_AFTER_COMMIT",
                 message:
-                    "CRT 图片已提交生成但交付失败，请先核对原请求，不要直接重新生成",
+                    "CRT 图片已提交生成但交付失败，请勿直接重新生成或重放付费操作",
             },
         });
         expect(JSON.stringify(result)).not.toContain("private storage detail");

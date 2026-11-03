@@ -219,9 +219,11 @@ browserDescribe("operator observation browser", () => {
                 path: path.join(output, "run-detail.png"),
                 fullPage: true,
             });
-            for (const code of [
-                "DEPENDENCY_FAILURE",
-                "DEPENDENCY_FAILURE_AFTER_COMMIT",
+            for (const [code, diagnosticCode] of [
+                ["DEPENDENCY_FAILURE", "internal_failure"],
+                ["DEPENDENCY_FAILURE", "dependency_failure"],
+                ["DEPENDENCY_FAILURE_AFTER_COMMIT", "internal_failure"],
+                ["DEPENDENCY_FAILURE_AFTER_COMMIT", "dependency_failure"],
             ]) {
                 await page.route("**/runs/failure-v3-00", async (route) => {
                     const response = await route.fetch();
@@ -244,8 +246,12 @@ browserDescribe("operator observation browser", () => {
                                         ...entry,
                                         extra: "PRIVATE_EVENT_SENTINEL",
                                         diagnostic: {
-                                            stage: "execution",
-                                            code: "internal_failure",
+                                            stage:
+                                                diagnosticCode ===
+                                                "dependency_failure"
+                                                    ? "dependency"
+                                                    : "execution",
+                                            code: diagnosticCode,
                                             message: "PRIVATE_EVENT_SENTINEL",
                                         },
                                     }),
@@ -262,8 +268,20 @@ browserDescribe("operator observation browser", () => {
                 await page
                     .locator(".failure-notice")
                     .getByText(expected, { exact: false })
-                    .first()
                     .waitFor();
+                expect(
+                    await page
+                        .locator(".failure-notice")
+                        .getByText(expected, { exact: false })
+                        .count(),
+                ).toBe(1);
+                expect(
+                    await page.locator(".failure-notice h2").innerText(),
+                ).toBe(
+                    code === "DEPENDENCY_FAILURE"
+                        ? "外部依赖失败"
+                        : "副作用已提交，交付失败",
+                );
                 await page
                     .getByText("技术详情：原始事件与步骤标识", { exact: true })
                     .click();

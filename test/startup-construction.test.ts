@@ -1,9 +1,4 @@
-﻿import {
-    createServer,
-    type RequestListener,
-    type Server,
-    type ServerResponse,
-} from "node:http";
+﻿import { createServer, type RequestListener, type Server } from "node:http";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ProcessingApplication } from "../src/api/application.js";
 import { constructProcessingService } from "../src/app/api.js";
@@ -224,7 +219,7 @@ describe("Startup Construction", () => {
                 status: "failed",
                 error: {
                     code: "PROCESS_TIMEOUT",
-                    message: "流程超过执行时限，请核对步骤耗时和下游请求状态",
+                    message: "流程超过执行时限",
                 },
             });
         } finally {

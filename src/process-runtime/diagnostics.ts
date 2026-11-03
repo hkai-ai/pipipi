@@ -151,12 +151,14 @@ export function sanitizeActivityDiagnostic(
 }
 
 export function explainDiagnostic(diagnostic: ActivityDiagnostic): {
+    stage: string;
     reason: string;
     title: string;
     next: string;
 } {
     const [title, next] = diagnosticAdvice[diagnostic.code];
     return {
+        stage: diagnosticStages[diagnostic.stage],
         reason: title,
         title: `${diagnosticStages[diagnostic.stage]}：${title}`,
         next,

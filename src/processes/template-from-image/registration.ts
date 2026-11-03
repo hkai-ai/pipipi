@@ -113,9 +113,9 @@ export function createTemplateRegistration(options: {
                     "DEPENDENCY_FAILURE",
                     isPublicHttpTargetPolicyError(error)
                         ? error.code === "PUBLIC_HTTP_TARGET_FORBIDDEN_ADDRESS"
-                            ? "图片域名解析到了受限地址，请检查本机代理的 Fake-IP 或 DNS 配置"
-                            : "图片地址解析失败，请检查地址与 DNS 配置"
-                        : "参考图片无法读取，请检查图片地址、格式和尺寸",
+                            ? "图片域名解析到了受限地址"
+                            : "图片地址解析失败"
+                        : "参考图片无法读取或解码",
                 );
             }
             let plan: ReturnType<typeof readTemplatePlan> | undefined;

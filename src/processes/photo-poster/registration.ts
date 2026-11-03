@@ -205,7 +205,10 @@ export function createPhotoPosterRegistration(
                             !error.committed
                             ? "DEPENDENCY_FAILURE"
                             : "DEPENDENCY_FAILURE_AFTER_COMMIT",
-                        "照片海报生成或交付失败，请核对执行记录后再试",
+                        error instanceof PhotoPosterRenderingUnavailable &&
+                            !error.committed
+                            ? "照片海报图片依赖暂时不可用"
+                            : "照片海报生成或交付失败，可能已产生费用，请勿直接重新生成或重放付费操作",
                     );
                 }
                 throw error;

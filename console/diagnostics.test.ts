@@ -4,6 +4,7 @@ import {
     describeTimeline,
     diagnosticSummary,
     explainError,
+    explainRunFailure,
 } from "./diagnostics.js";
 
 const record: ProcessRunRecord = {
@@ -31,6 +32,190 @@ const base = {
     sequence: 1,
 } as const;
 describe("operator diagnostics", () => {
+    it("keeps the public error explanation when an activity has only the default diagnostic", () => {
+        const diagnostic = {
+            stage: "execution",
+            code: "internal_failure",
+        } as const;
+        for (const code of [
+            "AGENT_FAILURE",
+            "INVALID_INPUT",
+            "PROCESS_TIMEOUT",
+        ]) {
+            expect(explainRunFailure(code, diagnostic)).toEqual(
+                explainError(code),
+            );
+        }
+        expect(explainRunFailure("INTERNAL_ERROR", diagnostic).title).toContain(
+            "执行发生异常",
+        );
+        const timeline: RunTimeline = {
+            runId: record.runId,
+            activities: [
+                {
+                    ...base,
+                    attemptNumber: 1,
+                    event: "process_run_activity_finished",
+                    activity: "character_emoji_planning",
+                    outcome: "failed",
+                    durationMs: 1,
+                    diagnostic,
+                },
+            ],
+        };
+        const summary = diagnosticSummary(record, timeline);
+        expect(summary).toContain("失败原因: Agent 执行失败");
+        expect(summary).toContain("细分原因: 未记录，仅有默认内部诊断");
+        expect(summary).not.toMatch(/失败阶段:|诊断码:/);
+        expect(
+            diagnosticSummary(
+                { ...record, errorCode: "INTERNAL_ERROR" },
+                timeline,
+            ),
+        ).toContain("诊断码: execution/internal_failure");
+    });
+    it.each([
+        ["template_compilation", "template_correction", "invalid_json"],
+        ["plan_validation", "plan_correction", "invalid_contract"],
+    ] as const)(
+        "does not use recovered %s as the final failure",
+        (activity, correction, code) => {
+            const timeline: RunTimeline = {
+                runId: record.runId,
+                activities: [
+                    {
+                        ...base,
+                        attemptNumber: 1,
+                        event: "process_run_activity_finished",
+                        activity,
+                        outcome: "failed",
+                        durationMs: 1,
+                        diagnostic: {
+                            stage: code === "invalid_json" ? "json" : "schema",
+                            code,
+                        },
+                    },
+                    {
+                        ...base,
+                        sequence: 2,
+                        attemptNumber: 1,
+                        event: "process_run_activity_finished",
+                        activity: correction,
+                        outcome: "succeeded",
+                        durationMs: 1,
+                    },
+                    {
+                        ...base,
+                        sequence: 3,
+                        attemptNumber: 1,
+                        event: "process_run_attempt_finished",
+                        outcome: "failed",
+                        durationMs: 3,
+                        errorCode: "AGENT_FAILURE",
+                    },
+                ],
+            };
+            expect(describeTimeline(timeline)).toEqual({
+                attempt: 1,
+                durationMs: 3,
+                failedActivity: undefined,
+            });
+            const summary = diagnosticSummary(record, timeline);
+            expect(summary).toContain("失败原因: Agent 执行失败");
+            expect(summary).toContain("细分原因: 未记录");
+            expect(summary).not.toContain(activity);
+            expect(summary).not.toContain(code);
+        },
+    );
+    it("omits all failure metadata from a successful run with an earlier failed activity", () => {
+        const summary = diagnosticSummary(
+            { ...record, status: "succeeded", errorCode: undefined },
+            {
+                runId: record.runId,
+                activities: [
+                    {
+                        ...base,
+                        attemptNumber: 1,
+                        event: "process_run_activity_finished",
+                        activity: "compile",
+                        outcome: "failed",
+                        durationMs: 1,
+                        diagnostic: {
+                            stage: "schema",
+                            code: "invalid_schema",
+                            issues: [{ path: "/prompt", code: "too_small" }],
+                        },
+                    },
+                    {
+                        ...base,
+                        sequence: 2,
+                        attemptNumber: 1,
+                        event: "process_run_attempt_finished",
+                        outcome: "succeeded",
+                        durationMs: 2,
+                    },
+                ],
+            },
+        );
+        expect(summary).toContain("状态: succeeded");
+        expect(summary).toContain("Attempt 耗时: 2 ms");
+        expect(summary).not.toMatch(
+            /失败活动:|失败原因:|失败阶段:|诊断码:|细分原因:|校验:|下一步:/,
+        );
+    });
+    it("does not add a failure explanation to a successful run summary", () => {
+        const summary = diagnosticSummary({
+            ...record,
+            status: "succeeded",
+            errorCode: undefined,
+        });
+        expect(summary).not.toContain("失败原因:");
+        expect(summary).not.toContain("下一步:");
+    });
+    it.each(["DEPENDENCY_FAILURE", "DEPENDENCY_FAILURE_AFTER_COMMIT"] as const)(
+        "%s owns title and advice exactly once",
+        (errorCode) => {
+            for (const diagnostic of [
+                undefined,
+                { stage: "execution", code: "internal_failure" },
+                { stage: "dependency", code: "dependency_failure" },
+            ] as const) {
+                const timeline: RunTimeline = {
+                    runId: record.runId,
+                    activities: [
+                        {
+                            ...base,
+                            attemptNumber: 1,
+                            event: "process_run_activity_finished",
+                            activity: "rendering",
+                            outcome: "failed",
+                            durationMs: 1,
+                            ...(diagnostic ? { diagnostic } : {}),
+                        },
+                    ],
+                };
+                const expected = explainError(errorCode);
+                expect(explainRunFailure(errorCode, diagnostic)).toEqual(
+                    expected,
+                );
+                const summary = diagnosticSummary(
+                    { ...record, errorCode },
+                    timeline,
+                );
+                expect(summary).toContain(`失败原因: ${expected.title}`);
+                expect(summary.split(expected.next)).toHaveLength(2);
+                if (diagnostic?.code === "internal_failure") {
+                    expect(summary).toContain(
+                        "细分原因: 未记录，仅有默认内部诊断",
+                    );
+                    expect(summary).not.toMatch(/失败阶段:|诊断码:/);
+                } else if (diagnostic)
+                    expect(summary).toContain(
+                        `诊断码: ${diagnostic.stage}/${diagnostic.code}`,
+                    );
+            }
+        },
+    );
     it("prefers terminal cancellation to an earlier recoverable model error", () => {
         const timeline: RunTimeline = {
             runId: record.runId,

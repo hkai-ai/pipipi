@@ -2,6 +2,7 @@ import sharp from "sharp";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { parseAgentJson } from "../src/agent-runtime/pi.js";
 import { createProcessingApplication } from "../src/api/application.js";
+import { PublicHttpTargetPolicyError } from "../src/network/public-http.js";
 import { createProcessExecutor } from "../src/processes/catalog.js";
 import type { TemplateAgent } from "../src/processes/template-from-image/agent.js";
 import { expandTemplatePlan } from "../src/processes/template-from-image/compact.js";
@@ -600,4 +601,23 @@ it("本地模板校验的内部异常不归因于模型", async () => {
     );
     expect(service.compile).toHaveBeenCalledOnce();
     expect(service.review).toHaveBeenCalledOnce();
+});
+
+it.each([
+    ["PUBLIC_HTTP_TARGET_FORBIDDEN_ADDRESS", "图片域名解析到了受限地址"],
+    ["PUBLIC_HTTP_TARGET_DNS_FAILED", "图片地址解析失败"],
+] as const)("图片加载 %s 公开说明不含运维建议", async (code, message) => {
+    const service = await start(
+        undefined,
+        undefined,
+        vi.fn(async () => {
+            throw new PublicHttpTargetPolicyError(code);
+        }),
+    );
+    const result = await (await service.execute()).json();
+    expect(result).toMatchObject({
+        error: { code: "DEPENDENCY_FAILURE", message },
+    });
+    expect(JSON.stringify(result)).not.toMatch(/Fake-IP|DNS|请检查/);
+    expect(service.compile).not.toHaveBeenCalled();
 });

@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { APIError } from "openai/core/error";
 import { expect, it } from "vitest";
 import { diagnosticSummary } from "../console/diagnostics.js";
 import {
@@ -42,6 +43,13 @@ it("pins the Pi error formatting contract to the installed version", () => {
         ),
     );
     expect(metadata.version).toBe("1.4.0");
+    const sdk = JSON.parse(
+        readFileSync(
+            new URL("../node_modules/openai/package.json", import.meta.url),
+            "utf8",
+        ),
+    );
+    expect(sdk.version).toBe("7.19.0");
 });
 
 it.each([
@@ -78,11 +86,33 @@ it("does not infer HTTP status from bare numeric prose", () => {
         "500 字以内的摘要不能为空",
         "401 Incorrect API key",
         "untrusted API error (401): prose",
+        "502 status code (no body) but arbitrary prose",
+        "502 status code (no body)\n",
+        "HTTP 502: unsupported protocol prose",
     ]) {
         expect(classify(text).code).toBe("execution");
         expect(agentDiagnostic(new Error(text)).code).toBe("execution");
     }
 });
+
+it.each([502, 504])(
+    "recognizes SDK empty-body status %s through Pi formatting",
+    (status) => {
+        const error = APIError.generate(
+            status,
+            undefined,
+            undefined,
+            new Headers(),
+        );
+        expect(error.message).toBe(`${status} status code (no body)`);
+        const piMessage = formatProviderError(normalizeProviderError(error));
+        expect(piMessage).toBe(error.message);
+        expect(classify(piMessage)).toEqual({
+            stage: "request",
+            code: "provider_unavailable",
+        });
+    },
+);
 
 it("keeps operator advice out of public messages", () => {
     const error = Object.assign(new Error("private"), { status: 401 });
