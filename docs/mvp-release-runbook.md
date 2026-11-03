@@ -396,47 +396,17 @@ location /console {
 }
 ```
 
-现有生产虚拟主机由 1Panel 管理、Console 与其他 Interface 共用同一反代时，使用受保护的 [Console gateway change](../.github/workflows/console-gateway-change.yml) 做一次性变更。工作流要求先由只读 readiness artifact 固定宿主配置路径、SHA-256、网关容器名与容器内配置路径；`CONSOLE_GATEWAY_APPLICATION_CONTAINER` 固定提供 Console 的应用容器。变更前再次核对完整摘要、mount Adapter 和应用容器的 `com.pipipi.revision` label，从已核验备份生成 candidate，并在凭证安装前和原子替换前重复校验活动摘要，避免覆盖 1Panel 并发变更。它只在唯一 `server_name` 内按 `$uri` 为 Console 路径启用动态 Basic realm，不改变已有 `location` 或 `proxy_pass`。
+### 控制台网关维护与验收
 
-工作流仅允许生产 root SSH Adapter，把 `CONSOLE_BASIC_AUTH_HTPASSWD` 与 `CONSOLE_AUTHORIZATION` 作为相互独立的 Environment Secret 临时传到权限为 `0700` 的服务器目录；认证文件由 root 持有、group 精确设置为活动 OpenResty worker GID，权限为 `0640`。安装后执行 `openresty -t` 和 reload，再对页面、Process 目录和统计 Interface 分别执行本机 HTTPS 与公网匿名/认证探测。reload 后的匿名探测最多重试 20 次，等待新 OpenResty worker 接管；连接失败、超时和非 `401` 都只表示本轮尚未就绪。六组匿名探测的最坏预算约 149 秒；连同六组认证探测，全部探针不超过 4.5 分钟，为 10 分钟 Job 保留回滚时间。窗口结束时仍未出现 Basic challenge 就回滚。匿名请求必须返回带 `WWW-Authenticate: Basic` challenge 的 `401`；普通上游 `403` 不算认证生效。认证请求必须返回 `200`，并满足 HTML、Process catalog JSON 或统计 JSON 契约。
+控制台网关配置由部署平台维护；1Panel 管理的虚拟主机通过其配置入口修改。仓库日常发布只更新应用容器，控制台网关变更单独执行。以下操作会访问生产网关和数据库，配置修改会影响访问控制，应在受控运维会话中执行。
 
-正常版本的六条认证响应都必须携带输入 revision 的 `x-pipipi-revision`。若活动旧版本尚未实现该响应头，Environment 可临时设置 `CONSOLE_GATEWAY_LEGACY_REVISION`；它必须精确等于本次输入 SHA。此兼容路径仍要求六条返回体契约全部匹配；旧统计响应必须提供 totals、byProcess、byErrorCode、concurrency 和 attemptDurationMs，新版响应仍必须提供 byDay 与 recentFailures。工作流还会在探测前后确认应用容器保持运行、容器身份未变且 revision label 精确匹配；它不接受空、重复、混合或错误响应头。新版本上线后删除该变量。配置测试、reload、探测、revision、契约、证据输出或 SSH hangup 任一步失败都恢复本次实际改变的配置与认证文件，并再次测试、reload；若 1Panel 在 activation 前改变配置，只撤销本次认证文件变更，绝不以旧备份覆盖外部配置。成功 artifact 只记录状态码、revision、revision 验证方式和配置摘要；失败 artifact 只记录稳定失败阶段与 `rollbackStatus`，不包含用户名、凭证、响应体、配置正文或上游地址。
+1. 变更前确认活动容器 revision、实际生效的虚拟主机与配置来源，备份本次要修改的配置和认证文件。修改前再次核对配置摘要；存在并发变更时停止并重新核对，避免覆盖平台更新。
+2. 为 `CONSOLE_BASE_PATH` 及其子路由配置鉴权，保留已有精确 location 的鉴权、caller 身份头、反代目标和超时。通过 `openresty -t` 或对应网关的配置检查后 reload；检查失败时保留原配置，不激活候选。
+3. 分别从网关本机 HTTPS 与公网访问控制台页面、`{base}/processes` 和 `{base}/stats?hours=1`。使用 Basic Auth 时，匿名请求必须返回带 `WWW-Authenticate: Basic` 的 `401`；其他认证方式必须按部署策略拒绝匿名访问，不能把上游错误当成鉴权成功。认证请求必须返回 `200`，并分别核对控制台 HTML、非空 Process catalog JSON 和统计 JSON；响应的 `x-pipipi-revision` 必须与活动应用 revision 一致。
+4. 使用 PostgreSQL 观测时，在活动 API 容器内执行 `node dist/bin/audit-production-database.js`，确认 TLS、专用数据库和最小权限边界。异步部署同时核对 Process Worker revision、readiness、PostgreSQL 观测和完整输入输出记录配置。备份平台应提供同一数据库的真实备份与恢复记录：备份不超过 24 小时，恢复验证不超过 90 天，剩余保留期不少于 30 天。
+5. 保存 revision、配置摘要、检查时间、状态码、备份引用和验收结论，保留 90 天；不保存凭证、响应正文、完整网关配置或原始数据库错误。鉴权、响应契约或版本检查失败时恢复本次变更前的配置及认证文件，重新检查并 reload；回滚后仍失败则关闭控制台公网入口，由运维人员排查。
 
-控制台上线后，还必须对当前生产 revision 手动运行 [Console production readiness](../.github/workflows/console-production-readiness.yml)。该工作流绑定受保护的 `console-production-readiness` Environment，只读检查服务器和公网网关，不部署镜像、不切换流量，也不触发 Process。Environment 需要以下配置：
-
-| 类型 | 名称 | 含义 |
-| --- | --- | --- |
-| Variable | `REMOTE_HOST`、`REMOTE_USER`、`REMOTE_PATH` | 与生产发布相同的 SSH 目标 |
-| Variable | `CONSOLE_PUBLIC_URL` | 已受网关保护的完整 HTTPS 控制台路径，不含 query、fragment 或凭证 |
-| Secret | `SSH_PRIVATE_KEY`、`SSH_KNOWN_HOSTS` | 只读核验服务器所需的 SSH 身份与固定 host key |
-| Secret | `CONSOLE_AUTHORIZATION` | 可直接作为 HTTP `Authorization` header 值的控制台凭证 |
-| Secret | `BACKUP_EVIDENCE_HMAC_KEY` | 至少 32 字节，只授予真实备份/恢复作业和该只读门禁，用于认证备份证据来源 |
-
-工作流要求主 API 与内部 CRT Business API 都运行输入的完整 commit SHA，并在活动主 API 容器中重新执行数据库 live audit。它随后从 `$REMOTE_PATH/shared/postgres-backup/evidence.json` 读取备份平台发布的证据。该文件不是人工勾选项：必须由真实成功的备份作业与定期恢复演练生成，且写入前应验证备份对象确实可恢复。格式为：
-
-```json
-{
-  "schemaVersion": 1,
-  "event": "postgres_backup_verified",
-  "status": "succeeded",
-  "databaseIdentitySha256": "64位小写十六进制摘要",
-  "backupId": "备份系统中的稳定非秘密引用",
-  "completedAt": "2026-08-14T12:00:00Z",
-  "restoreVerifiedAt": "2026-08-01T12:00:00Z",
-  "retentionUntil": "2026-12-31T00:00:00Z",
-  "signatureSha256": "64位小写十六进制 HMAC-SHA256"
-}
-```
-
-`databaseIdentitySha256` 是 UTF-8 字节 `数据库名 + NUL + 登录角色名 + NUL + service_instance_identity.identity` 的 SHA-256。最后一项由 migration 在数据库首次建立时随机生成，随真实备份和恢复保留，但不直接写入证据；同名 staging 或重新初始化的数据库不能复用摘要。备份作业必须先验证备份对象存在，再从隔离恢复实例读取该身份并完成可用性检查，最后用 `BACKUP_EVIDENCE_HMAC_KEY` 对 `schemaVersion、event、status、databaseIdentitySha256、backupId、completedAt、restoreVerifiedAt、retentionUntil` 按此顺序用 NUL 连接的 UTF-8 字节计算 HMAC-SHA256。手写或来自另一套库的 JSON 无法通过签名与 live identity 双重校验。
-
-时间必须是严格的 UTC 秒格式 `YYYY-MM-DDTHH:mm:ssZ`：备份完成不超过 24 小时，真实恢复验证不超过 90 天，剩余保留期不少于 30 天。公网核验要求未携带凭证访问控制台页面、Process 目录与统计 Interface 均返回 `401` 或 `403`；携带凭证不只要求 `200`，还会验证控制台 HTML 标记、Process catalog JSON 和统计 JSON 契约。若当前服务器存在异步 Compose 形状，同 revision 的 Process Worker 也必须在线，并固定使用 PostgreSQL 与完整输入输出观测策略。成功后只上传 revision、摘要、备份引用、时间、状态码和验证布尔值等无内容证据，保留 90 天；没有该次真实成功记录时，控制台的生产闭环未完成。
-
-失败时同样上传 artifact。`server.json` 的 `failureGate` 标识 revision、异步形状、数据库或备份门禁，`databaseAuditFailure` 只使用稳定错误码：`database_url_required`、`tls_required`、`dedicated_database_required`、`non_superuser_required`、`administrative_privileges_present`、`other_database_access_present`、`role_switching_present`、`role_membership_present`、`invalid_audit_result` 或 `connection_or_unclassified_failure`。`prerequisites` 只记录活动容器与共享 `.env` 是否配置数据库、CA 文件和备份证据是否存在；它不上传连接串、环境变量值或远端原始异常。无法归类的连接错误必须回到服务器受控终端排查，不能为了诊断把原始 stderr 加进 Actions artifact。
-
-服务器门禁失败时，工作流还会生成只读的 `gateway-host.json`。检查范围包括受控默认目录与运行中 OpenResty/Nginx 容器 mount 到 `nginx.conf`、`conf.d`、`sites-enabled` 或 `http.d` 的 host 配置来源；`sites-enabled` 支持无 `.conf` 后缀的普通文件、相对文件软链和映射到同一配置 mount 的容器绝对文件软链，目录、循环、越界或只在宿主机可达的软链会 fail closed，重叠目录中的同一 block 会去重。HTML、证书、日志或备份 mount 不参与扫描，也不能建立 reload 归属。事件 `console_gateway_host_inspected` 只记录与生产域名精确匹配的 `server` block 数量；唯一匹配时再记录配置绝对路径、文件 SHA-256、目标公网路径对应的 `location` 计数，以及该 block 内非注释的 `auth_basic`、`auth_request` 与 `proxy_pass` 指令计数。Docker reload Adapter 只有在唯一网关容器的允许配置 scope 覆盖命中配置时才成立，并按最长 Destination 匹配排除被子目录或单文件 mount 遮蔽的父配置，再记录容器内配置路径，供后续变更做精确前置条件。它不上传配置正文、反代目标、证书、认证文件或 Secret；容器枚举、mount 读取、配置枚举或解析不完整都会返回 `inspection_failed`，零个或多个 block 匹配也只用于诊断，不能自动选择文件或修改网关。
-
-网关宿主定位成功后，失败门禁会继续生成只读的 `effective-gateway.json`。它对 `openresty -T` 做前后相同的只读快照，用分号、block、quote 与 comment 感知的语句解析器按 source 汇总容器规范路径、可验证的宿主映射、SHA-256，以及 `server_name` 精确匹配、`location`、`auth_basic`、`proxy_pass`、`include`、`satisfy`、`allow` 与 `deny` 的分类计数。访问控制只区分 `any`/`all` 与其他 operand，不上传 IP、网段或原始值。每个 source section 必须与容器内真实文件摘要一致；宿主映射按容器规范目标选择最长 mount，目标必须留在规范 mount source 边界内，且容器与宿主摘要相等。未映射到宿主的镜像内 source 仍保留容器摘要与计数，但宿主路径为 `null`。artifact 不包含配置正文、指令操作数、反代地址或 Secret；伪造或重复 source marker、非规范路径、子 mount 歧义、快照漂移、摘要不一致或无法读取时均 fail closed。该证据只用于定位覆盖关系，不能自动修改网关。
+上述步骤完成前，不开放控制台提交能力。异步角色、迁移及流量晋级继续遵循[异步发布手册](async-process-runs-runbook.md)，网关检查通过不替代这些门禁。
 
 ## 构建并检查镜像
 

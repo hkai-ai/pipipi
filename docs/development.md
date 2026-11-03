@@ -117,6 +117,16 @@ curl --fail -X POST http://127.0.0.1:4300/execute \
 
 ## 代码地图
 
+`ops/` 保存由 GitHub Actions 调用的服务器运维脚本，按以下职责维护；低频初始化与晋级门禁不进入日常更新路径。控制台网关由部署平台维护，操作与验收要求见[控制台网关维护与验收](mvp-release-runbook.md#控制台网关维护与验收)。
+
+| 运维职责 | 文件 | 调用入口 |
+| --- | --- | --- |
+| 日常异步更新与失败回滚 | `update-async-release.sh` | `production-ci-cd.yml` |
+| 初始化与前置检查 | `inspect-async-production-prerequisites.sh`、`inspect-production-database-boundary.sh`、`provision-async-production-environments.sh`、`finalize-async-production-environment-evidence.sh`、`validate-production-ssh-target.sh` | 异步前置检查、数据库边界检查与环境准备 Actions |
+| 首次部署与阶段晋级 | `deploy-async-internal.sh`、`promote-async-release.sh` | `async-internal-release.yml`、`async-promote-release.yml` |
+| 内部 smoke 与停流控制 | `verify-async-internal-release-evidence.sh`、`set-async-internal-smoke-lease.sh`、`set-async-internal-intake.sh`、`collect-async-internal-smoke-evidence.sh` | `async-internal-smoke.yml`；结果供晋级入口核验 |
+| 监控与告警规范 | `async-observability.json` | [异步 Runbook](async-process-runs-runbook.md#运维快照dashboard-与日志)与观测配置测试 |
+
 `src/` 按拥有行为的 Module 分组。目录表达代码所有权；Adapter 与其实现的 Interface 保持在同一 Module 内。
 
 | 目录 | Module 职责 |
