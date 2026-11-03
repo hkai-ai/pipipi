@@ -21,19 +21,16 @@ function production(version: "v2" | "v3") {
         ],
         installedSkills: () => createCharacterEmojiSkillRefs(),
         build: ({ environment, pi, skills, positiveInteger }) => {
-            const config = {
-                apiKey: pi.openAIApiKey ?? "",
-                baseUrl: pi.openAIBaseUrl ?? "",
-            };
+            const gateway = pi.gateway ?? {};
             return createCharacterEmojiRegistration({
                 version,
                 onDiagnostic: (record) => logger.warn(record, record.event),
                 onObservation: (record) => logger.info(record, record.event),
                 agent: new PiCharacterEmojiAgent({
                     version,
-                    ...config,
+                    gateway,
                     skills,
-                    search: new ResponsesMemeSearch(config),
+                    search: new ResponsesMemeSearch({ gateway }),
                 }),
                 capability: new HttpCharacterEmojiRenderingCapability({
                     baseUrl: parseCrtBusinessApiBaseUrl(environment),

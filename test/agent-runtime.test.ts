@@ -61,8 +61,10 @@ describe("structured Pi Agent", () => {
             instructions: ["Synthetic"],
             provider: "anthropic",
             model: model.id,
-            openAIBaseUrl: "https://text.example/v1",
-            openAIApiKey: "shared-key",
+            gateway: {
+                baseUrl: "https://text.example/v1",
+                apiKey: "shared-key",
+            },
             openAIApiMode: "chat-completions",
             modelRuntime,
             sessionFactory: async (options) => {

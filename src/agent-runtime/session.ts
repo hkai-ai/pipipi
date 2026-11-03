@@ -1,4 +1,5 @@
 /** 为每次请求创建配置隔离、禁用缓存预热且不落盘的 Pi Session。 */
+
 import { resolve } from "node:path";
 import { InMemoryCredentialStore } from "@earendil-works/pi-ai";
 import {
@@ -15,6 +16,7 @@ import {
 import { AgentExecutionFailure } from "./failure.js";
 import { configureOpenAI, type OpenAIApiMode } from "./pi.js";
 import { createSkillSet, type SkillRef, type SkillSet } from "./skills.js";
+import type { TextGateway } from "./text-gateway.js";
 
 export type PiSessionFactory = (
     options: CreateAgentSessionOptions,
@@ -27,8 +29,7 @@ export type PiSessionOptions = Readonly<{
     agentDir?: string;
     provider?: string;
     model?: string;
-    openAIBaseUrl?: string;
-    openAIApiKey?: string;
+    gateway?: TextGateway;
     openAIApiMode?: OpenAIApiMode;
     thinkingLevel?: "off" | "minimal" | "low" | "medium" | "high";
     modelRuntime?: ModelRuntime;
@@ -93,10 +94,10 @@ export class PiSessionSupport {
         this.#model = options.model;
         const usesOpenAI = !options.provider || options.provider === "openai";
         this.#openAIBaseUrl = usesOpenAI
-            ? options.openAIBaseUrl?.trim() || undefined
+            ? options.gateway?.baseUrl?.trim() || undefined
             : undefined;
         this.#openAIApiKey = usesOpenAI
-            ? options.openAIApiKey?.trim() || undefined
+            ? options.gateway?.apiKey?.trim() || undefined
             : undefined;
         this.#openAIApiMode =
             options.openAIApiMode ??

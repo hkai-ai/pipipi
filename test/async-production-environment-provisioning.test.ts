@@ -252,8 +252,15 @@ describe("Async production environment provisioning", () => {
         expect(contents[2]).toContain("OPENAI_API_KEY=openai-secret");
         for (const content of [contents[1], contents[3], contents[4]]) {
             expect(content).not.toContain("CHARACTER_EMOJI_API_KEY");
+            expect(content).not.toContain("TEXT_MODEL_API_KEY");
         }
         for (const content of [contents[0], contents[2]]) {
+            expect(content).toContain(
+                "TEXT_MODEL_API_KEY=canonical-text-secret",
+            );
+            expect(content).toContain(
+                "TEXT_MODEL_BASE_URL=https://canonical.example/v1",
+            );
             expect(content).toContain(
                 "CHARACTER_EMOJI_API_KEY=shared-text-secret",
             );
@@ -607,6 +614,8 @@ describe("Async production environment provisioning", () => {
                 "PI_PROVIDER=openai",
                 "PI_MODEL=gpt-5.6-terra",
                 "OPENAI_API_KEY=openai-secret",
+                "TEXT_MODEL_API_KEY=canonical-text-secret",
+                "TEXT_MODEL_BASE_URL=https://canonical.example/v1",
                 "CHARACTER_EMOJI_API_KEY=shared-text-secret",
                 "CHARACTER_EMOJI_BASE_URL=https://text.example/v1",
                 "CHARACTER_EMOJI_PLANNER_API_KEY=deprecated-planner-secret",

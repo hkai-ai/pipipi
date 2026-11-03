@@ -17,6 +17,7 @@ import {
     withAbortableSession,
 } from "../../agent-runtime/session.js";
 import type { SkillRef } from "../../agent-runtime/skills.js";
+import type { TextGateway } from "../../agent-runtime/text-gateway.js";
 import type {
     CharacterEmojiAgent,
     CharacterEmojiBudget,
@@ -51,7 +52,6 @@ import {
 } from "./materials.js";
 import { memeLibraryVersion } from "./memes.js";
 import {
-    type CharacterEmojiModelConfig,
     characterEmojiModel,
     characterEmojiProvider,
     createCharacterEmojiModel,
@@ -74,7 +74,8 @@ import {
 } from "./search.js";
 import { allowsMemeSearch } from "./search-policy.js";
 
-export type PiCharacterEmojiAgentOptions = CharacterEmojiModelConfig & {
+export type PiCharacterEmojiAgentOptions = {
+    gateway: TextGateway;
     skills: readonly SkillRef[];
     version?: "v2" | "v3";
     search: MemeSearch;
@@ -327,7 +328,7 @@ export class PiCharacterEmojiAgent
                 }
             },
         });
-        this.#model ??= createCharacterEmojiModel(this.#options);
+        this.#model ??= createCharacterEmojiModel(this.#options.gateway);
         const supportKey = `${format}:${mode}:${budget.reasoningEffort}`;
         if (!this.#supports.has(supportKey)) {
             const skills = this.#options.skills.filter(

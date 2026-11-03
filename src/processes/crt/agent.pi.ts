@@ -1,8 +1,10 @@
 /** agent.ts 里 CrtAgent Port 的生产 Pi 实现：把调色板与画幅编译成 Prompt */
+
 import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import type { OpenAIApiMode } from "../../agent-runtime/pi.js";
 import type { SkillRef } from "../../agent-runtime/skills.js";
 import { PiStructuredAgent } from "../../agent-runtime/structured.js";
+import type { TextGateway } from "../../agent-runtime/text-gateway.js";
 import type { CrtAgent, CrtAgentRequest } from "./agent.js";
 
 export type PiCrtAgentOptions = {
@@ -11,8 +13,7 @@ export type PiCrtAgentOptions = {
     agentDir?: string;
     provider?: string;
     model?: string;
-    openAIBaseUrl?: string;
-    openAIApiKey?: string;
+    gateway?: TextGateway;
     openAIApiMode?: OpenAIApiMode;
     modelRuntime?: ModelRuntime;
 };

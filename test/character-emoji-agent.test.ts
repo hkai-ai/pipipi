@@ -122,8 +122,7 @@ const searchOptions = () => ({
 });
 const makeSearch = (fetcher: typeof fetch) =>
     new ResponsesMemeSearch({
-        apiKey: "test-key",
-        baseUrl: "https://search.example/v1",
+        gateway: { apiKey: "test-key", baseUrl: "https://search.example/v1" },
         fetch: fetcher,
     });
 
@@ -162,8 +161,10 @@ function harness(
         })),
     };
     const agent = new PiCharacterEmojiAgent({
-        apiKey: "emoji-test-key",
-        baseUrl: "https://emoji.example/v1",
+        gateway: {
+            apiKey: "emoji-test-key",
+            baseUrl: "https://emoji.example/v1",
+        },
         skills: createCharacterEmojiSkillRefs(),
         search,
         sessionFactory: async (config) => {

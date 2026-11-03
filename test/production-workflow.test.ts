@@ -13,15 +13,15 @@ describe("Production CI/CD workflow", () => {
         );
         const evidence = step(workflow, "Verify safe same-revision evidence");
         expect(acceptance).toContain(
-            `CHARACTER_EMOJI_BASE_URL: \${{ vars.CHARACTER_EMOJI_BASE_URL }}`,
+            `TEXT_MODEL_BASE_URL: \${{ vars.TEXT_MODEL_BASE_URL }}`,
         );
         expect(acceptance).toContain(
-            `CHARACTER_EMOJI_API_KEY: \${{ secrets.CHARACTER_EMOJI_API_KEY }}`,
+            `TEXT_MODEL_API_KEY: \${{ secrets.TEXT_MODEL_API_KEY }}`,
         );
         expect(evidence).toContain(
-            `CHARACTER_EMOJI_API_KEY: \${{ secrets.CHARACTER_EMOJI_API_KEY }}`,
+            `TEXT_MODEL_API_KEY: \${{ secrets.TEXT_MODEL_API_KEY }}`,
         );
-        expect(evidence).toContain('"$CHARACTER_EMOJI_API_KEY"');
+        expect(evidence).toContain('"$TEXT_MODEL_API_KEY"');
     });
     it("keeps durable async acceptance separate, ordered, and required for deploy", async () => {
         const [workflow, manifestSource] = await Promise.all([

@@ -1,29 +1,38 @@
 /** 统一选择文本模型网关与配套凭证，隔离新旧配置并拒绝跨来源拼接。 */
 type Environment = Readonly<Record<string, string | undefined>>;
 
+export type TextGateway = Readonly<{ baseUrl?: string; apiKey?: string }>;
+
+const pairs = [
+    ["TEXT_MODEL_BASE_URL", "TEXT_MODEL_API_KEY"],
+    ["CHARACTER_EMOJI_BASE_URL", "CHARACTER_EMOJI_API_KEY"],
+    ["OPENAI_BASE_URL", "OPENAI_API_KEY"],
+] as const;
+
+function selectedPair(environment: Environment) {
+    return (
+        pairs.find(
+            ([base, key]) =>
+                environment[base]?.trim() || environment[key]?.trim(),
+        ) ?? pairs[2]
+    );
+}
+
 export function textGatewayVariables(
     environment: Environment,
 ): readonly string[] {
-    return environment.CHARACTER_EMOJI_BASE_URL?.trim() ||
-        environment.CHARACTER_EMOJI_API_KEY?.trim()
-        ? ["CHARACTER_EMOJI_BASE_URL", "CHARACTER_EMOJI_API_KEY"]
-        : ["OPENAI_API_KEY"];
+    const pair = selectedPair(environment);
+    return pair === pairs[2] ? [pair[1]] : pair;
 }
 
-export function resolveTextGateway(
-    environment: Environment,
-): Readonly<{ baseUrl?: string; apiKey?: string }> {
-    const canonical = textGatewayVariables(environment).includes(
-        "CHARACTER_EMOJI_API_KEY",
-    );
-    const baseName = canonical ? "CHARACTER_EMOJI_BASE_URL" : "OPENAI_BASE_URL";
-    const keyName = canonical ? "CHARACTER_EMOJI_API_KEY" : "OPENAI_API_KEY";
+export function resolveTextGateway(environment: Environment): TextGateway {
+    const pair = selectedPair(environment);
+    const [baseName, keyName] = pair;
+    const canonical = pair !== pairs[2];
     const apiKey = environment[keyName]?.trim() || undefined;
     const configuredBase = environment[baseName]?.trim() || undefined;
     if (canonical && (!configuredBase || !apiKey)) {
-        throw new Error(
-            "CHARACTER_EMOJI_BASE_URL 与 CHARACTER_EMOJI_API_KEY 必须同时配置",
-        );
+        throw new Error(`${baseName} 与 ${keyName} 必须同时配置`);
     }
     const baseUrl =
         configuredBase ?? (apiKey ? "https://api.openai.com/v1" : undefined);

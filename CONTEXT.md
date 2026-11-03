@@ -223,4 +223,4 @@ CRT 与照片海报将背景模式作为可选业务参数；省略时保持原�
 
 豆包（Doubao）新增原版 Q 版参考图、个性和三条原创语音素材，仅支持 Chibi；详见角色表情包专题，部署服务端后再开放调用方。
 
-文本模型网关由 Composition Root 统一解析：优先使用完整的 `CHARACTER_EMOJI_BASE_URL` / `CHARACTER_EMOJI_API_KEY`，两者都未配置才使用 OPENAI 旧网关配置。表情包构思与搜梗也复用同一对；旧 PLANNER 网关覆盖不再生效。模型、协议与调用预算保持各 Registration 原定义，图片服务凭证不参与这项解析。
+文本模型网关由 Composition Root 统一解析：优先使用完整的 `TEXT_MODEL_BASE_URL` / `TEXT_MODEL_API_KEY`，两者都未配置才依次兼容 CHARACTER_EMOJI、OPENAI 旧网关整对配置。表情包构思与搜梗也复用同一对；旧 PLANNER 网关覆盖不再生效。模型、协议与调用预算保持各 Registration 原定义，图片服务凭证不参与这项解析。

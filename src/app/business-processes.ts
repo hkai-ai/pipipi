@@ -64,8 +64,7 @@ export function createProductionRuntime(
     const pi: ProductionContext["pi"] = {
         provider: environment.PI_PROVIDER,
         model: environment.PI_MODEL,
-        openAIBaseUrl: gateway.baseUrl,
-        openAIApiKey: gateway.apiKey,
+        gateway,
         openAIApiMode: parseOpenAIApiMode(environment.OPENAI_API_MODE),
         agentDir: environment.PI_AGENT_DIR,
     };
