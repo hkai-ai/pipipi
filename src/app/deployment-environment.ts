@@ -1,5 +1,5 @@
 /** 按 Role 声明并校验部署所需的环境变量，缺失或生产环境不合规时报错 */
-import { textGatewayVariables } from "../agent-runtime/text-gateway.js";
+import { modelGatewayVariables } from "../model-gateway.js";
 import type { StartupEnvironment } from "./config.js";
 
 export const deploymentRoles = Object.freeze([
@@ -122,7 +122,18 @@ export function checkDeploymentEnvironment(
     role: DeploymentRole,
     options: DeploymentEnvironmentCheckOptions = {},
 ): DeploymentEnvironmentCheck {
+    const imageGatewayVariables =
+        options.includeProviderCredentials && role === "crt-business-api"
+            ? [
+                  ...((environment.IMAGE_PROVIDER?.trim() || "openai") ===
+                  "openai"
+                      ? modelGatewayVariables(environment, "image")
+                      : []),
+                  ...modelGatewayVariables(environment, "character-image"),
+              ]
+            : [];
     const requiredCandidates = [
+        ...imageGatewayVariables,
         ...variablesByRole[role],
         ...(role === "api" && environment.ASYNC_PROCESS_RUNS_ENABLED === "true"
             ? asyncApiVariables
@@ -153,7 +164,7 @@ export function checkDeploymentEnvironment(
         ...(options.includeProviderCredentials &&
         agentRoles.includes(role) &&
         environment.PI_PROVIDER === "openai"
-            ? textGatewayVariables(environment)
+            ? modelGatewayVariables(environment)
             : []),
     ];
     const requiredVariables = Object.freeze([...new Set(requiredCandidates)]);

@@ -1,7 +1,7 @@
 /** production Business Process Runtime：向 catalog 中每个 Process 提供共享配置并组装 Runner */
 
 import { parseOpenAIApiMode } from "../agent-runtime/pi.js";
-import { resolveTextGateway } from "../agent-runtime/text-gateway.js";
+import { resolveModelGateway } from "../model-gateway.js";
 import {
     combineProcessRunLogSinks,
     createProcessAttemptRunner,
@@ -60,7 +60,7 @@ export function createProductionRuntime(
         name,
         fallback,
     ) => parsePositiveInteger(environment[name], fallback, name);
-    const gateway = resolveTextGateway(environment);
+    const gateway = resolveModelGateway(environment);
     const pi: ProductionContext["pi"] = {
         provider: environment.PI_PROVIDER,
         model: environment.PI_MODEL,

@@ -2,7 +2,7 @@
 
 import type { OpenAIApiMode } from "../agent-runtime/pi.js";
 import type { InstalledSkillRef, SkillRef } from "../agent-runtime/skills.js";
-import type { TextGateway } from "../agent-runtime/text-gateway.js";
+import type { ModelGateway } from "../model-gateway.js";
 import {
     createProcessRegistry,
     type ProcessAttemptRunner,
@@ -19,7 +19,7 @@ export type ProductionEnvironment = Readonly<
 export type PiAgentConfig = Readonly<{
     provider?: string;
     model?: string;
-    gateway?: TextGateway;
+    gateway?: ModelGateway;
     openAIApiMode?: OpenAIApiMode;
     agentDir?: string;
 }>;

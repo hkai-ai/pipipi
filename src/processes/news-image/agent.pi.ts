@@ -4,7 +4,7 @@ import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import type { OpenAIApiMode } from "../../agent-runtime/pi.js";
 import type { SkillRef } from "../../agent-runtime/skills.js";
 import { PiStructuredAgent } from "../../agent-runtime/structured.js";
-import type { TextGateway } from "../../agent-runtime/text-gateway.js";
+import type { ModelGateway } from "../../model-gateway.js";
 import type {
     NewsImageAgent,
     NewsImageAgentRequest,
@@ -18,7 +18,7 @@ export type PiNewsImageAgentOptions = {
     agentDir?: string;
     provider?: string;
     model?: string;
-    gateway?: TextGateway;
+    gateway?: ModelGateway;
     openAIApiMode?: OpenAIApiMode;
     modelRuntime?: ModelRuntime;
 };

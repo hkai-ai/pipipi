@@ -73,7 +73,7 @@ npm run check:deployment-env -- api
 npm run check:deployment-env -- crt-business-api
 ```
 
-同步 API 的无默认必填项是 `CRT_BUSINESS_API_BASE_URL`（Compose 注入，CI 预检显式传入同一值）；文本网关统一配置 `TEXT_MODEL_BASE_URL` 与 `TEXT_MODEL_API_KEY`；配置任一新值必须补齐整对。两者均未配置时，先尝试完整旧 CHARACTER_EMOJI 网关对；两组都缺省时，`PI_PROVIDER=openai` 的预检才要求旧 `OPENAI_API_KEY`，并使用配套旧 `OPENAI_BASE_URL`（省略时为官方地址）。API 与 Process Worker 预检还会读取镜像内全部生产 Runtime Skill，校验目录、`SKILL.md`、精确名称与版本、固定哈希和快照内容；失败时只输出脱敏事件并返回非零状态。生产部署在数据库迁移和容器切换前执行该预检，因此旧 `.env` 中失效的 Skill 路径覆盖不会进入活动服务。CRT Business API 预检要求 FAL、存储供应商和 OSS 凭证；Compose 固定供应商为 `fal` 与 `aliyun-oss`。若目标环境设置 `ASYNC_PROCESS_RUNS_ENABLED=true`，API 预检还会检查异步角色变量。缺少任一项时，命令一次列出全部变量名并返回非零状态；它不输出值，也不连接外部系统。
+同步 API 的无默认必填项是 `CRT_BUSINESS_API_BASE_URL`（Compose 注入，CI 预检显式传入同一值）；文本网关统一配置 `MODEL_GATEWAY_BASE_URL` 与 `MODEL_GATEWAY_API_KEY`；配置任一新值必须补齐整对。两者均未配置时，先依次尝试完整旧 TEXT_MODEL、CHARACTER_EMOJI 网关对；三组都缺省时，`PI_PROVIDER=openai` 的预检才要求旧 `OPENAI_API_KEY`，并使用配套旧 `OPENAI_BASE_URL`（省略时为官方地址）。API 与 Process Worker 预检还会读取镜像内全部生产 Runtime Skill，校验目录、`SKILL.md`、精确名称与版本、固定哈希和快照内容；失败时只输出脱敏事件并返回非零状态。生产部署在数据库迁移和容器切换前执行该预检，因此旧 `.env` 中失效的 Skill 路径覆盖不会进入活动服务。CRT Business API 预检要求 FAL、存储供应商和 OSS 凭证；Compose 固定供应商为 `fal` 与 `aliyun-oss`。若目标环境设置 `ASYNC_PROCESS_RUNS_ENABLED=true`，API 预检还会检查异步角色变量。缺少任一项时，命令一次列出全部变量名并返回非零状态；它不输出值，也不连接外部系统。
 
 实际生产启动会在创建 Adapter 前重复同一检查，再校验 URL、正整数、枚举和跨字段约束。预检通过不证明 Secret 有效或依赖可达。`PI_PROVIDER` 与 `PI_MODEL`、模型凭证、Business Capability 契约和图片持久化仍按本手册的 smoke 与发布门禁验证。
 
@@ -536,3 +536,5 @@ npm run accept:crt-business
 重启后若存在 `operation.lock`：先停止该内部服务并确认没有旧容器处理该目录，备份单项目录，然后核对 attempt.json 与供应商记录。provider_pending 有 requestId 时可移除该项锁后恢复同一请求；submission_unknown 不得改回 approved 或再次生成，应人工对账。恢复运行前只处理精确 productionId 的锁，不批量删除目录。已上传的同摘要对象只校验复用，不覆盖；缺少真实批准记录时不能人工补“通过”。
 
 上线验收必须从 Memebuy 页面走完两次真实人工确认，再检查最终草稿封面、参考图和供应商单次请求。确定性测试通过不代表真实图片质量、OSS 公读或上线成功。
+
+共享模型网关配置与渠道启用分开迁移：MODEL_GATEWAY 整对同时用于文本与已启用图片主用，API/Worker 和内部 CRT Business API 可读取同一凭证。内部图片服务继续使用 shared/.env，独立图片供应商与 OSS 密钥不得复制到 API/Worker 角色文件。Flare 开关缺省保留旧 image key 启用行为；旧主用部署先设置 `CHARACTER_EMOJI_IMAGE_ENABLED=true` 再移除旧图片 key，Magikaru-only 不开启该开关。通用 OpenAI 图片覆盖优先于共享对，FAL 和 Magikaru 的选择及凭证不变。

@@ -2,12 +2,12 @@
 
 import { InMemoryCredentialStore } from "@earendil-works/pi-ai";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
-import type { TextGateway } from "../../agent-runtime/text-gateway.js";
+import type { ModelGateway } from "../../model-gateway.js";
 
 export const characterEmojiModel = "deepseek-v4.1-flash";
 export const characterEmojiSearchModel = "deepseek-v4-flash-260425";
 export const characterEmojiProvider = "character-emoji";
-export async function createCharacterEmojiModel(config: TextGateway) {
+export async function createCharacterEmojiModel(config: ModelGateway) {
     if (!config.apiKey?.trim() || !config.baseUrl)
         throw new Error("表情包需要配置共享文本模型网关与凭证");
     const runtime = await ModelRuntime.create({

@@ -13,10 +13,10 @@ import {
     SessionManager,
     SettingsManager,
 } from "@earendil-works/pi-coding-agent";
+import type { ModelGateway } from "../model-gateway.js";
 import { AgentExecutionFailure } from "./failure.js";
 import { configureOpenAI, type OpenAIApiMode } from "./pi.js";
 import { createSkillSet, type SkillRef, type SkillSet } from "./skills.js";
-import type { TextGateway } from "./text-gateway.js";
 
 export type PiSessionFactory = (
     options: CreateAgentSessionOptions,
@@ -29,7 +29,7 @@ export type PiSessionOptions = Readonly<{
     agentDir?: string;
     provider?: string;
     model?: string;
-    gateway?: TextGateway;
+    gateway?: ModelGateway;
     openAIApiMode?: OpenAIApiMode;
     thinkingLevel?: "off" | "minimal" | "low" | "medium" | "high";
     modelRuntime?: ModelRuntime;

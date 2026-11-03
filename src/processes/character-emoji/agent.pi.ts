@@ -17,7 +17,7 @@ import {
     withAbortableSession,
 } from "../../agent-runtime/session.js";
 import type { SkillRef } from "../../agent-runtime/skills.js";
-import type { TextGateway } from "../../agent-runtime/text-gateway.js";
+import type { ModelGateway } from "../../model-gateway.js";
 import type {
     CharacterEmojiAgent,
     CharacterEmojiBudget,
@@ -75,7 +75,7 @@ import {
 import { allowsMemeSearch } from "./search-policy.js";
 
 export type PiCharacterEmojiAgentOptions = {
-    gateway: TextGateway;
+    gateway: ModelGateway;
     skills: readonly SkillRef[];
     version?: "v2" | "v3";
     search: MemeSearch;

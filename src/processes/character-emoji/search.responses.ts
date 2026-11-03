@@ -1,6 +1,6 @@
 /** 调用固定 DeepSeek Responses 联网搜梗，校验完成状态并保留来源。 */
 import { z } from "zod";
-import type { TextGateway } from "../../agent-runtime/text-gateway.js";
+import type { ModelGateway } from "../../model-gateway.js";
 import { cancellationCode, EmojiFailure } from "./diagnostics.js";
 import { characterEmojiSearchModel } from "./model.js";
 import { readPlannerJson } from "./planner-output.js";
@@ -45,9 +45,9 @@ const responseSchema = z.object({
 });
 
 export class ResponsesMemeSearch implements MemeSearch {
-    readonly #config: TextGateway;
+    readonly #config: ModelGateway;
     readonly #fetch: typeof fetch;
-    constructor(config: { gateway: TextGateway; fetch?: typeof fetch }) {
+    constructor(config: { gateway: ModelGateway; fetch?: typeof fetch }) {
         this.#config = config.gateway;
         this.#fetch = config.fetch ?? globalThis.fetch;
     }

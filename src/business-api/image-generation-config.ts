@@ -1,4 +1,5 @@
 /** 图片生成 Business Capability 的装配 Interface：按 IMAGE_PROVIDER 从环境变量选择 OpenAI 或 FAL Adapter */
+import { resolveModelGateway } from "../model-gateway.js";
 import {
     FalImageGenerationClient,
     type FalImageGenerationClientOptions,
@@ -43,10 +44,13 @@ export function createImageGenerationClient(
         });
     }
 
+    const gateway = resolveModelGateway(environment, "image");
+    if (!gateway.apiKey) throw new Error("图片模型需要配置网关凭证");
     return Object.freeze({
         provider,
         client: new OpenAIImageGenerationClient({
-            ...resolveOpenAIConfiguration(environment),
+            ...gateway,
+            apiKey: gateway.apiKey,
             ...(options.timeoutMs === undefined
                 ? {}
                 : { timeoutMs: options.timeoutMs }),
@@ -58,22 +62,4 @@ function parseProvider(value: string | undefined): ImageGenerationProvider {
     const provider = value?.trim() || "openai";
     if (provider === "openai" || provider === "fal") return provider;
     throw new Error("IMAGE_PROVIDER must be openai or fal");
-}
-
-function resolveOpenAIConfiguration(
-    environment: Readonly<Record<string, string | undefined>>,
-): Readonly<{ apiKey: string; baseUrl?: string }> {
-    const apiKey =
-        environment.OPENAI_IMAGE_API_KEY?.trim() ||
-        environment.OPENAI_API_KEY?.trim();
-    if (!apiKey) {
-        throw new Error("OPENAI_IMAGE_API_KEY or OPENAI_API_KEY is required");
-    }
-    const baseUrl =
-        environment.OPENAI_IMAGE_BASE_URL?.trim() ||
-        environment.OPENAI_BASE_URL?.trim();
-    return Object.freeze({
-        apiKey,
-        ...(baseUrl ? { baseUrl } : {}),
-    });
 }

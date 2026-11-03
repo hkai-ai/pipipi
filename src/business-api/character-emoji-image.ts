@@ -2,6 +2,7 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import sharp from "sharp";
+import { resolveModelGateway } from "../model-gateway.js";
 import { createCharacterReferenceReader } from "./character-reference.js";
 import {
     characterEmojiImageModel,
@@ -42,32 +43,15 @@ export function createCharacterEmojiImageClient(
         }) => void | Promise<void>;
     },
 ) {
-    const apiKey = environment.CHARACTER_EMOJI_IMAGE_API_KEY?.trim();
-    const baseUrl = environment.CHARACTER_EMOJI_IMAGE_BASE_URL?.trim();
+    const { apiKey, baseUrl } = resolveModelGateway(
+        environment,
+        "character-image",
+    );
     const backupKey = environment.MAGIKARU_API_KEY?.trim();
-    if (baseUrl && !apiKey) {
-        throw new Error(
-            "配置图片主用地址时必须配置 CHARACTER_EMOJI_IMAGE_API_KEY",
-        );
-    }
-    if (baseUrl) {
-        const url = new URL(baseUrl);
-        if (
-            url.protocol !== "https:" ||
-            url.username ||
-            url.password ||
-            url.search ||
-            url.hash
-        ) {
-            throw new Error(
-                "CHARACTER_EMOJI_IMAGE_BASE_URL 必须是无凭证的 HTTPS 地址",
-            );
-        }
-    }
     const primary = apiKey
         ? new OpenAIImageGenerationClient({
               apiKey,
-              baseUrl: baseUrl || "https://llmapi.memene.cn/openai/v1",
+              baseUrl,
               timeoutMs: backupKey ? primaryTimeoutMs : timeoutMs,
               fetch: options.fetch,
               referenceReader: createCharacterReferenceReader(

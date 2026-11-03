@@ -233,6 +233,12 @@ describe("Async production environment provisioning", () => {
         expect(sharedEnvironment).not.toContain(ORIGINAL_DATABASE_URL);
         expect(sharedEnvironment).toContain("FAL_KEY=fal-secret-must-not-copy");
         expect(sharedEnvironment).toContain(
+            "MODEL_GATEWAY_API_KEY=canonical-text-secret",
+        );
+        expect(sharedEnvironment).toContain(
+            "CHARACTER_EMOJI_IMAGE_ENABLED=true",
+        );
+        expect(sharedEnvironment).toContain(
             "OSS_ACCESS_KEY_SECRET=oss-secret-must-not-copy",
         );
         const contents = await Promise.all(
@@ -252,14 +258,14 @@ describe("Async production environment provisioning", () => {
         expect(contents[2]).toContain("OPENAI_API_KEY=openai-secret");
         for (const content of [contents[1], contents[3], contents[4]]) {
             expect(content).not.toContain("CHARACTER_EMOJI_API_KEY");
-            expect(content).not.toContain("TEXT_MODEL_API_KEY");
+            expect(content).not.toContain("MODEL_GATEWAY_API_KEY");
         }
         for (const content of [contents[0], contents[2]]) {
             expect(content).toContain(
-                "TEXT_MODEL_API_KEY=canonical-text-secret",
+                "MODEL_GATEWAY_API_KEY=canonical-text-secret",
             );
             expect(content).toContain(
-                "TEXT_MODEL_BASE_URL=https://canonical.example/v1",
+                "MODEL_GATEWAY_BASE_URL=https://canonical.example/v1",
             );
             expect(content).toContain(
                 "CHARACTER_EMOJI_API_KEY=shared-text-secret",
@@ -268,6 +274,9 @@ describe("Async production environment provisioning", () => {
                 "CHARACTER_EMOJI_BASE_URL=https://text.example/v1",
             );
             expect(content).not.toContain("CHARACTER_EMOJI_PLANNER_API_KEY");
+            expect(content).not.toContain("OPENAI_IMAGE_API_KEY");
+            expect(content).not.toContain("CHARACTER_EMOJI_IMAGE_API_KEY");
+            expect(content).not.toContain("CHARACTER_EMOJI_IMAGE_ENABLED");
             expect(content).not.toContain("TITLED_CONTENT_SEPARATOR");
             expect(content).toContain("PROCESS_RUN_RECORD_POOL_MAX=7");
             expect(content).toContain(
@@ -614,8 +623,8 @@ describe("Async production environment provisioning", () => {
                 "PI_PROVIDER=openai",
                 "PI_MODEL=gpt-5.6-terra",
                 "OPENAI_API_KEY=openai-secret",
-                "TEXT_MODEL_API_KEY=canonical-text-secret",
-                "TEXT_MODEL_BASE_URL=https://canonical.example/v1",
+                "MODEL_GATEWAY_API_KEY=canonical-text-secret",
+                "MODEL_GATEWAY_BASE_URL=https://canonical.example/v1",
                 "CHARACTER_EMOJI_API_KEY=shared-text-secret",
                 "CHARACTER_EMOJI_BASE_URL=https://text.example/v1",
                 "CHARACTER_EMOJI_PLANNER_API_KEY=deprecated-planner-secret",
@@ -626,6 +635,9 @@ describe("Async production environment provisioning", () => {
                 "PROCESS_RUN_RECORD_POOL_MAX=7",
                 "PROCESS_RUN_OBSERVATION_TIMEOUT_MS=1800",
                 "PROCESS_RUN_RECORD_RETENTION_DAYS=45",
+                "OPENAI_IMAGE_API_KEY=image-secret-must-not-copy",
+                "CHARACTER_EMOJI_IMAGE_API_KEY=flare-secret-must-not-copy",
+                "CHARACTER_EMOJI_IMAGE_ENABLED=true",
                 "FAL_KEY=fal-secret-must-not-copy",
                 "OSS_ACCESS_KEY_SECRET=oss-secret-must-not-copy",
                 "",

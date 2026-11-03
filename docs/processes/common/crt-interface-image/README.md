@@ -180,7 +180,7 @@ GPT Image 2 负责识别参考图、保留主体关系和重绘整体构图，�
 
 ```bash
 npm test -- test/crt-process.test.ts test/crt-http.test.ts test/runtime-skills.test.ts test/startup-construction.test.ts
-npm test -- test/openai-image-generation.test.ts test/fal-image-generation.test.ts test/openai-image-config.test.ts test/image-generation-config.test.ts test/crt-local-business-api.test.ts test/crt-evidence.test.ts
+npm test -- test/openai-image-generation.test.ts test/fal-image-generation.test.ts test/image-gateway.test.ts test/image-generation-config.test.ts test/crt-local-business-api.test.ts test/crt-evidence.test.ts
 npm run check
 npm run typecheck
 npm test

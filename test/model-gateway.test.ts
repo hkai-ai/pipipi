@@ -1,14 +1,16 @@
 import { describe, expect, it } from "vitest";
-import { resolveTextGateway } from "../src/agent-runtime/text-gateway.js";
 import { checkDeploymentEnvironment } from "../src/app/deployment-environment.js";
+import { resolveModelGateway } from "../src/model-gateway.js";
 import { createPosterSkillRefs } from "../src/processes/poster/skills.js";
 
 describe("shared text gateway configuration", () => {
     it("selects the canonical pair together even when legacy credentials remain", () => {
         expect(
-            resolveTextGateway({
-                TEXT_MODEL_BASE_URL: "https://new.example/v1",
-                TEXT_MODEL_API_KEY: "new-key",
+            resolveModelGateway({
+                MODEL_GATEWAY_BASE_URL: "https://new.example/v1",
+                MODEL_GATEWAY_API_KEY: "new-key",
+                TEXT_MODEL_BASE_URL: "https://previous-text.example/v1",
+                TEXT_MODEL_API_KEY: "previous-text-key",
                 CHARACTER_EMOJI_BASE_URL: "https://previous.example/v1",
                 CHARACTER_EMOJI_API_KEY: "previous-key",
                 OPENAI_BASE_URL: "https://old.example/v1",
@@ -16,25 +18,27 @@ describe("shared text gateway configuration", () => {
             }),
         ).toEqual({ baseUrl: "https://new.example/v1", apiKey: "new-key" });
     });
-    it.each(["TEXT_MODEL_BASE_URL", "TEXT_MODEL_API_KEY"])(
+    it.each(["MODEL_GATEWAY_BASE_URL", "MODEL_GATEWAY_API_KEY"])(
         "rejects an incomplete canonical pair with only %s",
         (key) => {
             expect(() =>
-                resolveTextGateway({
+                resolveModelGateway({
                     [key]: key.endsWith("URL")
                         ? "https://new.example/v1"
                         : "new-key",
+                    TEXT_MODEL_BASE_URL: "https://previous-text.example/v1",
+                    TEXT_MODEL_API_KEY: "previous-text-key",
                     CHARACTER_EMOJI_BASE_URL: "https://previous.example/v1",
                     CHARACTER_EMOJI_API_KEY: "previous-key",
                     OPENAI_BASE_URL: "https://old.example/v1",
                     OPENAI_API_KEY: "old-key",
                 }),
-            ).toThrow(/TEXT_MODEL/);
+            ).toThrow(/MODEL_GATEWAY/);
         },
     );
     it("supports the previous CHARACTER pair before the OPENAI fallback", () => {
         expect(
-            resolveTextGateway({
+            resolveModelGateway({
                 CHARACTER_EMOJI_BASE_URL: "https://previous.example/v1",
                 CHARACTER_EMOJI_API_KEY: "previous-key",
                 OPENAI_BASE_URL: "https://old.example/v1",
@@ -49,7 +53,7 @@ describe("shared text gateway configuration", () => {
         "rejects a partial previous pair with %s instead of mixing with OPENAI",
         (key) => {
             expect(() =>
-                resolveTextGateway({
+                resolveModelGateway({
                     [key]: key.endsWith("URL")
                         ? "https://previous.example/v1"
                         : "previous-key",
@@ -61,7 +65,7 @@ describe("shared text gateway configuration", () => {
     );
     it("uses legacy credentials only when the canonical pair is absent", () => {
         expect(
-            resolveTextGateway({
+            resolveModelGateway({
                 OPENAI_BASE_URL: "https://old.example/v1",
                 OPENAI_API_KEY: "old-key",
             }),
@@ -73,15 +77,17 @@ describe("shared text gateway configuration", () => {
             const result = checkDeploymentEnvironment(
                 {
                     PI_PROVIDER: "openai",
-                    TEXT_MODEL_BASE_URL: "https://new.example/v1",
-                    TEXT_MODEL_API_KEY: "new-key",
+                    MODEL_GATEWAY_BASE_URL: "https://new.example/v1",
+                    MODEL_GATEWAY_API_KEY: "new-key",
                 },
                 role,
                 { includeProviderCredentials: true },
             );
-            expect(result.requiredVariables).toContain("TEXT_MODEL_API_KEY");
+            expect(result.requiredVariables).toContain("MODEL_GATEWAY_API_KEY");
             expect(result.requiredVariables).not.toContain("OPENAI_API_KEY");
-            expect(result.missingVariables).not.toContain("TEXT_MODEL_API_KEY");
+            expect(result.missingVariables).not.toContain(
+                "MODEL_GATEWAY_API_KEY",
+            );
         },
     );
 });
@@ -118,8 +124,8 @@ it("routes production poster and character planning through the same gateway, ig
             {
                 PI_PROVIDER: "openai",
                 PI_MODEL: "gpt-5.4-mini",
-                TEXT_MODEL_BASE_URL: `http://127.0.0.1:${address.port}/v1`,
-                TEXT_MODEL_API_KEY: "shared-key",
+                MODEL_GATEWAY_BASE_URL: `http://127.0.0.1:${address.port}/v1`,
+                MODEL_GATEWAY_API_KEY: "shared-key",
                 CHARACTER_EMOJI_BASE_URL: "http://127.0.0.1:1/v1",
                 CHARACTER_EMOJI_API_KEY: "previous-key",
                 OPENAI_BASE_URL: "http://127.0.0.1:1/v1",
@@ -147,9 +153,9 @@ it("routes production poster and character planning through the same gateway, ig
         const { ResponsesMemeSearch } = await import(
             "../src/processes/character-emoji/search.responses.js"
         );
-        const gateway = resolveTextGateway({
-            TEXT_MODEL_BASE_URL: `http://127.0.0.1:${address.port}/v1`,
-            TEXT_MODEL_API_KEY: "shared-key",
+        const gateway = resolveModelGateway({
+            MODEL_GATEWAY_BASE_URL: `http://127.0.0.1:${address.port}/v1`,
+            MODEL_GATEWAY_API_KEY: "shared-key",
             OPENAI_API_KEY: "stale-key",
         });
         if (!gateway.baseUrl || !gateway.apiKey)
@@ -241,4 +247,44 @@ it("keeps concurrent Pi gateway credentials isolated from each other and the amb
         else process.env.OPENAI_API_KEY = original;
         await new Promise<void>((done) => server.close(() => done()));
     }
+});
+
+it("keeps the prior TEXT_MODEL pair compatible before older aliases", () => {
+    expect(
+        resolveModelGateway({
+            TEXT_MODEL_BASE_URL: "https://text.example/v1",
+            TEXT_MODEL_API_KEY: "text-key",
+            CHARACTER_EMOJI_BASE_URL: "https://old.example/v1",
+            CHARACTER_EMOJI_API_KEY: "old-key",
+        }),
+    ).toEqual({ baseUrl: "https://text.example/v1", apiKey: "text-key" });
+    expect(() =>
+        resolveModelGateway({
+            TEXT_MODEL_BASE_URL: "https://text.example/v1",
+            OPENAI_API_KEY: "old-key",
+        }),
+    ).toThrow(/TEXT_MODEL/);
+});
+it("preflights enabled images with canonical missing names while leaving disabled primary alone", () => {
+    const enabled = checkDeploymentEnvironment(
+        { IMAGE_PROVIDER: "fal", CHARACTER_EMOJI_IMAGE_ENABLED: "true" },
+        "crt-business-api",
+        { includeProviderCredentials: true },
+    );
+    expect(enabled.missingVariables).toEqual(
+        expect.arrayContaining([
+            "MODEL_GATEWAY_BASE_URL",
+            "MODEL_GATEWAY_API_KEY",
+        ]),
+    );
+    const disabled = checkDeploymentEnvironment(
+        { IMAGE_PROVIDER: "fal", MODEL_GATEWAY_API_KEY: "shared-key" },
+        "crt-business-api",
+        { includeProviderCredentials: true },
+    );
+    expect(disabled.requiredVariables).not.toContain("MODEL_GATEWAY_API_KEY");
+    const generic = checkDeploymentEnvironment({}, "crt-business-api", {
+        includeProviderCredentials: true,
+    });
+    expect(generic.missingVariables).toContain("MODEL_GATEWAY_API_KEY");
 });

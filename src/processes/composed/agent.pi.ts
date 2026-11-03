@@ -9,8 +9,8 @@ import type { TSchema } from "typebox";
 import type { OpenAIApiMode } from "../../agent-runtime/pi.js";
 import type { PiSessionFactory } from "../../agent-runtime/session.js";
 import type { SkillRef } from "../../agent-runtime/skills.js";
-import type { TextGateway } from "../../agent-runtime/text-gateway.js";
 import { PiTooledAgent } from "../../agent-runtime/tooled.js";
+import type { ModelGateway } from "../../model-gateway.js";
 import type { ComposedAgent, ComposedAgentRequest } from "./agent.js";
 import type { StepTool } from "./tools.js";
 
@@ -20,7 +20,7 @@ export type PiComposedAgentOptions = {
     agentDir?: string;
     provider?: string;
     model?: string;
-    gateway?: TextGateway;
+    gateway?: ModelGateway;
     openAIApiMode?: OpenAIApiMode;
     modelRuntime?: ModelRuntime;
     sessionFactory?: PiSessionFactory;

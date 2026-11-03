@@ -253,7 +253,7 @@ curl -X POST http://127.0.0.1:4300/execute \
 | `src/availability/redis.ts` | Redis 的 Availability Probe，检测连接、配置与安全基线 |
 | `src/availability/webhook.ts` | 飞书机器人 Webhook 的 Availability Notifier |
 | `src/business-api/object-storage.ts`、`aliyun-oss-storage.ts`、`object-storage-config.ts` | 对象存储 Interface（`ObjectStorageCapability`）、阿里云 OSS Adapter 与环境变量装配 |
-| `src/business-api/openai-image-generation.ts`、`openai-image-config.ts` | OpenAI 图片生成/编辑 Adapter 与其 API Key/Base URL 装配 |
+| `src/business-api/openai-image-generation.ts`、`src/model-gateway.ts` | OpenAI 图片生成/编辑 Adapter 与其 API Key/Base URL 装配 |
 | `src/business-api/fal-image-generation.ts`、`image-generation-config.ts` | FAL（GPT Image 2）图片生成/编辑 Adapter，及按 `IMAGE_PROVIDER` 选择 Adapter 的装配 Interface |
 | `src/business-api/crt-finalizer.ts`、`crt-evidence.ts` | CRT 图像后处理（像素化/扫描线/调色板渲染）与渲染证据留存 |
 | `src/business-api/crt-server.ts` | CRT Business API 本地 HTTP 服务：编排图片编辑/生成、幂等与结果落盘、CRT 终稿与新闻图渲染、对象存储上传与错误归因 |
@@ -423,8 +423,8 @@ npm run check:deployment-env -- api
 - 海报、CRT 等 Agent-backed Process 始终使用 Agent，因此共享的 Pi provider、model 和 API mode 须有效。
 - `POSTER_API_TIMEOUT_MS` 只控制受控 `POST /posters` Adapter，默认 `90000`；Process 总超时仍由 `PROCESS_TIMEOUT_MS` 治理。
 - `CRT_API_TIMEOUT_MS` 只控制受控 `POST /crt-images` Adapter，默认 `180000`。受控发布必须让 `PROCESS_TIMEOUT_MS` 长于它，平台请求超时再长于 Process 总超时。
-- `IMAGE_PROVIDER=openai|fal` 选择真实图片集成 Adapter，默认 `openai`。OpenAI Adapter 可用 `OPENAI_IMAGE_API_KEY` 与 `OPENAI_IMAGE_BASE_URL` 脱离 Agent 网关；未设置时回退到 `OPENAI_API_KEY` 与 `OPENAI_BASE_URL`。FAL Adapter 只读取服务端 `FAL_KEY`，并固定调用 GPT Image 2 生成与编辑 endpoint。
-- 全部文本 Agent、表情包构思与搜梗统一使用 `TEXT_MODEL_API_KEY`、`TEXT_MODEL_BASE_URL`；新配置全缺省时才依次成对回退旧 `CHARACTER_EMOJI_*`、`OPENAI_*`。表情包由专用 DeepSeek 4.1 Flash Pi Agent 按模式加载固定 Skill，通过 DeepSeek Responses 搜梗 Tool 编译方案；构思与修正不再读取 `CHARACTER_EMOJI_PLANNER_API_KEY`、`CHARACTER_EMOJI_PLANNER_BASE_URL`，已部署角色文件可以保留但不生效；参数及来源核验见 [Character Emoji](processes/common/character-emoji/README.md)。生图由 `character-emoji-image.ts` 装配 Flare 参考 Memebuy 通过 multipart image[] 提交内存中的角色参考图，保留输入顺序；Magikaru 保持 URL 直传。配置备用时主用最多180秒，总预算300秒，主备观测均保留；Magikaru 保存受理回执后只轮询原 Job。模型选择固定在服务端，产品请求仍只包含角色和业务创意。
+- `IMAGE_PROVIDER=openai|fal` 选择真实图片集成 Adapter，默认 `openai`。OpenAI Adapter 优先选择完整 `OPENAI_IMAGE_API_KEY` 与 `OPENAI_IMAGE_BASE_URL` 图片覆盖；无覆盖时使用共享 `MODEL_GATEWAY_*`，再兼容 `OPENAI_*`。旧图片覆盖仅 key 时使用官方默认地址，不拼接其他组的地址；仅 base 缺 key 时失败。FAL Adapter 只读取服务端 `FAL_KEY`，并固定调用 GPT Image 2 生成与编辑 endpoint。
+- 全部文本 Agent、表情包构思与搜梗统一使用 `MODEL_GATEWAY_API_KEY`、`MODEL_GATEWAY_BASE_URL`；新配置全缺省时才依次成对回退旧 `TEXT_MODEL_*`、`CHARACTER_EMOJI_*`、`OPENAI_*`。表情包由专用 DeepSeek 4.1 Flash Pi Agent 按模式加载固定 Skill，通过 DeepSeek Responses 搜梗 Tool 编译方案；构思与修正不再读取 `CHARACTER_EMOJI_PLANNER_API_KEY`、`CHARACTER_EMOJI_PLANNER_BASE_URL`，已部署角色文件可以保留但不生效；参数及来源核验见 [Character Emoji](processes/common/character-emoji/README.md)。生图由 `character-emoji-image.ts` 装配 Flare 参考 Memebuy 通过 multipart image[] 提交内存中的角色参考图，保留输入顺序；Magikaru 保持 URL 直传。配置备用时主用最多180秒，总预算300秒，主备观测均保留；Magikaru 保存受理回执后只轮询原 Job。模型选择固定在服务端，产品请求仍只包含角色和业务创意。
 - `INTERNAL_EVAL_ENABLED=true` 挂载 `POST /internal/eval/execute`。该入口仅接受三个新闻图片 Process，复用正式 Executor、Registration、Agent 和图片 Capability，在同一次成功执行中返回实际 Prompt、文本模型与非敏感图片参数。响应使用 `no-store`，诊断内容不进入正式输出、日志或 Run Record；生产 Compose 当前开启，鉴权与 `/execute` 一并后续统一处理。
 - `CRT_IMAGE_EVIDENCE_MODE=off|metadata|full` 控制 `crt-interface-image/v1` 的服务端证据副本。产品请求不能覆盖它；本地完整验收默认 `full`，生产 `POST /crt-images` 必须默认 `off`。
 - `CRT_IMAGE_EVIDENCE_DIRECTORY` 只在 `metadata` 或 `full` 时使用。完整字段、敏感数据边界和清理责任见 [`crt-interface-image` 的证据保留说明](processes/common/crt-interface-image/evidence-retention.md)。
