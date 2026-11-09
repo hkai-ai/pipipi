@@ -19,6 +19,10 @@ const hashes: Readonly<Record<PhotoPosterStyle, string>> = {
         "3205dae9d148a5187b97b13cede3c3364313eca2299193e94b2d65a936aa9009",
     "photo-fashion-manga":
         "56f4b2bc5874905d492f76e2f513bd2666d57af0ee4a833382ff8ea080dc8333",
+    "memory-checklist":
+        "f53db28a8602c338262dba228128c9a50bf57b69a5c1a4641394f512407dc17b",
+    "risograph-album":
+        "59ae8d5477ddc3106951c0e592947e8b1e46d2de8898a8729058226a7d082560",
 };
 
 export function createPhotoPosterSkillRefs(

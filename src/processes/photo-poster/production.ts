@@ -47,3 +47,7 @@ export const photoFashionMangaProduction = photoPosterProduction(
 );
 
 export const mangaPanelsProduction = photoPosterProduction("manga-panels");
+export const memoryChecklistProduction =
+    photoPosterProduction("memory-checklist");
+export const risographAlbumProduction =
+    photoPosterProduction("risograph-album");

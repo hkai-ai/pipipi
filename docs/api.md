@@ -1,6 +1,6 @@
 # 业务接口文档
 
-本文面向业务调用方和调用 Agent，记录二十三个 Business Process（默认启用二十二个）、Agent Conversations、重试与通知契约，以及临时开放的内部评测接口。场景列帮助产品找到契约；请求仍只提交准确 Process 或 Agent 版本和业务输入。其中 `composed-task/v1` 随应用发布但默认关闭；production Agent catalog 精确登记 `design-assistant/v1`，其四个业务路由由部署开关控制且默认关闭。
+本文面向业务调用方和调用 Agent，记录二十五个 Business Process（默认启用二十四个）、Agent Conversations、重试与通知契约，以及临时开放的内部评测接口。场景列帮助产品找到契约；请求仍只提交准确 Process 或 Agent 版本和业务输入。其中 `composed-task/v1` 随应用发布但默认关闭；production Agent catalog 精确登记 `design-assistant/v1`，其四个业务路由由部署开关控制且默认关闭。
 
 ## Agent 能力接入结论
 
@@ -349,6 +349,8 @@ Content-Type: application/json
 | `common` | `photo-doodle-collage` | 生成摄影剪贴与互动黑线小人海报 |
 | `common` | `photo-fashion-manga` | 真人照片转日式手绘时装漫画 |
 | `common` | `manga-panels` | 无文字的漫画分镜 |
+| `common` | `memory-checklist-photo-poster` | 上下分屏记忆清单海报，上半保留原片 |
+| `common` | `risograph-album` | 1:1 复古唱片封面，固定两句英文 |
 | `common` | `character-emoji` | 固定 AI 角色的单图表情或多格漫画 |
 | `common` | `crt-interface-image` | 根据公网参考图生成 CRT 风格图片 |
 | `memene` | `news-image-narrative-monument` | 生成人物叙事碑式新闻图片 |
@@ -1061,13 +1063,13 @@ if (!response.ok || result.status !== "succeeded") {
 
 ## 图片背景参数
 
-CRT 与九个照片海报的 `v1` 接受可选 `background: auto | transparent | opaque`；省略时保留原行为。背景参数直接传给模型，不追加或改写提示词；CRT 后处理同步变换 alpha。透明成品必须同时存在可见与透明像素；不符合时失败且不自动重绘。该参数进入下游幂等摘要，不能用同一个键切换背景。发布时先部署 Pipipi，再开放 Memebuy 能力声明；本地验证不代表生产已生效。
+CRT 与十一个照片海报的 `v1` 接受可选 `background: auto | transparent | opaque`；省略时保留原行为。背景参数直接传给模型，不追加或改写提示词；CRT 后处理同步变换 alpha。透明成品必须同时存在可见与透明像素；不符合时失败且不自动重绘。该参数进入下游幂等摘要，不能用同一个键切换背景。发布时先部署 Pipipi，再开放 Memebuy 能力声明；本地验证不代表生产已生效。
 
 例如：`{"process":"woodcut-photo-poster","version":"v1","input":{"sourceImageUrl":"https://assets.example.com/photo.png","background":"transparent"}}`。其他 Process 未开放该字段。FAL 参数取值依据 [GPT Image 2 编辑接口](https://fal.ai/models/openai/gpt-image-2/edit/api)。
 
 ## 照片海报
 
-以下九个 Process 均使用 `POST /execute`，版本固定为 `v1`。每次处理一张照片；批量由调用方逐张提交，不能上传流程、Skill、模型或运行参数。
+以下十一个 Process 均使用 `POST /execute`，版本固定为 `v1`。每次处理一张照片；批量由调用方逐张提交，不能上传流程、Skill、模型或运行参数。
 
 | process | style | 输出规格 |
 | --- | --- | --- |
@@ -1080,8 +1082,10 @@ CRT 与九个照片海报的 `v1` 接受可选 `background: auto | transparent |
 | `photo-doodle-collage` | `photo-doodle-collage` | 1200×1600 PNG |
 | `photo-fashion-manga` | `photo-fashion-manga` | 1200×1600 PNG |
 | `manga-panels` | `manga-panels` | 1200×1600 PNG |
+| `memory-checklist-photo-poster` | `memory-checklist` | 1200×1600 PNG |
+| `risograph-album` | `risograph-album` | 1200×1200 PNG |
 
-除旅行抽象、日式时装漫画与漫画分镜外，input 为 `{ sourceImageUrl, text? }`。sourceImageUrl 必须为公网 HTTPS URL（最大 2048 字符，无凭据、片段、自定义端口或 IP 字面量）；text 为 1–200 字符的海报原文，不参与模型或风格选择。
+除旅行抽象、日式时装漫画、漫画分镜、记忆清单与唱片封面外，input 为 `{ sourceImageUrl, text? }`。sourceImageUrl 必须为公网 HTTPS URL（最大 2048 字符，无凭据、片段、自定义端口或 IP 字面量）；text 为 1–200 字符的海报原文，不参与模型或风格选择。记忆清单和唱片封面只接收 `sourceImageUrl` 与可选 `background`，文案由服务端固定。
 
 ### 漫画分镜
 
@@ -1098,6 +1102,22 @@ Memebuy 可将两个模板分别绑定同一 Process 与固定 preset，用户�
 
 ```json
 {"process":"manga-panels","version":"v1","input":{"sourceImageUrl":"https://assets.example.com/person.png","preset":"sketchy-mixed-panels"}}
+```
+
+### 记忆清单海报
+
+`memory-checklist-photo-poster/v1` 只接收公网 HTTPS `sourceImageUrl` 和可选 `background`。成品为 1200×1600 PNG：上半严格一半保留参考照片的身份、姿态与光影，下半把照片里已经可见的 9 个细节做成松散 3×3 蜡笔涂鸦，并写一句手写英文标题和一行小 caption。不接受 `text`。返回 `style` 为 `memory-checklist`。
+
+```json
+{"process":"memory-checklist-photo-poster","version":"v1","input":{"sourceImageUrl":"https://assets.example.com/photo.png"}}
+```
+
+### 复古唱片封面
+
+`risograph-album/v1` 只接收公网 HTTPS `sourceImageUrl` 和可选 `background`。成品为 1200×1200 PNG：人物半身侧脸位于左侧三分之一，深蓝网点对亮黄网点。固定文字为红色手写 `i'm ok` 和黑色小号 `HAPPY EVERYDAY`，不接受 `text`。返回 `style` 为 `risograph-album`。
+
+```json
+{"process":"risograph-album","version":"v1","input":{"sourceImageUrl":"https://assets.example.com/person.jpg"}}
 ```
 
 ### 日式时装漫画文案

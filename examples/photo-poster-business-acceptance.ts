@@ -15,6 +15,7 @@ import {
 import { mangaPanelsInputSchema } from "../src/processes/photo-poster/manga-panels.js";
 import { createPhotoPosterSkillRefs } from "../src/processes/photo-poster/skills.js";
 import {
+    photoPosterCanvas,
     photoPosterNames,
     photoPosterProcessId,
     photoPosterStyles,
@@ -199,11 +200,12 @@ try {
             );
             const metadata = await sharp(bytes).metadata();
             const hash = sha256(bytes);
+            const canvas = photoPosterCanvas[style];
             const dimensionsMatch =
                 metadata.width === output.width &&
                 metadata.height === output.height &&
-                output.width === 1_200 &&
-                output.height === 1_600;
+                output.width === canvas.width &&
+                output.height === canvas.height;
             const passed =
                 metadata.format === "png" &&
                 dimensionsMatch &&

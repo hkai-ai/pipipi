@@ -40,6 +40,10 @@ import {
     photoPosterImageSchema,
     photoPosterRenderSchema,
 } from "../processes/photo-poster/capability.js";
+import {
+    photoPosterCanvas,
+    photoPosterPixelSize,
+} from "../processes/photo-poster/style.js";
 import { TemplateImagePreparationError } from "../processes/template-from-source/capability.js";
 import {
     type CrtEvidencePolicy,
@@ -521,12 +525,13 @@ export async function startCrtBusinessApi(
             signal.throwIfAborted();
             // 先记录占位再付费；请求一旦发出，任何不确定结果都保留 pending。
             dispatched = true;
+            const canvas = photoPosterCanvas[input.style];
             const generated = await options.imageClient.edit({
                 imageUrl: input.sourceImageUrl,
                 prompt: input.prompt,
                 model,
                 quality,
-                size: "1200x1600",
+                size: photoPosterPixelSize(input.style),
                 ...(input.background ? { background: input.background } : {}),
                 outputFormat: "png",
                 signal,
@@ -536,8 +541,8 @@ export async function startCrtBusinessApi(
             if (
                 generated.mimeType !== "image/png" ||
                 metadata.format !== "png" ||
-                metadata.width !== 1_200 ||
-                metadata.height !== 1_600
+                metadata.width !== canvas.width ||
+                metadata.height !== canvas.height
             ) {
                 throw new Error("照片海报生成尺寸或格式不正确");
             }

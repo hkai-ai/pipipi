@@ -6,7 +6,7 @@
 
 图片预处理后的模板内容支持独立重编译：保留已确认成图，提交本轮模板修改要求，只生成新的 Gallery 草稿供人工审阅。
 
-生产 catalog 登记二十三个 Business Process，其中 `composed-task/v1` 默认关闭。文档先按产品场景分组，运行时仍通过统一的 Process identity 和 HTTP Interface 执行：
+生产 catalog 登记二十五个 Business Process，其中 `composed-task/v1` 默认关闭。文档先按产品场景分组，运行时仍通过统一的 Process identity 和 HTTP Interface 执行：
 
 | 场景 | Process | 输入 | 输出 |
 | --- | --- | --- | --- |
@@ -31,6 +31,8 @@
 | `common` | [`photo-doodle-collage/v1`](docs/processes/common/photo-doodle-collage/README.md) | 公网参考图与可选文案 | `{ style, image }` |
 | `common` | [`photo-fashion-manga/v1`](docs/processes/common/photo-fashion-manga/README.md) | 真人参考图与可选主标题、引题、小注，原始手刻字风格与随图构图 | `{ style, image }` |
 | `common` | [`manga-panels/v1`](docs/processes/common/manga-panels/README.md) | 参考图与固定预设，输出无文字三格漫画 | `{ style, image }` |
+| `common` | [`memory-checklist-photo-poster/v1`](docs/processes/common/memory-checklist-photo-poster/README.md) | 一张参考图，上半保留原片、下半 3×3 蜡笔记忆点 | `{ style, image }` |
+| `common` | [`risograph-album/v1`](docs/processes/common/risograph-album/README.md) | 一张人物照片，输出 1200×1200 复古唱片封面 | `{ style, image }` |
 | `common` | [character-emoji/v2](docs/processes/common/character-emoji/README.md) | DeepSeek 4.1 Flash Pi Agent 按模式加载 Skill、默认使用本地素材或原创，按需调用 DeepSeek 搜梗 Tool，经 Memene GPT Image 2.5 Flare（报错后尝试一次 Magikaru，取消或总截止除外） 生成单图表情或多格漫画 | `{ image, mode, caption?, plan }` |
 | `common` | `character-emoji/v3` | 同角色双版本登场、版本化对白及新版场景参考图，最多 5 位 | `{ image, mode, caption?, plan }` |
 

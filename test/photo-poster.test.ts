@@ -29,6 +29,7 @@ import { monoColorPresets } from "../src/processes/photo-poster/mono-color.js";
 import { createPhotoPosterRegistration } from "../src/processes/photo-poster/registration.js";
 import {
     type PhotoPosterStyle,
+    photoPosterCanvas,
     photoPosterProcessId,
     photoPosterStyles,
 } from "../src/processes/photo-poster/style.js";
@@ -55,12 +56,18 @@ const image = {
 const inputFor = (style: PhotoPosterStyle) =>
     style === "travel-abstraction"
         ? { sourceImageUrl, phrase: "QUIET PAWS", capturedOn: "2026-09-07" }
-        : style === "manga-panels"
+        : style === "manga-panels" ||
+            style === "memory-checklist" ||
+            style === "risograph-album"
           ? { sourceImageUrl }
           : { sourceImageUrl, text: "你好 PHOTO" };
 function runtime(
     style: PhotoPosterStyle,
-    render = vi.fn().mockResolvedValue(image),
+    render = vi.fn().mockResolvedValue({
+        ...image,
+        width: photoPosterCanvas[style].width,
+        height: photoPosterCanvas[style].height,
+    }),
     compile = vi.fn().mockResolvedValue({ prompt }),
     timeout = 2_000,
 ) {
@@ -105,7 +112,14 @@ describe("照片海报的准确版本", () => {
             expect(response.status).toBe(200);
             expect(result).toMatchObject({
                 status: "succeeded",
-                output: { style, image },
+                output: {
+                    style,
+                    image: {
+                        ...image,
+                        width: photoPosterCanvas[style].width,
+                        height: photoPosterCanvas[style].height,
+                    },
+                },
             });
             expect(Object.keys(result.output).sort()).toEqual([
                 "image",
@@ -127,16 +141,36 @@ describe("照片海报的准确版本", () => {
                 style,
                 sourceImageUrl,
             });
-            expect(render.mock.calls[0]?.[0].prompt).toContain(
-                "Use the entire canvas for the stylized artwork",
-            );
-            expect(render.mock.calls[0]?.[0].prompt).not.toContain(
-                "Keep the photograph above",
-            );
-            if (style !== "travel-abstraction" && style !== "manga-panels")
-                expect(render.mock.calls[0]?.[0].prompt).toContain(
-                    '"你好 PHOTO"',
+            const printed = render.mock.calls[0]?.[0].prompt as string;
+            if (style === "memory-checklist") {
+                expect(printed).toContain(
+                    "upper half retains the reference photograph",
                 );
+                expect(printed).not.toContain(
+                    "never include an original-photo region",
+                );
+            } else if (style === "risograph-album") {
+                expect(printed).toContain("1200x1200");
+                expect(printed).toContain("i'm ok");
+                expect(printed).not.toContain(
+                    "never include an original-photo region",
+                );
+            } else {
+                expect(printed).toContain(
+                    "Use the entire canvas for the stylized artwork",
+                );
+                expect(printed).not.toContain(
+                    "upper half retains the reference photograph",
+                );
+            }
+            expect(printed).not.toContain("Keep the photograph above");
+            if (
+                style !== "travel-abstraction" &&
+                style !== "manga-panels" &&
+                style !== "memory-checklist" &&
+                style !== "risograph-album"
+            )
+                expect(printed).toContain('"你好 PHOTO"');
             expect(JSON.stringify(result)).not.toContain("private=sample");
             expect(JSON.stringify(result)).not.toContain(prompt);
         },
@@ -155,6 +189,17 @@ describe("照片海报的准确版本", () => {
                 await executor.execute({
                     ...requestFor(style),
                     input: { ...inputFor(style), ...extra },
+                }),
+            ).toMatchObject({
+                status: "failed",
+                error: { code: "INVALID_INPUT" },
+            });
+        }
+        if (style === "memory-checklist" || style === "risograph-album") {
+            expect(
+                await executor.execute({
+                    ...requestFor(style),
+                    input: { sourceImageUrl, text: "HELLO" },
                 }),
             ).toMatchObject({
                 status: "failed",
@@ -867,6 +912,41 @@ describe("照片海报图片 Capability", () => {
         );
         expect(record).not.toContain(sourceImageUrl);
         expect(record).not.toContain(prompt);
+    });
+    it("记忆清单保持 1200x1600，唱片封面按 1200x1200 编辑", async () => {
+        for (const [style, size, width, height] of [
+            ["memory-checklist", "1200x1600", 1_200, 1_600],
+            ["risograph-album", "1200x1200", 1_200, 1_200],
+        ] as const) {
+            const directory = await mkdtemp(join(tmpdir(), "photo-size-"));
+            cleanups.push(() =>
+                rm(directory, { recursive: true, force: true }),
+            );
+            const bytes = await png(width, height);
+            const edit = vi
+                .fn()
+                .mockResolvedValue({ bytes, mimeType: "image/png" });
+            const upload = vi.fn().mockResolvedValue({ url: image.url });
+            const business = await startCrtBusinessApi({
+                directory,
+                imageClient: { edit },
+                storage: { provider: "test", upload },
+            });
+            cleanups.push(business.close);
+            const capability = new HttpPhotoPosterRenderingCapability({
+                baseUrl: business.url,
+                timeoutMs: 10_000,
+            });
+            const result = await capability.render(
+                { sourceImageUrl, style, prompt },
+                {
+                    signal: new AbortController().signal,
+                    idempotencyKey: `canvas-${style}`,
+                },
+            );
+            expect(edit.mock.calls.at(-1)?.[0]).toMatchObject({ size });
+            expect(result).toMatchObject({ width, height });
+        }
     });
     it("存储失败后保留 pending，不重复图片调用", async () => {
         const directory = await mkdtemp(join(tmpdir(), "photo-failure-"));

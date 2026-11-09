@@ -271,7 +271,7 @@ npm run smoke:staging
 
 `npm run accept:photo-poster-business` 按表格顺序验证九个固定风格，跳过猫猫绘本。需要设置 `PHOTO_POSTER_SOURCE_IMAGE_URL` 为可使用的公网 HTTPS 照片。它使用本地 .env 中的 Pi 文本模型、FAL GPT Image 2 和 OSS 配置，临时监听回环端口并关闭异步入口、Worker 和共享 Run Record。
 
-验收最多九次图片调用与九次结果 OSS PUT；每项正式 POST /execute 后下载 output.image.url，验证 PNG、尺寸、文件哈希和单次图片调用。全部风格校验 1200×1600 独立成品，是否夹带原图区域通过人工视觉检查。结果与图片写入 `artifacts/photo-poster-acceptance/<本次时间戳>/`，报告不保存原图 URL、Prompt 或凭据。失败不自动重绘。
+验收按当前照片风格逐项正式 POST /execute，再下载 output.image.url，验证 PNG、尺寸、文件哈希和单次图片调用。多数风格校验 1200×1600；`risograph-album` 校验 1200×1200。记忆清单允许上半保留参考照片。是否符合版式通过人工视觉检查。结果与图片写入 `artifacts/photo-poster-acceptance/<本次时间戳>/`，报告不保存原图 URL、Prompt 或凭据。失败不自动重绘。
 
 ```powershell
 $env:PHOTO_POSTER_SOURCE_IMAGE_URL = 'https://assets.example.com/photo.png'
