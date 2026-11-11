@@ -1,12 +1,16 @@
 # 双色油墨图文海报
 
-本页说明 `mono-color-photo-poster/v1` 的行为与接入边界，供 Memebuy 照片模板及复用该契约的产品使用。HTTP 输入输出、错误与调用示例统一见 [API 文档](../../../api.md#照片海报)。
+本页说明 `mono-color-photo-poster` 的 v1 与 v2 行为与接入边界，供 Memebuy 照片模板及复用该契约的产品使用。HTTP 输入输出、错误与调用示例统一见 [API 文档](../../../api.md#照片海报)。
+
+v2 从本次输入读取两墨色值、字体、版式、强度和印刷质感，复用 v1 的固定 Runtime Skill、油墨分工与单张 PNG 渲染。v1 的历史预设仍由 v1 解释。[双色海报 v2 接口](../../../api.md#双色海报-v2)
 
 ## 执行与依赖
 
-读取固定 `mono-color-photo-poster-prompt@v1`，无 Tool Agent 编译内部英文规则；Registration 校验后调用共享 Photo Poster Rendering Capability。内部 `POST /photo-posters` 使用 FAL GPT Image 2 编辑并保存 PNG，配置 OSS 时返回持久化 URL。每请求处理一张原图，最多一次图片调用，以 runId 作为幂等键；不自动重绘。
+读取固定 `mono-color-photo-poster-prompt@v1`，无 Tool Agent 编译内部英文规则；Registration 校验后调用共享 Photo Poster Rendering Capability。内部 `POST /photo-posters` 保存编辑后的 PNG，配置 OSS 时返回持久化 URL。每请求处理一张原图，最多一次图片调用，以 runId 作为幂等键；不自动重绘。
 
-公网 HTTPS 原图 URL 原样交给 FAL，服务端不下载原图。输出为 1200×1600 PNG。完整画面采用双色网点、主体和大字穿插，不做上下分屏。
+v2 的 Registration 固定逻辑模型 `gpt-image-2.5-flare`。图片服务在启动代码中为本模型绑定单一渠道，默认 FAL 直连。两条渠道的精确标识统一维护在[编辑模型映射](../../../../src/image-edit-models.ts)。选择多媒体网关时按 Memebuy 传入的原始字节摘要标识参考图，受理后保存 Job 回执并查询该 Job。v1 沿用既有图片客户端与模型配置。
+
+公网 HTTPS 原图 URL 原样交给选定渠道，服务端不下载原图。输出为 1200×1600 PNG。完整画面采用双色网点、主体和大字穿插，不做上下分屏。
 
 ## 可编辑预设
 

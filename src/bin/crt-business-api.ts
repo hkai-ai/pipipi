@@ -6,6 +6,7 @@ import { startCrtBusinessApi } from "../business-api/crt-server.js";
 import { createImageGenerationClient } from "../business-api/image-generation-config.js";
 import { createObjectStorageFromEnvironment } from "../business-api/object-storage-config.js";
 import type { GptImageQuality } from "../business-api/openai-image-generation.js";
+import { createPhotoPosterImageClient } from "../business-api/photo-poster-image.js";
 import { createTemplateImageRenderer } from "../business-api/template-image-fal.js";
 
 assertDeploymentEnvironment(process.env, "crt-business-api");
@@ -43,6 +44,12 @@ const application = await startCrtBusinessApi(
     {
         directory,
         imageClient: imageGeneration.client,
+        photoPosterEdit: createPhotoPosterImageClient(
+            "fal",
+            imageGeneration.client,
+            process.env,
+            { directory, timeoutMs },
+        ),
         characterEmojiImageClient,
         templateRenderer: createTemplateImageRenderer(
             process.env.FAL_KEY ?? "",

@@ -29,6 +29,7 @@ import {
 import {
     monoColorDesignInstructions,
     monoColorInputSchema,
+    monoColorV2InputSchema,
 } from "./mono-color.js";
 import {
     type PhotoPosterStyle,
@@ -67,7 +68,13 @@ export function createPhotoPosterRegistration(
         agent: PhotoPosterAgent;
         capability: PhotoPosterRenderingCapability;
     },
+    version: "v1" | "v2" = "v1",
 ): ProcessRegistration {
+    if (version === "v2" && style !== "mono-color")
+        throw new Error("仅双色海报支持 v2");
+    const model = version === "v2" ? "gpt-image-2.5-flare" : undefined;
+    const monoSchema =
+        version === "v2" ? monoColorV2InputSchema : monoColorInputSchema;
     if (
         typeof options.agent?.compile !== "function" ||
         typeof options.capability?.render !== "function"
@@ -76,12 +83,12 @@ export function createPhotoPosterRegistration(
     }
     return defineProcessRegistration({
         id: photoPosterProcessId(style),
-        version: "v1",
+        version,
         inputSchema:
             style === "travel-abstraction"
                 ? travelInputSchema
                 : style === "mono-color"
-                  ? monoColorInputSchema
+                  ? monoSchema
                   : style === "photo-fashion-manga"
                     ? fashionMangaInputSchema
                     : style === "manga-panels"
@@ -97,9 +104,7 @@ export function createPhotoPosterRegistration(
         activities: ["photo_poster_compilation", "photo_poster_rendering"],
         execute: async (input, context) => {
             const mono =
-                style === "mono-color"
-                    ? monoColorInputSchema.parse(input)
-                    : undefined;
+                style === "mono-color" ? monoSchema.parse(input) : undefined;
             const panels =
                 style === "manga-panels"
                     ? mangaPanelsInputSchema.parse(input)
@@ -170,6 +175,11 @@ export function createPhotoPosterRegistration(
                             await options.capability.render(
                                 {
                                     sourceImageUrl: input.sourceImageUrl,
+                                    model,
+                                    sourceImageSha256:
+                                        mono && "sourceImageSha256" in mono
+                                            ? mono.sourceImageSha256
+                                            : undefined,
                                     style,
                                     prompt,
                                     ...(input.background

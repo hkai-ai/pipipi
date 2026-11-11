@@ -1,6 +1,10 @@
-/** 通过 Magikaru External Job 提交一次角色图片编辑、保存任务身份并轮询下载结果。 */
+/** 通过 Magikaru 提交图片编辑、保存任务回执并轮询下载结果。 */
 import { setTimeout as delay } from "node:timers/promises";
 import { z } from "zod";
+import {
+    imageEditModels,
+    resolveImageEditModel,
+} from "../image-edit-models.js";
 import { characterEmojiRenderInputSchema } from "../processes/character-emoji/capability.js";
 import {
     detectRasterImage,
@@ -8,7 +12,8 @@ import {
     type GeneratedImage,
 } from "./openai-image-generation.js";
 
-export const characterEmojiImageModel = "gpt-image-2.5";
+export const characterEmojiImageModel =
+    imageEditModels["gpt-image-2.5-flare"].magikaru;
 const receiptSchema = z.object({
     jobId: z.string().min(1).max(128),
     deadlineAt: z.iso.datetime(),
@@ -84,14 +89,78 @@ export class MagikaruImageEditClient {
             size: request.size,
             ...(request.background ? { background: request.background } : {}),
         });
-        const key = request.idempotencyKey;
+        if (request.model !== characterEmojiImageModel)
+            throw new Error("Magikaru 角色图片需要固定模型");
+        return this.#submit(
+            request,
+            characterEmojiImageModel,
+            "maker.ai_character_emoji_image",
+            {
+                prompt: input.prompt,
+                size: input.size,
+                images: input.imageUrls.map((url, index) => ({
+                    url,
+                    identity: {
+                        kind: "immutable_asset",
+                        assetId: new URL(url).pathname.slice(1),
+                    },
+                    role: "reference",
+                    slotKey: `character_reference_${index + 1}`,
+                })),
+            },
+        );
+    }
+
+    async editPhotoPoster(request: EditImageRequest): Promise<GeneratedImage> {
         if (
-            !key ||
-            !/^[A-Za-z0-9_-]{1,128}$/u.test(key) ||
-            request.model !== characterEmojiImageModel
-        ) {
-            throw new Error("Magikaru 图片编辑需要固定模型和有效幂等键");
-        }
+            !request.imageUrl ||
+            !request.sourceImageSha256 ||
+            !/^[a-f0-9]{64}$/.test(request.sourceImageSha256) ||
+            !request.model
+        )
+            throw new Error("多媒体网关海报需要参考图、内容摘要和逻辑模型");
+        return this.#submit(
+            request,
+            resolveImageEditModel(request.model).magikaru,
+            "mono-color-photo-poster",
+            {
+                prompt: request.prompt,
+                size: request.size,
+                images: [
+                    {
+                        url: request.imageUrl,
+                        identity: {
+                            kind: "sha256",
+                            value: request.sourceImageSha256,
+                        },
+                        role: "reference",
+                        slotKey: "source_image",
+                    },
+                ],
+            },
+        );
+    }
+
+    async #submit(
+        request: EditImageRequest,
+        toolKey: string,
+        stageKey: string,
+        input: {
+            prompt: string;
+            size?: string;
+            images: {
+                url: string;
+                identity:
+                    | { kind: "immutable_asset"; assetId: string }
+                    | { kind: "sha256"; value: string };
+                role: string;
+                slotKey: string;
+            }[];
+        },
+    ): Promise<GeneratedImage> {
+        const key = request.idempotencyKey;
+        if (!key || !/^[A-Za-z0-9_-]{1,128}$/u.test(key))
+            throw new Error("Magikaru 图片编辑需要有效幂等键");
         const signal = AbortSignal.any([
             AbortSignal.timeout(this.#timeoutMs),
             ...(request.signal ? [request.signal] : []),
@@ -107,30 +176,20 @@ export class MagikaruImageEditClient {
                 "idempotency-key": key,
             },
             body: JSON.stringify({
-                toolKey: characterEmojiImageModel,
+                toolKey,
                 modality: "image",
                 input: {
-                    prompt: input.prompt,
-                    size: input.size,
-                    ...(input.background
-                        ? { background: input.background }
+                    ...input,
+                    ...(request.background
+                        ? { background: request.background }
                         : {}),
                     n: 1,
                     quality: request.quality ?? "low",
                     output_format: "png",
-                    images: input.imageUrls.map((url, index) => ({
-                        url,
-                        identity: {
-                            kind: "immutable_asset",
-                            assetId: new URL(url).pathname.slice(1),
-                        },
-                        role: "reference",
-                        slotKey: `character_reference_${index + 1}`,
-                    })),
                 },
                 traceId: key,
                 businessTaskId: key,
-                context: { stageKey: "maker.ai_character_emoji_image" },
+                context: { stageKey },
             }),
             signal: AbortSignal.any([signal, AbortSignal.timeout(30_000)]),
         });

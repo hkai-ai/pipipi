@@ -12,7 +12,9 @@ Memebuy 的角色表情任务在创建时确定本站或 Pipipi 执行。v12 新
 
 `character-emoji/v4` 单图和漫画分别接收 `mode: "single"` 和 `mode: "comic"`，从每个 `cast[]` 项读取 `character`、`appearance`、`displayName`、`persona` 和 `referenceImageUrl`。输入与回包均按本次阵容绑定身份，取图限定为获准的 Memebuy OSS 角色素材。v2/v3 继续使用原目录与原请求，已有运行按原 runId 恢复。部署同时支持 v2/v3/v4 的 API 和执行 Worker 后，Memebuy 可为新任务选择 v4。两仓使用同一新增角色样例核对参考图顺序与回包身份。[接口合同](../../api.md#角色表情包)
 
-Memebuy 的 Mono Color C 类模板以 `gallery.mono_color` 绑定通用 `mono-color-photo-poster/v1`。五个预设及可编辑项属于业务内容，由 Memebuy 收集并经现有 RemoteRun `/execute` Adapter 提交；Pipipi 固定默认搭配、渲染与输出约束。参考图由 Memebuy 私有资产准备链生成短期可读 URL，结果复用原有审核与转存链路。输入字段以 [API 文档](../../api.md#mono-color-可编辑预设) 为准。
+新建双色海报任务在 Memebuy 冻结商品的最终搭配及 Process v2 版本，执行时发送已解析参数。缺少双色快照的历史任务沿用 v1；先部署 Pipipi API、Worker，再部署调用方。[双色海报 v2 接口](../../api.md#双色海报-v2)
+
+历史 Mono Color C 类任务以 `gallery.mono_color` 绑定通用 `mono-color-photo-poster/v1`。五个预设及可编辑项属于业务内容，由 Memebuy 收集并经现有 RemoteRun `/execute` Adapter 提交；Pipipi 固定默认搭配、渲染与输出约束。参考图由 Memebuy 私有资产准备链生成短期可读 URL，结果复用原有审核与转存链路。输入字段以 [API 文档](../../api.md#mono-color-可编辑预设) 为准。
 
 图片转模板按原 Skill 保留逐区文字分类、布局、位置和路由依据，原始观察与选定稳定规则分开保存；共同语义模型生成正式草稿，由独立复核核对。保留完整来源业务规则，槽位取舍直接复用来源原文并复核未入选候选，重复事实由服务端引用投影，内部执行“生成分析与草稿 → 独立看图复核并返回必要补丁 → 程序投影与完整校验”。正常两次模型调用，仅首轮 JSON 或候选结构无法读取时允许一次重新编译，最多三次；独立复核不重写完整候选，也不默认追加模型复核，部分分析采用紧凑行，特征权限及复核报告采用具名对象；九轴权限只要求身份替换槽位提供，其他槽位为 null。证据按来源要求非空且具体，不额外设置四字符下限。修正上下文直接读取引用计划，程序展开后执行完整校验。公开 Gallery v2 草稿合同保持不变；执行失败区分编译、独立复核和本地校验阶段，仅返回安全归类提示。实现与边界见 [图片转模板](template-from-image/README.md)。
 

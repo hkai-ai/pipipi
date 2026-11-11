@@ -1,5 +1,10 @@
 /** 照片海报输入输出 Schema 与图片生成能力接口。 */
+
 import { z } from "zod";
+import {
+    type ImageEditModel,
+    isImageEditModel,
+} from "../../image-edit-models.js";
 import { isPublicSourceImageUrl } from "../crt/capability.js";
 import { imageBackgroundSchema } from "../image-background.js";
 import { photoPosterStyles } from "./style.js";
@@ -32,6 +37,11 @@ export const photoPosterImageSchema = z.strictObject({
 export const photoPosterRenderSchema = z
     .strictObject({
         sourceImageUrl: sourcePhotoSchema,
+        model: z.custom<ImageEditModel>(isImageEditModel).optional(),
+        sourceImageSha256: z
+            .string()
+            .regex(/^[a-f0-9]{64}$/)
+            .optional(),
         background: imageBackgroundSchema.optional(),
         style: z.enum(photoPosterStyles),
         prompt: z.string().trim().min(100).max(16_000),
@@ -46,6 +56,8 @@ export const photoPosterRenderSchema = z
             })
             .optional(),
     })
+    .refine((value) => !value.model || value.style === "mono-color")
+    .refine((value) => !value.sourceImageSha256 || !!value.model)
     .refine(
         (value) =>
             (value.style === "travel-abstraction") === Boolean(value.archive),

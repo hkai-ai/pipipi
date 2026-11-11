@@ -48,7 +48,7 @@ Pipipi 提供 Agent 运行环境（harness）和场景 skill。Process Registrat
 
 ## 当前能力
 
-生产 catalog 当前登记二十五个精确版本，其中 `composed-task/v1` 默认关闭：
+生产 catalog 当前登记二十七个精确版本，其中 `composed-task/v1` 默认关闭：
 
 | 场景 | Business Process | 输入 | 输出 | 实现选择 |
 | --- | --- | --- | --- | --- |
@@ -64,6 +64,7 @@ Pipipi 提供 Agent 运行环境（harness）和场景 skill。Process Registrat
 | `common` | `composed-task/v1` | `{ goal, material?, constraints? }` | `{ summary, steps, result }` | 默认关闭；Planner Agent 只获得 allow-list 中其他 Process 的 Step Tool，在服务端预算内组合它们 |
 | `common` | `dopamine-photo-poster/v1` | `{ sourceImageUrl, text? }` | `{ style, image }` | 多巴胺摄影插画海报；固定无 Tool Skill，单次编辑与存储 |
 | `common` | `mono-color-photo-poster/v1` | `{ sourceImageUrl, text? }` | `{ style, image }` | 双色油墨图文海报；固定无 Tool Skill，单次编辑与存储 |
+| `common` | `mono-color-photo-poster/v2` | 原图、两墨色值与完整设计参数 | `{ style, image }` | 调用方冻结商品搭配；Registration 绑定 Flare 编辑模型，图片服务映射渠道名称 |
 | `common` | `travel-abstraction-photo-poster/v1` | `{ sourceImageUrl, phrase, archiveNumber?, capturedOn? }` | `{ style, image }` | 摄影抽象记忆海报；固定无 Tool Skill，单次编辑与存储 |
 | `common` | `crayon-photo-poster/v1` | `{ sourceImageUrl, text? }` | `{ style, image }` | 彩色蜡笔抽象海报；固定无 Tool Skill，单次编辑与存储 |
 | `common` | `monochrome-photo-poster/v1` | `{ sourceImageUrl, text? }` | `{ style, image }` | 黑白蜡笔摄影海报；固定无 Tool Skill，单次编辑与存储 |
@@ -81,7 +82,7 @@ Pipipi 提供 Agent 运行环境（harness）和场景 skill。Process Registrat
 
 时装漫画沿用原始手刻粗字与略不齐的字形、字距和基线，印色完整、不透明；人物下缘可局部遮挡首行文字且保持可读。取景跟随原照片与版面，不固定裁腿、小字坐标或做旧纹理。
 
-Mono Color 支持五个按配色与版式命名的可编辑预设，旧标识在输入处兼容转换，供 Memebuy 的五个固定预设 C 类模板复用，保留旧调用行为；服务端在 Agent 编译前解析标题用色、分行、穿插与印刷约束，并在最终图片指令中重申，默认近白纸底与细网点。油墨分工跟随最终版式与配色，用户原文优先于分行，参考主体动作不变。用户原图、文字和补充说明不进入文本 Agent。参数契约见 [API 文档](docs/api.md#mono-color-可编辑预设)。
+Mono Color v2 由产品侧展开预设，Pipipi 按输入色值和版式编译绘图规则；v1 支持五个按配色与版式命名的可编辑预设，旧标识在输入处兼容转换，供 Memebuy 的五个固定预设 C 类模板复用，保留旧调用行为；服务端在 Agent 编译前解析标题用色、分行、穿插与印刷约束，并在最终图片指令中重申，默认近白纸底与细网点。油墨分工跟随最终版式与配色，用户原文优先于分行，参考主体动作不变。用户原图、文字和补充说明不进入文本 Agent。参数契约见 [API 文档](docs/api.md#mono-color-可编辑预设)。
 
 生产 Composition Root 通过 Installed Skill Catalog 校验默认启用的 Runtime Skill 的准确名称、版本和 SHA-256。Process 只绑定通过校验的准确版本；Catalog 不发现、下载或更新 Skill。
 

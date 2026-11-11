@@ -10,7 +10,10 @@ import { createPhotoPosterRegistration } from "./registration.js";
 import { createPhotoPosterSkillRefs } from "./skills.js";
 import { type PhotoPosterStyle, photoPosterProcessId } from "./style.js";
 
-function photoPosterProduction(style: PhotoPosterStyle): ProductionProcess {
+function photoPosterProduction(
+    style: PhotoPosterStyle,
+    version: "v1" | "v2" = "v1",
+): ProductionProcess {
     return defineProductionProcess({
         id: photoPosterProcessId(style),
         environment: [
@@ -19,20 +22,25 @@ function photoPosterProduction(style: PhotoPosterStyle): ProductionProcess {
         ],
         installedSkills: () => createPhotoPosterSkillRefs(style),
         build: ({ environment, pi, skills, positiveInteger }) =>
-            createPhotoPosterRegistration(style, {
-                agent: new PiPhotoPosterAgent({ skills, ...pi }),
-                capability: new HttpPhotoPosterRenderingCapability({
-                    baseUrl: parseCrtBusinessApiBaseUrl(environment),
-                    timeoutMs: positiveInteger(
-                        "PHOTO_POSTER_API_TIMEOUT_MS",
-                        180_000,
-                    ),
-                }),
-            }),
+            createPhotoPosterRegistration(
+                style,
+                {
+                    agent: new PiPhotoPosterAgent({ skills, ...pi }),
+                    capability: new HttpPhotoPosterRenderingCapability({
+                        baseUrl: parseCrtBusinessApiBaseUrl(environment),
+                        timeoutMs: positiveInteger(
+                            "PHOTO_POSTER_API_TIMEOUT_MS",
+                            180_000,
+                        ),
+                    }),
+                },
+                version,
+            ),
     });
 }
 export const dopamineProduction = photoPosterProduction("dopamine");
 export const monoColorProduction = photoPosterProduction("mono-color");
+export const monoColorV2Production = photoPosterProduction("mono-color", "v2");
 export const travelAbstractionProduction =
     photoPosterProduction("travel-abstraction");
 export const crayonProduction = photoPosterProduction("crayon");

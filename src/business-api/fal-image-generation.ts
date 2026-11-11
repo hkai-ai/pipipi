@@ -1,5 +1,7 @@
 /** FAL（GPT Image 2）图片生成/编辑 Adapter：封装 fal client 的 subscribe 调用与结果解析 */
+
 import { createFalClient } from "@fal-ai/client";
+import { resolveImageEditModel } from "../image-edit-models.js";
 import {
     detectRasterImage,
     type EditImageRequest,
@@ -113,12 +115,14 @@ export class FalImageGenerationClient {
         const prompt = request.prompt.trim();
         if (!prompt) throw new Error("FAL image prompt is required");
         const sourceImageUrls = resolveSourceImageUrls(request);
-        requireGptImage2(request.model);
+        const endpoint = resolveImageEditModel(
+            request.model?.trim() || "gpt-image-2",
+        ).fal;
 
         const signal = timeoutSignal(request.signal, this.#timeoutMs);
         let result: Awaited<ReturnType<FalSubscribe>>;
         try {
-            result = await this.#subscribe("openai/gpt-image-2/edit", {
+            result = await this.#subscribe(endpoint, {
                 input: {
                     prompt,
                     image_urls: sourceImageUrls,

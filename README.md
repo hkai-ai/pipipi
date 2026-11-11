@@ -8,7 +8,7 @@
 
 图片预处理后的模板内容支持独立重编译：保留已确认成图，提交本轮模板修改要求，只生成新的 Gallery 草稿供人工审阅。
 
-生产 catalog 登记二十五个 Business Process，其中 `composed-task/v1` 默认关闭。文档先按产品场景分组，运行时仍通过统一的 Process identity 和 HTTP Interface 执行：
+生产 catalog 登记二十七个 Business Process，其中 `composed-task/v1` 默认关闭。文档先按产品场景分组，运行时仍通过统一的 Process identity 和 HTTP Interface 执行：
 
 | 场景 | Process | 输入 | 输出 |
 | --- | --- | --- | --- |
@@ -24,6 +24,7 @@
 | `common` | `composed-task/v1`（默认关闭） | `{ "goal", "material"?, "constraints"? }` | `{ "summary", "steps", "result" }` |
 | `common` | [`dopamine-photo-poster/v1`](docs/processes/common/dopamine-photo-poster/README.md) | 公网参考图与可选文案 | `{ style, image }` |
 | `common` | [`mono-color-photo-poster/v1`](docs/processes/common/mono-color-photo-poster/README.md) | 公网参考图与可选文案 | `{ style, image }` |
+| `common` | [`mono-color-photo-poster/v2`](docs/api.md#双色海报-v2) | 参考图、最终两墨及版式参数，可选素材摘要、文案与背景；Flare 编辑成图 | `{ style, image }` |
 | `common` | [`travel-abstraction-photo-poster/v1`](docs/processes/common/travel-abstraction-photo-poster/README.md) | 公网参考图与可选文案（必填 phrase） | `{ style, image }` |
 | `common` | [`crayon-photo-poster/v1`](docs/processes/common/crayon-photo-poster/README.md) | 公网参考图与可选文案 | `{ style, image }` |
 | `common` | [`monochrome-photo-poster/v1`](docs/processes/common/monochrome-photo-poster/README.md) | 公网参考图与可选文案 | `{ style, image }` |
@@ -183,7 +184,7 @@ curl http://127.0.0.1:4300/healthz
 
 模型错误使用统一分类：照片海报、极简海报、CRT、新闻图片、内容优化及模板编译在稳定错误码之外提供阶段、中文原因和排查建议。控制台关联脱敏活动诊断，旧记录不补推根因。超时、取消与未知异常分别收口；实现和工具选择见 [统一诊断](docs/process-runtime-design.md#统一诊断与工具选择)。 公开错误仅解释阶段和已知原因，运维建议留在控制台；公开文案只额外保留禁止重复付费提交等调用方约束。控制台的依赖失败标题和下一步由公开错误码决定，活动诊断补充阶段与字段。默认内部诊断不覆盖已知业务错误；已恢复的活动失败不作为最终原因，成功摘要不包含失败诊断。
 
-Mono Color 支持同一 `v1` 下的五个可编辑预设，供 Memebuy 的五个固定预设 C 类模板调用。每种版式明确标题用色、分行与穿插关系，默认干净近白纸底和细网点，保留参考主体与动作；未提供新参数的调用保持原行为。字段见 [Mono Color API](docs/api.md#mono-color-可编辑预设)。
+Mono Color v2 读取 Memebuy 建单时冻结的两墨与完整设计搭配；v1 保留五个可编辑预设供历史调用。每种版式明确标题用色、分行与穿插关系，默认干净近白纸底和细网点，保留参考主体与动作；未提供新参数的调用保持原行为。字段见 [Mono Color API](docs/api.md#mono-color-可编辑预设)。
 
 现有七个照片海报 Process：多巴胺、双色油墨、旅行抽象、彩色蜡笔、黑白蜡笔、木刻，以及摄影剪贴与涂鸦小人。一次请求处理一张公网 HTTPS 照片，返回持久化 PNG 引用；调用方式见 [照片海报 API](docs/api.md#照片海报)，来源与适配见 [通用 Process](docs/processes/common/)。它们均只返回完整风格化成品，不附原图或上下对照；旅行抽象仅由代码补充档案字样。摄影剪贴与涂鸦小人当前已注册，尚未部署。
 

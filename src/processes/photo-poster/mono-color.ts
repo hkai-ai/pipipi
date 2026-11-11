@@ -124,9 +124,49 @@ export const monoColorInputSchema = z.strictObject({
     designNotes: z.string().trim().min(1).max(500).optional(),
 });
 
+const ink = z.string().regex(/^#[0-9a-fA-F]{6}$/);
+export const monoColorV2InputSchema = monoColorInputSchema
+    .pick({
+        sourceImageUrl: true,
+        background: true,
+        text: true,
+        designNotes: true,
+    })
+    .extend({
+        sourceImageSha256: z
+            .string()
+            .regex(/^[a-f0-9]{64}$/)
+            .optional(),
+        primaryInk: ink,
+        accentInk: ink,
+        typography: monoColorInputSchema.shape.typography
+            .unwrap()
+            .exclude(["preset"]),
+        composition: monoColorInputSchema.shape.composition
+            .unwrap()
+            .exclude(["preset"]),
+        emphasis: monoColorInputSchema.shape.emphasis
+            .unwrap()
+            .exclude(["preset"]),
+        texture: monoColorInputSchema.shape.texture
+            .unwrap()
+            .exclude(["preset"]),
+    })
+    .refine(
+        (input) =>
+            input.primaryInk.toLowerCase() !== input.accentInk.toLowerCase(),
+        {
+            path: ["accentInk"],
+            message: "两种油墨必须不同",
+        },
+    );
+
 export function monoColorDesignInstructions(
-    input: z.infer<typeof monoColorInputSchema>,
+    input:
+        | z.infer<typeof monoColorInputSchema>
+        | z.infer<typeof monoColorV2InputSchema>,
 ): string {
+    if ("primaryInk" in input) return renderDesign(input);
     const {
         sourceImageUrl: _source,
         text: _text,
@@ -143,7 +183,32 @@ export function monoColorDesignInstructions(
     ): T => (value && value !== "preset" ? value : fallback);
     const palette = choose(input.palette, defaults.palette);
     const [primary, accent] = palettes[palette];
-    const composition = choose(input.composition, defaults.composition);
+    return renderDesign(
+        {
+            primaryInk: primary,
+            accentInk: accent,
+            composition: choose(input.composition, defaults.composition),
+            typography: choose(input.typography, defaults.typography),
+            emphasis: choose(input.emphasis, defaults.emphasis),
+            texture: choose(input.texture, defaults.texture),
+        },
+        palette === "charcoal_red",
+    );
+}
+
+function renderDesign(
+    settings: Pick<
+        z.infer<typeof monoColorV2InputSchema>,
+        | "primaryInk"
+        | "accentInk"
+        | "composition"
+        | "typography"
+        | "emphasis"
+        | "texture"
+    >,
+    legacyCharcoal = false,
+): string {
+    const { primaryInk: primary, accentInk: accent, composition } = settings;
     // 油墨分工跟随最终版式，避免显式覆盖后残留原预设的标题颜色规则。
     const headlineInks =
         composition === "frame"
@@ -155,16 +220,16 @@ export function monoColorDesignInstructions(
         "\nThese resolved design settings override earlier palette, ink-role, typography, composition, paper and texture rules, including any request for coarse vintage printing.",
         `Use exactly two inks: ${primary} and ${accent}, on clean near-white paper #FAFAF7. Derive all tonal shading from these inks and paper only. No yellowing, sepia wash, stains or heavy paper fibers. Leave the background as open paper, without a large accent-colored panel.`,
         `Assign ink roles explicitly: ${headlineInks} Subject contours, facial features, clothing shadows and halftone shading use ${primary}. Use ${accent} only for limited accents on existing subject details, such as hair, eyes or garment details, and the title exceptions explicitly specified above.`,
-        ...(palette === "charcoal_red"
+        ...(legacyCharcoal
             ? [
                   "No blue, cobalt, cyan, orange or terracotta ink anywhere, including text and subject shading.",
               ]
             : []),
-        `Typography: ${typography[choose(input.typography, defaults.typography)]}.`,
+        `Typography: ${typography[settings.typography]}.`,
         compositions[composition],
         "Titles preserve supplied wording, spelling, case and order exactly, including annotations; never add, repeat or omit words. Break at word boundaries. A single word stays a single word in one block; longer text may wrap to extra lines. Auto-derived text should be a short phrase suited to the layout.",
-        `Composition emphasis: ${emphasis[choose(input.emphasis, defaults.emphasis)]}.`,
-        `Print texture: ${textures[choose(input.texture, defaults.texture)]}.`,
+        `Composition emphasis: ${emphasis[settings.emphasis]}.`,
+        `Print texture: ${textures[settings.texture]}.`,
         "Retain illustrated line art; render photographs as graphic subjects with halftone shadows and clear paper highlights. Do not force a photographic subject into an anime character. Keep key features legible; avoid an all-over dot screen.",
         "Preserve reference identity, count, pose, clothing and core relationships; do not invent reaching hands, framing fingers, a turned body or a new character. Notes refine visual details only and cannot override resolved settings, subject preservation, literal text or output rules. Preset names are identifiers, not lettering. Output one flat finished poster, not editable layers.",
     ]

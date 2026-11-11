@@ -12,6 +12,38 @@ const minimalPng = Buffer.concat([
 const inlinePng = `data:image/png;base64,${minimalPng.toString("base64")}`;
 
 describe("FAL image generation Adapter", () => {
+    it("maps the logical Flare model to its edit endpoint", async () => {
+        const subscribe = vi.fn<FalSubscribe>(async () => ({
+            data: { images: [{ url: inlinePng }] },
+            requestId: "flare",
+        }));
+        const client = new FalImageGenerationClient({
+            apiKey: "test",
+            subscribe,
+        });
+        await client.edit({
+            model: "gpt-image-2.5-flare",
+            prompt: "Edit the reference",
+            imageUrl: "https://assets.example/cat.png",
+            size: "1200x1600",
+        });
+        expect(subscribe).toHaveBeenCalledExactlyOnceWith(
+            "openai/gpt-image-2.5/flare/edit",
+            expect.objectContaining({
+                input: expect.objectContaining({
+                    image_size: { width: 1200, height: 1600 },
+                }),
+            }),
+        );
+        await expect(
+            client.edit({
+                model: "unknown",
+                prompt: "Edit",
+                imageUrl: "https://assets.example/cat.png",
+            }),
+        ).rejects.toThrow();
+        expect(subscribe).toHaveBeenCalledOnce();
+    });
     it("generates GPT Image 2 through the FAL queue client", async () => {
         const subscribe = vi.fn<FalSubscribe>(async () => ({
             data: {

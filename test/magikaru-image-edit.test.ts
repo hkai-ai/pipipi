@@ -34,6 +34,52 @@ const completed = () =>
     });
 
 describe("Magikaru 角色图片编辑", () => {
+    it("按逻辑模型提交海报与参考图内容摘要，只轮询受理的任务", async () => {
+        const post = vi.fn();
+        const gateway = new MagikaruImageEditClient({
+            apiKey: "secret",
+            baseUrl: "https://gateway.example",
+            onSubmitted: async () => {},
+            fetch: async (url, init) => {
+                if (init?.method === "POST") {
+                    post(JSON.parse(String(init.body)));
+                    return Response.json(receipt(), { status: 202 });
+                }
+                return String(url).includes("/v1/jobs/")
+                    ? completed()
+                    : new Response(png);
+            },
+        });
+        const photo = {
+            imageUrl: "https://assets.example/cat.jpg",
+            prompt: "按参考图编辑",
+            model: "gpt-image-2.5-flare",
+            idempotencyKey: "poster",
+            size: "1200x1600",
+        };
+        await expect(gateway.editPhotoPoster(photo)).rejects.toThrow();
+        expect(post).not.toHaveBeenCalled();
+        await gateway.editPhotoPoster({
+            ...photo,
+            sourceImageSha256: "a".repeat(64),
+        });
+        expect(post).toHaveBeenCalledExactlyOnceWith(
+            expect.objectContaining({
+                toolKey: "gpt-image-2.5",
+                input: expect.objectContaining({
+                    size: "1200x1600",
+                    images: [
+                        {
+                            url: photo.imageUrl,
+                            identity: { kind: "sha256", value: "a".repeat(64) },
+                            role: "reference",
+                            slotKey: "source_image",
+                        },
+                    ],
+                }),
+            }),
+        );
+    });
     it("保持多图顺序与身份，先保存回执，轮询限流不重投，下载重定向不携带凭证", async () => {
         const events: string[] = [];
         const saved = vi.fn(async () => {

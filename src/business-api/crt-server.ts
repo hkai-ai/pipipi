@@ -133,6 +133,10 @@ export async function startCrtBusinessApi(
     options: {
         directory: string;
         imageClient: ImageEditClient;
+        photoPosterEdit?: {
+            channel: "fal" | "magikaru";
+            client: ImageEditClient;
+        };
         characterEmojiImageClient?: ImageEditClient;
         generationClient?: ImageGenerationClient;
         templateRenderer?: TemplateImageRenderer;
@@ -514,6 +518,16 @@ export async function startCrtBusinessApi(
             input = photoPosterRenderSchema.parse(
                 JSON.parse((await readBody(request, 65_536)).toString("utf8")),
             );
+            if (
+                input.model &&
+                options.photoPosterEdit?.channel === "magikaru" &&
+                !input.sourceImageSha256
+            ) {
+                writeJson(response, 400, {
+                    error: { code: "PHOTO_POSTER_REJECTED" },
+                });
+                return;
+            }
             key = parseIdempotencyKey(
                 singleHeader(request.headers["idempotency-key"]),
             );
@@ -559,10 +573,17 @@ export async function startCrtBusinessApi(
             // 先记录占位再付费；请求一旦发出，任何不确定结果都保留 pending。
             dispatched = true;
             const canvas = photoPosterCanvas[input.style];
-            const generated = await options.imageClient.edit({
+            const client = input.model
+                ? (options.photoPosterEdit?.client ?? options.imageClient)
+                : options.imageClient;
+            const generated = await client.edit({
                 imageUrl: input.sourceImageUrl,
                 prompt: input.prompt,
-                model,
+                model: input.model ?? model,
+                ...(input.model ? { idempotencyKey: key } : {}),
+                ...(input.sourceImageSha256
+                    ? { sourceImageSha256: input.sourceImageSha256 }
+                    : {}),
                 quality,
                 size: photoPosterPixelSize(input.style),
                 ...(input.background ? { background: input.background } : {}),

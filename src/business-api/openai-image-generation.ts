@@ -46,7 +46,12 @@ export type EditImageRequest = GenerateImageRequest & {
     idempotencyKey?: string;
 } & (
         | { image: SourceImage; imageUrl?: never; imageUrls?: never }
-        | { imageUrl: string; image?: never; imageUrls?: never }
+        | {
+              imageUrl: string;
+              sourceImageSha256?: string;
+              image?: never;
+              imageUrls?: never;
+          }
         | { imageUrls: readonly string[]; image?: never; imageUrl?: never }
     );
 

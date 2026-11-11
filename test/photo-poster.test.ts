@@ -134,6 +134,84 @@ const png = (width: number, height: number, background = "#F3F0E8") =>
         .toBuffer();
 
 describe("照片海报的准确版本", () => {
+    it("v2 接受目录以外的两墨颜色，编译和成图共用最终版式", async () => {
+        const compile = vi.fn().mockResolvedValue({ prompt });
+        const render = vi.fn().mockResolvedValue(image);
+        const registration = createPhotoPosterRegistration(
+            "mono-color",
+            {
+                agent: { compile },
+                capability: { render },
+            },
+            "v2",
+        );
+        const app = createProcessingApplication({
+            executor: createProcessRunner({
+                registry: createProcessRegistry([registration]),
+            }),
+        });
+        const { url } = await app.listen();
+        cleanups.push(() => app.close());
+        const input = {
+            sourceImageUrl,
+            sourceImageSha256: "a".repeat(64),
+            primaryInk: "#184538",
+            accentInk: "#FD937C",
+            typography: "condensed",
+            composition: "frame",
+            emphasis: "balanced",
+            texture: "light",
+            text: "猫咪假日",
+            designNotes: "保留留白",
+            background: "transparent",
+        };
+        const send = (body: unknown) =>
+            fetch(`${url}/execute`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    process: "mono-color-photo-poster",
+                    version: "v2",
+                    input: body,
+                }),
+            });
+        for (const invalid of [
+            { ...input, model: "gpt-image-2" },
+            { ...input, sourceImageSha256: "invalid" },
+            { ...input, primaryInk: "blue" },
+            { ...input, accentInk: "#184538" },
+            { ...input, primaryInk: undefined },
+            { ...input, preset: "your_move" },
+            { ...input, texture: "preset" },
+        ]) {
+            expect(await (await send(invalid)).json()).toMatchObject({
+                status: "failed",
+                error: { code: "INVALID_INPUT" },
+            });
+        }
+        expect(await (await send(input)).json()).toMatchObject({
+            status: "succeeded",
+            output: { style: "mono-color", image },
+        });
+        expect(compile).toHaveBeenCalledTimes(1);
+        expect(render).toHaveBeenCalledTimes(1);
+        const design = compile.mock.calls[0][0].design;
+        expect(design).toContain("smaller top title block uses solid #FD937C");
+        expect(design).toContain(
+            "larger bottom title block and small annotations use solid #184538",
+        );
+        expect(design).not.toContain(input.text);
+        expect(design).not.toContain(input.designNotes);
+        expect(render.mock.calls[0][0]).toMatchObject({
+            sourceImageUrl,
+            background: "transparent",
+            model: "gpt-image-2.5-flare",
+            sourceImageSha256: input.sourceImageSha256,
+            prompt: expect.stringContaining(design),
+        });
+        expect(render.mock.calls[0][0].prompt).toContain(input.text);
+        expect(render.mock.calls[0][0].prompt).toContain(input.designNotes);
+    });
     it.each(photoPosterStyles)(
         "%s 通过正式 HTTP 返回同一次图片调用的结果",
         async (style) => {
@@ -955,6 +1033,50 @@ describe("照片海报图片 Capability", () => {
         );
         expect(record).not.toContain(sourceImageUrl);
         expect(record).not.toContain(prompt);
+    });
+    it("v2 只走绑定的编辑渠道，v1 继续使用原客户端", async () => {
+        const directory = await mkdtemp(join(tmpdir(), "photo-model-"));
+        cleanups.push(() => rm(directory, { recursive: true, force: true }));
+        const result = { bytes: await png(1200, 1600), mimeType: "image/png" };
+        const legacy = vi.fn().mockResolvedValue(result);
+        const mapped = vi.fn().mockResolvedValue(result);
+        const business = await startCrtBusinessApi({
+            directory,
+            imageClient: { edit: legacy },
+            photoPosterEdit: { channel: "magikaru", client: { edit: mapped } },
+        });
+        cleanups.push(business.close);
+        const capability = new HttpPhotoPosterRenderingCapability({
+            baseUrl: business.url,
+            timeoutMs: 10000,
+        });
+        const common = { style: "mono-color" as const, prompt, sourceImageUrl };
+        const options = {
+            signal: new AbortController().signal,
+            idempotencyKey: "mapped",
+        };
+        const v2 = { ...common, model: "gpt-image-2.5-flare" as const };
+        await expect(capability.render(v2, options)).rejects.toMatchObject({
+            committed: false,
+        });
+        const withDigest = { ...v2, sourceImageSha256: "a".repeat(64) };
+        const output = await capability.render(withDigest, options);
+        expect(await capability.render(withDigest, options)).toEqual(output);
+        expect(mapped).toHaveBeenCalledExactlyOnceWith(
+            expect.objectContaining({
+                model: v2.model,
+                idempotencyKey: options.idempotencyKey,
+                sourceImageSha256: withDigest.sourceImageSha256,
+            }),
+        );
+        expect(legacy).not.toHaveBeenCalled();
+        await capability.render(common, {
+            ...options,
+            idempotencyKey: "legacy",
+        });
+        expect(legacy).toHaveBeenCalledExactlyOnceWith(
+            expect.objectContaining({ model: "gpt-image-2" }),
+        );
     });
     it("记忆清单保持 1200x1600，唱片封面按 1200x1200 编辑", async () => {
         for (const [style, size, width, height] of [

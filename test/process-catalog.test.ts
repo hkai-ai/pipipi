@@ -65,6 +65,15 @@ const validInputs: Readonly<Record<string, Record<string, unknown>>> = {
     "photo-fashion-manga": {
         sourceImageUrl: "https://assets.example.com/source.png",
     },
+    "mono-color-photo-poster/v2": {
+        sourceImageUrl: "https://assets.example.com/source.png",
+        primaryInk: "#123456",
+        accentInk: "#abcdef",
+        typography: "literary",
+        composition: "frame",
+        emphasis: "bold",
+        texture: "light",
+    },
     "mono-color-photo-poster": {
         sourceImageUrl: "https://assets.example.com/source.png",
     },
@@ -115,6 +124,7 @@ describe("Process catalog description", () => {
             "memory-checklist-photo-poster/v1",
             "minimal-zine-poster/v1",
             "mono-color-photo-poster/v1",
+            "mono-color-photo-poster/v2",
             "monochrome-photo-poster/v1",
             "news-image-narrative-monument/v1",
             "news-image-pale-watercolor/v1",
