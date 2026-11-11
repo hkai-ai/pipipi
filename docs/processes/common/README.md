@@ -16,7 +16,7 @@
 | `photo-doodle-collage/v1` | [photo-doodle-collage/](photo-doodle-collage/) | 摄影剪贴与互动黑线小人海报 |
 | `photo-fashion-manga/v1` | [photo-fashion-manga/](photo-fashion-manga/) | 真人照片转红蓝少色日式时装漫画，配手刻粗字，取景随原照片与版面 |
 | `manga-panels/v1` | [manga-panels/](manga-panels/) | 参考图转细节三格或粗笔拼页，无文字和对话框 |
-| `character-emoji/v2` | [character-emoji/](character-emoji/) | DeepSeek 4.1 Flash Pi Agent 默认选用本地素材或原创、服务端仅对明确检索或近期事实要求开放 DeepSeek 搜梗 Tool，按固定角色参考图经 Memene GPT Image 2.5 Flare（报错后尝试一次 Magikaru，取消或总截止除外） 生成单张表情或多格漫画 |
+| `character-emoji/v2`、`character-emoji/v3` | [character-emoji/](character-emoji/) | 按固定角色参考图生成单张表情或多格漫画。v3 支持同角色的不同形象同时登场 |
 
 产品采用通用 Process 时，在对应产品场景 README 中记录产品限制和采用关系，不复制 Process 契约。统一 HTTP 契约见 [`../../api.md`](../../api.md)。
 
@@ -30,4 +30,4 @@ CRT 与九个照片海报共享 [图片背景参数](../../api.md#图片背景�
 
 角色表情包主用 Flare 复用已配置的 OSS 读取固定角色原图，不缩放、不压缩，按原顺序通过 multipart 文件表单上传；独立本地运行未配置 OSS 时才使用公网取图。Flare 对齐已核验的 Memebuy 请求，省略 quality 和 output_format，不继承 CRT 参数；备用 Magikaru 保持公网 URL 直传及原有质量参数。角色表情包按所选角色注入已维护的创作背景；v2 漫画由 Agent 决定自由布局和各格大小，程序仅补编号。每格仍只有一份 scene；page 与 frame 只描述画格几何，关键行动或可辨认痕迹在 scene 呈现，同次自检核对肢体占用与道具支撑；配字优先级及创作规则见[角色表情包专题](character-emoji/README.md)。
 
-豆包（Doubao）新增原版 Q 版参考图、个性和三条原创语音素材，仅支持 Chibi；详见角色表情包专题，部署服务端后再开放调用方。
+豆包支持 Q 版（`Doubao:Chibi`），调用示例见[角色表情包 API](../../api.md#角色表情包)。
