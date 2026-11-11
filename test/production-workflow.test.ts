@@ -54,10 +54,17 @@ describe("Production CI/CD workflow", () => {
         );
         expect(cleanup).toContain("down --volumes --remove-orphans");
         expect(acceptance).not.toContain("secrets.");
-        expect(deploy).toContain("- ci");
-        expect(deploy).toContain("- async-acceptance");
+        const plan = job(workflow, "release-plan", "deploy");
+        expect(plan).toContain("- ci");
+        expect(plan).toContain("- async-acceptance");
+        expect(plan).toContain("deployment: false");
+        expect(plan).toContain("SSH_KNOWN_HOSTS");
+        expect(deploy).toContain(
+            "needs.release-plan.outputs.route == 'routine'",
+        );
+        expect(plan).toContain("route=migration");
         expect(deploy).toContain("group: pipipi-production-release");
-        expect(deploy).toContain("SSH_KNOWN_HOSTS");
+        expect(deploy).toContain("*configure-ssh");
         expect(deploy).toContain("flock -n 9");
         expect(deploy).toContain("async-control/smoke-lease");
         expect(gateway).toContain("CONSOLE_PUBLIC_URL");

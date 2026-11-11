@@ -464,6 +464,8 @@ Redis 数据丢失的标准动作：
 
 异步 Worker 保存图片服务提交后的失败时，数据库需要迁移 `015_process_run_error_code.mjs` 扩展 `process_runs_error_code_check`。发布前按本文的备份、恢复验证及迁移步骤执行。应用回滚时保留扩展后的约束，已有失败记录可保留原错误码。
 
+迁移文件变化时，从 Production CI/CD 的运行摘要取得准确候选 SHA 和 CI Run ID。当前阶段为 `internal` 时，直接进入本手册的[受控 internal 发布入口](#受控-internal-发布入口)，复用已验证的 artifact，提供已核验的备份或恢复点。线上为其他阶段时，需按该阶段审查迁移。常规发布在独占锁内仍会校验镜像摘要，防止预检后线上版本发生变化。
+
 该路径只允许迁移文件摘要不变的候选，不代替首次启用、带备份审查的数据库迁移、灰度提升或真实付费验收。旧 commit 的 smoke、演练与 promotion 证据不能改写成新 commit 的成功证据；后续阶段或流量调整仍须重新收集准确候选的证据，并核对 promotion 状态。
 
 ### Run 或 Process Queue 持续增长

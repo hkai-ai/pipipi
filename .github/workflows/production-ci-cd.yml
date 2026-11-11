@@ -17,6 +17,8 @@ jobs:
     name: Check and build
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    outputs:
+      migration_digest: ${{ steps.package.outputs.migration_digest }}
 
     steps:
       - name: Checkout
@@ -50,8 +52,12 @@ jobs:
         run: docker build --pull --tag "pipipi:${GITHUB_SHA}" .
 
       - name: Package production image
+        id: package
         if: github.event_name != 'pull_request'
         run: |
+          digest="$(bash ops/update-async-release.sh --migration-digest "pipipi:${GITHUB_SHA}")"
+          [[ "$digest" =~ ^[0-9a-f]{64}$ ]]
+          echo "migration_digest=$digest" >> "$GITHUB_OUTPUT"
           docker save "pipipi:${GITHUB_SHA}" | gzip > "pipipi-${GITHUB_SHA}.image.tar.gz"
           cp compose.production.yaml "pipipi-${GITHUB_SHA}.compose.yaml"
           cp compose.production.async.yaml "pipipi-${GITHUB_SHA}.compose.async.yaml"
@@ -293,8 +299,8 @@ jobs:
           if-no-files-found: error
           retention-days: 90
 
-  deploy:
-    name: Deploy production
+  release-plan:
+    name: Select production release path
     if: >-
       always() &&
       github.event_name != 'pull_request' &&
@@ -311,19 +317,17 @@ jobs:
       - news-image-change-check
       - news-image-acceptance
     runs-on: ubuntu-latest
-    timeout-minutes: 20
-    environment: production
-    concurrency:
-      group: pipipi-production-release
-      cancel-in-progress: false
-
+    timeout-minutes: 5
+    environment:
+      name: production
+      deployment: false
+    outputs:
+      route: ${{ steps.plan.outputs.route }}
     steps:
-      - name: Download release
-        uses: actions/download-artifact@v4
-        with:
-          name: pipipi-${{ github.sha }}
+      - uses: actions/checkout@v6
 
-      - name: Configure SSH
+      - &configure-ssh
+        name: Configure SSH
         env:
           SSH_KNOWN_HOSTS: ${{ secrets.SSH_KNOWN_HOSTS }}
           SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
@@ -336,6 +340,60 @@ jobs:
           chmod 600 ~/.ssh/id_ed25519
           chmod 600 ~/.ssh/known_hosts
           test -s ~/.ssh/known_hosts
+
+      - name: Compare migrations with the running image
+        id: plan
+        env:
+          REMOTE_HOST: ${{ vars.REMOTE_HOST }}
+          REMOTE_PATH: ${{ vars.REMOTE_PATH }}
+          REMOTE_USER: ${{ vars.REMOTE_USER }}
+          CANDIDATE_DIGEST: ${{ needs.ci.outputs.migration_digest }}
+        run: |
+          set -Eeuo pipefail
+          [[ "$CANDIDATE_DIGEST" =~ ^[0-9a-f]{64}$ ]]
+          printf -v command 'bash -s -- --plan %q %q' "$REMOTE_PATH" "$CANDIDATE_DIGEST"
+          result="$(ssh -o BatchMode=yes -o StrictHostKeyChecking=yes "$REMOTE_USER@$REMOTE_HOST" \
+              "$command" < ops/update-async-release.sh)"
+          if [[ "$result" == routine ]]; then
+            echo "route=routine" >> "$GITHUB_OUTPUT"
+          elif [[ "$result" =~ ^migration[[:space:]](internal|canary|production)[[:space:]]([0-9a-f]{40})$ ]]; then
+            stage="${BASH_REMATCH[1]}"
+            active="${BASH_REMATCH[2]}"
+            echo "route=migration" >> "$GITHUB_OUTPUT"
+            echo "::notice::候选已通过 CI，生产仍运行 $active。需要带备份审查的数据库迁移发布。"
+            {
+              echo "### 等待数据库迁移发布"
+              echo "生产版本：\`$active\`，阶段：\`$stage\`。"
+              echo "候选 SHA：\`$GITHUB_SHA\`，候选 CI Run ID：\`$GITHUB_RUN_ID\`。"
+              if [[ "$stage" == internal ]]; then
+                echo "核对数据库备份或恢复点后，使用 [Async internal release]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/workflows/async-internal-release.yml) 发布此候选。"
+              else
+                echo "按当前阶段安排带备份审查的迁移发布，保留现有流量阶段。"
+              fi
+            } >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "Invalid production release plan" >&2
+            exit 1
+          fi
+
+  deploy:
+    name: Deploy production
+    needs: release-plan
+    if: always() && needs.release-plan.result == 'success' && needs.release-plan.outputs.route == 'routine'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: production
+    concurrency:
+      group: pipipi-production-release
+      cancel-in-progress: false
+
+    steps:
+      - name: Download release
+        uses: actions/download-artifact@v4
+        with:
+          name: pipipi-${{ github.sha }}
+
+      - *configure-ssh
 
       - name: Verify console gateway precondition
         env:

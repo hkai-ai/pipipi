@@ -36,7 +36,13 @@ describe("Async internal release workflow", () => {
         expect(workflow).not.toContain(
             "PIPIPI_ASYNC_RELEASE_STAGE: production",
         );
-        expect(defaultWorkflow).not.toContain("async-internal-release");
+        // 常规流水线只链接手动迁移入口，不能直接触发它。
+        expect(
+            defaultWorkflow.replaceAll(
+                "[Async internal release]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/workflows/async-internal-release.yml)",
+                "",
+            ),
+        ).not.toContain("async-internal-release");
     });
 
     it("orders all gates before internal API activation and preserves evidence", async () => {

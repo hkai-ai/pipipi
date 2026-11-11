@@ -2,19 +2,61 @@
 # 在生产发布锁内更新已有异步部署，保留阶段、队列与角色配置。
 set -Eeuo pipefail
 
+migration_digest() {
+    docker run --rm --network none --entrypoint node "$1" -e '
+const fs = require("node:fs"), crypto = require("node:crypto");
+const hash = crypto.createHash("sha256");
+for (const name of fs.readdirSync("migrations").sort()) {
+    hash.update(name + "\0"); hash.update(fs.readFileSync("migrations/" + name));
+}
+console.log(hash.digest("hex"));'
+}
+
+if [ "$1" = --migration-digest ]; then
+    migration_digest "$2"
+    exit
+fi
+
+mode=activate
+if [ "$1" = --plan ]; then
+    mode=plan
+    shift
+fi
 app_root="$1"
-revision="$2"
-image_archive="$3"
-base_source="$4"
-async_source="$5"
 shared="$app_root/shared"
 base="$shared/compose.production.yaml"
 overlay="$shared/compose.production.async.yaml"
 control="$shared/async-control"
-image="pipipi:$revision"
-[[ "$revision" =~ ^[0-9a-f]{40}$ ]]
-# 调用方必须持有同一文件的锁；继承的描述符不会释放父进程锁。
-flock -n 9
+if [ "$mode" = plan ]; then
+    candidate_digest="$2"
+    [[ "$candidate_digest" =~ ^[0-9a-f]{64}$ ]] || exit 1
+    # 首次部署可能尚无 shared 目录。实际激活始终在独占锁内重查。
+    if [ -f "$shared/deployment.lock" ]; then
+        exec 9<"$shared/deployment.lock"
+        flock -s -w 60 9
+    fi
+    names="$(docker ps -a --format '{{.Names}}')"
+    if ! grep -Eq '^pipipi-(process-dispatcher|process-worker|webhook-worker|retention-cleaner)$' <<< "$names"; then
+        if grep -Fxq pipipi <<< "$names"; then
+            async_enabled="$(docker inspect pipipi --format '{{range .Config.Env}}{{println .}}{{end}}' | awk '$0 == "ASYNC_PROCESS_RUNS_ENABLED=true" {print "true"}')"
+            if [ "$async_enabled" = true ]; then
+                echo "Async API has no background roles" >&2
+                exit 1
+            fi
+        fi
+        echo routine
+        exit 0
+    fi
+else
+    revision="$2"
+    image_archive="$3"
+    base_source="$4"
+    async_source="$5"
+    image="pipipi:$revision"
+    [[ "$revision" =~ ^[0-9a-f]{40}$ ]] || exit 1
+    # 激活时由调用方持有独占锁。
+    flock -n 9
+fi
 test ! -f "$control/smoke-lease"
 
 environment_value() {
@@ -25,7 +67,7 @@ environment_value() {
 containers=(pipipi pipipi-business-api pipipi-process-dispatcher pipipi-process-worker pipipi-webhook-worker pipipi-retention-cleaner)
 previous_image="$(docker inspect pipipi --format '{{.Config.Image}}')"
 previous_revision="$(docker inspect pipipi --format '{{index .Config.Labels "com.pipipi.revision"}}')"
-[[ "$previous_revision" =~ ^[0-9a-f]{40}$ ]]
+[[ "$previous_revision" =~ ^[0-9a-f]{40}$ ]] || exit 1
 previous_id="$(docker inspect pipipi --format '{{.Image}}')"
 for container in "${containers[@]}"; do
     if [ "$(docker inspect "$container" --format '{{.Config.Image}}')" != "$previous_image" ] ||
@@ -40,7 +82,7 @@ test "$(environment_value pipipi ASYNC_PROCESS_RUNS_ENABLED)" = true
 test "$(environment_value pipipi ASYNC_PROCESS_RUN_INTAKE_DISABLED_FILE)" = /var/lib/pipipi-async-control/intake-disabled
 export PIPIPI_ASYNC_RELEASE_STAGE
 PIPIPI_ASYNC_RELEASE_STAGE="$(environment_value pipipi ASYNC_RELEASE_STAGE)"
-[[ "$PIPIPI_ASYNC_RELEASE_STAGE" =~ ^(internal|canary|production)$ ]]
+[[ "$PIPIPI_ASYNC_RELEASE_STAGE" =~ ^(internal|canary|production)$ ]] || exit 1
 export PIPIPI_PROCESS_QUEUE_NAME PIPIPI_PROCESS_QUEUE_PREFIX PIPIPI_WEBHOOK_QUEUE_NAME PIPIPI_WEBHOOK_QUEUE_PREFIX
 PIPIPI_PROCESS_QUEUE_NAME="$(environment_value pipipi-process-dispatcher PROCESS_QUEUE_NAME)"
 PIPIPI_PROCESS_QUEUE_PREFIX="$(environment_value pipipi-process-dispatcher PROCESS_QUEUE_PREFIX)"
@@ -48,6 +90,17 @@ PIPIPI_WEBHOOK_QUEUE_NAME="$(environment_value pipipi-webhook-worker WEBHOOK_QUE
 PIPIPI_WEBHOOK_QUEUE_PREFIX="$(environment_value pipipi-webhook-worker WEBHOOK_QUEUE_PREFIX)"
 test "$(environment_value pipipi-process-worker PROCESS_QUEUE_NAME)" = "$PIPIPI_PROCESS_QUEUE_NAME"
 test "$(environment_value pipipi-process-worker PROCESS_QUEUE_PREFIX)" = "$PIPIPI_PROCESS_QUEUE_PREFIX"
+
+old_digest="$(migration_digest "$previous_id")"
+[[ "$old_digest" =~ ^[0-9a-f]{64}$ ]] || exit 1
+if [ "$mode" = plan ]; then
+    if [ "$old_digest" = "$candidate_digest" ]; then
+        echo routine
+    else
+        echo "migration $PIPIPI_ASYNC_RELEASE_STAGE $previous_revision"
+    fi
+    exit 0
+fi
 
 export PIPIPI_ENV_FILE="$shared/.env"
 export PIPIPI_ASYNC_API_ENV_FILE="$shared/async-api.env"
@@ -69,18 +122,9 @@ done
 gzip -dc "$image_archive" | docker load >/dev/null
 candidate_id="$(docker image inspect "$image" --format '{{.Id}}')"
 # 普通代码更新不写数据库；迁移字节变化必须走带备份审查的发布入口。
-migration_digest() {
-    docker run --rm --network none --entrypoint node "$1" -e '
-const fs = require("node:fs"), crypto = require("node:crypto");
-const hash = crypto.createHash("sha256");
-for (const name of fs.readdirSync("migrations").sort()) {
-    hash.update(name + "\0"); hash.update(fs.readFileSync("migrations/" + name));
-}
-console.log(hash.digest("hex"));'
-}
-old_digest="$(migration_digest "$previous_id")"
-new_digest="$(migration_digest "$image")"
-if ! [[ "$old_digest" =~ ^[0-9a-f]{64}$ ]] || [ "$old_digest" != "$new_digest" ]; then
+new_digest="$(migration_digest "$candidate_id")"
+[[ "$new_digest" =~ ^[0-9a-f]{64}$ ]] || exit 1
+if [ "$old_digest" != "$new_digest" ]; then
     echo "Database migrations changed; use a reviewed migration release with a backup before routine deployment" >&2
     exit 1
 fi

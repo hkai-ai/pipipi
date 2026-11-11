@@ -53,6 +53,37 @@ describe("生产日常更新", { timeout }, () => {
         expect(result.log).not.toContain(" up ");
     });
 
+    it.each(["internal", "canary", "production"])(
+        "迁移差异交给当前 %s 阶段的显式发布",
+        async (stage) => {
+            const result = await run({ stage, planDigest: "1".repeat(64) });
+            expect(result.status, result.stderr).toBe(0);
+            expect(result.stdout.trim()).toBe(`migration ${stage} ${previous}`);
+            expect(result.log).not.toMatch(
+                /docker load|^load| up |db:migrate/m,
+            );
+            expect(result.state).toBe(previous);
+        },
+    );
+
+    it.each(["sync", ""])(
+        "为可直接更新的部署选择常规发布 (%s)",
+        async (failure) => {
+            const result = await run({ failure, planDigest: "0".repeat(64) });
+            expect(result.status, result.stderr).toBe(0);
+            expect(result.stdout.trim()).toBe("routine");
+        },
+    );
+
+    it.each(["partial", "api_only", "bad_digest", "inspect_failed"])(
+        "预检无法确认 %s 时拒绝选择路径",
+        async (failure) => {
+            const result = await run({ failure, planDigest: "1".repeat(64) });
+            expect(result.status).not.toBe(0);
+            expect(result.stdout.trim()).toBe("");
+        },
+    );
+
     it.each(["activate", "health", "signal"])(
         "%s 失败恢复全部角色与原 Compose",
         async (failure) => {
@@ -87,7 +118,11 @@ describe("生产日常更新", { timeout }, () => {
     });
 });
 
-async function run(options: { stage?: string; failure?: string }) {
+async function run(options: {
+    stage?: string;
+    failure?: string;
+    planDigest?: string;
+}) {
     const root = await mkdtemp(path.join(tmpdir(), "pipipi-update-"));
     const shared = path.join(root, "shared");
     const bin = path.join(root, "bin");
@@ -161,15 +196,22 @@ async function run(options: { stage?: string; failure?: string }) {
                 : "bash";
         const result = spawnSync(
             bash,
-            [
-                shellPath(path.join(root, "activate.sh")),
-                shellPath(root),
-                candidate,
-                shellPath(path.join(root, "image.gz")),
-                shellPath(path.join(root, "compose.yaml")),
-                shellPath(path.join(root, "update.sh")),
-                shellPath(path.join(root, "compose.async.yaml")),
-            ],
+            options.planDigest
+                ? [
+                      shellPath(path.join(root, "update.sh")),
+                      "--plan",
+                      shellPath(root),
+                      options.planDigest,
+                  ]
+                : [
+                      shellPath(path.join(root, "activate.sh")),
+                      shellPath(root),
+                      candidate,
+                      shellPath(path.join(root, "image.gz")),
+                      shellPath(path.join(root, "compose.yaml")),
+                      shellPath(path.join(root, "update.sh")),
+                      shellPath(path.join(root, "compose.async.yaml")),
+                  ],
             {
                 encoding: "utf8",
                 timeout,
@@ -217,6 +259,10 @@ set -eu
 printf '%s stage=%s revision=%s\n' "$*" "${"$"}{PIPIPI_ASYNC_RELEASE_STAGE:-}" "${"$"}{PIPIPI_REVISION:-}" >> "$TEST_LOG"
 state="$(cat "$TEST_STATE")"
 case "$1" in
+ps)
+    if [ "$TEST_FAILURE" = inspect_failed ]; then exit 1; fi
+    echo pipipi
+    if [[ "$TEST_FAILURE" != sync && "$TEST_FAILURE" != api_only ]]; then echo pipipi-process-dispatcher; fi;;
 inspect)
     if [ "$TEST_FAILURE" = partial ] && [ "$2" = pipipi-process-worker ]; then exit 1; fi
     if [[ "$TEST_FAILURE" = sync || "$TEST_FAILURE" = api_only ]] && [[ "$2" == pipipi-process-* || "$2" == pipipi-webhook-worker || "$2" == pipipi-retention-cleaner ]]; then exit 1; fi
@@ -239,7 +285,7 @@ load) cat >/dev/null;;
 run)
     if [[ "$*" == *check-deployment-environment* ]] && [ "$TEST_FAILURE" = precheck ]; then exit 1; fi
     if [[ "$*" == *readdirSync* ]]; then
-        if [ "$TEST_FAILURE" = migration ] && [[ "$*" == *"pipipi:$TEST_CANDIDATE"* ]]; then printf '%064d\n' 1; else printf '%064d\n' 0; fi
+        if [ "$TEST_FAILURE" = bad_digest ]; then echo invalid; elif [ "$TEST_FAILURE" = migration ] && [[ "$*" == *"sha256:$TEST_CANDIDATE"* ]]; then printf '%064d\n' 1; else printf '%064d\n' 0; fi
     fi;;
 exec) if [ "$TEST_FAILURE" = drain ]; then exit 1; fi; echo 0;;
 compose)

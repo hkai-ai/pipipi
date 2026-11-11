@@ -17,8 +17,12 @@ describe("news image Business Process acceptance workflow", () => {
             "news-image-change-check",
             "news-image-acceptance",
         );
-        const acceptance = job(workflow, "news-image-acceptance", "deploy");
-        const deploy = job(workflow, "deploy");
+        const acceptance = job(
+            workflow,
+            "news-image-acceptance",
+            "release-plan",
+        );
+        const releasePlan = job(workflow, "release-plan", "deploy");
 
         expect(changeCheck).toContain("github.event_name != 'pull_request'");
         expect(changeCheck).toContain("NEWS_IMAGE_ACCEPTANCE_ENABLED");
@@ -49,12 +53,12 @@ describe("news image Business Process acceptance workflow", () => {
             "Forbidden news image acceptance evidence field detected",
         );
 
-        expect(deploy).toContain("- news-image-change-check");
-        expect(deploy).toContain("- news-image-acceptance");
-        expect(deploy).toContain(
+        expect(releasePlan).toContain("- news-image-change-check");
+        expect(releasePlan).toContain("- news-image-acceptance");
+        expect(releasePlan).toContain(
             "needs.news-image-acceptance.result == 'success'",
         );
-        expect(deploy).toContain(
+        expect(releasePlan).toContain(
             "needs.news-image-acceptance.result == 'skipped'",
         );
 
