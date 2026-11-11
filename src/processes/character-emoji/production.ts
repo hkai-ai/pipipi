@@ -12,7 +12,7 @@ export { characterEmojiModel } from "./model.js";
 
 const logger = pino({ name: "character-emoji-diagnostics" });
 
-function production(version: "v2" | "v3") {
+function production(version: "v2" | "v3" | "v4") {
     return defineProductionProcess({
         id: "character-emoji",
         environment: [
@@ -45,3 +45,4 @@ function production(version: "v2" | "v3") {
 }
 export const characterEmojiProduction = production("v2");
 export const characterEmojiV3Production = production("v3");
+export const characterEmojiV4Production = production("v4");

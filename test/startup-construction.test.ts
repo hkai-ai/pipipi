@@ -1,9 +1,4 @@
-﻿import {
-    createServer,
-    type RequestListener,
-    type Server,
-    type ServerResponse,
-} from "node:http";
+﻿import { createServer, type RequestListener, type Server } from "node:http";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ProcessingApplication } from "../src/api/application.js";
 import { constructProcessingService } from "../src/app/api.js";
@@ -335,7 +330,7 @@ describe("Startup Construction", () => {
         const identity = { id: "composed-task", version: "v1" };
 
         expect(off.registry.find(identity)).toBeUndefined();
-        expect(off.registry.list()).toHaveLength(24);
+        expect(off.registry.list()).toHaveLength(25);
         const registration = on.registry.find(identity);
         expect(registration?.identity).toEqual(identity);
         expect(registration?.timeoutMs).toBe(600_000);
@@ -351,7 +346,7 @@ describe("Startup Construction", () => {
                 skills: ["anything"],
             }),
         ).toEqual({ accepted: false });
-        expect(on.registry.list()).toHaveLength(25);
+        expect(on.registry.list()).toHaveLength(26);
     });
 
     it("validates the Planner Skill only when composed-task/v1 is enabled", () => {

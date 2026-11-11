@@ -1,9 +1,14 @@
 /** 组装漫画构思输入，并保留 v1 回放使用的规则与生图指令。 */
 
 import { imageTextRule } from "./caption-policy.js";
-import { appearanceLabels, characterName } from "./catalog.js";
-import { characterPersonas } from "./character-personas.js";
-import type { ComicBrief, ComicPlan, LegacyComicBrief } from "./schema.js";
+import { appearanceLabels } from "./catalog.js";
+import { plannerCast } from "./prompt.js";
+import type {
+    ComicBrief,
+    ComicPlan,
+    LegacyComicBrief,
+    SceneComicBrief,
+} from "./schema.js";
 import { legacyComicLayout } from "./schema.js";
 
 export const COMIC_PROMPT_VERSION = "ai-character-comic/v15";
@@ -11,7 +16,7 @@ export const COMIC_PLANNER_SYSTEM_PROMPT = `设计有连续因果的单页漫画
 选择aspectRatio，布局由程序按画幅和格数生成：横向2至3格单行，其余2至3格单列，4至6格每行两列。不得设计子格或嵌格。
 对白自然简短，用户指定台词逐字保留。允许无声格；不要对白时无dialogue，禁止任何文字时texts为空且identityMark为null，场景也不出现文字或数字。对白speaker必须在本格登场，旁白与标牌speaker为null；文字位置靠近对应人物且不遮挡关键动作。身份标识不重复放入texts。`;
 export function comicPlannerInput(
-    brief: ComicBrief,
+    brief: SceneComicBrief,
     legacyBrief?: LegacyComicBrief,
 ) {
     return JSON.stringify({
@@ -25,12 +30,7 @@ export function comicPlannerInput(
                   },
               }
             : {}),
-        cast: brief.cast.map((member, index) => ({
-            ...member,
-            referenceNumber: index + 1,
-            identityLabel: characterName(member.character),
-            creativeBrief: characterPersonas[member.character],
-        })),
+        cast: plannerCast(brief.cast),
         idea: brief.idea,
     });
 }

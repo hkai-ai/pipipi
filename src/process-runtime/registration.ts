@@ -29,6 +29,7 @@ type ProcessRegistrationRunContext = Readonly<{
 }>;
 
 export type ExpectedProcessErrorCode =
+    | "INVALID_INPUT"
     | "INVALID_OUTPUT"
     | "AGENT_FAILURE"
     | "DEPENDENCY_FAILURE"

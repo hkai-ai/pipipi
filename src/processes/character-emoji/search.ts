@@ -1,7 +1,6 @@
 /** 宽容接收搜梗材料、标注来源可信程度，并提供原创兜底结果。 */
 import { createHash } from "node:crypto";
 import { z } from "zod";
-import type { Brief, ComicBrief } from "./schema.js";
 
 export const researchSchema = z.strictObject({
     entries: z
@@ -42,7 +41,7 @@ export type MemeResearch = Readonly<{
 export type MemeSearch = Readonly<{
     search: (
         input: {
-            cast: Brief["cast"] | ComicBrief["cast"];
+            cast: { character: string; appearance: string }[];
             idea: string;
             focus?: string;
         },

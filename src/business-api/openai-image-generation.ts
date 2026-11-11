@@ -1,4 +1,6 @@
 /** 封装 OpenAI 图片生成、参考图内存读取与文件表单编辑，以及结果和用量解析。 */
+
+import { characterReferenceUrl } from "../processes/character-emoji/reference.js";
 import type { ImageBackground } from "../processes/image-background.js";
 
 export type GptImageQuality = "low" | "medium" | "high" | "auto";
@@ -248,20 +250,7 @@ function characterReferenceUrls(urls: readonly string[]): readonly string[] {
         );
     }
     return urls.map((raw) => {
-        const url = new URL(raw);
-        if (
-            url.protocol !== "https:" ||
-            url.hostname !== "assets.memebuy.cn" ||
-            url.username ||
-            url.password ||
-            url.port ||
-            url.hash ||
-            !(
-                url.pathname.startsWith("/maker/characters/ai-fanworks/") ||
-                url.pathname ===
-                    "/maker/characters/community/scenes/doubao/chibi-5e7e8f7823faaa50.png"
-            )
-        ) {
+        if (!characterReferenceUrl.safeParse(raw).success) {
             throw new Error("Character reference URL is not allowed");
         }
         return raw;

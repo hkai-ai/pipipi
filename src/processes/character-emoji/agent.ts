@@ -1,7 +1,14 @@
 /** 表情包编译 Agent 的窄接口。 */
 import type { EmojiObservation } from "./diagnostics.js";
 import type { SceneComicPlan, ScenePlan } from "./scene.js";
-import type { Brief, ComicBrief, ComicPlan, EmojiPlan } from "./schema.js";
+import type {
+    Brief,
+    ComicBrief,
+    ComicPlan,
+    EmojiPlan,
+    SceneBrief,
+    SceneComicBrief,
+} from "./schema.js";
 
 export type CharacterEmojiBudget = Readonly<{
     timeoutMs: number;
@@ -15,13 +22,13 @@ export type CharacterEmojiBudget = Readonly<{
 
 export type SceneEmojiAgent = Readonly<{
     planScene: (
-        brief: Brief,
+        brief: SceneBrief,
         signal: AbortSignal,
         budget: CharacterEmojiBudget,
         observe?: (record: EmojiObservation) => void,
     ) => Promise<ScenePlan>;
     planSceneComic: (
-        brief: ComicBrief,
+        brief: SceneComicBrief,
         signal: AbortSignal,
         budget: CharacterEmojiBudget,
         observe?: (record: EmojiObservation) => void,

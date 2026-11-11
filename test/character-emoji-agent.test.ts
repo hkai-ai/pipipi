@@ -4,8 +4,16 @@ import type {
     CreateAgentSessionOptions,
     CreateAgentSessionResult,
 } from "@earendil-works/pi-coding-agent";
+import { createAgentSession } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
+
+vi.mock(import("@earendil-works/pi-coding-agent"), async (load) => ({
+    ...(await load()),
+    createAgentSession: vi.fn(),
+}));
+
 import { createProcessingApplication } from "../src/api/application.js";
+import { createProductionRuntime } from "../src/app/business-processes.js";
 import { createProcessExecutor } from "../src/processes/catalog.js";
 import { PiCharacterEmojiAgent } from "../src/processes/character-emoji/agent.pi.js";
 import {
@@ -43,6 +51,7 @@ import {
     characterEmojiSkillHash,
     createCharacterEmojiSkillRefs,
 } from "../src/processes/character-emoji/skills.js";
+import contract from "./fixtures/character-emoji-v4.json" with { type: "json" };
 
 const brief: Brief = {
     cast: [{ character: "DeepSeek", appearance: "Chibi" }],
@@ -128,6 +137,7 @@ const makeSearch = (fetcher: typeof fetch) =>
 
 function harness(
     options: {
+        version?: "v4";
         calls?: number;
         outputs?: unknown[];
         stopReason?: string;
@@ -160,96 +170,95 @@ function harness(
             sources: [{ title: "原帖", url: "https://example.org/meme" }],
         })),
     };
+    const sessionFactory = async (config: CreateAgentSessionOptions = {}) => {
+        expect(config.settingsManager?.getCacheWarmingMode()).toBe("off");
+        sessionConfigs.push(config);
+        captured = config;
+        const tool = config.customTools?.[0];
+        const state: {
+            onPayload?: (body: unknown) => unknown;
+        } = {};
+        const request = async () => {
+            payloads.push(
+                await state.onPayload?.({
+                    model: characterEmojiModel,
+                    max_output_tokens: 8192,
+                    input: [{ role: "user", content: prompts.join("\n") }],
+                    prompt_cache_key: "test-session",
+                    prompt_cache_retention: "24h",
+                }),
+            );
+        };
+        return {
+            session: {
+                agent: state,
+                messages,
+                dispose,
+                abort,
+                setActiveToolsByName: disableTools,
+                setAutoRetryEnabled: retry,
+                setAutoCompactionEnabled: compaction,
+                prompt: async (text: string) => {
+                    prompts.push(text);
+                    await request();
+                    if (prompts.length === 1) {
+                        for (
+                            let index = 0;
+                            index < (options.calls ?? 1);
+                            index++
+                        ) {
+                            try {
+                                if (!tool) throw new Error("没有搜索 Tool");
+                                await tool.execute(
+                                    `call-${index}`,
+                                    { focus: "网友关于失忆的梗" },
+                                    signal(),
+                                    undefined,
+                                    {} as never,
+                                );
+                            } catch {
+                                /* 模拟 Pi 将 Tool 错误交还模型。 */
+                            }
+                            await request();
+                        }
+                        for (let i = 0; i < (options.extraModelCalls ?? 0); i++)
+                            await request();
+                    }
+                    const output =
+                        outputs[
+                            Math.min(prompts.length - 1, outputs.length - 1)
+                        ];
+                    messages.push({
+                        role: "assistant",
+                        stopReason: options.stopReason ?? "stop",
+                        content: options.textBlocks ?? [
+                            {
+                                type: "text",
+                                text:
+                                    typeof output === "string"
+                                        ? output
+                                        : JSON.stringify(internal(output)),
+                            },
+                        ],
+                    });
+                    if (options.throwAfterMessage)
+                        throw new Error("private upstream error");
+                },
+            },
+        } as unknown as CreateAgentSessionResult;
+    };
     const agent = new PiCharacterEmojiAgent({
+        version: options.version,
         gateway: {
             apiKey: "emoji-test-key",
             baseUrl: "https://emoji.example/v1",
         },
         skills: createCharacterEmojiSkillRefs(),
         search,
-        sessionFactory: async (config) => {
-            expect(config.settingsManager?.getCacheWarmingMode()).toBe("off");
-            sessionConfigs.push(config);
-            captured = config;
-            const tool = config.customTools?.[0];
-            const state: {
-                onPayload?: (body: unknown) => unknown;
-            } = {};
-            const request = async () => {
-                payloads.push(
-                    await state.onPayload?.({
-                        model: characterEmojiModel,
-                        max_output_tokens: 8192,
-                        input: [{ role: "user", content: prompts.join("\n") }],
-                        prompt_cache_key: "test-session",
-                        prompt_cache_retention: "24h",
-                    }),
-                );
-            };
-            return {
-                session: {
-                    agent: state,
-                    messages,
-                    dispose,
-                    abort,
-                    setActiveToolsByName: disableTools,
-                    setAutoRetryEnabled: retry,
-                    setAutoCompactionEnabled: compaction,
-                    prompt: async (text: string) => {
-                        prompts.push(text);
-                        await request();
-                        if (prompts.length === 1) {
-                            for (
-                                let index = 0;
-                                index < (options.calls ?? 1);
-                                index++
-                            ) {
-                                try {
-                                    if (!tool) throw new Error("没有搜索 Tool");
-                                    await tool.execute(
-                                        `call-${index}`,
-                                        { focus: "网友关于失忆的梗" },
-                                        signal(),
-                                        undefined,
-                                        {} as never,
-                                    );
-                                } catch {
-                                    /* 模拟 Pi 将 Tool 错误交还模型。 */
-                                }
-                                await request();
-                            }
-                            for (
-                                let i = 0;
-                                i < (options.extraModelCalls ?? 0);
-                                i++
-                            )
-                                await request();
-                        }
-                        const output =
-                            outputs[
-                                Math.min(prompts.length - 1, outputs.length - 1)
-                            ];
-                        messages.push({
-                            role: "assistant",
-                            stopReason: options.stopReason ?? "stop",
-                            content: options.textBlocks ?? [
-                                {
-                                    type: "text",
-                                    text:
-                                        typeof output === "string"
-                                            ? output
-                                            : JSON.stringify(internal(output)),
-                                },
-                            ],
-                        });
-                        if (options.throwAfterMessage)
-                            throw new Error("private upstream error");
-                    },
-                },
-            } as unknown as CreateAgentSessionResult;
-        },
+        sessionFactory,
     });
     return {
+        sessionFactory,
         agent,
         sessionConfigs,
         search,
@@ -266,6 +275,224 @@ function harness(
         compaction,
     };
 }
+
+describe("按请求提供角色资料的 v4 单图", () => {
+    const member = contract.single.request.input.cast[0];
+    const scene = contract.single.output.plan;
+    it("新角色以请求中的人设构思，用本次参考图生成并交付自己的身份", async () => {
+        const h = harness({
+            version: "v4",
+            calls: 0,
+            outputs: [
+                JSON.stringify({
+                    ...scene,
+                    adaptation: { entryIds: [], original: "为云撑伞" },
+                }),
+            ],
+        });
+        vi.mocked(createAgentSession).mockImplementation(h.sessionFactory);
+        const render = vi.fn();
+        const fetcher = vi
+            .spyOn(globalThis, "fetch")
+            .mockImplementation(async (url, init) => {
+                if (
+                    String(url) === member.referenceImageUrl &&
+                    init?.method === "HEAD"
+                )
+                    return new Response(null);
+                expect(String(url)).toBe(
+                    "https://business.example/character-emojis",
+                );
+                render(JSON.parse(String(init?.body)));
+                return Response.json(image);
+            });
+        try {
+            const { executor } = createProductionRuntime({
+                PI_MODEL: "gpt-5.6-terra",
+                PI_PROVIDER: "openai",
+                CHARACTER_EMOJI_BASE_URL: "https://emoji.example/v1",
+                CHARACTER_EMOJI_API_KEY: "emoji-test-key",
+                CRT_BUSINESS_API_BASE_URL: "https://business.example",
+            });
+            const result = await executor.execute(contract.single.request);
+            expect(result).toMatchObject({
+                status: "succeeded",
+                output: contract.single.output,
+            });
+            expect(h.prompts[0]).toContain(member.persona);
+            expect(h.prompts[0]).toContain(member.displayName);
+            expect(h.prompts[0]).not.toContain(member.referenceImageUrl);
+            expect(render).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    imageUrls: [member.referenceImageUrl],
+                    prompt: expect.stringContaining("RainFox:Ink"),
+                }),
+            );
+        } finally {
+            vi.mocked(createAgentSession).mockReset();
+            fetcher.mockRestore();
+        }
+    });
+    it.each([
+        {
+            url: member.referenceImageUrl,
+            status: 302,
+            code: "INVALID_INPUT",
+            probes: 1,
+        },
+        {
+            url: member.referenceImageUrl,
+            status: 404,
+            code: "DEPENDENCY_FAILURE",
+            probes: 1,
+        },
+        {
+            url: "https://example.org/foreign.png",
+            status: 200,
+            code: "INVALID_INPUT",
+            probes: 0,
+        },
+        ...[
+            member.referenceImageUrl.replace("/rain-fox/", "/%2e%2e/"),
+            member.referenceImageUrl.replace(
+                "assets.memebuy.cn",
+                "assets.memebuy.cn:443",
+            ),
+            member.referenceImageUrl.replace("/community/scenes/", "/private/"),
+            `${member.referenceImageUrl}?key=value`,
+            `${member.referenceImageUrl}#fragment`,
+        ].map((url) => ({
+            url,
+            status: 200,
+            code: "INVALID_INPUT",
+            probes: 0,
+        })),
+    ])(
+        "不向绘图渠道提交不可用的参考图 ($status, $code)",
+        async ({ url, status, code, probes }) => {
+            const h = harness({ version: "v4", calls: 0 });
+            const render = vi.fn(async () => image);
+            const fetchReference = vi.fn<typeof fetch>(async (_url, init) => {
+                expect(init?.redirect).toBe("manual");
+                expect(init?.method).toBe("HEAD");
+                return new Response(null, {
+                    status,
+                    headers: { location: "https://example.org/untrusted" },
+                });
+            });
+            const executor = createProcessExecutor({
+                registrations: [
+                    createCharacterEmojiRegistration({
+                        version: "v4",
+                        agent: h.agent,
+                        capability: { render },
+                        fetchReference,
+                    }),
+                ],
+            });
+            const result = await executor.execute({
+                process: "character-emoji",
+                version: "v4",
+                input: {
+                    mode: "single",
+                    cast: [{ ...member, referenceImageUrl: url }],
+                    idea: "撑伞",
+                },
+            });
+            expect(result).toMatchObject({ status: "failed", error: { code } });
+            expect(fetchReference).toHaveBeenCalledTimes(probes);
+            expect(h.prompts).toHaveLength(0);
+            expect(render).not.toHaveBeenCalled();
+        },
+    );
+});
+
+describe("v4 漫画逐格绑定角色", () => {
+    it.each([
+        "same-character",
+        "different-characters",
+        "wrong-speaker",
+        "unknown-actor",
+    ])("%s 通过 v4 运行入口核验本格身份与参考图顺序", async (outcome) => {
+        const { request, output } = structuredClone(contract.comic);
+        const { cast } = request.input;
+        const { page, panels } = output.plan;
+        if (outcome === "different-characters") {
+            cast[1].character = "CloudOwl";
+            cast[1].displayName = "云鸮";
+            panels[1].actors[0].character = "CloudOwl";
+            panels[1].texts[0].speaker = "CloudOwl:Snow";
+        }
+        const candidatePanels = structuredClone(panels).map(
+            ({ index: _index, ...panel }) => panel,
+        );
+        if (outcome === "wrong-speaker")
+            candidatePanels[0].texts[0].speaker = "RainFox:Snow";
+        if (outcome === "unknown-actor")
+            candidatePanels[0].actors[0].character = "MoonFox";
+        const h = harness({
+            version: "v4",
+            calls: 0,
+            outputs: [
+                JSON.stringify({
+                    page,
+                    panels: candidatePanels,
+                    adaptation: { entryIds: [], original: "交换雨伞" },
+                }),
+            ],
+        });
+        vi.mocked(createAgentSession).mockImplementation(h.sessionFactory);
+        const renders: unknown[] = [];
+        const fetcher = vi
+            .spyOn(globalThis, "fetch")
+            .mockImplementation(async (url, init) => {
+                if (
+                    init?.method === "HEAD" &&
+                    cast.some((m) => m.referenceImageUrl === String(url))
+                )
+                    return new Response(null);
+                expect(String(url)).toBe(
+                    "https://business.example/character-emojis",
+                );
+                renders.push(JSON.parse(String(init?.body)));
+                return Response.json({ ...image, width: 1024, height: 1536 });
+            });
+        try {
+            const runtime = createProductionRuntime({
+                PI_MODEL: "gpt-5.6-terra",
+                PI_PROVIDER: "openai",
+                CHARACTER_EMOJI_BASE_URL: "https://emoji.example/v1",
+                CHARACTER_EMOJI_API_KEY: "emoji-test-key",
+                CRT_BUSINESS_API_BASE_URL: "https://business.example",
+            });
+            const result = await runtime.executor.execute(request);
+            if (outcome === "wrong-speaker" || outcome === "unknown-actor") {
+                expect(result).toMatchObject({
+                    status: "failed",
+                    error: { code: "AGENT_FAILURE" },
+                });
+                expect(renders).toHaveLength(0);
+                return;
+            }
+            expect(result).toMatchObject({
+                status: "succeeded",
+                output,
+            });
+            expect(renders).toHaveLength(1);
+            expect(renders[0]).toMatchObject({
+                imageUrls: cast.map((m) => m.referenceImageUrl),
+                prompt: expect.stringContaining(`${cast[1].character}:Snow`),
+            });
+            for (const member of cast) {
+                expect(h.prompts[0]).toContain(member.persona);
+                expect(h.prompts[0]).not.toContain(member.referenceImageUrl);
+            }
+        } finally {
+            vi.mocked(createAgentSession).mockReset();
+            fetcher.mockRestore();
+        }
+    });
+});
 
 describe("DeepSeek 搜梗 Adapter", () => {
     it("使用固定模型与预算，提取最终正文和安全来源", async () => {

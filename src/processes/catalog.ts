@@ -12,6 +12,7 @@ import type { ProcessRunRecords } from "../process-runtime/records.js";
 import {
     characterEmojiProduction,
     characterEmojiV3Production,
+    characterEmojiV4Production,
 } from "./character-emoji/production.js";
 import { composedProduction } from "./composed/production.js";
 import { crtProduction } from "./crt/production.js";
@@ -71,6 +72,7 @@ export const productionCatalog: readonly ProductionProcess[] = Object.freeze([
     risographAlbumProduction,
     characterEmojiProduction,
     characterEmojiV3Production,
+    characterEmojiV4Production,
     templateProduction,
     templateV2Production,
     templatePlanProduction,
