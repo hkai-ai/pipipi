@@ -4,7 +4,14 @@ import type {
     CreateAgentSessionOptions,
     CreateAgentSessionResult,
 } from "@earendil-works/pi-coding-agent";
+import { createAgentSession } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
+
+vi.mock(import("@earendil-works/pi-coding-agent"), async (load) => ({
+    ...(await load()),
+    createAgentSession: vi.fn(),
+}));
+
 import { createProcessingApplication } from "../src/api/application.js";
 import { createProductionRuntime } from "../src/app/business-processes.js";
 import { createProcessExecutor } from "../src/processes/catalog.js";
@@ -163,6 +170,83 @@ function harness(
             sources: [{ title: "原帖", url: "https://example.org/meme" }],
         })),
     };
+    const sessionFactory = async (config: CreateAgentSessionOptions = {}) => {
+        expect(config.settingsManager?.getCacheWarmingMode()).toBe("off");
+        sessionConfigs.push(config);
+        captured = config;
+        const tool = config.customTools?.[0];
+        const state: {
+            onPayload?: (body: unknown) => unknown;
+        } = {};
+        const request = async () => {
+            payloads.push(
+                await state.onPayload?.({
+                    model: characterEmojiModel,
+                    max_output_tokens: 8192,
+                    input: [{ role: "user", content: prompts.join("\n") }],
+                    prompt_cache_key: "test-session",
+                    prompt_cache_retention: "24h",
+                }),
+            );
+        };
+        return {
+            session: {
+                agent: state,
+                messages,
+                dispose,
+                abort,
+                setActiveToolsByName: disableTools,
+                setAutoRetryEnabled: retry,
+                setAutoCompactionEnabled: compaction,
+                prompt: async (text: string) => {
+                    prompts.push(text);
+                    await request();
+                    if (prompts.length === 1) {
+                        for (
+                            let index = 0;
+                            index < (options.calls ?? 1);
+                            index++
+                        ) {
+                            try {
+                                if (!tool) throw new Error("没有搜索 Tool");
+                                await tool.execute(
+                                    `call-${index}`,
+                                    { focus: "网友关于失忆的梗" },
+                                    signal(),
+                                    undefined,
+                                    {} as never,
+                                );
+                            } catch {
+                                /* 模拟 Pi 将 Tool 错误交还模型。 */
+                            }
+                            await request();
+                        }
+                        for (let i = 0; i < (options.extraModelCalls ?? 0); i++)
+                            await request();
+                    }
+                    const output =
+                        outputs[
+                            Math.min(prompts.length - 1, outputs.length - 1)
+                        ];
+                    messages.push({
+                        role: "assistant",
+                        stopReason: options.stopReason ?? "stop",
+                        content: options.textBlocks ?? [
+                            {
+                                type: "text",
+                                text:
+                                    typeof output === "string"
+                                        ? output
+                                        : JSON.stringify(internal(output)),
+                            },
+                        ],
+                    });
+                    if (options.throwAfterMessage)
+                        throw new Error("private upstream error");
+                },
+            },
+        } as unknown as CreateAgentSessionResult;
+    };
     const agent = new PiCharacterEmojiAgent({
         version: options.version,
         gateway: {
@@ -171,89 +255,10 @@ function harness(
         },
         skills: createCharacterEmojiSkillRefs(),
         search,
-        sessionFactory: async (config) => {
-            expect(config.settingsManager?.getCacheWarmingMode()).toBe("off");
-            sessionConfigs.push(config);
-            captured = config;
-            const tool = config.customTools?.[0];
-            const state: {
-                onPayload?: (body: unknown) => unknown;
-            } = {};
-            const request = async () => {
-                payloads.push(
-                    await state.onPayload?.({
-                        model: characterEmojiModel,
-                        max_output_tokens: 8192,
-                        input: [{ role: "user", content: prompts.join("\n") }],
-                        prompt_cache_key: "test-session",
-                        prompt_cache_retention: "24h",
-                    }),
-                );
-            };
-            return {
-                session: {
-                    agent: state,
-                    messages,
-                    dispose,
-                    abort,
-                    setActiveToolsByName: disableTools,
-                    setAutoRetryEnabled: retry,
-                    setAutoCompactionEnabled: compaction,
-                    prompt: async (text: string) => {
-                        prompts.push(text);
-                        await request();
-                        if (prompts.length === 1) {
-                            for (
-                                let index = 0;
-                                index < (options.calls ?? 1);
-                                index++
-                            ) {
-                                try {
-                                    if (!tool) throw new Error("没有搜索 Tool");
-                                    await tool.execute(
-                                        `call-${index}`,
-                                        { focus: "网友关于失忆的梗" },
-                                        signal(),
-                                        undefined,
-                                        {} as never,
-                                    );
-                                } catch {
-                                    /* 模拟 Pi 将 Tool 错误交还模型。 */
-                                }
-                                await request();
-                            }
-                            for (
-                                let i = 0;
-                                i < (options.extraModelCalls ?? 0);
-                                i++
-                            )
-                                await request();
-                        }
-                        const output =
-                            outputs[
-                                Math.min(prompts.length - 1, outputs.length - 1)
-                            ];
-                        messages.push({
-                            role: "assistant",
-                            stopReason: options.stopReason ?? "stop",
-                            content: options.textBlocks ?? [
-                                {
-                                    type: "text",
-                                    text:
-                                        typeof output === "string"
-                                            ? output
-                                            : JSON.stringify(internal(output)),
-                                },
-                            ],
-                        });
-                        if (options.throwAfterMessage)
-                            throw new Error("private upstream error");
-                    },
-                },
-            } as unknown as CreateAgentSessionResult;
-        },
+        sessionFactory,
     });
     return {
+        sessionFactory,
         agent,
         sessionConfigs,
         search,
@@ -285,10 +290,7 @@ describe("按请求提供角色资料的 v4 单图", () => {
                 }),
             ],
         });
-        const realPlan = h.agent.planScene.bind(h.agent);
-        const planner = vi
-            .spyOn(PiCharacterEmojiAgent.prototype, "planScene")
-            .mockImplementation(realPlan);
+        vi.mocked(createAgentSession).mockImplementation(h.sessionFactory);
         const render = vi.fn();
         const fetcher = vi
             .spyOn(globalThis, "fetch")
@@ -306,6 +308,10 @@ describe("按请求提供角色资料的 v4 单图", () => {
             });
         try {
             const { executor } = createProductionRuntime({
+                PI_MODEL: "gpt-5.6-terra",
+                PI_PROVIDER: "openai",
+                CHARACTER_EMOJI_BASE_URL: "https://emoji.example/v1",
+                CHARACTER_EMOJI_API_KEY: "emoji-test-key",
                 CRT_BUSINESS_API_BASE_URL: "https://business.example",
             });
             const result = await executor.execute(contract.single.request);
@@ -323,7 +329,7 @@ describe("按请求提供角色资料的 v4 单图", () => {
                 }),
             );
         } finally {
-            planner.mockRestore();
+            vi.mocked(createAgentSession).mockReset();
             fetcher.mockRestore();
         }
     });
@@ -435,10 +441,7 @@ describe("v4 漫画逐格绑定角色", () => {
                 }),
             ],
         });
-        const realPlan = h.agent.planSceneComic.bind(h.agent);
-        const plan = vi
-            .spyOn(PiCharacterEmojiAgent.prototype, "planSceneComic")
-            .mockImplementation(realPlan);
+        vi.mocked(createAgentSession).mockImplementation(h.sessionFactory);
         const renders: unknown[] = [];
         const fetcher = vi
             .spyOn(globalThis, "fetch")
@@ -456,6 +459,10 @@ describe("v4 漫画逐格绑定角色", () => {
             });
         try {
             const runtime = createProductionRuntime({
+                PI_MODEL: "gpt-5.6-terra",
+                PI_PROVIDER: "openai",
+                CHARACTER_EMOJI_BASE_URL: "https://emoji.example/v1",
+                CHARACTER_EMOJI_API_KEY: "emoji-test-key",
                 CRT_BUSINESS_API_BASE_URL: "https://business.example",
             });
             const result = await runtime.executor.execute(request);
@@ -481,7 +488,7 @@ describe("v4 漫画逐格绑定角色", () => {
                 expect(h.prompts[0]).not.toContain(member.referenceImageUrl);
             }
         } finally {
-            plan.mockRestore();
+            vi.mocked(createAgentSession).mockReset();
             fetcher.mockRestore();
         }
     });

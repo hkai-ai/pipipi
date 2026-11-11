@@ -93,16 +93,37 @@ export function createCharacterEmojiRegistration(
 ): ProcessRegistration {
     if (!options.agent || !options.capability)
         throw new Error("表情包 Process 依赖未配置");
+    const defaults = {
+        input: inputSchema,
+        single: briefSchema,
+        comic: comicBriefSchema,
+        singlePlan: scenePlanSchema,
+        comicPlan: sceneComicPlanSchema,
+    };
+    const formats = {
+        v1: defaults,
+        v2: defaults,
+        v3: {
+            input: versionedInputSchema,
+            single: versionedBriefSchema,
+            comic: versionedComicBriefSchema,
+            singlePlan: versionedScenePlanSchema,
+            comicPlan: versionedSceneComicPlanSchema,
+        },
+        v4: {
+            input: suppliedInputSchema,
+            single: suppliedBriefSchema,
+            comic: suppliedComicBriefSchema,
+            singlePlan: suppliedScenePlanSchema,
+            comicPlan: suppliedSceneComicPlanSchema,
+        },
+    };
+    const format = formats[options.version ?? "v1"];
     return defineProcessRegistration({
         id: "character-emoji",
         version: options.version ?? "v1",
         timeoutMs: 480_000,
-        inputSchema:
-            options.version === "v4"
-                ? suppliedInputSchema
-                : options.version === "v3"
-                  ? versionedInputSchema
-                  : inputSchema,
+        inputSchema: format.input,
         outputSchema:
             options.version === "v4"
                 ? z.discriminatedUnion("mode", [
@@ -157,13 +178,7 @@ export function createCharacterEmojiRegistration(
             let size = "1024x1024";
             try {
                 if (comic) {
-                    const brief: SceneComicBrief = (
-                        options.version === "v4"
-                            ? suppliedComicBriefSchema
-                            : options.version === "v3"
-                              ? versionedComicBriefSchema
-                              : comicBriefSchema
-                    ).parse(input);
+                    const brief: SceneComicBrief = format.comic.parse(input);
                     const compiled = await context.runActivity(
                         "character_emoji_planning",
                         async () => {
@@ -172,13 +187,7 @@ export function createCharacterEmojiRegistration(
                                 options.version === "v3" ||
                                 options.version === "v4"
                             ) {
-                                const plan = (
-                                    options.version === "v4"
-                                        ? suppliedSceneComicPlanSchema
-                                        : options.version === "v3"
-                                          ? versionedSceneComicPlanSchema
-                                          : sceneComicPlanSchema
-                                ).parse(
+                                const plan = format.comicPlan.parse(
                                     await options.agent.planSceneComic(
                                         brief,
                                         context.signal,
@@ -221,13 +230,7 @@ export function createCharacterEmojiRegistration(
                         throw new Error("漫画画幅与请求不一致");
                     size = imageSizes[compiled.plan.page.aspectRatio];
                 } else {
-                    const brief = (
-                        options.version === "v4"
-                            ? suppliedBriefSchema
-                            : options.version === "v3"
-                              ? versionedBriefSchema
-                              : briefSchema
-                    ).parse(input);
+                    const brief = format.single.parse(input);
                     const compiled = await context.runActivity(
                         "character_emoji_planning",
                         async () => {
@@ -236,13 +239,7 @@ export function createCharacterEmojiRegistration(
                                 options.version === "v3" ||
                                 options.version === "v4"
                             ) {
-                                const plan = (
-                                    options.version === "v4"
-                                        ? suppliedScenePlanSchema
-                                        : options.version === "v3"
-                                          ? versionedScenePlanSchema
-                                          : scenePlanSchema
-                                ).parse(
+                                const plan = format.singlePlan.parse(
                                     await options.agent.planScene(
                                         brief,
                                         context.signal,
