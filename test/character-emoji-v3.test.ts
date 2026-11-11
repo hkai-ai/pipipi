@@ -7,6 +7,7 @@ import { createCharacterEmojiRegistration } from "../src/processes/character-emo
 import {
     acceptSceneCandidate,
     projectSceneCandidate,
+    type ScenePlan,
     versionedSceneComicPlanSchema,
 } from "../src/processes/character-emoji/scene.js";
 
@@ -49,7 +50,7 @@ function harness(plan = comic) {
         async () => image,
     );
     const agent = {
-        planScene: vi.fn(async () => single),
+        planScene: vi.fn(async (): Promise<ScenePlan> => single),
         planSceneComic: vi.fn(async () => plan),
     };
     const executor = createProcessExecutor({
@@ -70,6 +71,31 @@ function harness(plan = comic) {
 }
 
 describe("双版本角色 v3 功能验收，不调用外部服务", () => {
+    it("执行 Memebuy 的豆包单图请求，按 Q 版参考图生图并返回完整身份", async () => {
+        const h = harness();
+        const member = { character: "Doubao", appearance: "Chibi" } as const;
+        const idea = "豆包捂住正在外放的手机";
+        const plan = {
+            scene: idea,
+            actors: [{ ...member, identityMark: null }],
+            caption: "小点声",
+            propMarks: [],
+        };
+        h.agent.planScene.mockResolvedValueOnce(plan);
+        const result = await h.executor.execute({
+            process: "character-emoji",
+            version: "v3",
+            input: { cast: [member], idea },
+        });
+        expect(result).toMatchObject({
+            status: "succeeded",
+            output: { mode: "single", plan, caption: plan.caption, image },
+        });
+        expect(h.render).toHaveBeenCalledOnce();
+        expect(h.render.mock.calls[0][0].imageUrls).toEqual([
+            imageUrl("Doubao", "Chibi", "v3"),
+        ]);
+    });
     it.each(["single", "comic"])(
         "%s 经实际 Runner 保留身份并按 cast 顺序传两张参考图",
         async (mode) => {

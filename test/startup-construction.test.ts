@@ -1,4 +1,9 @@
-﻿import { createServer, type RequestListener, type Server } from "node:http";
+﻿import {
+    createServer,
+    type RequestListener,
+    type Server,
+    type ServerResponse,
+} from "node:http";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ProcessingApplication } from "../src/api/application.js";
 import { constructProcessingService } from "../src/app/api.js";
