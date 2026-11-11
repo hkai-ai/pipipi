@@ -188,6 +188,11 @@ export function createTemplateRenderRegistration(
                     ),
                 );
             } catch (error) {
+                if (
+                    error instanceof TemplateImagePreparationError &&
+                    error.reason === "background_mismatch"
+                )
+                    return failProcess("INVALID_OUTPUT", error.message);
                 return failProcess(
                     "DEPENDENCY_FAILURE_AFTER_COMMIT",
                     error instanceof TemplateImagePreparationError

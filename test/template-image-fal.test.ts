@@ -66,8 +66,15 @@ it("断连和无效回执均保持未知，成功只返回请求标识", async (
             "prompt",
             "1024x1024",
             signal(),
+            "transparent",
         ),
     ).toBe("request-1");
+    expect(JSON.parse(transport.mock.calls[2][1].body).background).toBe(
+        "transparent",
+    );
+    expect(JSON.parse(transport.mock.calls[0][1].body)).not.toHaveProperty(
+        "background",
+    );
     expect(transport).toHaveBeenCalledTimes(3);
 });
 it.each(["host-init", "host-upload", "status", "result", "submit"])(

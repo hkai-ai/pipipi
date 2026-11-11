@@ -271,6 +271,7 @@ export const replacementStrategySchema = z.strictObject({
     spatialRelations: texts,
     risks: texts,
     image_size: z.enum(templateImageSizes),
+    outputBackground: z.enum(["transparent", "opaque"]).nullish(),
 });
 export type ReplacementStrategy = z.infer<typeof replacementStrategySchema>;
 
@@ -628,7 +629,7 @@ export function compileReplacementPrompt(
         residualCleanup:
             "只清除被 target_identity 接管的旧身份特征和已批准移除的内容；重绘范围不等于设计修改权限，保留 template_mechanism 的设计。",
         spatialRelations: `保持${list(s.spatialRelations)}`,
-        output: `单张 PNG；尺寸 ${s.image_size}；仅输出目标画布，不附对比图。`,
+        output: `单张 PNG；尺寸 ${s.image_size}；仅输出目标画布，不附对比图。${s.outputBackground === "transparent" ? "画布背景透明，保留主体内部颜色和细节，不绘制底色或棋盘格。" : s.outputBackground === "opaque" ? "画布背景不透明。" : ""}`,
     };
     return Object.entries(promptLabels)
         .map(

@@ -57,6 +57,11 @@ export const planningSchema = z.strictObject({
     mechanismAnalysis,
     visualFeatures,
     ...decisions,
+    outputBackground: replacementStrategySchema.shape.outputBackground
+        .unwrap()
+        .describe(
+            "只记录业务备注明确指定的背景输出：透明用 transparent，明确要实色或场景背景用 opaque。没有明确要求时填 null，由程序匹配原图。",
+        ),
 });
 
 const labels: Record<keyof z.infer<typeof layoutSchema>, string> = {

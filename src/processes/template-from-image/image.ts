@@ -7,6 +7,7 @@ export type TemplateImage = Readonly<{
     mimeType: "image/png";
     width: number;
     height: number;
+    hasTransparency?: boolean;
 }>;
 
 export type TemplateImageLoader = (
@@ -38,6 +39,9 @@ export async function decodeTemplateImage(
     ) {
         throw new Error("参考图宽高至少为 64 像素");
     }
+    // 从缩放前的实际像素判断，带 Alpha 的全不透明图片仍按原版处理。
+    const hasTransparency =
+        metadata.hasAlpha && !(await source.stats()).isOpaque;
     const normalized = await source
         .rotate()
         .resize({
@@ -51,6 +55,7 @@ export async function decodeTemplateImage(
     return Object.freeze({
         data: normalized.toString("base64"),
         mimeType: "image/png",
+        hasTransparency,
         width: oriented.width,
         height: oriented.height,
     });

@@ -1210,6 +1210,8 @@ Memebuy 可将两个模板分别绑定同一 Process 与固定 preset，用户�
 
 productionId 为 UUID；摘要为小写 64 位 SHA-256；reviewerRef 为 1–191 字符的服务端审核者引用。字段闭合，不接受额外运行配置。strategy 是待人审阅的完整业务方案，包含替换目标、类别判断、组件分组、依赖与特征权限、文字/标记动作、冻结项、风险；准确结构由 `GET /processes` 的输出 Schema 给出，调用方不能用策略正文替代已持久化 productionId。新输出另含 execution：`{ version: "v2", prompt, promptSha256 }`，精确十二段指令由服务端从策略生成，与源图及策略一起纳入 strategySha256。原审批入参保持不变。
 
+新方案的可选字段 `strategy.outputBackground` 记录已确定的成图背景（`transparent` 或 `opaque`）。原件含透明像素时默认匹配透明，备注明确指定背景时按其要求。该字段绑定方案摘要，审核后传入生图请求；缺失时沿用原有供应商默认值，历史审批不重新推断。
+
 targetCanvas 增加 carrierRole（none/apparel/device/mechanism）、reason、excludedScopes；frozenSet 改为 `{ scope: "design" | "carrier" | "environment", regionId, instruction }[]`；文字项增加 originalText、componentId，exactText 表示最终文字，删除为空串。replacementComponentIds 关联闭包中实际替换的组件。审核端应展示这些业务要求，旧记录缺失字段标记“未记录”。完整场景需显示依据并显式勾选确认。
 
 已保存的旧方案不自动转换：尚未提交生成的方案必须重新规划和确认；已知 requestId 继续恢复，已有成图继续原审批。明确拒绝、未知提交和需要重新批准的提示沿用现有公开错误分类。明确非重试 4xx 不恢复批准；未知提交禁止重投。

@@ -62,6 +62,7 @@ export const preparationFailureMessages = {
     provider_rejected:
         "图片服务已明确拒绝，本次批准已消费；请核对服务配置后重新规划和确认",
     submission_unknown: "生成提交结果未知，必须核对供应商记录，禁止重新提交",
+    background_mismatch: "生成结果缺少有效的透明前景，请核对方案后重新生成图片",
     reapproval_required: "方案执行合同已更新，请重新规划和确认",
     incomplete: "成图未完成；请恢复同一生产项，不自动重新付费",
 } as const;
@@ -70,6 +71,7 @@ export const preparationFailureSchema = z.enum([
     "provider_rejected",
     "submission_unknown",
     "reapproval_required",
+    "background_mismatch",
     "incomplete",
 ]);
 export class TemplateImagePreparationError extends Error {
