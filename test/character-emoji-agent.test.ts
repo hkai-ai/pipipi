@@ -142,6 +142,7 @@ function harness(
         outputs?: unknown[];
         stopReason?: string;
         throwAfterMessage?: boolean;
+        failures?: ("connection" | "refusal" | "reject" | undefined)[];
         search?: MemeSearch;
         extraModelCalls?: number;
         textBlocks?: Array<{
@@ -177,6 +178,7 @@ function harness(
         const tool = config.customTools?.[0];
         const state: {
             onPayload?: (body: unknown) => unknown;
+            onProviderStreamEvent?: (event: unknown) => void;
         } = {};
         const request = async () => {
             payloads.push(
@@ -228,9 +230,21 @@ function harness(
                         outputs[
                             Math.min(prompts.length - 1, outputs.length - 1)
                         ];
+                    const failure = options.failures?.[prompts.length - 1];
+                    if (failure === "refusal")
+                        state.onProviderStreamEvent?.({
+                            type: "response.refusal.done",
+                        });
                     messages.push({
                         role: "assistant",
-                        stopReason: options.stopReason ?? "stop",
+                        stopReason:
+                            failure === "connection" || failure === "reject"
+                                ? "error"
+                                : (options.stopReason ?? "stop"),
+                        errorMessage:
+                            failure === "connection"
+                                ? "Connection error."
+                                : "400: private rejection",
                         content: options.textBlocks ?? [
                             {
                                 type: "text",
@@ -301,7 +315,7 @@ describe("按请求提供角色资料的 v4 单图", () => {
                 )
                     return new Response(null);
                 expect(String(url)).toBe(
-                    "https://business.example/character-emojis",
+                    "https://business.example/character-emojis/v4",
                 );
                 render(JSON.parse(String(init?.body)));
                 return Response.json(image);
@@ -331,6 +345,82 @@ describe("按请求提供角色资料的 v4 单图", () => {
         } finally {
             vi.mocked(createAgentSession).mockReset();
             fetcher.mockRestore();
+        }
+    });
+    it.each([
+        "connection",
+        "caption",
+        "exhausted",
+        "refusal",
+        "reject",
+        "invalid-contract",
+    ])("v4 构思 %s 遵守原角色、原话和调用预算", async (scenario) => {
+        const candidate = {
+            ...scene,
+            adaptation: { entryIds: [], original: "为云撑伞" },
+        };
+        const wrong = { ...candidate, caption: "改写过的台词" };
+        const h = harness({
+            version: "v4",
+            calls: 0,
+            failures:
+                scenario === "exhausted"
+                    ? ["connection", "connection"]
+                    : scenario === "connection" ||
+                        scenario === "refusal" ||
+                        scenario === "reject"
+                      ? [scenario]
+                      : [],
+            outputs: [
+                JSON.stringify(
+                    scenario === "caption" || scenario === "invalid-contract"
+                        ? wrong
+                        : candidate,
+                ),
+                JSON.stringify(
+                    scenario === "invalid-contract" ? wrong : candidate,
+                ),
+            ],
+        });
+        const render = vi.fn(async () => image);
+        const executor = createProcessExecutor({
+            registrations: [
+                createCharacterEmojiRegistration({
+                    version: "v4",
+                    agent: h.agent,
+                    capability: { render },
+                    fetchReference: async () => new Response(null),
+                }),
+            ],
+        });
+        const result = await executor.execute(contract.single.request);
+        expect(h.payloads).toHaveLength(
+            ["refusal", "reject"].includes(scenario) ? 1 : 2,
+        );
+        if (scenario === "connection" || scenario === "caption") {
+            expect(result).toMatchObject({
+                status: "succeeded",
+                output: contract.single.output,
+            });
+            expect(render).toHaveBeenCalledTimes(1);
+        } else {
+            expect(result).toMatchObject({
+                status: "failed",
+                error: {
+                    code: "AGENT_FAILURE",
+                    message: expect.stringContaining(
+                        scenario === "exhausted"
+                            ? "模型连接失败"
+                            : scenario === "reject"
+                              ? "模型服务拒绝请求"
+                              : scenario === "refusal"
+                                ? "模型拒绝生成方案"
+                                : "模型结果不符合业务要求",
+                    ),
+                },
+            });
+            expect(JSON.stringify(result)).not.toContain("private rejection");
+            expect(render).not.toHaveBeenCalled();
         }
     });
     it.each([
@@ -452,7 +542,7 @@ describe("v4 漫画逐格绑定角色", () => {
                 )
                     return new Response(null);
                 expect(String(url)).toBe(
-                    "https://business.example/character-emojis",
+                    "https://business.example/character-emojis/v4",
                 );
                 renders.push(JSON.parse(String(init?.body)));
                 return Response.json({ ...image, width: 1024, height: 1536 });

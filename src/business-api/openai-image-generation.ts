@@ -178,7 +178,10 @@ export class OpenAIImageGenerationClient {
         return readGeneratedImage(response);
     }
 
-    async edit(request: EditImageRequest): Promise<GeneratedImage> {
+    async edit(
+        request: EditImageRequest,
+        onDispatch?: () => void,
+    ): Promise<GeneratedImage> {
         const prompt = request.prompt.trim();
         if (!prompt) throw new Error("GPT image prompt is required");
         const model = request.model?.trim() || "gpt-image-2";
@@ -229,9 +232,14 @@ export class OpenAIImageGenerationClient {
             );
         }
 
+        if (onDispatch && request.idempotencyKey)
+            headers["idempotency-key"] = request.idempotencyKey;
+        signal.throwIfAborted();
+        onDispatch?.();
         let response: Response;
         try {
             response = await this.#fetch(`${this.#baseUrl}/images/edits`, {
+                ...(onDispatch ? { redirect: "error" as const } : {}),
                 method: "POST",
                 headers,
                 body,

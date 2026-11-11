@@ -33,6 +33,7 @@ function production(version: "v2" | "v3" | "v4") {
                     search: new ResponsesMemeSearch({ gateway }),
                 }),
                 capability: new HttpCharacterEmojiRenderingCapability({
+                    recoverable: version === "v4",
                     baseUrl: parseCrtBusinessApiBaseUrl(environment),
                     timeoutMs: positiveInteger(
                         "PHOTO_POSTER_API_TIMEOUT_MS",

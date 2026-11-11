@@ -137,7 +137,16 @@ export async function startCrtBusinessApi(
             channel: "fal" | "magikaru";
             client: ImageEditClient;
         };
-        characterEmojiImageClient?: ImageEditClient;
+        characterEmojiImageClient?: {
+            edit(
+                request: EditImageRequest,
+                options?: { recoverable: boolean },
+            ): Promise<GeneratedImage>;
+            resume?(
+                key: string,
+                signal: AbortSignal,
+            ): Promise<GeneratedImage | undefined>;
+        };
         generationClient?: ImageGenerationClient;
         templateRenderer?: TemplateImageRenderer;
         templateStorage?: ObjectStorageCapability;
@@ -155,6 +164,7 @@ export async function startCrtBusinessApi(
     const posterResultDirectory = join(directory, "poster-results");
     const photoOutputDirectory = join(directory, "photo-posters");
     const photoResultDirectory = join(directory, "photo-poster-results");
+    const activeEmojiRuns = new Set<string>();
     const emojiOutputDirectory = join(directory, "character-emojis");
     const emojiResultDirectory = join(directory, "character-emoji-results");
     const templateProduction = new TemplateImageProduction({
@@ -252,7 +262,14 @@ export async function startCrtBusinessApi(
             await generatePhotoPoster(request, response);
             return;
         }
-        if (request.method === "POST" && request.url === "/character-emojis") {
+        if (
+            (request.method === "POST" &&
+                ["/character-emojis", "/character-emojis/v4"].includes(
+                    request.url ?? "",
+                )) ||
+            (request.method === "GET" &&
+                request.url === "/character-emojis/v4/result")
+        ) {
             await generateCharacterEmoji(request, response);
             return;
         }
@@ -775,15 +792,22 @@ export async function startCrtBusinessApi(
         request: IncomingMessage,
         response: ServerResponse,
     ): Promise<void> {
-        let input: ReturnType<typeof characterEmojiRenderInputSchema.parse>;
+        const recoverable = request.url !== "/character-emojis";
+        const lookup = request.method === "GET";
+        let input:
+            | ReturnType<typeof characterEmojiRenderInputSchema.parse>
+            | undefined;
         let key: string;
         try {
-            input = characterEmojiRenderInputSchema.parse(
-                JSON.parse((await readBody(request, 65_536)).toString("utf8")),
-            );
             key = parseIdempotencyKey(
                 singleHeader(request.headers["idempotency-key"]),
             );
+            if (!lookup)
+                input = characterEmojiRenderInputSchema.parse(
+                    JSON.parse(
+                        (await readBody(request, 65_536)).toString("utf8"),
+                    ),
+                );
         } catch {
             writeJson(response, 400, {
                 error: { code: "CHARACTER_EMOJI_REJECTED" },
@@ -791,36 +815,61 @@ export async function startCrtBusinessApi(
             return;
         }
         const imageClient = options.characterEmojiImageClient;
-        if (!imageClient) {
-            writeJson(response, 503, {
-                error: { code: "CHARACTER_EMOJI_CONFIGURATION_MISSING" },
-            });
-            return;
-        }
-        const digest = sha256(JSON.stringify(input));
         const controller = new AbortController();
         const abort = () => {
             if (!response.writableEnded) controller.abort();
         };
         response.once("close", abort);
-        let dispatched = false;
+        let ownsRun = false;
+        let dispatched = lookup;
         try {
-            const claim = await claimTransform(
-                emojiResultDirectory,
-                key,
-                digest,
-                (value) => characterEmojiImageSchema.parse(value),
-                "character emoji",
-            );
+            const parse = (value: unknown) =>
+                characterEmojiImageSchema.parse(value);
+            let digest: string;
+            let background: ImageBackground | undefined;
+            let claim: TransformClaim<ReturnType<typeof parse>>;
+            if (input) {
+                if (!imageClient) {
+                    writeJson(response, 503, {
+                        error: {
+                            code: "CHARACTER_EMOJI_CONFIGURATION_MISSING",
+                        },
+                    });
+                    return;
+                }
+                digest = sha256(JSON.stringify(input));
+                background = input.background;
+                claim = await claimTransform(
+                    emojiResultDirectory,
+                    key,
+                    digest,
+                    parse,
+                    "character emoji",
+                    recoverable ? { background } : undefined,
+                );
+            } else {
+                const saved = await readTransformRecord(
+                    emojiResultDirectory,
+                    key,
+                    parse,
+                    "character emoji",
+                );
+                digest = saved.digest;
+                const expected = request.headers["x-input-sha256"];
+                if (expected !== undefined && saved.digest !== expected)
+                    claim = { kind: "conflict" };
+                else if (saved.state === "complete")
+                    claim = { kind: "complete", result: saved.result };
+                else {
+                    if (!saved.recovery)
+                        throw new Error("缺少该运行的恢复合同");
+                    background = saved.recovery.background;
+                    claim = { kind: "pending" };
+                }
+            }
             if (claim.kind === "conflict") {
                 writeJson(response, 409, {
                     error: { code: "IDEMPOTENCY_CONFLICT" },
-                });
-                return;
-            }
-            if (claim.kind === "pending") {
-                writeJson(response, 503, {
-                    error: { code: "CHARACTER_EMOJI_INCOMPLETE" },
                 });
                 return;
             }
@@ -828,31 +877,77 @@ export async function startCrtBusinessApi(
                 writeJson(response, 200, claim.result);
                 return;
             }
-            const signal = controller.signal;
+            const signal = AbortSignal.any([
+                controller.signal,
+                AbortSignal.timeout(300_000),
+            ]);
             signal.throwIfAborted();
-            dispatched = true;
-            const generated = await imageClient.edit({
-                imageUrls: input.imageUrls,
-                prompt: input.prompt,
-                model: characterEmojiImageModel,
-                idempotencyKey: key,
-                quality,
-                size: input.size,
-                ...(input.background ? { background: input.background } : {}),
-                outputFormat: "png",
-                signal,
-            });
-            await assertImageBackground(generated.bytes, input.background);
+            const path = join(emojiOutputDirectory, `${key}.png`);
+            let generated: GeneratedImage | undefined;
+            if (claim.kind === "pending") {
+                dispatched = true;
+                if (recoverable && activeEmojiRuns.has(key)) {
+                    writeJson(response, 202, { status: "pending" });
+                    return;
+                }
+                if (!lookup) throw new Error("图片结果待核验");
+                activeEmojiRuns.add(key);
+                ownsRun = true;
+                try {
+                    generated = {
+                        bytes: await readFile(path),
+                        mimeType: "image/png",
+                        outputFormat: "png",
+                    };
+                } catch (error) {
+                    if ((error as NodeJS.ErrnoException).code !== "ENOENT")
+                        throw error;
+                    generated = await imageClient?.resume?.(key, signal);
+                }
+                if (!generated) throw new Error("图片结果待核验");
+            } else {
+                if (!imageClient || !input) throw new Error("图片服务未配置");
+                if (recoverable) {
+                    activeEmojiRuns.add(key);
+                    ownsRun = true;
+                }
+                dispatched = true;
+                generated = await imageClient.edit(
+                    {
+                        imageUrls: input.imageUrls,
+                        prompt: input.prompt,
+                        model: characterEmojiImageModel,
+                        idempotencyKey: key,
+                        quality,
+                        size: input.size,
+                        ...(input.background
+                            ? { background: input.background }
+                            : {}),
+                        outputFormat: "png",
+                        signal,
+                    },
+                    { recoverable },
+                );
+            }
+            await assertImageBackground(generated.bytes, background);
             const metadata = await sharp(generated.bytes).metadata();
             if (
                 generated.mimeType !== "image/png" ||
                 metadata.format !== "png" ||
                 !metadata.width ||
                 !metadata.height ||
+                metadata.width < 64 ||
+                metadata.height < 64 ||
                 metadata.width > 4_096 ||
                 metadata.height > 4_096
             ) {
                 throw new Error("表情包图片尺寸或格式不正确");
+            }
+            // 在上传前原子保存已校验的成品；恢复只使用同键文件或已有供应商回执。
+            if (recoverable) {
+                const temporary = `${path}.tmp`;
+                await writeFile(temporary, generated.bytes, { mode: 0o600 });
+                await rename(temporary, path);
             }
             const stored = options.storage
                 ? await options.storage.upload(
@@ -871,8 +966,8 @@ export async function startCrtBusinessApi(
                 width: metadata.width,
                 height: metadata.height,
             });
-            const path = join(emojiOutputDirectory, `${key}.png`);
-            await writeFile(path, generated.bytes, { mode: 0o600 });
+            if (!recoverable)
+                await writeFile(path, generated.bytes, { mode: 0o600 });
             await completeTransform(emojiResultDirectory, key, digest, result);
             writeJson(response, 200, result);
         } catch {
@@ -884,6 +979,7 @@ export async function startCrtBusinessApi(
                 },
             });
         } finally {
+            if (ownsRun) activeEmojiRuns.delete(key);
             response.off("close", abort);
         }
     }
@@ -1316,27 +1412,45 @@ async function claimTransform<Result>(
     digest: string,
     parseResult: (value: unknown) => Result,
     label: string,
+    recovery?: { background?: ImageBackground },
 ): Promise<TransformClaim<Result>> {
     const path = join(directory, `${key}.json`);
     try {
-        await writeFile(path, JSON.stringify({ digest, state: "pending" }), {
-            encoding: "utf8",
-            flag: "wx",
-            mode: 0o600,
-        });
+        await writeFile(
+            path,
+            JSON.stringify({ digest, state: "pending", recovery }),
+            {
+                encoding: "utf8",
+                flag: "wx",
+                mode: 0o600,
+            },
+        );
         return Object.freeze({ kind: "claimed" });
     } catch (error) {
         if (!isFileExistsError(error)) throw error;
     }
 
-    const record = parseTransformRecord(
-        JSON.parse(await readFile(path, "utf8")),
+    const record = await readTransformRecord(
+        directory,
+        key,
         parseResult,
         label,
     );
     if (record.digest !== digest) return Object.freeze({ kind: "conflict" });
     if (record.state === "pending") return Object.freeze({ kind: "pending" });
     return Object.freeze({ kind: "complete", result: record.result });
+}
+
+async function readTransformRecord<Result>(
+    directory: string,
+    key: string,
+    parseResult: (value: unknown) => Result,
+    label: string,
+) {
+    const value = JSON.parse(
+        await readFile(join(directory, `${key}.json`), "utf8"),
+    );
+    return parseTransformRecord(value, parseResult, label);
 }
 
 async function completeTransform<Result>(
@@ -1363,14 +1477,30 @@ function parseTransformRecord<Result>(
     parseResult: (value: unknown) => Result,
     label: string,
 ):
-    | Readonly<{ digest: string; state: "pending" }>
+    | Readonly<{
+          digest: string;
+          state: "pending";
+          recovery?: { background?: ImageBackground };
+      }>
     | Readonly<{ digest: string; state: "complete"; result: Result }> {
     if (!isRecord(value) || !/^[a-f0-9]{64}$/u.test(String(value.digest))) {
         throw new Error(`Stored ${label} idempotency record is invalid`);
     }
     const digest = String(value.digest);
     if (value.state === "pending")
-        return Object.freeze({ digest, state: "pending" });
+        return Object.freeze({
+            digest,
+            state: "pending",
+            ...(isRecord(value.recovery)
+                ? {
+                      recovery: {
+                          background: imageBackgroundSchema
+                              .optional()
+                              .parse(value.recovery.background),
+                      },
+                  }
+                : {}),
+        });
     if (value.state === "complete") {
         return Object.freeze({
             digest,

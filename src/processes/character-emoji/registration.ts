@@ -1,5 +1,8 @@
 /** 注册角色表情包的精确版本，统一治理构思、诊断与单次生图。 */
+
 import { z } from "zod";
+import { AgentContractFailure } from "../../agent-runtime/diagnostics.js";
+import { explainDiagnostic } from "../../process-runtime/diagnostics.js";
 import {
     defineProcessRegistration,
     failProcess,
@@ -32,6 +35,7 @@ import {
     type EmojiObservation,
     type EmojiObservationRecord,
     emojiDiagnostic,
+    planningDiagnostic,
 } from "./diagnostics.js";
 import { imageSizes } from "./image-options.js";
 import { imagePrompt } from "./prompt.js";
@@ -200,7 +204,7 @@ export function createCharacterEmojiRegistration(
                                         options.version === "v4") &&
                                     !matchesVersionedCast(brief, plan.panels)
                                 )
-                                    throw new Error("漫画登场身份不匹配");
+                                    throw new AgentContractFailure();
                                 return {
                                     plan,
                                     prompt: sceneComicImagePrompt(brief, plan),
@@ -220,6 +224,9 @@ export function createCharacterEmojiRegistration(
                                 prompt: comicImagePrompt(legacy, plan),
                             };
                         },
+                        options.version === "v4"
+                            ? planningDiagnostic
+                            : undefined,
                     );
                     plan = compiled.plan;
                     prompt = compiled.prompt;
@@ -227,7 +234,7 @@ export function createCharacterEmojiRegistration(
                         brief.aspectRatio &&
                         compiled.plan.page.aspectRatio !== brief.aspectRatio
                     )
-                        throw new Error("漫画画幅与请求不一致");
+                        throw new AgentContractFailure();
                     size = imageSizes[compiled.plan.page.aspectRatio];
                 } else {
                     const brief = format.single.parse(input);
@@ -252,7 +259,7 @@ export function createCharacterEmojiRegistration(
                                         options.version === "v4") &&
                                     !matchesVersionedCast(brief, [plan])
                                 )
-                                    throw new Error("表情包登场身份不匹配");
+                                    throw new AgentContractFailure();
                                 return {
                                     plan,
                                     prompt: sceneImagePrompt(brief, plan),
@@ -277,6 +284,9 @@ export function createCharacterEmojiRegistration(
                                 }),
                             };
                         },
+                        options.version === "v4"
+                            ? planningDiagnostic
+                            : undefined,
                     );
                     plan = compiled.plan;
                     prompt = compiled.prompt;
@@ -296,7 +306,9 @@ export function createCharacterEmojiRegistration(
                 }
                 return failProcess(
                     "AGENT_FAILURE",
-                    "表情包方案生成失败，请根据运行诊断检查构思阶段",
+                    options.version === "v4"
+                        ? `表情包构思失败（${explainDiagnostic(planningDiagnostic(error)).title}）。`
+                        : "表情包方案生成失败，请根据运行诊断检查构思阶段",
                 );
             }
             context.signal.throwIfAborted();
@@ -348,7 +360,9 @@ export function createCharacterEmojiRegistration(
                         error.committed
                             ? "DEPENDENCY_FAILURE_AFTER_COMMIT"
                             : "DEPENDENCY_FAILURE",
-                        "表情包生图或交付失败；提交结果不确定时请先核对运行记录",
+                        options.version === "v4" && error.committed
+                            ? "表情包生图结果待核验，请保留原 runId 查询，勿重新生成。"
+                            : "表情包生图或交付失败；提交结果不确定时请先核对运行记录",
                     );
                 }
                 throw error;

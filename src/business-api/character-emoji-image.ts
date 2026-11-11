@@ -1,5 +1,5 @@
-/** 装配角色表情包图片渠道，主用报错后在剩余预算内调用一次备用并保留两路结果。 */
-import { mkdir, writeFile } from "node:fs/promises";
+/** 装配角色表情包图片渠道，按版本限制备用提交并凭已保存回执恢复原图。 */
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import sharp from "sharp";
 import { resolveModelGateway } from "../model-gateway.js";
@@ -84,7 +84,28 @@ export function createCharacterEmojiImageClient(
     if (!primary && !backup) return undefined;
 
     return {
-        async edit(request: EditImageRequest) {
+        async resume(key: string, signal: AbortSignal) {
+            if (!backup || !/^[A-Za-z0-9_-]{1,128}$/u.test(key)) return;
+            let json: string;
+            try {
+                json = await readFile(
+                    join(
+                        options.directory,
+                        "character-emoji-jobs",
+                        `${key}.json`,
+                    ),
+                    "utf8",
+                );
+            } catch (error) {
+                if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
+                throw error;
+            }
+            const receipt = JSON.parse(json);
+            if (receipt.idempotencyKey !== key)
+                throw new Error("图片回执身份不匹配");
+            return backup.resume(receipt, signal);
+        },
+        async edit(request: EditImageRequest, { recoverable = false } = {}) {
             const key = request.idempotencyKey;
             if (!key || !/^[A-Za-z0-9_-]{1,128}$/u.test(key)) {
                 throw new Error("角色图片调用需要有效幂等键");
@@ -104,8 +125,9 @@ export function createCharacterEmojiImageClient(
                 for (const route of routes) {
                     signal.throwIfAborted();
                     const started = Date.now();
+                    let dispatched = false;
                     try {
-                        const image = await route.client.edit({
+                        const input = {
                             ...request,
                             model: route.model,
                             signal,
@@ -115,7 +137,13 @@ export function createCharacterEmojiImageClient(
                                       outputFormat: undefined,
                                   }
                                 : {}),
-                        });
+                        };
+                        const image =
+                            recoverable && primary && route.client === primary
+                                ? await primary.edit(input, () => {
+                                      dispatched = true;
+                                  })
+                                : await route.client.edit(input);
                         const metadata = await sharp(image.bytes).metadata();
                         if (
                             image.mimeType !== "image/png" ||
@@ -148,9 +176,10 @@ export function createCharacterEmojiImageClient(
                             elapsedMs: Date.now() - started,
                             ...(status === undefined ? {} : { status }),
                         });
-                        // 主用任意错误均切换一次；主动取消或整体截止仍停止，备用不重投。
+                        // v4 已派发且未确认拒绝时，只能查询原结果。
                         if (
                             signal.aborted ||
+                            (dispatched && !rejected) ||
                             route.client !== primary ||
                             !backup
                         ) {
@@ -174,7 +203,6 @@ export function createCharacterEmojiImageClient(
 }
 
 function isKnownRejection(error: unknown): boolean {
-    // 只用于保留原有观测分类，不再决定是否允许切换备用。
     return (
         error instanceof OpenAIImageGenerationError &&
         error.status !== undefined &&

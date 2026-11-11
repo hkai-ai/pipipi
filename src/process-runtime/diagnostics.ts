@@ -21,6 +21,7 @@ const diagnosticAdvice = {
     connection: ["模型连接失败", "请检查模型网关的连通性。"],
     timeout: ["模型请求超时", "请检查模型响应耗时与执行时限。"],
     cancelled: ["模型执行已取消", "请核对取消来源；不要当作依赖故障重试。"],
+    model_refusal: ["模型拒绝生成方案", "请核对模型拒绝与用户要求。"],
     provider_rejected: ["模型服务拒绝请求", "请检查服务端模型配置与请求协议。"],
     provider_unavailable: [
         "模型服务暂时不可用",

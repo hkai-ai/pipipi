@@ -1,4 +1,7 @@
 /** 保留表情包阶段耗时、调用次数及失败分类，不携带业务正文。 */
+import { agentDiagnostic } from "../../agent-runtime/diagnostics.js";
+import { AgentExecutionFailure } from "../../agent-runtime/failure.js";
+import type { ActivityDiagnostic } from "../../process-runtime/diagnostics.js";
 import type { AdaptationSource } from "./materials.js";
 
 export type EmojiFailureCode =
@@ -59,6 +62,30 @@ export function cancellationCode(signal: AbortSignal): "timeout" | "cancelled" {
     return signal.reason?.name === "TimeoutError" ? "timeout" : "cancelled";
 }
 
+export function planningDiagnostic(error: unknown): ActivityDiagnostic {
+    if (!(error instanceof EmojiFailure)) return agentDiagnostic(error);
+    switch (error.code) {
+        case "invalid_json":
+            return { stage: "json", code: "invalid_json" };
+        case "invalid_schema":
+            return { stage: "schema", code: "invalid_schema" };
+        case "invalid_source":
+        case "repair_changed_content":
+        case "business_validation":
+            return { stage: "schema", code: "invalid_contract" };
+        case "refused":
+            return { stage: "response", code: "model_refusal" };
+        case "empty_response":
+        case "incomplete_response":
+            return { stage: "response", code: error.code };
+        case "timeout":
+        case "cancelled":
+            return { stage: "request", code: error.code };
+        default:
+            return { stage: "request", code: "execution" };
+    }
+}
+
 export function emojiDiagnostic(
     error: unknown,
     runId: string,
@@ -72,7 +99,11 @@ export function emojiDiagnostic(
         stage: failure?.stage ?? "planning",
         code:
             failure?.code ??
-            (signal.aborted ? cancellationCode(signal) : "execution"),
+            (signal.aborted
+                ? cancellationCode(signal)
+                : error instanceof AgentExecutionFailure
+                  ? error.diagnostic.code
+                  : "execution"),
         elapsedMs: failure?.elapsedMs ?? elapsedMs,
         ...(failure?.httpStatus === undefined
             ? {}

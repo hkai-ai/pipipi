@@ -64,7 +64,7 @@ Registration 保持120秒共享截止时间、至多一次搜索 Tool、最多�
 
 图片主用 Memebuy 同款 Memene `gpt-image-2.5-flare`，参考 Memebuy 的 OpenAI Images Edit 调用，以 multipart 的 `image[]` 按原顺序上传多张参考图，提交一次；已启用主用优先读取共享 `MODEL_GATEWAY_API_KEY` / `MODEL_GATEWAY_BASE_URL`，未配置共享对时兼容旧 `CHARACTER_EMOJI_IMAGE_API_KEY` 和可选 `CHARACTER_EMOJI_IMAGE_BASE_URL`（默认 `https://llmapi.memene.cn/openai/v1`）。Pipipi 校验角色素材白名单及1至5张数量，参考图并行读入内存后上传，不落临时文件、不缩放、不压缩、不转码。配置 OSS 时复用 OSS_* 的 bucket、endpoint 和凭证，把固定素材 URL 映射为同桶对象键，使用只在请求内存在的短时 GET 签名直接读 OSS；OSS_PUBLIC_BASE_URL 必须对应 https://assets.memebuy.cn。未配置对象存储的独立本地运行保留公网读取。对象读取失败不另行改走公网重试。素材请求不携带网关凭证、不跟随重定向；整批读取最多15秒并计入主用及整体预算，每张最多20 MiB，按实际字节识别 PNG/JPEG/WebP；读取失败进入原有备用策略。已有字节输入复用同一文件表单。Magikaru 仍接收原始参考图 URL。Flare 对齐已核验的 Memebuy 历史请求：保留 model、prompt、n=1、size 和 image[]，省略 quality、output_format，不再继承 CRT_IMAGE_QUALITY；返回后仍校验 PNG 合同。Magikaru 保留原有质量参数（沿用 CRT_IMAGE_QUALITY，缺省 low）与 PNG 格式。参考图数量由 cast 决定，不固定为两张。备用使用 `MAGIKARU_API_KEY` 和可选 `MAGIKARU_BASE_URL` 的 `gpt-image-2.5` External Job。只配置 Magikaru 时保留旧部署行为；没有已启用且具备凭证的渠道时不可生图。共享 MODEL_GATEWAY 凭证按设计同时供文本与图片角色读取；独立图片覆盖、Magikaru 与 OSS 凭证只属于内部图片服务，不复制进 API/Worker 的 agent_keys；现有 Compose 从共享环境文件加载。
 
-主用调用发生任何错误时立即尝试一次 Magikaru，包括所有 HTTP 错误、网络中断、主用超时、响应解析及图片格式校验失败。用户取消或整体截止仍停止；未配置备用时保留主用错误。两路共享最多300秒等待上限，并服从调用方截止；配置备用时主用最多180秒，为备用保留剩余预算，仅配置主用时仍为300秒。正常只调用主用，备用失败不重投。`character_emoji_image_attempts` 观测仅保留幂等关联、模型、结果分类、HTTP 状态与耗时，主备失败分别保留，观测失败不影响生成。提交前仍记录 pending，Magikaru 受理后保存 `jobId`、`deadlineAt` 与幂等键，只轮询原 Job。PNG 经内部图片服务与对象存储交付；取消等待不会取消上游生成；本流程按用户要求对主用提交未知也切换一次备用，因此可能产生两路生成与费用。此策略只覆盖同一次执行的主用到备用，不自动重投任一渠道或重启已保存 pending 的整个请求。
+v2/v3 主用调用发生任何错误时立即尝试一次 Magikaru，包括所有 HTTP 错误、网络中断、主用超时、响应解析及图片格式校验失败。用户取消或整体截止仍停止；未配置备用时保留主用错误。两路共享最多300秒等待上限，并服从调用方截止；配置备用时主用最多180秒，为备用保留剩余预算，仅配置主用时仍为300秒。正常只调用主用，备用失败不重投。`character_emoji_image_attempts` 观测仅保留幂等关联、模型、结果分类、HTTP 状态与耗时，主备失败分别保留，观测失败不影响生成。提交前仍记录 pending，Magikaru 受理后保存 `jobId`、`deadlineAt` 与幂等键，只轮询原 Job。PNG 经内部图片服务与对象存储交付；取消等待不会取消上游生成；本流程按用户要求对主用提交未知也切换一次备用，因此可能产生两路生成与费用。此策略只覆盖同一次执行的主用到备用，不自动重投任一渠道或重启已保存 pending 的整个请求。
 
 ## 素材与授权
 
@@ -119,3 +119,13 @@ Registration 保持120秒共享截止时间、至多一次搜索 Tool、最多�
 推荐文本和图片默认使用同一对 `MODEL_GATEWAY_BASE_URL` / `MODEL_GATEWAY_API_KEY`。共享凭证存在不会自动开启 Flare：`CHARACTER_EMOJI_IMAGE_ENABLED` 缺省时仍按旧 `CHARACTER_EMOJI_IMAGE_API_KEY` 是否存在决定启用；true 显式开启，false 显式关闭。只配置 Magikaru 的部署仍仅使用备用；主用已启用时共享对优先于旧图片对，未配置共享对时保留旧图片 key 与默认地址。主备顺序、超时、取消及切换策略不变。
 
 迁移已有 Flare：配置共享整对并显式设置 `CHARACTER_EMOJI_IMAGE_ENABLED=true` 后，才移除旧图片 key/base；不要把共享凭证当作启用开关。关闭主用或 Magikaru-only 的部署不设置 true。共享 key 按设计同时供 API/Worker 和内部图片角色读取；独立 OPENAI_IMAGE、CHARACTER_EMOJI_IMAGE、FAL、Magikaru、OSS 凭证仍只归图片角色，生成脚本不复制到 Agent 环境。
+
+### v4 故障恢复
+
+构思阶段沿用 120 秒、最多三次模型请求和一次字段修正。在原会话内，可恢复一次明确的连接故障、模型请求超时或上游服务暂不可用。达到截止时间或请求预算时，记录最后的具体原因。原生拒绝事件、明确拒绝的请求和方案校验错误分别映射为可按 runId 查阅的失败活动。修正后的候选仍须通过角色、台词、来源及冻结字段校验。
+
+内部服务的 `POST /character-emojis/v4` 用 runId 作为幂等键。Flare 接收文件前读取参考图失败，或明确返回 401、402、404、429 时，可使用备用。文件 POST 已派发后发生断线、5xx、超时或返回不可用成品，保留待核验记录。当前 Flare 同步 Adapter 没有原图查询接口。
+
+Worker 遇到响应丢失，通过内部 `GET /character-emojis/v4/result` 携带原 `Idempotency-Key` 和输入摘要查询。已完成则返回成品，处理中返回 202 并继续查询。提交等待超时后最多留五秒查原结果，仍受 Process 截止时间和取消信号约束。上传失败时复用已校验的本地 PNG；持有 Magikaru 回执时仅查询原 jobId。运维人员也可在内部服务上仅凭原键核验。无法核实时保留原幂等记录和运行身份；运维查询不会改写已结束的 Process Run。
+
+单图、漫画的运行身份、故障注入、主备调用次数及下载摘要见 [2026-11-11 UAT 联验记录](../../../history/2026-11-11-character-emoji-v4-recovery.md)。

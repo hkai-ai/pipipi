@@ -8,8 +8,13 @@ import {
 import { Type } from "typebox";
 import { z } from "zod";
 import {
+    AgentExecutionFailure,
+    agentExecutionDiagnostic,
+} from "../../agent-runtime/failure.js";
+import {
     AgentJsonSyntaxError,
     parseAgentJson,
+    piRequestFailure,
 } from "../../agent-runtime/pi.js";
 import {
     type PiSessionFactory,
@@ -425,12 +430,21 @@ export class PiCharacterEmojiAgent
             let modelCalls = 0;
             let outcome: "succeeded" | "failed" = "failed";
             let source: AdaptationSource | undefined;
+            let recoveredConnection = false;
+            let refused = false;
+            if (this.#options.version === "v4") {
+                session.agent.onProviderStreamEvent = (event) => {
+                    // Pi 会将拒绝正文合并到普通文本块，只保留原生事件的类别。
+                    if (isRefusalEvent(event)) refused = true;
+                };
+            }
             const preparePayload = (payload: unknown) => {
                 signal.throwIfAborted();
-                if (failed || ++modelCalls > budget.maxModelCalls) {
+                if (failed || modelCalls >= budget.maxModelCalls) {
                     failed = true;
                     throw new Error("表情包模型调用超过预算或检索失败");
                 }
+                modelCalls++;
                 if (
                     !payload ||
                     typeof payload !== "object" ||
@@ -476,6 +490,7 @@ export class PiCharacterEmojiAgent
             };
             const assertCompleted = () => {
                 signal.throwIfAborted();
+                if (refused) throw new EmojiFailure("planning", "refused");
                 if (failed || completedSearches !== calls)
                     throw new Error("表情包搜索调用未完成或超过预算");
                 const final = session.messages.findLast(
@@ -560,38 +575,72 @@ export class PiCharacterEmojiAgent
                     planningIssues(error.issues),
                 );
             const prompt = async (text: string) => {
-                try {
-                    await session.prompt(text, {
-                        expandPromptTemplates: false,
-                    });
-                } catch (error) {
-                    if (signal.aborted)
-                        throw new EmojiFailure(
-                            "planning",
-                            cancellationCode(signal),
-                            Date.now() - started,
+                while (true) {
+                    const before = session.messages.length;
+                    try {
+                        await session.prompt(text, {
+                            expandPromptTemplates: false,
+                        });
+                        assertCompleted();
+                        return;
+                    } catch (caught) {
+                        if (signal.aborted)
+                            throw new EmojiFailure(
+                                "planning",
+                                cancellationCode(signal),
+                                Date.now() - started,
+                            );
+                        if (refused)
+                            throw new EmojiFailure("planning", "refused");
+                        const last = session.messages
+                            .slice(before)
+                            .findLast(
+                                (message) => message.role === "assistant",
+                            );
+                        let error = caught;
+                        if (
+                            last?.role === "assistant" &&
+                            last.stopReason === "error"
+                        ) {
+                            if (this.#options.version !== "v4")
+                                throw new EmojiFailure(
+                                    "planning",
+                                    "model_error",
+                                    Date.now() - started,
+                                );
+                            error = piRequestFailure(last.errorMessage);
+                        }
+                        if (
+                            this.#options.version !== "v4" ||
+                            error instanceof EmojiFailure
+                        )
+                            throw error;
+                        const diagnostic = agentExecutionDiagnostic(
+                            error,
+                            "request",
                         );
-                    const last = session.messages.findLast(
-                        (message) => message.role === "assistant",
-                    );
-                    // Pi 可能在写入失败消息后直接抛出，不能因此丢失模型失败分类。
-                    if (
-                        last?.role === "assistant" &&
-                        last.stopReason === "error"
-                    )
-                        throw new EmojiFailure(
-                            "planning",
-                            "model_error",
-                            Date.now() - started,
-                        );
-                    throw error;
+                        if (
+                            recoveredConnection ||
+                            failed ||
+                            modelCalls >= budget.maxModelCalls ||
+                            completedSearches !== calls ||
+                            Date.now() >= deadline ||
+                            ![
+                                "connection",
+                                "timeout",
+                                "provider_unavailable",
+                            ].includes(diagnostic.code)
+                        )
+                            throw new AgentExecutionFailure(diagnostic, error);
+                        recoveredConnection = true;
+                        // 原会话保留任务、材料及修正约束，恢复只再请求一次模型。
+                    }
                 }
             };
             const repair = async (text: string) => {
                 repairing = true;
                 session.setActiveToolsByName([]);
                 await prompt(text);
-                assertCompleted();
             };
             const businessFailure = (failure: AiTextOutputFailure) =>
                 new EmojiFailure(
@@ -619,14 +668,15 @@ export class PiCharacterEmojiAgent
                             : {}),
                     }),
                 );
-                assertCompleted();
                 let raw: unknown;
                 try {
                     raw = readOutput();
                 } catch (error) {
                     if (
                         !(error instanceof EmojiFailure) ||
-                        error.code !== "invalid_json"
+                        error.code !== "invalid_json" ||
+                        (this.#options.version === "v4" &&
+                            modelCalls >= budget.maxModelCalls)
                     )
                         throw error;
                     await repair(JSON_CORRECTION_PROMPT);
@@ -634,7 +684,12 @@ export class PiCharacterEmojiAgent
                 }
                 let accepted = schema().safeParse(raw);
                 if (!accepted.success) {
-                    if (repairing) throw schemaFailure(accepted.error);
+                    if (
+                        repairing ||
+                        (this.#options.version === "v4" &&
+                            modelCalls >= budget.maxModelCalls)
+                    )
+                        throw schemaFailure(accepted.error);
                     const correction = createSchemaCorrection(
                         raw,
                         accepted.error,
@@ -654,7 +709,13 @@ export class PiCharacterEmojiAgent
                     return result.plan;
                 }
                 const correction = createCorrection(candidate, result);
-                if (!correction || repairing) throw businessFailure(result);
+                if (
+                    !correction ||
+                    repairing ||
+                    (this.#options.version === "v4" &&
+                        modelCalls >= budget.maxModelCalls)
+                )
+                    throw businessFailure(result);
                 await repair(correction.prompt);
                 const correctedRaw = readOutput();
                 const correctedResult = schema().safeParse(correctedRaw);
@@ -707,4 +768,24 @@ function textPhase(signature: string | undefined): string | undefined {
     } catch {
         return undefined;
     }
+}
+
+function isRefusalEvent(event: unknown): boolean {
+    if (!event || typeof event !== "object" || !("type" in event)) return false;
+    if (
+        event.type === "response.refusal.delta" ||
+        event.type === "response.refusal.done"
+    )
+        return true;
+    if (event.type === "response.output_item.done" && "item" in event) {
+        const item = event.item;
+        return (
+            !!item &&
+            typeof item === "object" &&
+            "content" in item &&
+            Array.isArray(item.content) &&
+            item.content.some((part) => part?.type === "refusal")
+        );
+    }
+    return false;
 }

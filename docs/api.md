@@ -361,7 +361,9 @@ Memebuy 场景的图片转模板返回 Gallery v2 草稿，不直接写入 Memeb
 
 `character-emoji/v4` 单图显式传 `mode: "single"`、`idea` 和有序 `cast`，可选 `captionSetting`、`aspectRatio`、`background`。每位成员包含 `character`、`appearance`、`displayName`、`persona` 和 `referenceImageUrl`。阵容限 1–5 位，角色和形象标识各限 64 字符且不含冒号，每组身份唯一。显示名称限 100 字符，人设限 2000 字符。
 
-参考图使用 `https://assets.memebuy.cn/maker/characters/` 下的 `ai-fanworks/` 或 `community/scenes/` 原始 PNG。对象名以连字符、16–64 位小写十六进制摘要和 `.png` 结尾。校验拒绝端口、用户信息、查询、片段、路径转义及 HTTP 跳转，错误码为 `INVALID_INPUT`。创作前读取获准地址失败时返回 `DEPENDENCY_FAILURE`。主用渠道按阵容顺序读取参考图字节，备用渠道使用同序原始地址。单图返回 `{ mode: "single", plan, caption, image }`，方案演员的 `character` 和 `appearance` 与本次阵容匹配。
+参考图使用 `https://assets.memebuy.cn/maker/characters/` 下的 `ai-fanworks/` 或 `community/scenes/` 原始 PNG。对象名以连字符、16–64 位小写十六进制摘要和 `.png` 结尾。校验拒绝端口、用户信息、查询、片段、路径转义及 HTTP 跳转，错误码为 `INVALID_INPUT`。v4 构思失败返回 `AGENT_FAILURE`，说明中区分已知的模型连接、拒绝与方案校验原因。受理响应丢失时，用原 caller、相同 `Idempotency-Key` 和同一请求正文重取 `runId`，再查询该运行。已派发生图且结果无法核验时，返回 `DEPENDENCY_FAILURE_AFTER_COMMIT` 及待核验说明。请保留该运行身份，避免发起新的付费任务。
+
+创作前读取获准地址失败时返回 `DEPENDENCY_FAILURE`。主用渠道按阵容顺序读取参考图字节，备用渠道使用同序原始地址。单图返回 `{ mode: "single", plan, caption, image }`，方案演员的 `character` 和 `appearance` 与本次阵容匹配。
 
 `character-emoji/v3` 支持同角色双版本登场：cast 按角色 + appearance 去重，最多 5 位；方案 actors 必填 appearance，漫画对白 speaker 使用 `character:appearance`，其余输入输出结构沿用 v2。参考图按 cast 顺序逐位绑定新版场景素材。v2 合同和旧参考图保留，详情见[双版本登场](processes/common/character-emoji/README.md#双版本登场-v3)。
 
@@ -399,7 +401,7 @@ Memebuy 提交豆包 Q 版单图时使用以下 v3 请求。单图省略 `input.
 }
 ```
 
-成功输出包含 `image`、`mode`、`plan`；单图另包含 `caption`。v2 的单图 `plan` 为 `{ scene, actors, caption, propMarks }`；漫画为 `{ page, panels }`，每格为 `{ index, frame, scene, actors, texts }`。`actors` 只包含 `{ character, identityMark }`；动作、位置、道具状态及可见笑点统一写入该格 `scene`。准确台词与标识保留原有文字对象。v1 的 `joke`、`composition`、`punchlineDetail`、角色表演字段及漫画 `continuity` 已移除。这是公开输出的不兼容变更：调用方应切换精确版本并读取 `scene`；当前 production catalog 同时注册 v2、v3 和 v4，不自动回退版本。文本阶段由专用 DeepSeek 4.1 Flash Pi Agent 加载固定 Skill，通过受控搜梗 Tool 调用带原生 `web_search` 的 Responses 网关；不继承全局 `PI_MODEL`。图片阶段主用渠道将角色参考图读入内存后按原顺序上传文件，备用渠道保持公网 URL 直传；主用 Memene `gpt-image-2.5-flare`，主用报错时自动切换一次 Magikaru `gpt-image-2.5`，主动取消或整体截止除外；具体服务端配置与切换条件见[角色表情包专题](processes/common/character-emoji/README.md)。调用方不能选择模型或触发备用。取消或超时不代表 Gateway 已停止生成；已知任务应查原 `jobId`；主用提交未知仍按上述策略切换一次备用，产品调用方不要据此重投整个请求。当前正式入口尚未接通跨请求 Job 恢复，重复遇到 pending 会返回失败；方案持久化与正式恢复另行补充。
+成功输出包含 `image`、`mode`、`plan`；单图另包含 `caption`。v2 的单图 `plan` 为 `{ scene, actors, caption, propMarks }`；漫画为 `{ page, panels }`，每格为 `{ index, frame, scene, actors, texts }`。`actors` 只包含 `{ character, identityMark }`；动作、位置、道具状态及可见笑点统一写入该格 `scene`。准确台词与标识保留原有文字对象。v1 的 `joke`、`composition`、`punchlineDetail`、角色表演字段及漫画 `continuity` 已移除。这是公开输出的不兼容变更：调用方应切换精确版本并读取 `scene`；当前 production catalog 同时注册 v2、v3 和 v4，不自动回退版本。文本阶段由专用 DeepSeek 4.1 Flash Pi Agent 加载固定 Skill，通过受控搜梗 Tool 调用带原生 `web_search` 的 Responses 网关；不继承全局 `PI_MODEL`。图片阶段主用渠道将角色参考图读入内存后按原顺序上传文件，备用渠道保持公网 URL 直传；主用 Memene `gpt-image-2.5-flare`，v2/v3 主用报错时自动切换一次 Magikaru `gpt-image-2.5`，主动取消或整体截止除外；具体服务端配置与切换条件见[角色表情包专题](processes/common/character-emoji/README.md)。调用方不能选择模型或触发备用。取消或超时不代表 Gateway 已停止生成；已知任务应查原 `jobId`；v2/v3 主用提交未知时仍会切换一次备用。v4 保留原运行供核验，各版本调用方都应沿用原提交键。v2/v3 正式入口尚未接通跨请求 Job 恢复，重复遇到 pending 会返回失败；方案持久化与正式恢复另行补充。
 
 漫画输出的 `page.layout`、`page.readingOrder` 和各格 `frame` 由 Agent 按剧情设计，支持不等大的画格、跨行跨列及明确嵌格；`panels` 按阅读顺序排列，程序只生成 `index`，不会改写布局。v2/v3 由服务端按角色注入创作背景，v4 使用本次请求提供的人设；用户剧情仍优先。
 

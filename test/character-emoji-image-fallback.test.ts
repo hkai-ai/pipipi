@@ -9,8 +9,9 @@ import { imageUrl } from "../src/processes/character-emoji/catalog.js";
 
 describe("角色图片文件主用与 URL 备用", () => {
     it.each(
-        ["http500", "reference", "cancel", "success"].flatMap((outcome) =>
-            ["legacy", "shared"].map((config) => ({ outcome, config })),
+        ["http500", "lost-v4", "reference", "cancel", "success"].flatMap(
+            (outcome) =>
+                ["legacy", "shared"].map((config) => ({ outcome, config })),
         ),
     )(
         "主用结果 $outcome、配置 $config 时正确控制备用",
@@ -95,6 +96,8 @@ describe("角色图片文件主用与 URL 备用", () => {
                             return Response.json({
                                 data: [{ b64_json: bytes.toString("base64") }],
                             });
+                        if (outcome === "lost-v4")
+                            throw new TypeError("fetch failed");
                         if (outcome === "cancel") controller.abort();
                         return Response.json({}, { status: 500 });
                     }
@@ -155,8 +158,12 @@ describe("角色图片文件主用与 URL 备用", () => {
                     { directory, fetch: fetcher, onAttempts: attempts },
                 );
                 if (!client) throw new Error("图片客户端未创建");
-                if (outcome === "cancel")
-                    await expect(client.edit(request)).rejects.toThrow();
+                if (outcome === "cancel" || outcome === "lost-v4")
+                    await expect(
+                        client.edit(request, {
+                            recoverable: outcome === "lost-v4",
+                        }),
+                    ).rejects.toThrow();
                 else expect((await client.edit(request)).bytes).toEqual(bytes);
                 const backupPosts = fetcher.mock.calls.filter(
                     ([url, init]) =>

@@ -76,30 +76,7 @@ export function parseAgentJson(messages: readonly unknown[]): unknown {
             code: "cancelled",
         });
     if (message.stopReason === "error") {
-        const cause = new Error(
-            message.errorMessage ??
-                "The Agent did not produce a successful response",
-        );
-        // Pi 1.4.0 的 formatProviderError 与 OpenAI 7.19.0 APIError.makeMessage 合同。
-        // 仅 error 消息接受明确格式；任意正文中的裸数字不作为状态证据。
-        const status = cause.message.match(
-            /^(?:OpenAI API error \(([45]\d{2})\):|([45]\d{2}):)(?:\s|$)/u,
-        );
-        const noBody = cause.message.match(
-            /^([45]\d{2}) status code \(no body\)$/u,
-        );
-        const httpStatus =
-            status?.[1] ??
-            status?.[2] ??
-            (noBody?.[0] === cause.message ? noBody[1] : undefined);
-        if (httpStatus)
-            Object.assign(cause, {
-                status: Number(httpStatus),
-            });
-        throw new AgentExecutionFailure(
-            agentExecutionDiagnostic(cause, "request"),
-            cause,
-        );
+        throw piRequestFailure(message.errorMessage);
     }
     if (message.stopReason === "length")
         throw new AgentExecutionFailure({
@@ -122,6 +99,35 @@ export function parseAgentJson(messages: readonly unknown[]): unknown {
     } catch {
         throw new AgentJsonSyntaxError(text);
     }
+}
+
+/** 将 Pi 失败消息中的供应商协议状态转换成安全诊断。 */
+export function piRequestFailure(
+    errorMessage: string | undefined,
+): AgentExecutionFailure {
+    const cause = new Error(
+        errorMessage ?? "The Agent did not produce a successful response",
+    );
+    // Pi 1.4.0 的 formatProviderError 与 OpenAI 7.19.0 APIError.makeMessage 合同。
+    // 仅 error 消息接受明确格式；任意正文中的裸数字不作为状态证据。
+    const status = cause.message.match(
+        /^(?:OpenAI API error \(([45]\d{2})\):|([45]\d{2}):)(?:\s|$)/u,
+    );
+    const noBody = cause.message.match(
+        /^([45]\d{2}) status code \(no body\)$/u,
+    );
+    const httpStatus =
+        status?.[1] ??
+        status?.[2] ??
+        (noBody?.[0] === cause.message ? noBody[1] : undefined);
+    if (httpStatus)
+        Object.assign(cause, {
+            status: Number(httpStatus),
+        });
+    return new AgentExecutionFailure(
+        agentExecutionDiagnostic(cause, "request"),
+        cause,
+    );
 }
 
 function isAssistantMessage(value: unknown): value is {
