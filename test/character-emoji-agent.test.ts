@@ -380,8 +380,8 @@ describe("按请求提供角色资料的 v4 单图", () => {
                 "assets.memebuy.cn:443",
             ),
             member.referenceImageUrl.replace("/community/scenes/", "/private/"),
-            member.referenceImageUrl + "?key=value",
-            member.referenceImageUrl + "#fragment",
+            `${member.referenceImageUrl}?key=value`,
+            `${member.referenceImageUrl}#fragment`,
         ].map((url) => ({
             url,
             status: 200,
