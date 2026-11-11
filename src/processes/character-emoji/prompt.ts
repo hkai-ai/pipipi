@@ -29,21 +29,25 @@ export function captionRule(
     }
 }
 
+export function plannerCast(cast: SceneBrief["cast"]) {
+    return cast.map((member, index) => ({
+        character: member.character,
+        appearance: member.appearance,
+        referenceNumber: index + 1,
+        identityLabel:
+            "displayName" in member
+                ? member.displayName
+                : characterName(member.character),
+        creativeBrief:
+            "persona" in member
+                ? member.persona
+                : characterPersonas[member.character],
+    }));
+}
+
 export function plannerInput(brief: SceneBrief) {
     return JSON.stringify({
-        cast: brief.cast.map((member, index) => ({
-            character: member.character,
-            appearance: member.appearance,
-            referenceNumber: index + 1,
-            identityLabel:
-                "displayName" in member
-                    ? member.displayName
-                    : characterName(member.character),
-            creativeBrief:
-                "persona" in member
-                    ? member.persona
-                    : characterPersonas[member.character],
-        })),
+        cast: plannerCast(brief.cast),
         idea: brief.idea,
         captionRule: captionRule(brief),
         ...(brief.captionSetting

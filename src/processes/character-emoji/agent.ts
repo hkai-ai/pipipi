@@ -7,6 +7,7 @@ import type {
     ComicPlan,
     EmojiPlan,
     SceneBrief,
+    SceneComicBrief,
 } from "./schema.js";
 
 export type CharacterEmojiBudget = Readonly<{
@@ -27,7 +28,7 @@ export type SceneEmojiAgent = Readonly<{
         observe?: (record: EmojiObservation) => void,
     ) => Promise<ScenePlan>;
     planSceneComic: (
-        brief: ComicBrief,
+        brief: SceneComicBrief,
         signal: AbortSignal,
         budget: CharacterEmojiBudget,
         observe?: (record: EmojiObservation) => void,

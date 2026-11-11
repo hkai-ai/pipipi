@@ -107,6 +107,8 @@ export const legacyComicBriefSchema = z
     .strict();
 export const comicBriefSchema = legacyComicBriefSchema.omit({ layout: true });
 export type ComicBrief = z.infer<typeof comicBriefSchema> & ImageOptions;
+export type SceneComicBrief = Omit<ComicBrief, "cast"> &
+    Pick<SceneBrief, "cast">;
 export type LegacyComicBrief = z.infer<typeof legacyComicBriefSchema>;
 export type CreationBrief = Brief | ComicBrief;
 export const creationBriefSchema = z.union([briefSchema, comicBriefSchema]);
@@ -270,7 +272,7 @@ export const comicCanvas = (plan: {
     page: Pick<ComicPlan["page"], "aspectRatio">;
 }) => comicCanvases[plan.page.aspectRatio];
 export function comicPlanMatchesCast(
-    brief: ComicBrief,
+    brief: SceneComicBrief,
     plan: {
         panels: Array<{
             index: number;

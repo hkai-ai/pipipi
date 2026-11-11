@@ -44,6 +44,7 @@ import {
     characterEmojiSkillHash,
     createCharacterEmojiSkillRefs,
 } from "../src/processes/character-emoji/skills.js";
+import contract from "./fixtures/character-emoji-v4.json" with { type: "json" };
 
 const brief: Brief = {
     cast: [{ character: "DeepSeek", appearance: "Chibi" }],
@@ -271,22 +272,8 @@ function harness(
 }
 
 describe("按请求提供角色资料的 v4 单图", () => {
-    const member = {
-        character: "RainFox",
-        appearance: "Ink",
-        displayName: "雨狐",
-        persona: "遇事先摊开自己的雨伞",
-        referenceImageUrl:
-            "https://assets.memebuy.cn/maker/characters/community/scenes/rain-fox/ink-ad7bad7bad7bad7b.png",
-    };
-    const scene = {
-        scene: "雨狐给一朵云撑伞",
-        actors: [
-            { character: "RainFox", appearance: "Ink", identityMark: null },
-        ],
-        caption: "别淋湿了",
-        propMarks: [],
-    };
+    const member = contract.single.request.input.cast[0];
+    const scene = contract.single.output.plan;
     it("新角色以请求中的人设构思，用本次参考图生成并交付自己的身份", async () => {
         const h = harness({
             version: "v4",
@@ -321,24 +308,10 @@ describe("按请求提供角色资料的 v4 单图", () => {
             const { executor } = createProductionRuntime({
                 CRT_BUSINESS_API_BASE_URL: "https://business.example",
             });
-            const result = await executor.execute({
-                process: "character-emoji",
-                version: "v4",
-                input: {
-                    mode: "single",
-                    cast: [member],
-                    idea: "给云撑伞",
-                    captionSetting: { mode: "custom", text: scene.caption },
-                },
-            });
+            const result = await executor.execute(contract.single.request);
             expect(result).toMatchObject({
                 status: "succeeded",
-                output: {
-                    mode: "single",
-                    image,
-                    plan: scene,
-                    caption: scene.caption,
-                },
+                output: contract.single.output,
             });
             expect(h.prompts[0]).toContain(member.persona);
             expect(h.prompts[0]).toContain(member.displayName);
@@ -426,6 +399,92 @@ describe("按请求提供角色资料的 v4 单图", () => {
             expect(render).not.toHaveBeenCalled();
         },
     );
+});
+
+describe("v4 漫画逐格绑定角色", () => {
+    it.each([
+        "same-character",
+        "different-characters",
+        "wrong-speaker",
+        "unknown-actor",
+    ])("%s 通过 v4 运行入口核验本格身份与参考图顺序", async (outcome) => {
+        const { request, output } = structuredClone(contract.comic);
+        const { cast } = request.input;
+        const { page, panels } = output.plan;
+        if (outcome === "different-characters") {
+            cast[1].character = "CloudOwl";
+            cast[1].displayName = "云鸮";
+            panels[1].actors[0].character = "CloudOwl";
+            panels[1].texts[0].speaker = "CloudOwl:Snow";
+        }
+        const candidatePanels = structuredClone(panels).map(
+            ({ index: _index, ...panel }) => panel,
+        );
+        if (outcome === "wrong-speaker")
+            candidatePanels[0].texts[0].speaker = "RainFox:Snow";
+        if (outcome === "unknown-actor")
+            candidatePanels[0].actors[0].character = "MoonFox";
+        const h = harness({
+            version: "v4",
+            calls: 0,
+            outputs: [
+                JSON.stringify({
+                    page,
+                    panels: candidatePanels,
+                    adaptation: { entryIds: [], original: "交换雨伞" },
+                }),
+            ],
+        });
+        const realPlan = h.agent.planSceneComic.bind(h.agent);
+        const plan = vi
+            .spyOn(PiCharacterEmojiAgent.prototype, "planSceneComic")
+            .mockImplementation(realPlan);
+        const renders: unknown[] = [];
+        const fetcher = vi
+            .spyOn(globalThis, "fetch")
+            .mockImplementation(async (url, init) => {
+                if (
+                    init?.method === "HEAD" &&
+                    cast.some((m) => m.referenceImageUrl === String(url))
+                )
+                    return new Response(null);
+                expect(String(url)).toBe(
+                    "https://business.example/character-emojis",
+                );
+                renders.push(JSON.parse(String(init?.body)));
+                return Response.json({ ...image, width: 1024, height: 1536 });
+            });
+        try {
+            const runtime = createProductionRuntime({
+                CRT_BUSINESS_API_BASE_URL: "https://business.example",
+            });
+            const result = await runtime.executor.execute(request);
+            if (outcome === "wrong-speaker" || outcome === "unknown-actor") {
+                expect(result).toMatchObject({
+                    status: "failed",
+                    error: { code: "AGENT_FAILURE" },
+                });
+                expect(renders).toHaveLength(0);
+                return;
+            }
+            expect(result).toMatchObject({
+                status: "succeeded",
+                output,
+            });
+            expect(renders).toHaveLength(1);
+            expect(renders[0]).toMatchObject({
+                imageUrls: cast.map((m) => m.referenceImageUrl),
+                prompt: expect.stringContaining(`${cast[1].character}:Snow`),
+            });
+            for (const member of cast) {
+                expect(h.prompts[0]).toContain(member.persona);
+                expect(h.prompts[0]).not.toContain(member.referenceImageUrl);
+            }
+        } finally {
+            plan.mockRestore();
+            fetcher.mockRestore();
+        }
+    });
 });
 
 describe("DeepSeek 搜梗 Adapter", () => {

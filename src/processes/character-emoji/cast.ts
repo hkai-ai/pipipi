@@ -41,6 +41,13 @@ export const versionedComicBriefSchema = comicBriefSchema.extend({
     cast,
     ...imageOptionsShape,
 });
+export const suppliedComicBriefSchema = versionedComicBriefSchema.extend({
+    cast: suppliedCast,
+});
+export const suppliedInputSchema = z.discriminatedUnion("mode", [
+    suppliedBriefSchema,
+    suppliedComicBriefSchema,
+]);
 export const versionedInputSchema = z.union([
     versionedBriefSchema,
     versionedComicBriefSchema,

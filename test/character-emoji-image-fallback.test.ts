@@ -33,13 +33,17 @@ describe("角色图片文件主用与 URL 备用", () => {
                     .png()
                     .toBuffer();
                 const controller = new AbortController();
+                const secondImage = await sharp(bytes)
+                    .negate()
+                    .png()
+                    .toBuffer();
                 const request = {
                     prompt: "按顺序保留角色参考图，用明确动作绘制表情包。".repeat(
                         8,
                     ),
                     imageUrls: [
                         "https://assets.memebuy.cn/maker/characters/community/scenes/rain-fox/ink-ad7bad7bad7bad7b.png",
-                        imageUrl("DeepSeek", "Chibi"),
+                        "https://assets.memebuy.cn/maker/characters/community/scenes/rain-fox/snow-0037a7b2367f92cf.png",
                     ],
                     size: "864x1536",
                     background: "transparent" as const,
@@ -55,7 +59,11 @@ describe("角色图片文件主用与 URL 备用", () => {
                         ).toBe(false);
                         if (outcome === "reference")
                             return new Response(null, { status: 503 });
-                        return new Response(bytes);
+                        return new Response(
+                            target === request.imageUrls[0]
+                                ? bytes
+                                : secondImage,
+                        );
                     }
                     if (target.endsWith("/images/edits")) {
                         expect(target).toBe(
@@ -73,7 +81,14 @@ describe("角色图片文件主用与 URL 备用", () => {
                         const form = init?.body;
                         if (!(form instanceof FormData))
                             throw new Error("缺少文件表单");
-                        expect(form.getAll("image[]")).toHaveLength(2);
+                        const images = await Promise.all(
+                            form.getAll("image[]").map(async (file) => {
+                                if (!(file instanceof Blob))
+                                    throw new Error("参考图必须以文件上传");
+                                return Buffer.from(await file.arrayBuffer());
+                            }),
+                        );
+                        expect(images).toEqual([bytes, secondImage]);
                         expect(form.get("background")).toBe("transparent");
                         expect(form.get("size")).toBe("864x1536");
                         if (outcome === "success")

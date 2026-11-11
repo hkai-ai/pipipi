@@ -1,0 +1,132 @@
+{
+    "single": {
+        "request": {
+            "process": "character-emoji",
+            "version": "v4",
+            "input": {
+                "mode": "single",
+                "cast": [
+                    {
+                        "character": "RainFox",
+                        "appearance": "Ink",
+                        "displayName": "雨狐",
+                        "persona": "遇事先摊开自己的雨伞",
+                        "referenceImageUrl": "https://assets.memebuy.cn/maker/characters/community/scenes/rain-fox/ink-ad7bad7bad7bad7b.png"
+                    }
+                ],
+                "idea": "给云撑伞",
+                "captionSetting": {
+                    "mode": "custom",
+                    "text": "别淋湿了"
+                }
+            }
+        },
+        "output": {
+            "mode": "single",
+            "caption": "别淋湿了",
+            "image": {
+                "url": "https://assets.example/result.png",
+                "contentType": "image/png",
+                "width": 1024,
+                "height": 1024
+            },
+            "plan": {
+                "scene": "雨狐给一朵云撑伞",
+                "actors": [
+                    {
+                        "character": "RainFox",
+                        "appearance": "Ink",
+                        "identityMark": null
+                    }
+                ],
+                "caption": "别淋湿了",
+                "propMarks": []
+            }
+        }
+    },
+    "comic": {
+        "request": {
+            "process": "character-emoji",
+            "version": "v4",
+            "input": {
+                "mode": "comic",
+                "cast": [
+                    {
+                        "character": "RainFox",
+                        "appearance": "Ink",
+                        "displayName": "雨狐",
+                        "persona": "遇事先摊开自己的雨伞",
+                        "referenceImageUrl": "https://assets.memebuy.cn/maker/characters/community/scenes/rain-fox/ink-ad7bad7bad7bad7b.png"
+                    },
+                    {
+                        "character": "RainFox",
+                        "appearance": "Snow",
+                        "displayName": "雪色雨狐",
+                        "persona": "喜欢收藏雪色的雨伞",
+                        "referenceImageUrl": "https://assets.memebuy.cn/maker/characters/community/scenes/rain-fox/snow-0037a7b2367f92cf.png"
+                    }
+                ],
+                "idea": "两位雨狐交换雨伞",
+                "aspectRatio": "2:3"
+            }
+        },
+        "output": {
+            "mode": "comic",
+            "image": {
+                "url": "https://assets.example/result.png",
+                "contentType": "image/png",
+                "width": 1024,
+                "height": 1536
+            },
+            "plan": {
+                "page": {
+                    "aspectRatio": "2:3",
+                    "layout": "上下两格",
+                    "readingOrder": "从上到下"
+                },
+                "panels": [
+                    {
+                        "index": 1,
+                        "frame": "上格",
+                        "scene": "雨狐展示收藏的雨伞",
+                        "actors": [
+                            {
+                                "character": "RainFox",
+                                "appearance": "Ink",
+                                "identityMark": null
+                            }
+                        ],
+                        "texts": [
+                            {
+                                "kind": "dialogue",
+                                "speaker": "RainFox:Ink",
+                                "placement": "头顶",
+                                "text": "轮到我了"
+                            }
+                        ]
+                    },
+                    {
+                        "index": 2,
+                        "frame": "下格",
+                        "scene": "雨狐展示收藏的雨伞",
+                        "actors": [
+                            {
+                                "character": "RainFox",
+                                "appearance": "Snow",
+                                "identityMark": null
+                            }
+                        ],
+                        "texts": [
+                            {
+                                "kind": "dialogue",
+                                "speaker": "RainFox:Snow",
+                                "placement": "头顶",
+                                "text": "轮到我了"
+                            }
+                        ]
+                    }
+                ]
+            }
+        }
+    }
+}

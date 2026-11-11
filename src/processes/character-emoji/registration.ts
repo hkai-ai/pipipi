@@ -19,6 +19,8 @@ import {
     matchesVersionedCast,
     suppliedBriefSchema,
     suppliedCast,
+    suppliedComicBriefSchema,
+    suppliedInputSchema,
     versionedBriefSchema,
     versionedComicBriefSchema,
     versionedInputSchema,
@@ -37,6 +39,7 @@ import { verifyCharacterReferences } from "./reference.js";
 import {
     sceneComicPlanSchema,
     scenePlanSchema,
+    suppliedSceneComicPlanSchema,
     suppliedScenePlanSchema,
     versionedSceneComicPlanSchema,
     versionedScenePlanSchema,
@@ -44,12 +47,11 @@ import {
 import { sceneComicImagePrompt, sceneImagePrompt } from "./scene-prompt.js";
 import {
     briefSchema,
-    type ComicBrief,
     comicBriefSchema,
     comicPlanSchema,
-    isComicBrief,
     planSchema,
     type SceneBrief,
+    type SceneComicBrief,
     sceneFromPlan,
 } from "./schema.js";
 
@@ -97,17 +99,23 @@ export function createCharacterEmojiRegistration(
         timeoutMs: 480_000,
         inputSchema:
             options.version === "v4"
-                ? suppliedBriefSchema
+                ? suppliedInputSchema
                 : options.version === "v3"
                   ? versionedInputSchema
                   : inputSchema,
         outputSchema:
             options.version === "v4"
-                ? outputSchema.extend({
-                      mode: z.literal("single"),
-                      caption: suppliedScenePlanSchema.shape.caption,
-                      plan: suppliedScenePlanSchema,
-                  })
+                ? z.discriminatedUnion("mode", [
+                      outputSchema.extend({
+                          mode: z.literal("single"),
+                          caption: suppliedScenePlanSchema.shape.caption,
+                          plan: suppliedScenePlanSchema,
+                      }),
+                      outputSchema.omit({ caption: true }).extend({
+                          mode: z.literal("comic"),
+                          plan: suppliedSceneComicPlanSchema,
+                      }),
+                  ])
                 : options.version === "v3"
                   ? outputSchema.extend({
                         plan: z.union([
@@ -132,7 +140,7 @@ export function createCharacterEmojiRegistration(
                     // 观测失败不改变业务结果或消耗模型预算。
                 }
             };
-            const comic = isComicBrief(input);
+            const comic = "mode" in input && input.mode === "comic";
             if (options.version === "v4") {
                 const references = suppliedCast
                     .parse(input.cast)
@@ -149,10 +157,12 @@ export function createCharacterEmojiRegistration(
             let size = "1024x1024";
             try {
                 if (comic) {
-                    const brief: ComicBrief = (
-                        options.version === "v3"
-                            ? versionedComicBriefSchema
-                            : comicBriefSchema
+                    const brief: SceneComicBrief = (
+                        options.version === "v4"
+                            ? suppliedComicBriefSchema
+                            : options.version === "v3"
+                              ? versionedComicBriefSchema
+                              : comicBriefSchema
                     ).parse(input);
                     const compiled = await context.runActivity(
                         "character_emoji_planning",
@@ -163,9 +173,11 @@ export function createCharacterEmojiRegistration(
                                 options.version === "v4"
                             ) {
                                 const plan = (
-                                    options.version === "v3"
-                                        ? versionedSceneComicPlanSchema
-                                        : sceneComicPlanSchema
+                                    options.version === "v4"
+                                        ? suppliedSceneComicPlanSchema
+                                        : options.version === "v3"
+                                          ? versionedSceneComicPlanSchema
+                                          : sceneComicPlanSchema
                                 ).parse(
                                     await options.agent.planSceneComic(
                                         brief,
@@ -175,7 +187,8 @@ export function createCharacterEmojiRegistration(
                                     ),
                                 );
                                 if (
-                                    options.version === "v3" &&
+                                    (options.version === "v3" ||
+                                        options.version === "v4") &&
                                     !matchesVersionedCast(brief, plan.panels)
                                 )
                                     throw new Error("漫画登场身份不匹配");
@@ -184,9 +197,10 @@ export function createCharacterEmojiRegistration(
                                     prompt: sceneComicImagePrompt(brief, plan),
                                 };
                             }
+                            const legacy = comicBriefSchema.parse(brief);
                             const plan = comicPlanSchema.parse(
                                 await options.agent.planComic(
-                                    brief,
+                                    legacy,
                                     context.signal,
                                     characterEmojiBudget,
                                     observe,
@@ -194,7 +208,7 @@ export function createCharacterEmojiRegistration(
                             );
                             return {
                                 plan,
-                                prompt: comicImagePrompt(brief, plan),
+                                prompt: comicImagePrompt(legacy, plan),
                             };
                         },
                     );
@@ -289,7 +303,7 @@ export function createCharacterEmojiRegistration(
                 );
             }
             context.signal.throwIfAborted();
-            const brief: SceneBrief | ComicBrief = input;
+            const brief: SceneBrief = input;
             if (brief.aspectRatio) size = imageSizes[brief.aspectRatio];
             const imageUrls = brief.cast.map((member) =>
                 "referenceImageUrl" in member

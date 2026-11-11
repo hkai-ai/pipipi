@@ -65,7 +65,12 @@ import {
     projectSceneCandidate,
     sceneCandidateSchema,
 } from "./scene.js";
-import type { Brief, ComicBrief, SceneBrief } from "./schema.js";
+import type {
+    Brief,
+    ComicBrief,
+    SceneBrief,
+    SceneComicBrief,
+} from "./schema.js";
 import {
     type MemeResearch,
     type MemeSearch,
@@ -118,7 +123,7 @@ export class PiCharacterEmojiAgent
     }
 
     planSceneComic(
-        brief: ComicBrief,
+        brief: SceneComicBrief,
         signal: AbortSignal,
         budget: CharacterEmojiBudget,
         observe?: (record: EmojiObservation) => void,
@@ -134,6 +139,7 @@ export class PiCharacterEmojiAgent
                     text,
                     brief,
                     this.#options.version === "v3",
+                    this.#options.version === "v4",
                 ),
             observe,
             "scene",
