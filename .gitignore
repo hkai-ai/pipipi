@@ -1,13 +1,36 @@
+# 依赖
 node_modules/
+
+# 构建产物
 dist/
+*.tsbuildinfo
+.vite/
+
+# 测试与覆盖率
+coverage/
+test-results/
+playwright-report/
+blob-report/
+
+# 运行产物（验收图片、评测输出、OSS 本地副本等）
+artifacts/
+
+# 环境变量与凭证（保留示例文件）
 .env
-artifacts/skill-ab/
-artifacts/gpt-image-2/
-artifacts/crt-interface-image/
-artifacts/object-storage/
-artifacts/photo-poster-acceptance/
-artifacts/*photo*
-artifacts/template-*
-.DS_Store
+.env.*
+!.env.example
+*.local
 .pg-server.crt
-artifacts/memebuy-uat-template-updates-*/
+
+# 日志
+logs/
+*.log
+npm-debug.log*
+
+# 编辑器与系统文件
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*~
