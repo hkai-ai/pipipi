@@ -6,6 +6,8 @@
 
 ## 设计目标
 
+Memebuy 调用场景遵循[两仓职责约定](../CONTEXT.md#与-memebuy-的职责边界)。Registration 把外部提供的业务资料交给本场景的执行逻辑，Agent 和 Runtime Skill 由 Pipipi 绑定。
+
 Process Runtime 在不暴露具体 Business Process 依赖和策略的前提下，统一治理一次执行。
 它必须提供以下性质：
 

@@ -8,6 +8,12 @@ Business Processing Service 让产品调用方通过一个稳定的 HTTP Interfa
 
 项目要解决的核心问题是：让实现方式可以演进，同时让产品契约保持明确。服务端集中拥有 Process Definition、输入输出 Schema、获准依赖和运行策略，避免这些知识散落到每个调用方。
 
+## 与 Memebuy 的职责边界
+
+Memebuy 定义面向用户的业务，维护产品目录和素材，决定谁能提交、交付物应满足什么要求、何时需要用户确认，以及如何计费、审核与交付。委托执行时，Memebuy 提供已经解析的业务资料、获准读取的素材引用和本次要求。
+
+Pipipi 提供 Agent 运行环境（harness）和场景 skill。Process Registration 约定能接收的输入和能返回的结果，场景 skill 决定怎样构思和处理这些材料，运行环境负责模型、工具、预算和执行状态。产品增加可由现有能力处理的资料时，由调用方随任务提供。改进创作方法由 Pipipi 维护。输入、产物或错误语义发生跨仓变化时，两侧共同演进协议，已受理的运行按原身份和协议恢复。这是新增与改造 Memebuy 接入时遵循的架构约定，已发布 Process 的具体行为见[业务 API](docs/api.md)。
+
 ## 产品场景
 
 仓库服务多个产品场景。Memene 当前拥有三个新闻图片 Business Process；Memebuy 拥有图片转模板 `template-from-image/v1` 的产品合同，当前通过模板素材箱提取 Worker 对接，候选经人工确认后保存为投稿人的草稿；部署与真实页面验收另行完成；跨产品原样复用或契约本身与产品无关的 Process 归入 `common`。场景归属组织代码阅读与文档，不改变 Process identity、版本或统一 HTTP Interface。
@@ -36,7 +42,7 @@ Business Processing Service 让产品调用方通过一个稳定的 HTTP Interfa
 - 超时、并发、记录和错误净化策略；
 - 哪些 Process Registration 进入生产 Process Registry。
 
-产品调用方不能上传步骤、脚本、模型、Skill、Tool、远程地址或运行配置。
+步骤、脚本、模型、Skill、Tool、依赖服务地址和运行配置由 Pipipi 服务端确定。产品素材地址属于业务输入，由具体 Process 的 Schema 声明，按该字段约定的来源和访问方式处理。
 
 开发者可以在 authoring 阶段向 Codex 提供自然语言流程描述，或提供 Skill 的本地路径、Git 仓库和网页地址。Codex 必须先把它们收敛为经过审查、固定版本且由服务端拥有的代码或本地资源，再通过明确的 Process Registration 发布；这些 authoring 输入不会成为产品契约。具体流程见 [`docs/authoring-business-processes.md`](docs/authoring-business-processes.md) 和 [`docs/integrating-runtime-skills.md`](docs/integrating-runtime-skills.md)。
 
@@ -225,7 +231,7 @@ CRT 与照片海报将背景模式作为可选业务参数；省略时保持原�
 
 角色表情包主用 Flare 按 Memebuy 方式将参考图读入内存、按顺序通过 multipart 文件表单上传，不落临时文件；备用 Magikaru 保持公网 URL 直传。角色表情包按所选角色注入已维护的创作背景；v2 漫画由 Agent 决定自由布局和各格大小，程序仅补编号。每格仍只有一份 scene；page 与 frame 只描述画格几何，关键行动或可辨认痕迹在 scene 呈现，同次自检核对肢体占用与道具支撑；配字优先级及创作规则见[角色表情包专题](docs/processes/common/character-emoji/README.md)。
 
-豆包（Doubao）新增原版 Q 版参考图、个性和三条原创语音素材，仅支持 Chibi；详见角色表情包专题，部署服务端后再开放调用方。
+豆包支持 Q 版（`Doubao:Chibi`），调用示例见[角色表情包 API](docs/api.md#角色表情包)。
 
 ## 模板视觉归属 v3
 
