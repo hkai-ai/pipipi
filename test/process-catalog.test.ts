@@ -12,6 +12,20 @@ const registry: ProcessRegistry = createProductionRuntime({
  * honest: a Schema change that these no longer satisfy is a contract change.
  */
 const validInputs: Readonly<Record<string, Record<string, unknown>>> = {
+    "character-emoji/v4": {
+        mode: "single",
+        cast: [
+            {
+                character: "RainFox",
+                appearance: "Ink",
+                displayName: "雨狐",
+                persona: "喜欢收集雨滴",
+                referenceImageUrl:
+                    "https://assets.memebuy.cn/maker/characters/community/scenes/rain-fox/ink-ad7bad7bad7bad7b.png",
+            },
+        ],
+        idea: "给云撑伞",
+    },
     "character-emoji": {
         cast: [{ character: "DeepSeek", appearance: "Chibi" }],
         idea: "用一卷长代码表达只改一行",
@@ -93,6 +107,7 @@ describe("Process catalog description", () => {
         ).toEqual([
             "character-emoji/v2",
             "character-emoji/v3",
+            "character-emoji/v4",
             "crayon-photo-poster/v1",
             "crt-interface-image/v1",
             "dopamine-photo-poster/v1",
@@ -166,7 +181,9 @@ describe("Process catalog description", () => {
                 id: entry.process,
                 version: entry.version,
             });
-            const valid = validInputs[entry.process];
+            const valid =
+                validInputs[`${entry.process}/${entry.version}`] ??
+                validInputs[entry.process];
             const input = entry.input as JsonSchemaObject;
 
             it(`${entry.process} accepts the documented shape`, () => {

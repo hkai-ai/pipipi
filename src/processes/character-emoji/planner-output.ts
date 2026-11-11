@@ -37,7 +37,7 @@ function normalizeOptionalMarks(value: unknown): unknown {
 }
 
 export function textRequirementFailure(
-    brief: Brief,
+    brief: Pick<Brief, "idea" | "captionSetting">,
     plan: {
         caption: string;
         actors: Array<{ identityMark: unknown }>;

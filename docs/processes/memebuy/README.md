@@ -8,9 +8,9 @@
 
 Memebuy 的角色表情任务在创建时确定本站或 Pipipi 执行。选中 Pipipi 时，新任务通过 RemoteRun 的 `maker.character_emoji_v3` 调用 `character-emoji/v3`，豆包 Q 版沿这条路径提交。历史任务仍可按原绑定调用 v2。任务快照的格式版本由 Memebuy 管理，Pipipi 只接收对应 Process 的创作输入。[角色表情包 API](../../api.md#角色表情包)
 
-角色表情按两仓的通用架构约定接入，下面是 v4 的接口设计，待实施。[与 Memebuy 的职责边界](../../../CONTEXT.md#与-memebuy-的职责边界)
+角色表情按两仓的通用架构约定接入。[与 Memebuy 的职责边界](../../../CONTEXT.md#与-memebuy-的职责边界)
 
-拟议的 `character-emoji/v4` 从每个 `cast[]` 项读取 `character`、`appearance`、`displayName`、`persona` 和 `referenceImageUrl`，单图和漫画分别显式传 `mode: "single"`、`"comic"`。输入与回包均按本次阵容绑定身份，取图限定为获准的 Memebuy OSS 角色素材。v2/v3 继续使用原目录与原请求，已有运行按原 runId 恢复。先部署同时支持 v2/v3/v4 的 API 和执行 Worker，再由 Memebuy 为新任务选择 v4。两仓使用相同的新增角色样例验证主备渠道的图片顺序和输出身份。
+`character-emoji/v4` 单图接收 `mode: "single"`，从每个 `cast[]` 项读取 `character`、`appearance`、`displayName`、`persona` 和 `referenceImageUrl`。输入与回包均按本次阵容绑定身份，取图限定为获准的 Memebuy OSS 角色素材。v2/v3 继续使用原目录与原请求，已有运行按原 runId 恢复。部署同时支持 v2/v3/v4 的 API 和执行 Worker 后，Memebuy 可为新任务选择 v4。[接口合同](../../api.md#角色表情包)
 
 Memebuy 的 Mono Color C 类模板以 `gallery.mono_color` 绑定通用 `mono-color-photo-poster/v1`。五个预设及可编辑项属于业务内容，由 Memebuy 收集并经现有 RemoteRun `/execute` Adapter 提交；Pipipi 固定默认搭配、渲染与输出约束。参考图由 Memebuy 私有资产准备链生成短期可读 URL，结果复用原有审核与转存链路。输入字段以 [API 文档](../../api.md#mono-color-可编辑预设) 为准。
 

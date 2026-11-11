@@ -75,6 +75,7 @@ Pipipi 提供 Agent 运行环境（harness）和场景 skill。Process Registrat
 | `common` | `risograph-album/v1` | `{ sourceImageUrl, background? }` | `{ style, image }` | 1:1 复古唱片封面；固定 i'm ok 与 HAPPY EVERYDAY，单次编辑与存储 |
 | `common` | `character-emoji/v2` | `{ cast, idea, captionSetting? }` 或 `{ mode: "comic", cast, idea }` | `{ image, mode, caption?, plan }` | 每格唯一 scene；角色与准确文字独立绑定；专用 DeepSeek 4.1 Flash Pi Agent、按模式加载的固定 Skill 与 DeepSeek 联网搜梗 Tool，Memene GPT Image 2.5 Flare（报错后尝试一次 Magikaru，取消或总截止除外） 多参考图编辑 |
 | `common` | `character-emoji/v3` | `{ cast, idea, captionSetting? }` 或漫画输入 | `{ image, mode, caption?, plan }` | 角色 + appearance 身份；同角色双版本；新版场景参考图；其余执行治理复用 v2 |
+| `common` | `character-emoji/v4` | `{ mode: "single", cast, idea, captionSetting? }` 及画面选项 | `{ image, mode, caption, plan }` | 调用方传入角色、形象、人设、名称和参考图，Pipipi 按本次阵容构思和渲染 |
 
 照片海报正式输出默认是完整 1200×1600 风格化成品，原图仅作参考输入；旅行抽象只叠加档案字样，不拼接原图。记忆清单是例外：上半保留参考照片，下半为同一张照片的 3×3 涂鸦。唱片封面是 1200×1200，文字由服务端固定。
 

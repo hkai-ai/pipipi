@@ -17,6 +17,8 @@ import {
 } from "./capability.js";
 import {
     matchesVersionedCast,
+    suppliedBriefSchema,
+    suppliedCast,
     versionedBriefSchema,
     versionedComicBriefSchema,
     versionedInputSchema,
@@ -31,9 +33,11 @@ import {
 } from "./diagnostics.js";
 import { imageSizes } from "./image-options.js";
 import { imagePrompt } from "./prompt.js";
+import { verifyCharacterReferences } from "./reference.js";
 import {
     sceneComicPlanSchema,
     scenePlanSchema,
+    suppliedScenePlanSchema,
     versionedSceneComicPlanSchema,
     versionedScenePlanSchema,
 } from "./scene.js";
@@ -41,11 +45,11 @@ import { sceneComicImagePrompt, sceneImagePrompt } from "./scene-prompt.js";
 import {
     briefSchema,
     type ComicBrief,
-    type CreationBrief,
     comicBriefSchema,
     comicPlanSchema,
     isComicBrief,
     planSchema,
+    type SceneBrief,
     sceneFromPlan,
 } from "./schema.js";
 
@@ -78,6 +82,11 @@ export function createCharacterEmojiRegistration(
         | { version?: "v1"; agent: CharacterEmojiAgent }
         | { version: "v2"; agent: SceneEmojiAgent }
         | { version: "v3"; agent: SceneEmojiAgent }
+        | {
+              version: "v4";
+              agent: SceneEmojiAgent;
+              fetchReference?: typeof fetch;
+          }
     ),
 ): ProcessRegistration {
     if (!options.agent || !options.capability)
@@ -87,18 +96,28 @@ export function createCharacterEmojiRegistration(
         version: options.version ?? "v1",
         timeoutMs: 480_000,
         inputSchema:
-            options.version === "v3" ? versionedInputSchema : inputSchema,
+            options.version === "v4"
+                ? suppliedBriefSchema
+                : options.version === "v3"
+                  ? versionedInputSchema
+                  : inputSchema,
         outputSchema:
-            options.version === "v3"
+            options.version === "v4"
                 ? outputSchema.extend({
-                      plan: z.union([
-                          versionedScenePlanSchema,
-                          versionedSceneComicPlanSchema,
-                      ]),
+                      mode: z.literal("single"),
+                      caption: suppliedScenePlanSchema.shape.caption,
+                      plan: suppliedScenePlanSchema,
                   })
-                : options.version === "v2"
-                  ? sceneOutputSchema
-                  : outputSchema,
+                : options.version === "v3"
+                  ? outputSchema.extend({
+                        plan: z.union([
+                            versionedScenePlanSchema,
+                            versionedSceneComicPlanSchema,
+                        ]),
+                    })
+                  : options.version === "v2"
+                    ? sceneOutputSchema
+                    : outputSchema,
         activities: ["character_emoji_planning", "character_emoji_rendering"],
         execute: async (input, context) => {
             const started = Date.now();
@@ -114,6 +133,17 @@ export function createCharacterEmojiRegistration(
                 }
             };
             const comic = isComicBrief(input);
+            if (options.version === "v4") {
+                const references = suppliedCast
+                    .parse(input.cast)
+                    .map((member) => member.referenceImageUrl);
+                const failure = await verifyCharacterReferences(
+                    references,
+                    context.signal,
+                    options.fetchReference ?? globalThis.fetch,
+                );
+                if (failure) return failure;
+            }
             let plan: unknown;
             let prompt: string;
             let size = "1024x1024";
@@ -129,7 +159,8 @@ export function createCharacterEmojiRegistration(
                         async () => {
                             if (
                                 options.version === "v2" ||
-                                options.version === "v3"
+                                options.version === "v3" ||
+                                options.version === "v4"
                             ) {
                                 const plan = (
                                     options.version === "v3"
@@ -177,21 +208,26 @@ export function createCharacterEmojiRegistration(
                     size = imageSizes[compiled.plan.page.aspectRatio];
                 } else {
                     const brief = (
-                        options.version === "v3"
-                            ? versionedBriefSchema
-                            : briefSchema
+                        options.version === "v4"
+                            ? suppliedBriefSchema
+                            : options.version === "v3"
+                              ? versionedBriefSchema
+                              : briefSchema
                     ).parse(input);
                     const compiled = await context.runActivity(
                         "character_emoji_planning",
                         async () => {
                             if (
                                 options.version === "v2" ||
-                                options.version === "v3"
+                                options.version === "v3" ||
+                                options.version === "v4"
                             ) {
                                 const plan = (
-                                    options.version === "v3"
-                                        ? versionedScenePlanSchema
-                                        : scenePlanSchema
+                                    options.version === "v4"
+                                        ? suppliedScenePlanSchema
+                                        : options.version === "v3"
+                                          ? versionedScenePlanSchema
+                                          : scenePlanSchema
                                 ).parse(
                                     await options.agent.planScene(
                                         brief,
@@ -201,7 +237,8 @@ export function createCharacterEmojiRegistration(
                                     ),
                                 );
                                 if (
-                                    options.version === "v3" &&
+                                    (options.version === "v3" ||
+                                        options.version === "v4") &&
                                     !matchesVersionedCast(brief, [plan])
                                 )
                                     throw new Error("表情包登场身份不匹配");
@@ -210,9 +247,10 @@ export function createCharacterEmojiRegistration(
                                     prompt: sceneImagePrompt(brief, plan),
                                 };
                             }
+                            const legacy = briefSchema.parse(brief);
                             const plan = planSchema.parse(
                                 await options.agent.plan(
-                                    brief,
+                                    legacy,
                                     context.signal,
                                     characterEmojiBudget,
                                     observe,
@@ -221,7 +259,7 @@ export function createCharacterEmojiRegistration(
                             return {
                                 plan,
                                 prompt: imagePrompt({
-                                    brief,
+                                    brief: legacy,
                                     plan,
                                     caption: plan.caption,
                                     scene: sceneFromPlan(plan),
@@ -251,14 +289,16 @@ export function createCharacterEmojiRegistration(
                 );
             }
             context.signal.throwIfAborted();
-            const brief: CreationBrief = input;
+            const brief: SceneBrief | ComicBrief = input;
             if (brief.aspectRatio) size = imageSizes[brief.aspectRatio];
             const imageUrls = brief.cast.map((member) =>
-                imageUrl(
-                    member.character,
-                    member.appearance,
-                    options.version === "v3" ? "v3" : "v2",
-                ),
+                "referenceImageUrl" in member
+                    ? member.referenceImageUrl
+                    : imageUrl(
+                          member.character,
+                          member.appearance,
+                          options.version === "v3" ? "v3" : "v2",
+                      ),
             );
             try {
                 const image = characterEmojiImageSchema.parse(

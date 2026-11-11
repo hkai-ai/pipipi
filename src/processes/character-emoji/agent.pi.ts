@@ -65,7 +65,7 @@ import {
     projectSceneCandidate,
     sceneCandidateSchema,
 } from "./scene.js";
-import type { Brief, ComicBrief } from "./schema.js";
+import type { Brief, ComicBrief, SceneBrief } from "./schema.js";
 import {
     type MemeResearch,
     type MemeSearch,
@@ -77,7 +77,7 @@ import { allowsMemeSearch } from "./search-policy.js";
 export type PiCharacterEmojiAgentOptions = {
     gateway: ModelGateway;
     skills: readonly SkillRef[];
-    version?: "v2" | "v3";
+    version?: "v2" | "v3" | "v4";
     search: MemeSearch;
     sessionFactory?: PiSessionFactory;
 };
@@ -94,7 +94,7 @@ export class PiCharacterEmojiAgent
     }
 
     planScene(
-        brief: Brief,
+        brief: SceneBrief,
         signal: AbortSignal,
         budget: CharacterEmojiBudget,
         observe?: (record: EmojiObservation) => void,
@@ -106,7 +106,12 @@ export class PiCharacterEmojiAgent
             signal,
             budget,
             (text) =>
-                parseScenePlan(text, brief, this.#options.version === "v3"),
+                parseScenePlan(
+                    text,
+                    brief,
+                    this.#options.version === "v3",
+                    this.#options.version === "v4",
+                ),
             observe,
             "scene",
         );
@@ -171,7 +176,7 @@ export class PiCharacterEmojiAgent
 
     async #plan<T>(
         mode: "single" | "comic",
-        brief: Brief | ComicBrief,
+        brief: SceneBrief | ComicBrief,
         input: string,
         callerSignal: AbortSignal,
         budget: CharacterEmojiBudget,
@@ -208,6 +213,7 @@ export class PiCharacterEmojiAgent
                       research,
                       local,
                       this.#options.version === "v3",
+                      this.#options.version === "v4" ? brief.cast : undefined,
                   )
                 : candidateSchema(mode, research);
         const accept = (raw: unknown) => {
@@ -218,6 +224,7 @@ export class PiCharacterEmojiAgent
                     research,
                     local,
                     this.#options.version === "v3",
+                    this.#options.version === "v4" ? brief.cast : undefined,
                 );
                 return { candidate, plan: projectSceneCandidate(candidate) };
             }
@@ -288,7 +295,12 @@ export class PiCharacterEmojiAgent
                         throw new EmojiFailure("search", "timeout");
                     const result = await this.#options.search.search(
                         {
-                            cast: brief.cast,
+                            cast: brief.cast.map(
+                                ({ character, appearance }) => ({
+                                    character,
+                                    appearance,
+                                }),
+                            ),
                             idea: brief.idea,
                             ...(args.focus ? { focus: args.focus } : {}),
                         },
@@ -353,7 +365,8 @@ export class PiCharacterEmojiAgent
                         new PiSessionSupport({
                             skills,
                             instructions: [
-                                ...(this.#options.version === "v3"
+                                ...(this.#options.version === "v3" ||
+                                this.#options.version === "v4"
                                     ? [CAST_IDENTITY_RULE]
                                     : []),
                                 "执行角色表情包构思。默认直接提交方案，仅在已绑定 Skill 规定的必要情形使用搜索 Tool。",

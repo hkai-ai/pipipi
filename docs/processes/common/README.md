@@ -19,6 +19,7 @@
 | `memory-checklist-photo-poster/v1` | [memory-checklist-photo-poster/](memory-checklist-photo-poster/) | 上半保留原片，下半 3×3 蜡笔记忆点 |
 | `risograph-album/v1` | [risograph-album/](risograph-album/) | 1:1 复古唱片封面，固定两句英文 |
 | `character-emoji/v2`、`character-emoji/v3` | [character-emoji/](character-emoji/) | 按固定角色参考图生成单张表情或多格漫画。v3 支持同角色的不同形象同时登场 |
+| `character-emoji/v4` | [character-emoji/](character-emoji/) | 使用请求提供的角色资料与官方原图生成单图 |
 
 产品采用通用 Process 时，在对应产品场景 README 中记录产品限制和采用关系，不复制 Process 契约。统一 HTTP 契约见 [`../../api.md`](../../api.md)。
 

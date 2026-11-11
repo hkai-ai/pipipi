@@ -357,6 +357,10 @@ Memebuy 场景的图片转模板返回 Gallery v2 草稿，不直接写入 Memeb
 
 ## 角色表情包
 
+`character-emoji/v4` 单图显式传 `mode: "single"`、`idea` 和有序 `cast`，可选 `captionSetting`、`aspectRatio`、`background`。每位成员包含 `character`、`appearance`、`displayName`、`persona` 和 `referenceImageUrl`。阵容限 1–5 位，角色和形象标识各限 64 字符且不含冒号，每组身份唯一。显示名称限 100 字符，人设限 2000 字符。
+
+参考图使用 `https://assets.memebuy.cn/maker/characters/` 下的 `ai-fanworks/` 或 `community/scenes/` 原始 PNG。对象名以连字符、16–64 位小写十六进制摘要和 `.png` 结尾。校验拒绝端口、用户信息、查询、片段、路径转义及 HTTP 跳转，错误码为 `INVALID_INPUT`。创作前读取获准地址失败时返回 `DEPENDENCY_FAILURE`。主用渠道按阵容顺序读取参考图字节，备用渠道使用同序原始地址。单图返回 `{ mode: "single", plan, caption, image }`，方案演员的 `character` 和 `appearance` 与本次阵容匹配。
+
 `character-emoji/v3` 支持同角色双版本登场：cast 按角色 + appearance 去重，最多 5 位；方案 actors 必填 appearance，漫画对白 speaker 使用 `character:appearance`，其余输入输出结构沿用 v2。参考图按 cast 顺序逐位绑定新版场景素材。v2 合同和旧参考图保留，详情见[双版本登场](processes/common/character-emoji/README.md#双版本登场-v3)。
 
 `character-emoji/v2` 基于 Memebuy 角色表情包接入单图与多格漫画，当前提示词已独立精简。`cast` 中的角色数量为 1–5，同一角色不能重复；`appearance` 为 `Chibi` 或 `Girl`。参考图、文本模型、图片模型和供应商均由服务端固定配置。构思使用 DeepSeek 4.1 Flash Pi Agent，搜索 Tool 内使用 DeepSeek，默认提供按角色和题材挑选的本地短卡，由 Agent 首轮选材改编或原创；服务端仅对明确搜索、核实或近期新闻/热梗等要求开放搜索工具，普通剧情无搜索工具；禁止搜索优先，允许时最多调用一次并取舍两个候选；缺引用的资料可作未核验灵感，搜索失败或素材不适用时直接按输入原创。来源与改编证据不返回给产品。单图按角色 ID 绑定参考图，允许方案中的角色排列不同。JSON格式、可定位结构或配字错误可在原预算内修正一次；构思模型失败、修正后方案仍无法读取或必要业务校验失败时返回 `AGENT_FAILURE`，不会调用生图；用户取消和整体截止仍停止执行。

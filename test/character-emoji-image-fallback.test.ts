@@ -38,7 +38,7 @@ describe("角色图片文件主用与 URL 备用", () => {
                         8,
                     ),
                     imageUrls: [
-                        imageUrl("Claude", "Chibi"),
+                        "https://assets.memebuy.cn/maker/characters/community/scenes/rain-fox/ink-ad7bad7bad7bad7b.png",
                         imageUrl("DeepSeek", "Chibi"),
                     ],
                     size: "864x1536",

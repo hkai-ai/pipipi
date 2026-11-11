@@ -8,6 +8,7 @@ import {
     submissionSchema as legacySubmissionSchema,
     emojiTaskContextSchema as legacyTaskContextSchema,
 } from "./legacy-schema.js";
+import { immutableCharacterReferenceUrl } from "./reference.js";
 
 export const MAX_CAST = 5;
 // 提示词中的短目标用于控制文风；运行时上限只防止异常膨胀，不截断创意。
@@ -31,6 +32,22 @@ export const castMemberSchema = z
         "该角色暂不支持此形象版本",
     );
 export type CastMember = z.infer<typeof castMemberSchema>;
+export const castIdentifier = z
+    .string()
+    .min(1)
+    .max(64)
+    .refine(
+        (value) => value === value.trim() && !value.includes(":"),
+        "角色标识必须非空且不能包含冒号",
+    );
+export const suppliedMemberSchema = z.strictObject({
+    character: castIdentifier,
+    appearance: castIdentifier,
+    displayName: z.string().trim().min(1).max(100),
+    persona: z.string().trim().min(1).max(2000),
+    referenceImageUrl: immutableCharacterReferenceUrl,
+});
+export type SuppliedMember = z.infer<typeof suppliedMemberSchema>;
 export const castSchema = z
     .array(castMemberSchema)
     .min(1)
@@ -65,6 +82,9 @@ export const briefSchema = z
     })
     .strict();
 export type Brief = z.infer<typeof briefSchema> & ImageOptions;
+export type SceneBrief = Omit<Brief, "cast"> & {
+    cast: (CastMember | SuppliedMember)[];
+};
 export const COMIC_IDEA_LIMIT = 800;
 // 仅用于读取 v4 任务；新漫画的布局由构思方案决定。
 export const legacyComicLayouts = [
@@ -90,7 +110,9 @@ export type ComicBrief = z.infer<typeof comicBriefSchema> & ImageOptions;
 export type LegacyComicBrief = z.infer<typeof legacyComicBriefSchema>;
 export type CreationBrief = Brief | ComicBrief;
 export const creationBriefSchema = z.union([briefSchema, comicBriefSchema]);
-export function isComicBrief(brief: CreationBrief): brief is ComicBrief {
+export function isComicBrief(
+    brief: SceneBrief | ComicBrief,
+): brief is ComicBrief {
     return "mode" in brief && brief.mode === "comic";
 }
 export const legacyComicLayout = (brief: LegacyComicBrief) => {
@@ -281,7 +303,7 @@ export function comicPlanMatchesCast(
     );
 }
 export function planMatchesCast(
-    brief: Brief,
+    brief: SceneBrief,
     plan: { actors: Array<{ character: string }> },
 ) {
     const actors = new Set(plan.actors.map((actor) => actor.character));

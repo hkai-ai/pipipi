@@ -3,10 +3,11 @@ import { z } from "zod";
 import { imageOptionsShape } from "./image-options.js";
 import {
     briefSchema,
-    type CreationBrief,
     castMemberSchema,
     comicBriefSchema,
     MAX_CAST,
+    type SceneBrief,
+    suppliedMemberSchema,
 } from "./schema.js";
 
 export const castId = (member: { character: string; appearance: string }) =>
@@ -23,6 +24,19 @@ export const versionedBriefSchema = briefSchema.extend({
     cast,
     ...imageOptionsShape,
 });
+export const suppliedCast = z
+    .array(suppliedMemberSchema)
+    .min(1)
+    .max(MAX_CAST)
+    .refine(
+        (members) => new Set(members.map(castId)).size === members.length,
+        "同一角色的同一版本只能登场一次",
+    );
+export const suppliedBriefSchema = briefSchema.extend({
+    mode: z.literal("single"),
+    cast: suppliedCast,
+    ...imageOptionsShape,
+});
 export const versionedComicBriefSchema = comicBriefSchema.extend({
     cast,
     ...imageOptionsShape,
@@ -35,7 +49,7 @@ export const CAST_IDENTITY_RULE =
     "演员以character与appearance共同区分。同一模型的两个版本是独立登场者，不能合并。actors逐人填写appearance；对白speaker填写character:appearance（如Claude:Girl），且属于本格演员。scene按模型名和版本明确每个人的动作，跨格保持身份。参考图顺序与cast一致。";
 
 export function matchesVersionedCast(
-    brief: CreationBrief,
+    brief: Pick<SceneBrief, "cast">,
     panels: readonly {
         actors: readonly { character: string; appearance?: string }[];
         texts?: readonly { speaker: string | null }[];

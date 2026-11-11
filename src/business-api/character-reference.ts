@@ -1,5 +1,6 @@
 /** 将固定角色素材地址映射为同桶 OSS 读取请求，保持原图字节与取消边界。 */
 import OSS from "ali-oss";
+import { characterReferenceUrl } from "../processes/character-emoji/reference.js";
 import { readAliyunOssOptions } from "./object-storage-config.js";
 import type { ReferenceImageReader } from "./openai-image-generation.js";
 
@@ -28,21 +29,10 @@ export function createCharacterReferenceReader(
     });
     return async (url, signal) => {
         signal.throwIfAborted();
-        const source = new URL(url);
-        if (
-            source.origin !== "https://assets.memebuy.cn" ||
-            !(
-                source.pathname.startsWith("/maker/characters/ai-fanworks/") ||
-                source.pathname ===
-                    "/maker/characters/community/scenes/doubao/chibi-5e7e8f7823faaa50.png"
-            ) ||
-            source.search ||
-            source.hash ||
-            source.username ||
-            source.password
-        ) {
+        if (!characterReferenceUrl.safeParse(url).success) {
             throw new Error("角色参考图不属于固定素材目录");
         }
+        const source = new URL(url);
         // 签名只在请求内使用，不进入模型、运行记录或公开输出。
         const signed = await client.signatureUrlV4(
             "GET",

@@ -1,11 +1,13 @@
 /** 按角色和题材挑选有界本地素材，并区分本地、联网与原创来源。 */
 import { type MemeCard, memeCards } from "./memes.js";
-import type { Brief, ComicBrief } from "./schema.js";
+import type { SceneBrief } from "./schema.js";
 import type { MemeResearch } from "./search.js";
 
 export type AdaptationSource = "original" | "local" | "research" | "mixed";
 
-export function selectMemes(brief: Brief | ComicBrief): readonly MemeCard[] {
+export function selectMemes(
+    brief: Pick<SceneBrief, "cast" | "idea">,
+): readonly MemeCard[] {
     const idea = brief.idea.normalize("NFKC").toLowerCase();
     const score = (card: MemeCard) =>
         card.aliases.reduce(
@@ -33,8 +35,9 @@ export function selectMemes(brief: Brief | ComicBrief): readonly MemeCard[] {
         add(item.card);
     for (const character of cast)
         add(
-            ranked.find(({ card }) => card.characters.includes(character))
-                ?.card,
+            ranked.find(({ card }) =>
+                card.characters.some((id) => id === character),
+            )?.card,
         );
     for (const { card } of ranked) add(card);
     const common = memeCards

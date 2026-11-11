@@ -9,14 +9,15 @@ import { availableMaterialIds } from "./materials.js";
 import type { MemeCard } from "./memes.js";
 import { readPlannerJson, textRequirementFailure } from "./planner-output.js";
 import {
-    type Brief,
     type ComicBrief,
+    castIdentifier,
     comicPlanMatchesCast,
     comicPlanSchema,
     comicTextSchema,
     MAX_CAST,
     planMatchesCast,
     planSchema,
+    type SceneBrief,
     textMarkSchema,
 } from "./schema.js";
 import type { MemeResearch } from "./search.js";
@@ -71,6 +72,17 @@ const versionedTexts = z
 export const versionedScenePlanSchema = scenePlanSchema.extend({
     actors: versionedActors,
 });
+export const suppliedScenePlanSchema = scenePlanSchema.extend({
+    actors: z
+        .array(
+            actors.element.extend({
+                character: castIdentifier,
+                appearance: castIdentifier,
+            }),
+        )
+        .min(1)
+        .max(MAX_CAST),
+});
 export const versionedSceneComicPlanSchema = sceneComicPlanSchema.extend({
     page: sceneComicPlanSchema.shape.page.extend({
         aspectRatio: z.enum(aspectRatios),
@@ -87,6 +99,7 @@ export const versionedSceneComicPlanSchema = sceneComicPlanSchema.extend({
 });
 export type ScenePlan =
     | z.infer<typeof scenePlanSchema>
+    | z.infer<typeof suppliedScenePlanSchema>
     | z.infer<typeof versionedScenePlanSchema>;
 export type SceneComicPlan =
     | z.infer<typeof sceneComicPlanSchema>
@@ -121,6 +134,9 @@ const versionedComicCandidate = comicCandidate.extend({
         .max(6),
 });
 export type SceneCandidate =
+    | (z.infer<typeof suppliedScenePlanSchema> & {
+          adaptation: z.infer<typeof adaptationSchema>;
+      })
     | z.infer<typeof versionedSingleCandidate>
     | z.infer<typeof versionedComicCandidate>
     | z.infer<typeof singleCandidate>
@@ -130,13 +146,37 @@ export function sceneCandidateSchema(
     research: readonly MemeResearch[],
     local: readonly MemeCard[] = [],
     versioned = false,
+    supplied?: SceneBrief["cast"],
 ) {
     const ids = availableMaterialIds(local, research);
     return (
         mode === "single"
-            ? versioned
-                ? versionedSingleCandidate
-                : singleCandidate
+            ? supplied
+                ? suppliedScenePlanSchema.extend({
+                      actors: z
+                          .array(
+                              suppliedScenePlanSchema.shape.actors.element.extend(
+                                  {
+                                      character: z.enum(
+                                          supplied.map(
+                                              (member) => member.character,
+                                          ),
+                                      ),
+                                      appearance: z.enum(
+                                          supplied.map(
+                                              (member) => member.appearance,
+                                          ),
+                                      ),
+                                  },
+                              ),
+                          )
+                          .min(1)
+                          .max(MAX_CAST),
+                      adaptation: adaptationSchema,
+                  })
+                : versioned
+                  ? versionedSingleCandidate
+                  : singleCandidate
             : versioned
               ? versionedComicCandidate
               : comicCandidate
@@ -154,8 +194,15 @@ export function acceptSceneCandidate(
     research: readonly MemeResearch[],
     local: readonly MemeCard[] = [],
     versioned = false,
+    supplied?: SceneBrief["cast"],
 ): SceneCandidate {
-    return sceneCandidateSchema(mode, research, local, versioned).parse(raw);
+    return sceneCandidateSchema(
+        mode,
+        research,
+        local,
+        versioned,
+        supplied,
+    ).parse(raw);
 }
 export function projectSceneCandidate(
     candidate: SceneCandidate,
@@ -197,16 +244,21 @@ function read<T>(text: string, schema: z.ZodType<T>): PlanResult<T> {
 }
 export function parseScenePlan(
     text: string,
-    brief: Brief,
+    brief: SceneBrief,
     versioned = false,
+    supplied = false,
 ): PlanResult<ScenePlan> {
     const result = read<ScenePlan>(
         text,
-        versioned ? versionedScenePlanSchema : scenePlanSchema,
+        supplied
+            ? suppliedScenePlanSchema
+            : versioned
+              ? versionedScenePlanSchema
+              : scenePlanSchema,
     );
     if (!result.success) return result;
     if (
-        !(versioned
+        !(versioned || supplied
             ? matchesVersionedCast(brief, [result.plan])
             : planMatchesCast(brief, result.plan))
     )

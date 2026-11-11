@@ -6,6 +6,7 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
 import { createProcessingApplication } from "../src/api/application.js";
+import { createProductionRuntime } from "../src/app/business-processes.js";
 import { createProcessExecutor } from "../src/processes/catalog.js";
 import { PiCharacterEmojiAgent } from "../src/processes/character-emoji/agent.pi.js";
 import {
@@ -128,6 +129,7 @@ const makeSearch = (fetcher: typeof fetch) =>
 
 function harness(
     options: {
+        version?: "v4";
         calls?: number;
         outputs?: unknown[];
         stopReason?: string;
@@ -161,6 +163,7 @@ function harness(
         })),
     };
     const agent = new PiCharacterEmojiAgent({
+        version: options.version,
         gateway: {
             apiKey: "emoji-test-key",
             baseUrl: "https://emoji.example/v1",
@@ -266,6 +269,164 @@ function harness(
         compaction,
     };
 }
+
+describe("按请求提供角色资料的 v4 单图", () => {
+    const member = {
+        character: "RainFox",
+        appearance: "Ink",
+        displayName: "雨狐",
+        persona: "遇事先摊开自己的雨伞",
+        referenceImageUrl:
+            "https://assets.memebuy.cn/maker/characters/community/scenes/rain-fox/ink-ad7bad7bad7bad7b.png",
+    };
+    const scene = {
+        scene: "雨狐给一朵云撑伞",
+        actors: [
+            { character: "RainFox", appearance: "Ink", identityMark: null },
+        ],
+        caption: "别淋湿了",
+        propMarks: [],
+    };
+    it("新角色以请求中的人设构思，用本次参考图生成并交付自己的身份", async () => {
+        const h = harness({
+            version: "v4",
+            calls: 0,
+            outputs: [
+                JSON.stringify({
+                    ...scene,
+                    adaptation: { entryIds: [], original: "为云撑伞" },
+                }),
+            ],
+        });
+        const realPlan = h.agent.planScene.bind(h.agent);
+        const planner = vi
+            .spyOn(PiCharacterEmojiAgent.prototype, "planScene")
+            .mockImplementation(realPlan);
+        const render = vi.fn();
+        const fetcher = vi
+            .spyOn(globalThis, "fetch")
+            .mockImplementation(async (url, init) => {
+                if (
+                    String(url) === member.referenceImageUrl &&
+                    init?.method === "HEAD"
+                )
+                    return new Response(null);
+                expect(String(url)).toBe(
+                    "https://business.example/character-emojis",
+                );
+                render(JSON.parse(String(init?.body)));
+                return Response.json(image);
+            });
+        try {
+            const { executor } = createProductionRuntime({
+                CRT_BUSINESS_API_BASE_URL: "https://business.example",
+            });
+            const result = await executor.execute({
+                process: "character-emoji",
+                version: "v4",
+                input: {
+                    mode: "single",
+                    cast: [member],
+                    idea: "给云撑伞",
+                    captionSetting: { mode: "custom", text: scene.caption },
+                },
+            });
+            expect(result).toMatchObject({
+                status: "succeeded",
+                output: {
+                    mode: "single",
+                    image,
+                    plan: scene,
+                    caption: scene.caption,
+                },
+            });
+            expect(h.prompts[0]).toContain(member.persona);
+            expect(h.prompts[0]).toContain(member.displayName);
+            expect(h.prompts[0]).not.toContain(member.referenceImageUrl);
+            expect(render).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    imageUrls: [member.referenceImageUrl],
+                    prompt: expect.stringContaining("RainFox:Ink"),
+                }),
+            );
+        } finally {
+            planner.mockRestore();
+            fetcher.mockRestore();
+        }
+    });
+    it.each([
+        {
+            url: member.referenceImageUrl,
+            status: 302,
+            code: "INVALID_INPUT",
+            probes: 1,
+        },
+        {
+            url: member.referenceImageUrl,
+            status: 404,
+            code: "DEPENDENCY_FAILURE",
+            probes: 1,
+        },
+        {
+            url: "https://example.org/foreign.png",
+            status: 200,
+            code: "INVALID_INPUT",
+            probes: 0,
+        },
+        ...[
+            member.referenceImageUrl.replace("/rain-fox/", "/%2e%2e/"),
+            member.referenceImageUrl.replace(
+                "assets.memebuy.cn",
+                "assets.memebuy.cn:443",
+            ),
+            member.referenceImageUrl.replace("/community/scenes/", "/private/"),
+            member.referenceImageUrl + "?key=value",
+            member.referenceImageUrl + "#fragment",
+        ].map((url) => ({
+            url,
+            status: 200,
+            code: "INVALID_INPUT",
+            probes: 0,
+        })),
+    ])(
+        "不向绘图渠道提交不可用的参考图 ($status, $code)",
+        async ({ url, status, code, probes }) => {
+            const h = harness({ version: "v4", calls: 0 });
+            const render = vi.fn(async () => image);
+            const fetchReference = vi.fn<typeof fetch>(async (_url, init) => {
+                expect(init?.redirect).toBe("manual");
+                expect(init?.method).toBe("HEAD");
+                return new Response(null, {
+                    status,
+                    headers: { location: "https://example.org/untrusted" },
+                });
+            });
+            const executor = createProcessExecutor({
+                registrations: [
+                    createCharacterEmojiRegistration({
+                        version: "v4",
+                        agent: h.agent,
+                        capability: { render },
+                        fetchReference,
+                    }),
+                ],
+            });
+            const result = await executor.execute({
+                process: "character-emoji",
+                version: "v4",
+                input: {
+                    mode: "single",
+                    cast: [{ ...member, referenceImageUrl: url }],
+                    idea: "撑伞",
+                },
+            });
+            expect(result).toMatchObject({ status: "failed", error: { code } });
+            expect(fetchReference).toHaveBeenCalledTimes(probes);
+            expect(h.prompts).toHaveLength(0);
+            expect(render).not.toHaveBeenCalled();
+        },
+    );
+});
 
 describe("DeepSeek 搜梗 Adapter", () => {
     it("使用固定模型与预算，提取最终正文和安全来源", async () => {

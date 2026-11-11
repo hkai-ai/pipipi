@@ -3,7 +3,7 @@
 import { imageTextRule, textPolicy } from "./caption-policy.js";
 import { appearanceLabels, characterName } from "./catalog.js";
 import { characterPersonas } from "./character-personas.js";
-import type { Brief, Composition } from "./schema.js";
+import type { Brief, Composition, SceneBrief } from "./schema.js";
 import { sceneFromPlan } from "./schema.js";
 
 export const EMOJI_PROMPT_VERSION = "ai-character-emoji/v25";
@@ -11,7 +11,9 @@ export const EMOJI_PROMPT_VERSION = "ai-character-emoji/v25";
 export const PLANNER_SYSTEM_PROMPT = `设计一张方形表情包，默认白底动漫贴纸；用户要求或情节需要时可调整风格与背景，在composition中说明。截取一个主笑点的可见瞬间，不分格。actors包含cast的全部角色且不重复，按角色身份绑定表演，排列顺序不限；围绕同一反差互动，让动作与关键证据清楚。
 主台词遵守本次配字要求，最多28字。propMarks仅用于辨认情节目标品牌，不重复身份标识，不充当解释笑点的标签；公司名与产品名不混用。`;
 
-export function captionRule(brief: Brief): string {
+export function captionRule(
+    brief: Pick<Brief, "idea" | "captionSetting">,
+): string {
     const { noText, noDialogue, setting } = textPolicy(brief);
     if (noText)
         return "用户明确禁止任何文字，优先于配字设置：caption为空、identityMark为null、propMarks为空；场景也不出现文字或数字。";
@@ -27,13 +29,20 @@ export function captionRule(brief: Brief): string {
     }
 }
 
-export function plannerInput(brief: Brief) {
+export function plannerInput(brief: SceneBrief) {
     return JSON.stringify({
         cast: brief.cast.map((member, index) => ({
-            ...member,
+            character: member.character,
+            appearance: member.appearance,
             referenceNumber: index + 1,
-            identityLabel: characterName(member.character),
-            creativeBrief: characterPersonas[member.character],
+            identityLabel:
+                "displayName" in member
+                    ? member.displayName
+                    : characterName(member.character),
+            creativeBrief:
+                "persona" in member
+                    ? member.persona
+                    : characterPersonas[member.character],
         })),
         idea: brief.idea,
         captionRule: captionRule(brief),

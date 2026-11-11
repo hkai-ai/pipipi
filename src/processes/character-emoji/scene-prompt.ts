@@ -4,7 +4,7 @@ import { imageTextRule } from "./caption-policy.js";
 import { appearanceLabels } from "./catalog.js";
 import { imageOptionsRule } from "./image-options.js";
 import type { SceneComicPlan, ScenePlan } from "./scene.js";
-import type { Brief, ComicBrief } from "./schema.js";
+import type { ComicBrief, SceneBrief } from "./schema.js";
 
 export const SCENE_PLANNER_RULES = `根据cast和idea创作表情包或漫画，用户指定的剧情、动作和结局优先。creativeBrief按情境启发角色行为；cast是唯一角色名单。本阶段没有参考图，默认外观由参考图决定，用户明确的换装、染发或伪装只覆盖指定部分。
 默认使用已给素材或原创。localMemes是可选短卡，按scope理解历史事件、个体体验和二创。选材看行为关系能否自然进入当前剧情，最多组合两条本地或联网素材；仅有同类道具或主题词时可放弃素材。先完成画面，adaptation再据实说明采用关系，不为引用素材改掉用户主题。
@@ -19,10 +19,11 @@ export const SCENE_COMIC_RULES = `设计单页漫画，用能讲清反差的最�
 先为剧情留出空间，再决定page.aspectRatio、layout和readingOrder，以及各格frame。page与frame只写画格位置、相对大小及跨行跨列或嵌格关系；人物位置、姿势与道具状态统一写入scene。允许大小格和明确嵌格，自由布局与阅读顺序一致，用户指定布局优先。panels按阅读顺序排列，程序生成编号，嵌格计入总格数。
 台词简短，用户指定文字逐字保留；dialogue的speaker必须在本格出现，narration和sign的speaker为null。每人可有一处自然附着的身份标识，不重复放入texts。不要对白时无dialogue；明确无字时texts为空、identityMark为null，scene也不出现文字和数字。`;
 
-function references(brief: Brief | ComicBrief) {
-    return brief.cast.map(
-        (member, index) =>
-            `参考图${index + 1}只对应${member.character}:${member.appearance}（${appearanceLabels[member.appearance]}），决定该角色默认外观、比例及渲染质感，不交换或混合身份。${member.character === "Doubao" ? "豆包保持原版深棕侧分短发、黑色圆领上衣与3D卡通质感，不因贴纸或漫画载体改成日系女仆角色。" : ""}参考图不提供姿势、构图或文字。`,
+function references(brief: SceneBrief | ComicBrief) {
+    return brief.cast.map((member, index) =>
+        "displayName" in member
+            ? `参考图${index + 1}只对应${member.character}:${member.appearance}（${JSON.stringify(member.displayName)}），决定该角色的默认外观、比例和质感。参考图不提供姿势、构图或文字。`
+            : `参考图${index + 1}只对应${member.character}:${member.appearance}（${appearanceLabels[member.appearance]}），决定该角色默认外观、比例及渲染质感，不交换或混合身份。${member.character === "Doubao" ? "豆包保持原版深棕侧分短发、黑色圆领上衣与3D卡通质感，不因贴纸或漫画载体改成日系女仆角色。" : ""}参考图不提供姿势、构图或文字。`,
     );
 }
 const actorLabel = (actor: ScenePlan["actors"][number]) =>
@@ -38,7 +39,7 @@ function marks(actors: ScenePlan["actors"]) {
 }
 const appearanceRule =
     "用户明确的伪装、换装和染发只改变指定部分，其余外观沿用对应参考图；穿戴物保持穿戴，不改成手持道具。";
-export function sceneImagePrompt(brief: Brief, plan: ScenePlan) {
+export function sceneImagePrompt(brief: SceneBrief, plan: ScenePlan) {
     return [
         `绘制一张${brief.aspectRatio ? `宽高比${brief.aspectRatio}的` : "方形"}表情包，恰好${brief.cast.length}位角色共同登场，不分格。${brief.background === "transparent" ? "背景透明。" : "风格和背景按场景，未指定时采用白底动漫贴纸。"}`,
         ...references(brief),
