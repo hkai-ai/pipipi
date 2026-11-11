@@ -1,9 +1,5 @@
 import { mkdtemp, rm } from "node:fs/promises";
-import {
-    createServer as createHttpServer,
-    type IncomingMessage,
-    type Server,
-} from "node:http";
+import type { Server } from "node:http";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { Redis } from "ioredis";
@@ -15,9 +11,11 @@ import { constructProcessingService } from "../../src/app/api.js";
 import { constructProcessDispatcherService } from "../../src/app/process-dispatcher.js";
 import { constructProcessWorkerService } from "../../src/app/process-worker.js";
 
+import { startTemplateRenderApi } from "./template-render-api.js";
+
 export type ConsoleAsyncAcceptanceEnvironment = Readonly<{
     url: string;
-    effectCount: (content: string) => number;
+    effectCount: (reviewerRef: string) => number;
     startWorker: () => Promise<void>;
     close: () => Promise<void>;
 }>;
@@ -46,12 +44,13 @@ export async function startConsoleAsyncAcceptanceEnvironment(
             rm(records, { recursive: true, force: true }),
         );
 
-        const businessApi = await startFreeBusinessApi();
+        const businessApi = await startTemplateRenderApi();
         closeResources.push(businessApi.close);
 
         const gatewaySecret =
             "browser-acceptance-gateway-secret-at-least-32-bytes";
         const sharedEnvironment = {
+            CRT_BUSINESS_API_BASE_URL: businessApi.url,
             DATABASE_URL: options.databaseUrl,
             REDIS_URL: options.redisUrl,
             PROCESS_QUEUE_PREFIX: "pipipi-console-browser-acceptance",
@@ -96,7 +95,6 @@ export async function startConsoleAsyncAcceptanceEnvironment(
         closeResources.push(dispatcher.application.close);
         const worker = constructProcessWorkerService({
             ...sharedEnvironment,
-            BUSINESS_API_TIMEOUT_MS: "500",
             PROCESS_RUN_RECORD_STORE: "file",
             PROCESS_RUN_RECORD_DIRECTORY: records,
             PROCESS_RUN_RECORD_CONTENT: "accepted-input-and-output",
@@ -211,55 +209,6 @@ async function resetInfrastructure(
     }
 }
 
-async function startFreeBusinessApi(): Promise<{
-    url: string;
-    close: () => Promise<void>;
-    effectCount: (content: string) => number;
-}> {
-    const effects = new Map<string, number>();
-    const server = createHttpServer((request, response) => {
-        void respondToBusinessRequest(request, response, effects);
-    });
-    await new Promise<void>((resolve, reject) => {
-        server.once("error", reject);
-        server.listen(0, "127.0.0.1", () => {
-            server.off("error", reject);
-            resolve();
-        });
-    });
-    return {
-        url: httpServerUrl(server),
-        close: () => closeHttpServer(server),
-        effectCount: (content) => effects.get(content) ?? 0,
-    };
-}
-
-async function respondToBusinessRequest(
-    request: IncomingMessage,
-    response: import("node:http").ServerResponse,
-    effects: Map<string, number>,
-): Promise<void> {
-    if (request.method !== "POST" || request.url !== "/process") {
-        response.writeHead(404).end();
-        return;
-    }
-    const chunks: Buffer[] = [];
-    for await (const chunk of request) {
-        chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
-    }
-    const body = JSON.parse(Buffer.concat(chunks).toString("utf8")) as {
-        content: string;
-    };
-    effects.set(body.content, (effects.get(body.content) ?? 0) + 1);
-    if (body.content === "browser failure") {
-        response.writeHead(503, { "content-type": "application/json" });
-        response.end(JSON.stringify({ error: "simulated dependency failure" }));
-        return;
-    }
-    response.writeHead(200, { "content-type": "application/json" });
-    response.end(JSON.stringify({ content: `Processed: ${body.content}` }));
-}
-
 async function waitForHttpStatus(url: string, status: number): Promise<void> {
     const deadline = Date.now() + 5_000;
     while (Date.now() < deadline) {
@@ -269,13 +218,6 @@ async function waitForHttpStatus(url: string, status: number): Promise<void> {
         await new Promise((resolve) => setTimeout(resolve, 20));
     }
     throw new Error(`${url} did not return ${status}`);
-}
-
-async function closeHttpServer(server: Server): Promise<void> {
-    if (!server.listening) return;
-    await new Promise<void>((resolve, reject) =>
-        server.close((error) => (error ? reject(error) : resolve())),
-    );
 }
 
 function httpServerUrl(

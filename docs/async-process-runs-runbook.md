@@ -462,6 +462,8 @@ Redis 数据丢失的标准动作：
 
 已有异步部署的普通代码更新直接走 `production-ci-cd.yml`，不再因为发现 Worker 而尝试同步回退。`ops/update-async-release.sh` 在共享发布锁内保持当前 `internal`、`canary` 或 `production` 阶段，复用服务器角色环境与 Queue identity，逐角色预检、暂停新提交、等待已接受 Run 排空后更新六个容器。镜像与两份 Compose 一起回滚；原 PostgreSQL、Redis、Queue 和灰度流量不变。具体成功与失败信号见[日常部署说明](mvp-release-runbook.md#单服务器-github-actions-发布)。
 
+异步 Worker 保存图片服务提交后的失败时，数据库需要迁移 `015_process_run_error_code.mjs` 扩展 `process_runs_error_code_check`。发布前按本文的备份、恢复验证及迁移步骤执行。应用回滚时保留扩展后的约束，已有失败记录可保留原错误码。
+
 该路径只允许迁移文件摘要不变的候选，不代替首次启用、带备份审查的数据库迁移、灰度提升或真实付费验收。旧 commit 的 smoke、演练与 promotion 证据不能改写成新 commit 的成功证据；后续阶段或流量调整仍须重新收集准确候选的证据，并核对 promotion 状态。
 
 ### Run 或 Process Queue 持续增长

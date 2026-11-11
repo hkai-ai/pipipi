@@ -1,8 +1,10 @@
 import { access } from "node:fs/promises";
 import path from "node:path";
-import { chromium, type Request } from "playwright-core";
+import { chromium, type Page, type Request } from "playwright-core";
 import { describe, expect, it } from "vitest";
 import { startConsoleAsyncAcceptanceEnvironment } from "./support/console-async-acceptance-environment.js";
+
+import { renderApproval } from "./support/template-render-api.js";
 
 const databaseUrl = process.env.POSTGRES_TEST_DATABASE_URL;
 const redisUrl = process.env.REDIS_TEST_URL;
@@ -41,12 +43,10 @@ acceptanceDescribe("built Console async browser acceptance", () => {
                     });
 
                     await page.goto(`${environment.url}/console/#/submit`);
-                    const process = page.getByLabel("Business Process");
-                    await process.waitFor();
-                    await process.selectOption("content-processing/v1");
-                    await page
-                        .getByLabel(/^content \*$/)
-                        .fill("browser acceptance");
+                    const approval = await fillApproval(
+                        page,
+                        "browser acceptance",
+                    );
 
                     const submit = page.getByRole("button", {
                         name: "提交",
@@ -76,9 +76,9 @@ acceptanceDescribe("built Console async browser acceptance", () => {
                     );
                     expect(submissions).toHaveLength(1);
                     expect(submissions[0]?.postDataJSON()).toEqual({
-                        process: "content-processing",
+                        process: "template-image-render",
                         version: "v1",
-                        input: { content: "browser acceptance" },
+                        input: approval,
                     });
 
                     await page.reload();
@@ -108,7 +108,10 @@ acceptanceDescribe("built Console async browser acceptance", () => {
                     await terminal.waitFor({ timeout: 15_000 });
                     expect(await terminal.innerText()).toContain("succeeded");
                     await page
-                        .getByText(/"content": "Processed: browser acceptance"/)
+                        .getByText(
+                            `"productionId": "${approval.productionId}"`,
+                            { exact: false },
+                        )
                         .waitFor({ timeout: 5_000 });
                     expect(
                         processRequests.filter(
@@ -135,12 +138,7 @@ acceptanceDescribe("built Console async browser acceptance", () => {
                     );
 
                     await page.goto(`${environment.url}/console/#/submit`);
-                    await page
-                        .getByLabel("Business Process")
-                        .selectOption("content-processing/v1");
-                    await page
-                        .getByLabel(/^content \*$/)
-                        .fill("browser failure");
+                    await fillApproval(page, "fail-dependency");
                     await page
                         .getByRole("button", { name: "提交", exact: true })
                         .click({ noWaitAfter: true });
@@ -154,9 +152,11 @@ acceptanceDescribe("built Console async browser acceptance", () => {
                     await page.goto(`${environment.url}/console/#/runs`);
                     await page
                         .getByLabel("业务", { exact: true })
-                        .selectOption("content-processing");
+                        .selectOption("template-image-render");
                     await page.getByLabel("状态").selectOption("failed");
-                    await page.getByLabel("错误码").fill("DEPENDENCY_FAILURE");
+                    await page
+                        .getByLabel("错误码")
+                        .fill("DEPENDENCY_FAILURE_AFTER_COMMIT");
                     await page
                         .getByLabel("开始时间（含，本地时间）")
                         .fill("2020-01-01T00:00");
@@ -184,9 +184,12 @@ acceptanceDescribe("built Console async browser acceptance", () => {
                         `${environment.url}/console/#/run/${failedRunId}`,
                     );
                     await page
-                        .getByText(/声明顺序：content_processing/)
+                        .getByText("技术详情：原始事件与步骤标识")
+                        .click();
+                    await page
+                        .getByText(/流程声明的步骤：approved_image_rendering/)
                         .waitFor({ timeout: 5_000 });
-                    await page.getByText(/与声明一致/).waitFor();
+                    await page.getByText(/顺序一致，不代表执行成功/).waitFor();
                 } finally {
                     await context.close();
                 }
@@ -198,6 +201,17 @@ acceptanceDescribe("built Console async browser acceptance", () => {
         }
     }, 60_000);
 });
+
+async function fillApproval(page: Page, reviewer: string) {
+    const input = renderApproval(reviewer);
+    await page
+        .getByLabel("Business Process")
+        .selectOption("template-image-render/v1");
+    for (const [name, value] of Object.entries(input)) {
+        await page.getByLabel(`${name} *`, { exact: true }).fill(value);
+    }
+    return input;
+}
 
 async function chromeExecutable(): Promise<string> {
     const candidates = [

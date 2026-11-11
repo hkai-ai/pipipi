@@ -1,9 +1,5 @@
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
-import {
-    createServer as createHttpServer,
-    type IncomingMessage,
-    type Server,
-} from "node:http";
+import { createServer as createHttpServer, type Server } from "node:http";
 import { createServer as createTcpServer } from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -60,6 +56,11 @@ import {
 } from "../src/webhooks/queue/bullmq.js";
 import { createPostgresWebhookDeliveryStore } from "../src/webhooks/store/postgres.js";
 import { createWebhookSecretCipher } from "../src/webhooks/store/secret-cipher.js";
+
+import {
+    renderApproval,
+    startTemplateRenderApi,
+} from "./support/template-render-api.js";
 
 const databaseUrl = process.env.POSTGRES_TEST_DATABASE_URL;
 const redisUrl = process.env.REDIS_TEST_URL;
@@ -1087,9 +1088,10 @@ integrationDescribe("BullMQ Process Runtime", () => {
                 rm(intakeDirectory, { recursive: true, force: true }),
             );
             const intakeMarker = path.join(intakeDirectory, "intake-disabled");
-            const businessApi = await startBusinessApi();
+            const businessApi = await startTemplateRenderApi();
             closeResources.push(businessApi.close);
             const sharedEnvironment = {
+                CRT_BUSINESS_API_BASE_URL: businessApi.url,
                 DATABASE_URL: databaseUrl,
                 REDIS_URL: redisUrl,
                 PROCESS_QUEUE_PREFIX: "pipipi-role-integration",
@@ -1130,7 +1132,6 @@ integrationDescribe("BullMQ Process Runtime", () => {
             closeResources.push(dispatcher.application.close);
             const worker = constructProcessWorkerService({
                 ...sharedEnvironment,
-                BUSINESS_API_TIMEOUT_MS: "500",
                 PROCESS_WORKER_CONCURRENCY: "2",
                 PROCESS_WORKER_SHUTDOWN_GRACE_MS: "1000",
             });
@@ -1185,11 +1186,12 @@ integrationDescribe("BullMQ Process Runtime", () => {
             const queued = new Promise<void>((resolveQueued) => {
                 observedQueued = resolveQueued;
             });
+            const successApproval = renderApproval("role success");
             const execution = client.execute(
                 {
-                    process: "content-processing",
+                    process: "template-image-render",
                     version: "v1",
-                    input: { content: "role success" },
+                    input: successApproval,
                 },
                 {
                     timeoutMs: 10_000,
@@ -1228,9 +1230,9 @@ integrationDescribe("BullMQ Process Runtime", () => {
             const success = await execution;
             expect(success).toMatchObject({
                 status: "succeeded",
-                process: "content-processing",
+                process: "template-image-render",
                 version: "v1",
-                output: { content: "Processed: role success" },
+                output: { productionId: successApproval.productionId },
             });
             expect(progress).toEqual(
                 expect.arrayContaining([
@@ -1274,9 +1276,9 @@ integrationDescribe("BullMQ Process Runtime", () => {
                 },
             );
             const responseLossRequest = {
-                process: "content-processing",
+                process: "template-image-render",
                 version: "v1",
-                input: { content: "response lost" },
+                input: renderApproval("response lost"),
             } as const;
             await expect(
                 recoveredClient.execute(responseLossRequest),
@@ -1291,7 +1293,9 @@ integrationDescribe("BullMQ Process Runtime", () => {
             expect(recoveredAfterLoss).toMatchObject({
                 status: "succeeded",
                 runId: droppedRunId,
-                output: { content: "Processed: response lost" },
+                output: {
+                    productionId: responseLossRequest.input.productionId,
+                },
             });
             expect(replayedKeys).toEqual([
                 "role-response-loss",
@@ -1307,17 +1311,17 @@ integrationDescribe("BullMQ Process Runtime", () => {
             await expect(
                 failureClient.execute(
                     {
-                        process: "content-processing",
+                        process: "template-image-render",
                         version: "v1",
-                        input: { content: "fail-dependency" },
+                        input: renderApproval("fail-dependency"),
                     },
                     { timeoutMs: 10_000 },
                 ),
             ).resolves.toMatchObject({
                 status: "failed",
                 error: {
-                    code: "DEPENDENCY_FAILURE",
-                    message: "A required business service is unavailable",
+                    code: "DEPENDENCY_FAILURE_AFTER_COMMIT",
+                    message: "成图未完成；请恢复同一生产项，不自动重新付费",
                 },
             });
 
@@ -1334,9 +1338,9 @@ integrationDescribe("BullMQ Process Runtime", () => {
                 },
             );
             const timeoutRequest = {
-                process: "content-processing",
+                process: "template-image-render",
                 version: "v1",
-                input: { content: "continue after timeout" },
+                input: renderApproval("continue after timeout"),
             } as const;
             const timedOut = await timeoutClient.execute(timeoutRequest, {
                 timeoutMs: 50,
@@ -1355,7 +1359,7 @@ integrationDescribe("BullMQ Process Runtime", () => {
             expect(continued).toMatchObject({
                 status: "succeeded",
                 runId: timedOut.runId,
-                output: { content: "Processed: continue after timeout" },
+                output: { productionId: timeoutRequest.input.productionId },
             });
             expect(timeoutSubmissionCount).toBe(1);
             expect(businessApi.effectCount("continue after timeout")).toBe(1);
@@ -1389,9 +1393,9 @@ integrationDescribe("BullMQ Process Runtime", () => {
                     "idempotency-key": "must-not-be-accepted-during-rollback",
                 },
                 body: JSON.stringify({
-                    process: "content-processing",
+                    process: "template-image-render",
                     version: "v1",
-                    input: { content: "must not run" },
+                    input: renderApproval("must not run"),
                 }),
             });
             expect(closedIntake.status).toBe(503);
@@ -1407,19 +1411,20 @@ integrationDescribe("BullMQ Process Runtime", () => {
                 status: "succeeded",
             });
 
+            const syncApproval = renderApproval("sync remains enabled");
             const synchronous = await fetch(`${apiListening.url}/execute`, {
                 method: "POST",
                 headers: { "content-type": "application/json" },
                 body: JSON.stringify({
-                    process: "content-processing",
+                    process: "template-image-render",
                     version: "v1",
-                    input: { content: "sync remains enabled" },
+                    input: syncApproval,
                 }),
             });
             expect(synchronous.status).toBe(200);
             expect(await synchronous.json()).toMatchObject({
                 status: "succeeded",
-                output: { content: "Processed: sync remains enabled" },
+                output: { productionId: syncApproval.productionId },
             });
         } finally {
             await Promise.allSettled(
@@ -1574,72 +1579,6 @@ async function unusedRedisUrl(): Promise<string> {
         server.close((error) => (error ? reject(error) : resolve())),
     );
     return `redis://127.0.0.1:${address.port}/15`;
-}
-
-async function startBusinessApi(): Promise<{
-    url: string;
-    close: () => Promise<void>;
-    effectCount: (content: string) => number;
-    hold: (content: string) => () => void;
-}> {
-    const effectCounts = new Map<string, number>();
-    const holds = new Map<string, Promise<void>>();
-    const server = createHttpServer((request, response) => {
-        void handleBusinessRequest(request, response, effectCounts, holds);
-    });
-    await new Promise<void>((resolve, reject) => {
-        server.once("error", reject);
-        server.listen(0, "127.0.0.1", () => {
-            server.off("error", reject);
-            resolve();
-        });
-    });
-    const address = server.address();
-    if (!address || typeof address === "string") {
-        throw new Error("Expected the Business API to listen on an IP address");
-    }
-    return {
-        url: `http://127.0.0.1:${address.port}`,
-        close: () => closeHttpServer(server),
-        effectCount: (content) => effectCounts.get(content) ?? 0,
-        hold: (content) => {
-            let release: () => void = () => undefined;
-            holds.set(
-                content,
-                new Promise<void>((resolve) => {
-                    release = resolve;
-                }),
-            );
-            return release;
-        },
-    };
-}
-
-async function handleBusinessRequest(
-    request: IncomingMessage,
-    response: import("node:http").ServerResponse,
-    effectCounts: Map<string, number>,
-    holds: Map<string, Promise<void>>,
-): Promise<void> {
-    if (request.method !== "POST" || request.url !== "/process") {
-        response.writeHead(404).end();
-        return;
-    }
-    const chunks: Buffer[] = [];
-    for await (const chunk of request) {
-        chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
-    }
-    const body = JSON.parse(Buffer.concat(chunks).toString("utf8")) as {
-        content: string;
-    };
-    effectCounts.set(body.content, (effectCounts.get(body.content) ?? 0) + 1);
-    await holds.get(body.content);
-    if (body.content === "fail-dependency") {
-        response.writeHead(503).end();
-        return;
-    }
-    response.writeHead(200, { "content-type": "application/json" });
-    response.end(JSON.stringify({ content: `Processed: ${body.content}` }));
 }
 
 async function closeHttpServer(server: Server): Promise<void> {

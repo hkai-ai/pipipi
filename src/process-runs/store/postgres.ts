@@ -992,6 +992,7 @@ function isUuid(value: string): boolean {
 const processErrorCodes = new Set<ProcessErrorCode>([
     "AGENT_FAILURE",
     "DEPENDENCY_FAILURE",
+    "DEPENDENCY_FAILURE_AFTER_COMMIT",
     "INTERNAL_ERROR",
     "INVALID_INPUT",
     "INVALID_OUTPUT",

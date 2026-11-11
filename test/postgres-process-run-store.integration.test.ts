@@ -1686,6 +1686,7 @@ postgresDescribe("PostgreSQL Process Run Store", () => {
     it("serves the authenticated async HTTP resource from Startup Construction", async () => {
         const gatewaySecret = "integration-gateway-secret-at-least-32-bytes";
         const constructed = constructProcessingService({
+            CRT_BUSINESS_API_BASE_URL: "http://127.0.0.1:4400",
             ASYNC_PROCESS_RUNS_ENABLED: "true",
             DATABASE_URL: databaseUrl,
             ASYNC_GATEWAY_SHARED_SECRET: gatewaySecret,
@@ -1712,9 +1713,9 @@ postgresDescribe("PostgreSQL Process Run Store", () => {
                 method: "POST",
                 headers,
                 body: JSON.stringify({
-                    process: "content-processing",
+                    process: "minimal-zine-poster",
                     version: "v1",
-                    input: { content: "accepted request" },
+                    input: { brief: "accepted request" },
                 }),
             });
             const submitted = (await submission.json()) as { runId: string };
@@ -1742,9 +1743,9 @@ postgresDescribe("PostgreSQL Process Run Store", () => {
                 method: "POST",
                 headers: { ...headers, "idempotency-key": "invalid-request" },
                 body: JSON.stringify({
-                    process: "content-processing",
+                    process: "minimal-zine-poster",
                     version: "v1",
-                    input: { content: "   " },
+                    input: { brief: "   " },
                 }),
             });
             expect(invalid.status).toBe(400);
