@@ -19,6 +19,7 @@ export type ProcessRunRecordQuery = Readonly<{
     limit?: number;
     before?: string;
     process?: string;
+    version?: string;
     status?: "succeeded" | "failed";
     errorCode?: string;
     /** Inclusive lower bound, as a canonical ISO 8601 instant. */

@@ -21,7 +21,19 @@ import type {
     ProcessRunResult,
 } from "../process-runtime/index.js";
 import type { ProcessRunRecord } from "../process-runtime/records.js";
-import type { RunObservationSummary } from "../run-observation/stats.js";
+import type {
+    ConsoleProcessDescription,
+    ConsoleSkillDescription,
+    ConsoleStatsSummary,
+} from "./console-contract.js";
+
+export type {
+    ConsoleProcessDescription,
+    ConsoleSkillDescription,
+    ConsoleStats,
+    ConsoleStatsSummary,
+} from "./console-contract.js";
+
 import { createConsoleAssets } from "./console-assets.js";
 import type { CallerIdentityResolver } from "./identity.js";
 import { createPublicDocumentation } from "./public-documents.js";
@@ -80,6 +92,7 @@ export type ConsoleHttpOptions = Readonly<{
                 limit?: number;
                 before?: string;
                 process?: string;
+                version?: string;
                 status?: "succeeded" | "failed";
                 errorCode?: string;
                 since?: string;
@@ -97,61 +110,9 @@ export type ConsoleHttpOptions = Readonly<{
     skills?: ConsoleSkillCatalog;
     stats?: Readonly<{
         summarise: (
-            query: Readonly<{ since: string }>,
+            query: Readonly<{ since: string; until?: string }>,
         ) => Promise<ConsoleStatsSummary>;
     }>;
-}>;
-
-/**
- * The observation summary as the console receives it; `run-observation` owns
- * the shape. Live concurrency is added below, because occupancy exists only in
- * the process serving the request.
- */
-export type ConsoleStatsSummary = RunObservationSummary;
-
-export type ConsoleStats = ConsoleStatsSummary &
-    Readonly<{
-        concurrency: Readonly<{ active: number; limit: number }>;
-    }>;
-
-/**
- * How one registered Process version is described to operators. The Schemas are
- * derived from the Registration's own validation, so this cannot drift from
- * what the service actually accepts and returns. A Schema is omitted when it
- * has no JSON Schema representation.
- */
-export type ConsoleProcessDescription = Readonly<{
-    process: string;
-    version: string;
-    activities: readonly string[];
-    retry: Readonly<{
-        maximumAttempts: number;
-        retryableErrorCodes: readonly string[];
-    }>;
-    input?: unknown;
-    output?: unknown;
-}>;
-
-/**
- * How one installed Runtime Skill is described to operators. Entries come from
- * the exact bindings the production Processes were built with, so the list
- * cannot name a Skill the release does not ship. `instructions` is the
- * reviewed `SKILL.md` body the Agent receives; `cover` is present only when
- * the snapshot ships a cover image beside `SKILL.md`.
- */
-export type ConsoleSkillDescription = Readonly<{
-    name: string;
-    version: string;
-    sha256: string;
-    description: string;
-    /** Process ids whose Registration binds this exact version. */
-    processes: readonly string[];
-    instructions: string;
-    /** Every file in the snapshot, as POSIX paths relative to its directory. */
-    files: readonly string[];
-    cover?: Readonly<{ file: string; mediaType: string }>;
-    /** Provenance notes from `SOURCE.md`, when the snapshot carries them. */
-    source?: string;
 }>;
 
 export type ConsoleSkillCatalog = Readonly<{
@@ -1013,10 +974,14 @@ async function handleConsole(
             );
             return true;
         }
-        const since = new Date(Date.now() - hours * 3_600_000).toISOString();
+        const now = Date.now();
+        const until = new Date(now).toISOString();
+        const since = new Date(now - hours * 3_600_000).toISOString();
         response.setHeader("cache-control", "no-store");
         writeJson(response, 200, {
-            ...(await options.stats.summarise({ since })),
+            ...(await options.stats.summarise({ since, until })),
+            until,
+            generatedAt: until,
             concurrency: admission.occupancy(),
         });
         return true;
@@ -1096,6 +1061,16 @@ async function handleConsole(
         }
         const before = url.searchParams.get("before") ?? undefined;
         const process = url.searchParams.get("process") ?? undefined;
+        const version = url.searchParams.get("version") ?? undefined;
+        if (version !== undefined && version.trim().length === 0) {
+            writeFailureJson(
+                response,
+                400,
+                "INVALID_INPUT",
+                "version has an invalid format",
+            );
+            return true;
+        }
         const errorCode = url.searchParams.get("errorCode") ?? undefined;
         if (
             errorCode !== undefined &&
@@ -1146,6 +1121,7 @@ async function handleConsole(
                 ...(limit === undefined ? {} : { limit }),
                 ...(before === undefined ? {} : { before }),
                 ...(process === undefined ? {} : { process }),
+                ...(version === undefined ? {} : { version }),
                 ...(status === undefined ? {} : { status }),
                 ...(errorCode === undefined ? {} : { errorCode }),
                 ...(since === undefined ? {} : { since }),

@@ -59,6 +59,7 @@
 | [`integrating-runtime-skills.md`](integrating-runtime-skills.md) | 说明如何从本地或远程来源审查、固定并接入 Skill | Skill 来源、权限、安装、更新或 Runtime 边界变化 |
 | [`process-runtime-design.md`](process-runtime-design.md) | 记录 Process Runtime 的 Module、Interface、invariant 和测试面 | Seam、Interface、执行顺序或错误归属变化 |
 | [`agent-conversations-design.md`](agent-conversations-design.md) | 记录交互式 Agent Conversation 的 Module、Interface、状态和分阶段边界 | Agent Registration、Conversation/Turn、Memory、Tool、持久化或公开路由变化 |
+| [`agent-runtime-refactoring-plan.md`](agent-runtime-refactoring-plan.md) | 记录指定 Skill 执行与持续对话的架构简化计划、优先级和验收标准 | 改造任务范围、执行顺序、状态或完成记录变化 |
 | [`async-process-runs-design.md`](async-process-runs-design.md) | 设计异步提交、持久化查询、BullMQ Worker 和 Webhook Delivery | 异步 Interface、状态机、持久化、队列或 Webhook 设计变化 |
 | [`async-process-runs-development.md`](async-process-runs-development.md) | 说明异步角色、本地依赖、集成测试和故障演练 | 异步开发入口、测试命令或本地安全边界变化 |
 | [`experiments.md`](experiments.md) | 说明真实 Agent、Skill、图片和存储集成如何验证 | 实验命令、判据、成本或产物位置变化 |
@@ -83,7 +84,7 @@ Runbook 必须可按顺序执行。每一步都应说明前置条件、成功信
 
 `agents/` 保存工程 Skill 使用的 Issue Tracker、triage label 和领域文档消费配置。它约束自动化工具如何操作项目，不定义产品行为。
 
-`research/` 保存基于外部一手资料的带来源调研，不直接定义项目行为。当前调研包括 [`research/skill-source-patterns.md`](research/skill-source-patterns.md)、[`research/async-process-execution.md`](research/async-process-execution.md)、[`research/pi-agent-plugin-ecosystem.md`](research/pi-agent-plugin-ecosystem.md)、[Pi Runtime 升级评估](research/pi-runtime-upgrade.md) 和 [模型梗与公共梗素材调研](research/model-meme-library-2026-10-20.md)；项目采用的规则以对应设计或集成文档为准。
+`research/` 保存基于外部一手资料的带来源调研，不直接定义项目行为。当前调研包括 [`research/skill-source-patterns.md`](research/skill-source-patterns.md)、[`research/async-process-execution.md`](research/async-process-execution.md)、[`research/pi-agent-plugin-ecosystem.md`](research/pi-agent-plugin-ecosystem.md)、[Pi Runtime 升级评估](research/pi-runtime-upgrade.md) 和 [模型梗与公共梗素材调研](research/model-meme-library-2026-10-20.md)、[DeepSeek Super Agent 与 Pi 编排能力调研](research/deepseek-super-agent-pi.md)；项目采用的规则以对应设计或集成文档为准。
 
 `history/` 保存已经完成、仍值得保留结论的实施记录，不进入日常开发路径。当前异步实现记录见 [`history/async-process-runs-implementation.md`](history/async-process-runs-implementation.md)。
 

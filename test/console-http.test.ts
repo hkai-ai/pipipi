@@ -176,6 +176,53 @@ describe("operator console HTTP boundary", () => {
         expect(queries).toEqual([{ limit: 2, before: "2026-08-12" }]);
     });
 
+    it("passes exact and unregistered versions while rejecting empty filters", async () => {
+        const queries: unknown[] = [];
+        const service = await startConsole({
+            list: async (query) => {
+                queries.push(query);
+                return { records: [] };
+            },
+        });
+        expect(
+            (
+                await fetch(
+                    `${service.url}/console/runs?process=character-emoji&version=v3`,
+                )
+            ).status,
+        ).toBe(200);
+        expect(queries).toEqual([
+            { process: "character-emoji", version: "v3" },
+        ]);
+        expect(
+            (await fetch(`${service.url}/console/runs?version=next-candidate`))
+                .status,
+        ).toBe(200);
+        expect(queries.at(-1)).toEqual({ version: "next-candidate" });
+        expect(
+            (await fetch(`${service.url}/console/runs?version=%20`)).status,
+        ).toBe(400);
+    });
+
+    it("uses the same exclusive end for statistics and drill-down", async () => {
+        let bounds: { since: string; until?: string } | undefined;
+        const service = await startConsole({
+            summarise: async (query) => {
+                bounds = query;
+                return { ...emptySummary, since: query.since };
+            },
+        });
+        const response = await fetch(`${service.url}/console/stats?hours=168`);
+        const body = await response.json();
+        expect(bounds).toBeDefined();
+        if (!bounds) throw new Error("Expected statistics query");
+        expect(body.until).toBe(bounds.until);
+        expect(body.generatedAt).toBe(body.until);
+        expect(Date.parse(body.until) - Date.parse(body.since)).toBe(
+            168 * 3_600_000,
+        );
+    });
+
     it("rejects a limit that is not a positive integer", async () => {
         const service = await startConsole();
 

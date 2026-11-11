@@ -43,7 +43,7 @@ acceptanceDescribe("built Console async browser acceptance", () => {
                     await page.goto(`${environment.url}/console/#/submit`);
                     const process = page.getByLabel("Business Process");
                     await process.waitFor();
-                    await process.selectOption("content-processing");
+                    await process.selectOption("content-processing/v1");
                     await page
                         .getByLabel(/^content \*$/)
                         .fill("browser acceptance");
@@ -137,7 +137,7 @@ acceptanceDescribe("built Console async browser acceptance", () => {
                     await page.goto(`${environment.url}/console/#/submit`);
                     await page
                         .getByLabel("Business Process")
-                        .selectOption("content-processing");
+                        .selectOption("content-processing/v1");
                     await page
                         .getByLabel(/^content \*$/)
                         .fill("browser failure");
@@ -153,15 +153,15 @@ acceptanceDescribe("built Console async browser acceptance", () => {
 
                     await page.goto(`${environment.url}/console/#/runs`);
                     await page
-                        .getByLabel("Process")
+                        .getByLabel("业务", { exact: true })
                         .selectOption("content-processing");
                     await page.getByLabel("状态").selectOption("failed");
-                    await page.getByLabel("错误码").fill("dependency_failure");
+                    await page.getByLabel("错误码").fill("DEPENDENCY_FAILURE");
                     await page
-                        .getByLabel("起始（含）")
+                        .getByLabel("开始时间（含，本地时间）")
                         .fill("2020-01-01T00:00");
                     await page
-                        .getByLabel("结束（不含）")
+                        .getByLabel("结束时间（不含，本地时间）")
                         .fill("2099-01-01T00:00");
                     await page
                         .getByRole("button", { name: "应用筛选" })
@@ -172,10 +172,13 @@ acceptanceDescribe("built Console async browser acceptance", () => {
 
                     await page.goto(`${environment.url}/console/#/stats`);
                     await page
-                        .getByText("每日吞吐与失败分布")
+                        .getByText("调用趋势")
                         .waitFor({ timeout: 5_000 });
                     await page.getByText("最近失败").waitFor();
-                    await page.getByText(failedRunId as string).waitFor();
+                    await page
+                        .locator(`a[href*="${failedRunId}"]`)
+                        .first()
+                        .waitFor();
 
                     await page.goto(
                         `${environment.url}/console/#/run/${failedRunId}`,

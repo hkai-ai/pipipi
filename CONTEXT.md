@@ -96,6 +96,8 @@ production Agent catalog 精确登记 `design-assistant/v1`，Agent Conversation
 
 显式启用异步入口后，PostgreSQL 保存权威 Process Run，Redis/BullMQ 只负责调度。API、Dispatcher、Process Worker、Webhook Worker 和 Retention Cleaner 是独立角色。Queue 只承诺至少一次投递；Business Capability 使用稳定 `runId` 控制重复副作用。网关删除调用方伪造的身份头，并注入稳定 caller subject；查询、幂等和 Webhook 按 owner 隔离。
 
+运维控制台以概览、运行记录和异常排查组织已归档终态，支持按准确 Process 版本和同一时间窗口下钻。它不把执行次数解释为用户人数，不把 API 进程并发解释为全局 Worker 状态，也不通过错误码推断供应商根因或自动重试付费操作。
+
 Run Observation Module 同时服务同步 API 和异步 Worker。Run Record 与活动日志只用于观测，不决定业务状态、重试或投递；写入失败不能改变 Process Result。异步调用方始终通过 owner-scoped Process Run Store 查询权威状态。
 
 Agent 只获得 Registration 固定绑定的 Runtime Skill 与窄 Tool。文本 Agent 只能调用 Content Processing Capability；海报、CRT 和新闻图片 Agent 没有 Tool，只编译待校验计划；`character-emoji/v2` 的 Pi Agent 默认无 Tool，仅服务端识别到明确检索或近期事实要求时开放 `search_memes` Tool，由其内部调用固定 DeepSeek Responses 原生 `web_search`，首轮接收服务端挑选的本地短卡，允许无需搜索直接提交经校验的改编或原创方案；开放工具后按需搜索，搜索失败直接原创；`composed-task` 的 Planner Agent 只获得 allow-list 中其他 Process 的 Step Tool，每个 Step 仍经 Member Registration 自己的校验、幂等键和错误净化。Agent 不获得 Shell、文件读写、代码编辑或任意远程工具。Runtime Skill 随应用发布，调用方不能选择、增加或排序。

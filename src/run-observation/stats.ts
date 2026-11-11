@@ -9,6 +9,14 @@ import type { ProcessRunRecord } from "../process-runtime/records.js";
  */
 export type RunObservationSummary = Readonly<{
     since: string;
+    latestSucceededAt?: string;
+    failures?: readonly Readonly<{
+        process: string;
+        version: string;
+        errorCode: string;
+        count: number;
+        latestAt?: string;
+    }>[];
     totals: Readonly<{ succeeded: number; failed: number }>;
     byProcess: readonly Readonly<{
         process: string;
@@ -43,7 +51,7 @@ export type RunObservationSummary = Readonly<{
 
 export type RunObservationStats = Readonly<{
     summarise: (
-        query: Readonly<{ since: string }>,
+        query: Readonly<{ since: string; until?: string }>,
     ) => Promise<RunObservationSummary>;
 }>;
 
@@ -54,6 +62,7 @@ export type RunObservationCount = Readonly<{
     status: "succeeded" | "failed";
     errorCode?: string;
     count: number;
+    latestAt?: string;
 }>;
 
 /**
@@ -81,6 +90,9 @@ export function summariseRunObservation(input: {
         grouped.set(key, {
             ...count,
             count: (grouped.get(key)?.count ?? 0) + 1,
+            latestAt: [grouped.get(key)?.latestAt ?? "", record.recordedAt]
+                .sort()
+                .at(-1),
         });
     }
     const recentFailures = input.records
@@ -121,6 +133,17 @@ export function summariseAggregatedRunObservation(input: {
     attemptDurationMs: RunObservationSummary["attemptDurationMs"];
 }): RunObservationSummary {
     const totals = { succeeded: 0, failed: 0 };
+    let latestSucceededAt: string | undefined;
+    const failures = new Map<
+        string,
+        {
+            process: string;
+            version: string;
+            errorCode: string;
+            count: number;
+            latestAt?: string;
+        }
+    >();
     const byProcess = new Map<
         string,
         { process: string; version: string; succeeded: number; failed: number }
@@ -138,6 +161,12 @@ export function summariseAggregatedRunObservation(input: {
 
     for (const count of input.counts) {
         totals[count.status] += count.count;
+        if (
+            count.status === "succeeded" &&
+            count.latestAt &&
+            (!latestSucceededAt || count.latestAt > latestSucceededAt)
+        )
+            latestSucceededAt = count.latestAt;
 
         const process = count.process;
         const version = count.version;
@@ -162,6 +191,18 @@ export function summariseAggregatedRunObservation(input: {
         byDay.set(day, dayEntry);
 
         if (count.status === "failed" && count.errorCode) {
+            const key = JSON.stringify([process, version, count.errorCode]);
+            const previous = failures.get(key);
+            failures.set(key, {
+                process,
+                version,
+                errorCode: count.errorCode,
+                count: (previous?.count ?? 0) + count.count,
+                latestAt:
+                    [previous?.latestAt ?? "", count.latestAt ?? ""]
+                        .sort()
+                        .at(-1) || undefined,
+            });
             byErrorCode.set(
                 count.errorCode,
                 (byErrorCode.get(count.errorCode) ?? 0) + count.count,
@@ -175,6 +216,16 @@ export function summariseAggregatedRunObservation(input: {
 
     return Object.freeze({
         since: input.since,
+        latestSucceededAt,
+        failures: Object.freeze(
+            [...failures.values()].sort(
+                (a, b) =>
+                    b.count - a.count ||
+                    `${a.process}/${a.version}/${a.errorCode}`.localeCompare(
+                        `${b.process}/${b.version}/${b.errorCode}`,
+                    ),
+            ),
+        ),
         totals: Object.freeze(totals),
         byProcess: Object.freeze(
             [...byProcess.values()].sort(

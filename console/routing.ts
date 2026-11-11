@@ -1,55 +1,109 @@
+/** 保存可分享的筛选窗口与详情返回位置，兼容已有 hash 链接。 */
 import { useEffect, useState } from "preact/hooks";
+import type { RunFilters } from "./api.js";
 
 export type Route =
-    | Readonly<{ view: "runs" }>
-    | Readonly<{ view: "run"; runId: string }>
-    | Readonly<{ view: "processes" }>
-    | Readonly<{ view: "skills" }>
-    | Readonly<{ view: "skill"; name: string; version: string }>
-    | Readonly<{ view: "stats" }>
-    | Readonly<{ view: "submit" }>;
+    | Readonly<{ view: "overview" | "exceptions"; hours?: number }>
+    | Readonly<{ view: "runs"; filters?: RunFilters }>
+    | Readonly<{ view: "run"; runId: string; back?: string }>
+    | Readonly<{ view: "skills" | "submit" }>
+    | Readonly<{ view: "processes"; process?: string; version?: string }>
+    | Readonly<{ view: "skill"; name: string; version: string }>;
 
-/**
- * Hash routing rather than history routing: the console is mounted under a
- * deployment-chosen base path, and a hash needs no server-side rewrite rule to
- * keep a deep link working.
- */
 export function parseRoute(hash: string): Route {
-    const path = hash.replace(/^#\/?/, "");
-    const [head, ...rest] = path.split("/");
-    if (head === "run" && rest[0]) {
-        return { view: "run", runId: decodeURIComponent(rest[0]) };
-    }
-    if (head === "skills" && rest[0]) {
-        const identity = decodeURIComponent(rest[0]);
-        const separator = identity.indexOf("@");
-        if (separator > 0) {
+    try {
+        const [path, search = ""] = hash.replace(/^#\/?/, "").split("?");
+        const [head, ...rest] = path.split("/");
+        const params = new URLSearchParams(search);
+        if (head === "run" && rest[0]) {
+            const back = params.get("back") ?? undefined;
             return {
-                view: "skill",
-                name: identity.slice(0, separator),
-                version: identity.slice(separator + 1),
+                view: "run",
+                runId: decodeURIComponent(rest[0]),
+                back: safeBack(back),
             };
         }
+        if (head === "skills" && rest[0]) {
+            const identity = decodeURIComponent(rest[0]);
+            const separator = identity.indexOf("@");
+            if (separator > 0)
+                return {
+                    view: "skill",
+                    name: identity.slice(0, separator),
+                    version: identity.slice(separator + 1),
+                };
+        }
+        if (head === "runs") {
+            const filters: Record<string, string> = {};
+            for (const name of [
+                "process",
+                "version",
+                "status",
+                "errorCode",
+                "since",
+                "until",
+            ]) {
+                const value = params.get(name);
+                if (value) filters[name] = value;
+            }
+            if (filters.status !== "succeeded" && filters.status !== "failed")
+                delete filters.status;
+            return { view: "runs", filters: filters as RunFilters };
+        }
+        if (head === "overview" || head === "stats" || head === "exceptions") {
+            const hours = Number(params.get("hours") ?? 24);
+            return {
+                view: head === "exceptions" ? "exceptions" : "overview",
+                hours: [1, 24, 168, 720].includes(hours) ? hours : 24,
+            };
+        }
+        if (head === "processes")
+            return {
+                view: "processes",
+                process: params.get("process") || undefined,
+                version: params.get("version") || undefined,
+            };
+        if (head === "skills" || head === "submit") return { view: head };
+    } catch {
+        /* A malformed shared link returns to the overview. */
     }
-    if (
-        head === "processes" ||
-        head === "skills" ||
-        head === "stats" ||
-        head === "submit"
-    ) {
-        return { view: head };
-    }
-    return { view: "runs" };
+    return { view: "overview" };
+}
+
+function safeBack(value?: string): string | undefined {
+    return value && /^#\/(runs|overview|exceptions)(\?|$)/.test(value)
+        ? value
+        : undefined;
 }
 
 export function hrefFor(route: Route): string {
+    const query = new URLSearchParams();
     switch (route.view) {
+        case "processes":
+            if (route.process) query.set("process", route.process);
+            if (route.version) query.set("version", route.version);
+            return `#/processes${query.size ? `?${query}` : ""}`;
         case "run":
-            return `#/run/${encodeURIComponent(route.runId)}`;
+            if (safeBack(route.back)) query.set("back", route.back as string);
+            return `#/run/${encodeURIComponent(route.runId)}${query.size ? `?${query}` : ""}`;
         case "runs":
-            return "#/runs";
+            for (const name of [
+                "process",
+                "version",
+                "status",
+                "errorCode",
+                "since",
+                "until",
+            ] as const) {
+                const value = route.filters?.[name];
+                if (value) query.set(name, value);
+            }
+            return `#/runs${query.size ? `?${query}` : ""}`;
         case "skill":
             return `#/skills/${encodeURIComponent(`${route.name}@${route.version}`)}`;
+        case "overview":
+        case "exceptions":
+            return `#/${route.view}?hours=${route.hours ?? 24}`;
         default:
             return `#/${route.view}`;
     }
@@ -58,9 +112,9 @@ export function hrefFor(route: Route): string {
 export function useRoute(): Route {
     const [route, setRoute] = useState<Route>(() => parseRoute(location.hash));
     useEffect(() => {
-        const onChange = () => setRoute(parseRoute(location.hash));
-        addEventListener("hashchange", onChange);
-        return () => removeEventListener("hashchange", onChange);
+        const change = () => setRoute(parseRoute(location.hash));
+        addEventListener("hashchange", change);
+        return () => removeEventListener("hashchange", change);
     }, []);
     return route;
 }
