@@ -40,7 +40,7 @@ Business Processing Service 让产品调用方通过一个稳定的 HTTP Interfa
 
 ## 当前能力
 
-生产 catalog 当前登记二十五个精确版本，其中 `composed-task/v1` 默认关闭：
+生产 catalog 当前登记二十七个精确版本，其中 `composed-task/v1` 默认关闭：
 
 | 场景 | Business Process | 输入 | 输出 | 实现选择 |
 | --- | --- | --- | --- | --- |

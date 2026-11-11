@@ -1,6 +1,6 @@
 # 业务接口文档
 
-本文面向业务调用方和调用 Agent，记录二十五个 Business Process（默认启用二十四个）、Agent Conversations、重试与通知契约，以及临时开放的内部评测接口。场景列帮助产品找到契约；请求仍只提交准确 Process 或 Agent 版本和业务输入。其中 `composed-task/v1` 随应用发布但默认关闭；production Agent catalog 精确登记 `design-assistant/v1`，其四个业务路由由部署开关控制且默认关闭。
+本文面向业务调用方和调用 Agent，记录二十七个 Business Process（默认启用二十六个）、Agent Conversations、重试与通知契约，以及临时开放的内部评测接口。场景列帮助产品找到契约；请求仍只提交准确 Process 或 Agent 版本和业务输入。其中 `composed-task/v1` 随应用发布但默认关闭；production Agent catalog 精确登记 `design-assistant/v1`，其四个业务路由由部署开关控制且默认关闭。
 
 ## Agent 能力接入结论
 
