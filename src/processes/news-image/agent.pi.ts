@@ -1,8 +1,10 @@
 /** agent.ts 里 NewsImageAgent Port 的生产 Pi 实现：无 Tool 编译新闻图片 Prompt */
+
 import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import type { OpenAIApiMode } from "../../agent-runtime/pi.js";
 import type { SkillRef } from "../../agent-runtime/skills.js";
 import { PiStructuredAgent } from "../../agent-runtime/structured.js";
+import type { ModelGateway } from "../../model-gateway.js";
 import type {
     NewsImageAgent,
     NewsImageAgentRequest,
@@ -16,7 +18,7 @@ export type PiNewsImageAgentOptions = {
     agentDir?: string;
     provider?: string;
     model?: string;
-    openAIBaseUrl?: string;
+    gateway?: ModelGateway;
     openAIApiMode?: OpenAIApiMode;
     modelRuntime?: ModelRuntime;
 };

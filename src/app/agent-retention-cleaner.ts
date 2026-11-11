@@ -4,7 +4,7 @@ import {
     createAgentConversationCleanerRuntime,
 } from "../agent-conversations/retention.js";
 import { createPostgresAgentConversationCleanup } from "../agent-conversations/retention.postgres.js";
-import { designAssistantDeletionGraceMs } from "../agents/design-assistant.js";
+import { agentConversationDeletionGraceMs } from "../agents/catalog.js";
 import { agentConversationsEnabled } from "./agent-conversations.js";
 import {
     parseBoundedPositiveInteger,
@@ -32,7 +32,7 @@ export function constructAgentRetentionCleaner(
     });
     const cleanup = createPostgresAgentConversationCleanup({
         pool,
-        deletionGraceMs: designAssistantDeletionGraceMs,
+        deletionGraceMs: agentConversationDeletionGraceMs,
     });
     const cleaner = createAgentConversationCleaner({
         cleanup,

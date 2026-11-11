@@ -1,6 +1,8 @@
 /** Process 模块自带的生产装配契约：声明安装的 Runtime Skill、启用条件与依赖的 Member Process，并从启动环境构造自己的 Registration */
+
 import type { OpenAIApiMode } from "../agent-runtime/pi.js";
 import type { InstalledSkillRef, SkillRef } from "../agent-runtime/skills.js";
+import type { ModelGateway } from "../model-gateway.js";
 import {
     createProcessRegistry,
     type ProcessAttemptRunner,
@@ -17,7 +19,7 @@ export type ProductionEnvironment = Readonly<
 export type PiAgentConfig = Readonly<{
     provider?: string;
     model?: string;
-    openAIBaseUrl?: string;
+    gateway?: ModelGateway;
     openAIApiMode?: OpenAIApiMode;
     agentDir?: string;
 }>;

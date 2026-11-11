@@ -8,9 +8,9 @@ import { createBullMqAgentTurnQueue } from "../agent-conversations/queue.bullmq.
 import { createAgentTurnReconciler } from "../agent-conversations/recovery.js";
 import { createPostgresAgentConversationStore } from "../agent-conversations/store.postgres.js";
 import {
-    designAssistantDeletionGraceMs,
-    designAssistantRetentionMs,
-} from "../agents/design-assistant.js";
+    agentConversationDeletionGraceMs,
+    agentConversationRetentionMs,
+} from "../agents/catalog.js";
 import {
     agentAdmission,
     agentConversationsEnabled,
@@ -41,8 +41,8 @@ export function constructAgentTurnDispatcher(
     });
     const store = createPostgresAgentConversationStore({
         pool,
-        retentionMs: designAssistantRetentionMs,
-        deletionGraceMs: designAssistantDeletionGraceMs,
+        retentionMs: agentConversationRetentionMs,
+        deletionGraceMs: agentConversationDeletionGraceMs,
         admission: agentAdmission(environment),
     });
     const dispatcher = createAgentTurnOutboxDispatcher({

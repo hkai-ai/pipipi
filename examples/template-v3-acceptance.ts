@@ -7,6 +7,7 @@ import { createAgentSession } from "@earendil-works/pi-coding-agent";
 import { createInstalledSkillCatalog } from "../src/agent-runtime/catalog.js";
 import { parseOpenAIApiMode } from "../src/agent-runtime/pi.js";
 import { createProcessingApplication } from "../src/api/application.js";
+import { resolveModelGateway } from "../src/model-gateway.js";
 import { createProcessExecutor } from "../src/processes/catalog.js";
 import { PiTemplateAgent } from "../src/processes/template-from-image/agent.pi.js";
 import { decodeTemplateImage } from "../src/processes/template-from-image/image.js";
@@ -52,7 +53,7 @@ const agent = new PiTemplateAgent({
     runtimeVersion: 3,
     provider: process.env.PI_PROVIDER ?? "openai",
     model: process.env.TEMPLATE_MODEL ?? "gpt-5.4",
-    openAIBaseUrl: process.env.OPENAI_BASE_URL,
+    gateway: resolveModelGateway(process.env),
     openAIApiMode: parseOpenAIApiMode(process.env.OPENAI_API_MODE),
 });
 let calls = 0;

@@ -203,9 +203,15 @@ jobs:
           NEWS_IMAGE_ACCEPTANCE_EXPECTED_OSS_PATH_PREFIX: ${{ vars.NEWS_IMAGE_ACCEPTANCE_EXPECTED_OSS_PATH_PREFIX }}
           NEWS_IMAGE_ACCEPTANCE_REVISION: ${{ github.sha }}
           OBJECT_STORAGE_PROVIDER: aliyun-oss
+          MODEL_GATEWAY_API_KEY: ${{ secrets.MODEL_GATEWAY_API_KEY }}
+          TEXT_MODEL_API_KEY: ${{ secrets.TEXT_MODEL_API_KEY }}
+          CHARACTER_EMOJI_API_KEY: ${{ secrets.CHARACTER_EMOJI_API_KEY }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           OPENAI_API_MODE: ${{ vars.OPENAI_API_MODE || 'chat-completions' }}
           OPENAI_BASE_URL: ${{ vars.OPENAI_BASE_URL }}
+          MODEL_GATEWAY_BASE_URL: ${{ vars.MODEL_GATEWAY_BASE_URL }}
+          TEXT_MODEL_BASE_URL: ${{ vars.TEXT_MODEL_BASE_URL }}
+          CHARACTER_EMOJI_BASE_URL: ${{ vars.CHARACTER_EMOJI_BASE_URL }}
           OSS_ACCESS_KEY_ID: ${{ secrets.OSS_ACCESS_KEY_ID }}
           OSS_ACCESS_KEY_SECRET: ${{ secrets.OSS_ACCESS_KEY_SECRET }}
           OSS_BUCKET: ${{ vars.OSS_BUCKET }}
@@ -223,6 +229,9 @@ jobs:
         if: ${{ always() }}
         env:
           FAL_KEY: ${{ secrets.FAL_KEY }}
+          MODEL_GATEWAY_API_KEY: ${{ secrets.MODEL_GATEWAY_API_KEY }}
+          TEXT_MODEL_API_KEY: ${{ secrets.TEXT_MODEL_API_KEY }}
+          CHARACTER_EMOJI_API_KEY: ${{ secrets.CHARACTER_EMOJI_API_KEY }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           OSS_ACCESS_KEY_ID: ${{ secrets.OSS_ACCESS_KEY_ID }}
           OSS_ACCESS_KEY_SECRET: ${{ secrets.OSS_ACCESS_KEY_SECRET }}
@@ -262,7 +271,7 @@ jobs:
             ))
           ' "$evidence" >/dev/null
           for value in \
-            "$FAL_KEY" "$OPENAI_API_KEY" "$OSS_ACCESS_KEY_ID" \
+            "$FAL_KEY" "$OPENAI_API_KEY" "$MODEL_GATEWAY_API_KEY" "$TEXT_MODEL_API_KEY" "$CHARACTER_EMOJI_API_KEY" "$OSS_ACCESS_KEY_ID" \
             "$OSS_ACCESS_KEY_SECRET" "$OSS_STS_TOKEN"; do
             if [[ -n "$value" ]]; then
               jq --exit-status --arg value "$value" \
@@ -463,6 +472,7 @@ jobs:
           docker run --rm --env-file "$shared_env" \
               --env PROCESS_RUN_RECORD_STORE=postgres \
               --env CONSOLE_ENABLED=true \
+              --env CRT_BUSINESS_API_BASE_URL=http://127.0.0.1:4400 \
               --entrypoint node "$image" \
               dist/bin/check-deployment-environment.js api
 

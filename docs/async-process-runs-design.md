@@ -93,10 +93,10 @@ Content-Type: application/json
 Idempotency-Key: 7d5401ac-e47b-40c7-8803-2be4ccf7df80
 
 {
-  "process": "content-processing",
+  "process": "minimal-zine-poster",
   "version": "v1",
   "input": {
-    "content": "launch offer"
+    "brief": "为雨天旧书店做一张安静的海报"
   }
 }
 ```
@@ -113,7 +113,7 @@ Content-Type: application/json
 
 {
   "runId": "019c...",
-  "process": "content-processing",
+  "process": "minimal-zine-poster",
   "version": "v1",
   "status": "queued",
   "createdAt": "2026-08-09T10:00:00.000Z"
@@ -140,7 +140,7 @@ Authorization: Bearer replace-with-short-lived-token
 ```json
 {
   "runId": "019c...",
-  "process": "content-processing",
+  "process": "minimal-zine-poster",
   "version": "v1",
   "status": "running",
   "createdAt": "2026-08-09T10:00:00.000Z",
@@ -183,7 +183,7 @@ queued -> running -> succeeded
   "createdAt": "2026-08-09T10:00:08.000Z",
   "data": {
     "runId": "019c...",
-    "process": "content-processing",
+    "process": "minimal-zine-poster",
     "version": "v1",
     "status": "succeeded",
     "resultLocation": "/process-runs/019c..."
@@ -326,7 +326,7 @@ BullMQ 只有在 processor 抛出异常时才调度自动重试。Queue Adapter 
 
 BullMQ 和网络只能提供至少一次执行。流程若会扣费、发布、发送或修改远端状态，Business Capability 必须接受由 `runId` 派生的幂等键，或使用自身事务/outbox。Worker 在远端副作用完成后、数据库写终态前崩溃时，仍可能再次执行；仅靠 BullMQ Job ID 无法消除这段窗口。
 
-重试只覆盖已经分类的瞬时基础设施失败。`INVALID_INPUT`、`PROCESS_NOT_FOUND` 和 `INVALID_OUTPUT` 不重试；其他错误是否重试由具体 Registration 明确声明。Content Processing Capability 现在接收稳定的 `Idempotency-Key: <runId>`；其自动重试仍默认关闭，只有确认下游实际按该键去重后，部署配置才可提高最大 Attempt 数。
+重试只覆盖已经分类的瞬时基础设施失败。`INVALID_INPUT`、`PROCESS_NOT_FOUND` 和 `INVALID_OUTPUT` 不重试；其他错误是否重试由具体 Registration 明确声明。图片 Capability 接收由 `runId` 派生的幂等键；Registration 只在确认下游实际按该键去重后才声明自动重试。
 
 ### 事件与 Webhook
 

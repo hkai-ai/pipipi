@@ -45,10 +45,6 @@ describe("production Runtime Skill bindings", () => {
             "crayon-photo-poster": ["crayon-photo-poster-prompt@v1"],
             "monochrome-photo-poster": ["monochrome-photo-poster-prompt@v1"],
             "woodcut-photo-poster": ["woodcut-photo-poster-prompt@v1"],
-            "content-processing": [
-                "content-optimization@v1",
-                "content-integrity@v1",
-            ],
             "minimal-zine-poster": ["minimal-zine-poster-prompt@v1"],
             "crt-interface-image": ["tait-crt-interface-prompt@v1"],
             "news-image-pale-watercolor": [
@@ -63,7 +59,7 @@ describe("production Runtime Skill bindings", () => {
 
     it("makes API deployment preflight fail safely on an invalid Skill override", () => {
         const environment = cleanEnvironment();
-        environment.BUSINESS_API_BASE_URL = "https://business.example";
+        environment.CRT_BUSINESS_API_BASE_URL = "https://images.example";
         environment.PI_POSTER_SKILL_DIRECTORY = "/missing/poster-snapshot";
 
         const result = runPreflight("api", environment);

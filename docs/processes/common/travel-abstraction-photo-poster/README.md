@@ -18,6 +18,8 @@
 
 ## 验证与限制
 
+编译失败的阶段与固定原因码进入现有活动归档，合同问题只保留净化路径和规则码；不记录模型正文。旧记录若只有 `AGENT_FAILURE`，无法回溯具体根因。公开错误以 [API 文档](../../../api.md#照片海报) 为准。 Pi Responses 的明确协议状态可分类；缺乏可靠格式的裸数字错误保持未知。图片依赖处置提示不被活动诊断覆盖。
+
 实现：[Registration](../../../../src/processes/photo-poster/registration.ts)、[图片服务](../../../../src/business-api/photo-poster.ts)。确定性验证：[契约与 HTTP 测试](../../../../test/photo-poster.test.ts)。真实验证通过 `npm run accept:photo-poster-business`，说明见 [实验](../../../experiments.md#照片海报业务验收)。
 
 图片生成与 OSS 有费用和外部写入。调用方需确认原图使用权与资产保留策略。规则编译失败为 AGENT_FAILURE；图片调用已发出且失败或状态不确定时保守返回 DEPENDENCY_FAILURE_AFTER_COMMIT，不能自动重试。抽象质量、背景均匀性和文字之外新增内容仍需人工视觉检查。

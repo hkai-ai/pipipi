@@ -6,7 +6,7 @@
 
 Agent Conversations 与 Business Process 并列，不覆盖 Process 内部请求级 Agent。Conversation 可以依赖 Process Runtime；Process Registration、Process Run 和 `/execute` 不能反向依赖 Conversation。
 
-当前实现支持可靠多轮文本、owner-scoped 图片资源、受控 Business Process Tool、PostgreSQL 权威状态、持久 Tool Ledger、删除/保留和可恢复的 BullMQ 执行。Agent Conversation Store 提供内存与 PostgreSQL 两个 Adapter；PostgreSQL Adapter 在一个事务内接受 Turn、幂等记录和调度 Outbox，并以 Attempt、lease、revision 和 fencing 保护执行。PostgreSQL Tool Ledger 防止 priced Tool 在重投和 Worker 重启后重复执行。production Composition Root 精确装配 `design-assistant/v1`、owned resource HTTP Adapter、Dispatcher、Worker、Reconciler、Cleaner 与 revision drift readiness；`AGENT_CONVERSATIONS_ENABLED=false` 仍使默认服务不挂载路由。
+当前实现支持可靠多轮文本、owner-scoped 图片资源、受控 Business Process Tool、PostgreSQL 权威状态、持久 Tool Ledger、删除/保留和可恢复的 BullMQ 执行。Agent Conversation Store 提供内存与 PostgreSQL 两个 Adapter；PostgreSQL Adapter 在一个事务内接受 Turn、幂等记录和调度 Outbox，并以 Attempt、lease、revision 和 fencing 保护执行。PostgreSQL Tool Ledger 防止 priced Tool 在重投和 Worker 重启后重复执行。production Agent catalog 当前为空（原 `design-assistant/v1` 已下线，待重新开发），开启 `AGENT_CONVERSATIONS_ENABLED=true` 会在启动时失败；production Composition Root 装配 owned resource HTTP Adapter、Dispatcher、Worker、Reconciler、Cleaner 与 revision drift readiness；`AGENT_CONVERSATIONS_ENABLED=false` 仍使默认服务不挂载路由。
 
 ## 共同语言
 
@@ -47,7 +47,7 @@ Agent Conversations 是主业务 Seam。HTTP 测试从完整 Application 进入�
 
 ## Production Registration 管理
 
-[`src/agents/catalog.ts`](../src/agents/catalog.ts) 是 production Agent catalog 的唯一显式入口，当前只列出 `design-assistant/v1`。[`src/agents/design-assistant.ts`](../src/agents/design-assistant.ts) 在代码中固定指令、准确 Runtime Skill name/version/SHA-256、Context 与 Conversation-scoped Memory 策略、请求级模型策略、Process Tool allow-list、Tool/Turn/图片预算、Content Block 输出和 30 天保留。部署环境只能提供模型连接、受审 Skill 快照位置和受信 Adapter 连接，不能新增 Registration；产品请求更不能携带这些配置。
+[`src/agents/catalog.ts`](../src/agents/catalog.ts) 是 production Agent catalog 的唯一显式入口，当前没有登记任何 Agent，并统一持有 30 天闲置保留与 24 小时删除宽限常量。新的生产 Agent 以工厂加入该列表，并在代码中固定指令、准确 Runtime Skill name/version/SHA-256、Context 与 Conversation-scoped Memory 策略、请求级模型策略、Process Tool allow-list、Tool/Turn/图片预算和 Content Block 输出。部署环境只能提供模型连接、受审 Skill 快照位置和受信 Adapter 连接，不能新增 Registration；产品请求更不能携带这些配置。
 
 上述行为配置先做稳定字段排序，再计算 SHA-256 `configRevision`。Store 在创建 Conversation 时保存 revision，追加和 Worker 都用 `findRevision` 找回同一 Registration。改变任一行为字段会产生新 revision；旧 revision 必须作为显式 retained Registration 随版本发布，直到依赖它的 Conversation 删除或过期。API/Worker readiness 扫描活动 Conversation，发现未保留 revision 时 fail closed。`list()` 只公开当前 Registration，retained revision 只用于延续既有 Conversation，不会接受新创建。
 
@@ -95,7 +95,7 @@ Agent Conversations 是主业务 Seam。HTTP 测试从完整 Application 进入�
 - 输出图片必须匹配 owner、本 Turn 与获准来源。模型虚构的 URL 或 resource identity 不能成为公共输出。
 - Working Summary 是可从权威 Session History 重建的派生状态。当前实现每次重建，不把 Summary 当作权威记录。
 - Token 预算用序列化 UTF-8 byte 长度作为保守上界；Registration 只能收紧全局上限，不能扩大。
-- `design-assistant/v1` 每次接受新 Turn 都把 `expiresAt` 滑动到该 Turn 后 30 天。删除或读取到过期状态后立即返回统一 404；重复删除返回首次接受的 `deleteBy`。物理清理期限不超过删除/过期后的 24 小时。
+- 每次接受新 Turn 都把 `expiresAt` 滑动到该 Turn 后 30 天。删除或读取到过期状态后立即返回统一 404；重复删除返回首次接受的 `deleteBy`。物理清理期限不超过删除/过期后的 24 小时。
 - Cleaner 的 cursor 是 Conversation identity，只用于服务端续跑。批次使用 `FOR UPDATE SKIP LOCKED`，不等待被其他事务占用的行；取消只发生在批次之间，单批事务保持完整提交或回滚。
 - caller 提供的输入图片仍属于 caller source，Cleaner 只删除 Conversation 中的引用，不删除源资源。Agent 输出的稳定 resource reference 随历史删除；Process Tool 产生的业务 artifact 遵循对应 Process/资源服务自己的保留与删除策略，Tool Ledger 只删除其引用和净化结果。
 - PostgreSQL Store/Ledger 提供跨 API/Worker 重启的权威状态、操作幂等、执行 fencing 和付费 Tool 重放；BullMQ Queue、Dispatcher、Worker 与 Reconciler 提供可恢复的至少一次调度。production 入口已具备服务端装配，但必须由部署方在容量、资源服务、网关与费用门禁通过后显式开启。

@@ -11,7 +11,7 @@ import {
     type ProcessRunRecords,
 } from "../src/process-runtime/records.js";
 import { createProcessExecutor } from "../src/processes/catalog.js";
-import { createContentRegistration } from "../src/processes/content/registration.js";
+import { createSampleTextRegistration } from "./support/sample-text.js";
 
 const runningApplications: ProcessingApplication[] = [];
 
@@ -37,7 +37,7 @@ describe("Process Run Records", () => {
             schemaVersion: 1,
             recordedAt: "2026-08-08T01:00:00.000Z",
             runId: result.runId,
-            process: "content-processing",
+            process: "sample-text",
             version: "v1",
             status: "succeeded",
         });
@@ -54,7 +54,7 @@ describe("Process Run Records", () => {
             method: "POST",
             headers: { "content-type": "application/json" },
             body: JSON.stringify({
-                process: "content-processing",
+                process: "sample-text",
                 version: "v1",
                 input: { content: "launch offer" },
             }),
@@ -66,7 +66,7 @@ describe("Process Run Records", () => {
             schemaVersion: 1,
             recordedAt: "2026-08-08T01:00:00.000Z",
             runId: result.runId,
-            process: "content-processing",
+            process: "sample-text",
             version: "v1",
             status: "succeeded",
             content: {
@@ -87,7 +87,7 @@ describe("Process Run Records", () => {
             method: "POST",
             headers: { "content-type": "application/json" },
             body: JSON.stringify({
-                process: "content-processing",
+                process: "sample-text",
                 version: "v1",
                 input: { content: "   " },
             }),
@@ -99,7 +99,7 @@ describe("Process Run Records", () => {
             schemaVersion: 1,
             recordedAt: "2026-08-08T01:00:00.000Z",
             runId: result.runId,
-            process: "content-processing",
+            process: "sample-text",
             version: "v1",
             status: "failed",
             errorCode: "INVALID_INPUT",
@@ -157,7 +157,7 @@ describe("Process Run Records", () => {
             method: "POST",
             headers: { "content-type": "application/json" },
             body: JSON.stringify({
-                process: "content-processing",
+                process: "sample-text",
                 version: "v1",
                 input: { content: "launch offer" },
             }),
@@ -165,7 +165,7 @@ describe("Process Run Records", () => {
 
         expect(response.status).toBe(200);
         expect(await response.json()).toMatchObject({
-            process: "content-processing",
+            process: "sample-text",
             version: "v1",
             status: "succeeded",
             output: { content: "Processed: launch offer" },
@@ -185,12 +185,10 @@ async function startApplication(
     const application = createProcessingApplication({
         executor: createProcessExecutor({
             registrations: [
-                createContentRegistration({
-                    capability: {
-                        process: async (input) => ({
-                            content: `Processed: ${input.content}`,
-                        }),
-                    },
+                createSampleTextRegistration({
+                    process: async (input) => ({
+                        content: `Processed: ${input.content}`,
+                    }),
                 }),
             ],
             runRecords,
@@ -206,7 +204,7 @@ function succeededRun(
 ): Extract<ProcessRunResult, { status: "succeeded" }> {
     return {
         runId,
-        process: "content-processing",
+        process: "sample-text",
         version: "v1",
         status: "succeeded",
         output,

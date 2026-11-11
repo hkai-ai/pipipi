@@ -14,7 +14,7 @@ import {
 } from "../src/processes/production.js";
 
 const baseEnvironment: ProductionEnvironment = Object.freeze({
-    BUSINESS_API_BASE_URL: "https://business.example",
+    CRT_BUSINESS_API_BASE_URL: "https://business.example",
 });
 
 /**

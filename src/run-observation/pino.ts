@@ -8,6 +8,7 @@ import type {
     ProcessRunLogRecord,
     ProcessRunLogSink,
 } from "../process-runtime/index.js";
+import { sanitizeProcessRunLogRecord } from "../process-runtime/logging.js";
 
 const defaultLevel: LevelWithSilent = "info";
 const levels = new Set<LevelWithSilent>([
@@ -54,7 +55,10 @@ export function createPinoProcessRunLogSink(
         module: "process-run-activity-logging",
     });
 
-    return (record) => writeRecord(logger, record);
+    return (record) => {
+        const safe = sanitizeProcessRunLogRecord(record);
+        if (safe) writeRecord(logger, safe);
+    };
 }
 
 function parseLevel(value: string | undefined): LevelWithSilent {

@@ -20,26 +20,12 @@ if (!healthResponse.ok) {
     );
 }
 
-const successResponse = await execute({
-    process: "content-processing",
-    version: "v1",
-    input: {
-        content:
-            process.env.STAGING_SMOKE_CONTENT ??
-            "Rewrite this controlled MVP staging sentence clearly.",
-    },
-});
-const successBody = await readJson(successResponse);
-if (!successResponse.ok || !isSuccessfulExecution(successBody)) {
-    throw new Error(
-        `Staging execution failed with HTTP ${successResponse.status} (${safeErrorCode(successBody)})`,
-    );
-}
-
+// 只做免费、无副作用的契约检查：当前生产 Process 都会调用模型或生图，
+// 成功路径由各业务 acceptance 脚本单独付费验证。
 const failureResponse = await execute({
-    process: "content-processing",
+    process: "minimal-zine-poster",
     version: "v1",
-    input: { content: "   " },
+    input: { brief: "   " },
 });
 const failureBody = await readJson(failureResponse);
 if (failureResponse.status !== 400 || !isSafeInvalidInputFailure(failureBody)) {
@@ -51,10 +37,10 @@ if (failureResponse.status !== 400 || !isSafeInvalidInputFailure(failureBody)) {
 console.log(
     JSON.stringify({
         event: "staging_smoke_completed",
-        runId: successBody.runId,
-        process: successBody.process,
-        version: successBody.version,
-        status: successBody.status,
+        runId: failureBody.runId,
+        process: failureBody.process,
+        version: failureBody.version,
+        checks: ["healthz", "invalid_input_contract"],
     }),
 );
 
@@ -77,25 +63,11 @@ async function readJson(response: Response): Promise<unknown> {
     }
 }
 
-function isSuccessfulExecution(value: unknown): value is {
+function isSafeInvalidInputFailure(value: unknown): value is {
     runId: string;
-    process: "content-processing";
+    process: "minimal-zine-poster";
     version: "v1";
-    status: "succeeded";
-    output: { content: string };
 } {
-    if (!isRecord(value) || !isRecord(value.output)) return false;
-    return (
-        typeof value.runId === "string" &&
-        value.process === "content-processing" &&
-        value.version === "v1" &&
-        value.status === "succeeded" &&
-        typeof value.output.content === "string" &&
-        value.output.content.trim().length > 0
-    );
-}
-
-function isSafeInvalidInputFailure(value: unknown): boolean {
     return (
         isRecord(value) &&
         hasExactKeys(value, [
@@ -106,7 +78,7 @@ function isSafeInvalidInputFailure(value: unknown): boolean {
             "version",
         ]) &&
         typeof value.runId === "string" &&
-        value.process === "content-processing" &&
+        value.process === "minimal-zine-poster" &&
         value.version === "v1" &&
         value.status === "failed" &&
         isRecord(value.error) &&

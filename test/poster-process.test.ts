@@ -1,10 +1,16 @@
-import { describe, expect, it } from "vitest";
-import { createProcessingApplication } from "../src/api/application.js";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import sharp from "sharp";
+import { describe, expect, it, vi } from "vitest";
+import { constructProcessingService } from "../src/app/api.js";
+import { startCrtBusinessApi } from "../src/business-api/crt-server.js";
 import { createProcessExecutor } from "../src/processes/catalog.js";
 import type {
     PosterAgent,
     PosterAgentRequest,
 } from "../src/processes/poster/agent.js";
+import { PiPosterAgent } from "../src/processes/poster/agent.pi.js";
 import {
     type PosterRenderingCapability,
     PosterRenderingUnavailable,
@@ -34,12 +40,35 @@ const posterImage = {
 };
 
 describe("minimal-zine-poster/v1", () => {
-    it("exposes the exact versioned contract through POST /execute", async () => {
-        const application = createProcessingApplication({
-            executor: createPosterExecutor(
-                { compile: async () => compiledPoster },
-                { render: async () => posterImage },
-            ),
+    it("renders through production /execute and the image service at CRT_BUSINESS_API_BASE_URL", async () => {
+        const directory = await mkdtemp(join(tmpdir(), "poster-process-"));
+        const bytes = await sharp({
+            create: {
+                width: 1024,
+                height: 1696,
+                channels: 3,
+                background: "white",
+            },
+        })
+            .png()
+            .toBuffer();
+        const generate = vi.fn(async () => ({
+            bytes,
+            mimeType: "image/png",
+            outputFormat: "png" as const,
+        }));
+        const businessApi = await startCrtBusinessApi({
+            directory,
+            imageClient: { edit: vi.fn() },
+            generationClient: { generate },
+        });
+        const compile = vi
+            .spyOn(PiPosterAgent.prototype, "compile")
+            .mockResolvedValue(compiledPoster);
+        const { application } = constructProcessingService({
+            // The text Capability address must never receive image calls.
+            CRT_BUSINESS_API_BASE_URL: businessApi.url,
+            PROCESS_RUN_LOG_LEVEL: "silent",
         });
         const { url } = await application.listen();
 
@@ -58,14 +87,35 @@ describe("minimal-zine-poster/v1", () => {
             });
 
             expect(response.status).toBe(200);
-            expect(await response.json()).toMatchObject({
+            const result = await response.json();
+            expect(result).toMatchObject({
                 process: "minimal-zine-poster",
                 version: "v1",
                 status: "succeeded",
-                output: { ...compiledPoster, image: posterImage },
+                output: {
+                    ...compiledPoster,
+                    image: {
+                        url: `${businessApi.url}/posters/${result.runId}.png`,
+                        width: 1024,
+                        height: 1696,
+                        contentType: "image/png",
+                    },
+                },
             });
+            expect(generate).toHaveBeenCalledExactlyOnceWith(
+                expect.objectContaining({
+                    prompt: compiledPoster.prompt,
+                    size: "1024x1696",
+                    outputFormat: "png",
+                }),
+            );
+            const image = await fetch(result.output.image.url);
+            expect(Buffer.from(await image.arrayBuffer())).toEqual(bytes);
         } finally {
             await application.close();
+            compile.mockRestore();
+            await businessApi.close();
+            await rm(directory, { recursive: true, force: true });
         }
     });
 
@@ -210,8 +260,7 @@ describe("minimal-zine-poster/v1", () => {
             status: "failed",
             error: {
                 code: "AGENT_FAILURE",
-                message:
-                    "The poster prompt agent could not complete the request",
+                message: expect.stringContaining("模型结果不符合业务要求"),
             },
         });
         expect(renderCalls).toBe(0);
@@ -311,7 +360,7 @@ describe("minimal-zine-poster/v1", () => {
             status: "failed",
             error: {
                 code: "DEPENDENCY_FAILURE",
-                message: "The poster rendering service is unavailable",
+                message: "海报图片依赖暂时不可用",
             },
         });
         expect(JSON.stringify(result)).not.toContain("private provider detail");
@@ -388,3 +437,41 @@ function createPosterExecutor(
         registrations: [createPosterRegistration({ agent, capability })],
     });
 }
+
+it.each([true, false])(
+    "poster rendering classifies known dependency=%s",
+    async (known) => {
+        const events: unknown[] = [];
+        const render = vi.fn(async () => {
+            throw known
+                ? new PosterRenderingUnavailable()
+                : new Error("PRIVATE_BUG");
+        });
+        const executor = createProcessExecutor({
+            registrations: [
+                createPosterRegistration({
+                    agent: { compile: async () => compiledPoster },
+                    capability: { render },
+                }),
+            ],
+            runLogSink: (event) => events.push(event),
+        });
+        const result = await executor.execute({
+            process: "minimal-zine-poster",
+            version: "v1",
+            input: { brief: "Bookstore" },
+        });
+        expect(result).toMatchObject({
+            error: { code: known ? "DEPENDENCY_FAILURE" : "INTERNAL_ERROR" },
+        });
+        expect(events).toContainEqual(
+            expect.objectContaining({
+                activity: "poster_rendering",
+                diagnostic: known
+                    ? { stage: "dependency", code: "dependency_failure" }
+                    : { stage: "execution", code: "internal_failure" },
+            }),
+        );
+        expect(render).toHaveBeenCalledOnce();
+    },
+);

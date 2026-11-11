@@ -8,8 +8,8 @@ import {
     type ProcessRunLogRecord,
 } from "../src/process-runtime/index.js";
 import { createProcessExecutor } from "../src/processes/catalog.js";
-import { createContentRegistration } from "../src/processes/content/registration.js";
 import { createPinoProcessRunLogSink } from "../src/run-observation/pino.js";
+import { createSampleTextRegistration } from "./support/sample-text.js";
 
 const inputSchema = z.strictObject({ value: z.string() });
 const outputSchema = z.strictObject({ value: z.string() });
@@ -19,12 +19,10 @@ describe("Process Run activity logging", () => {
         const records: ProcessRunLogRecord[] = [];
         const executor = createProcessExecutor({
             registrations: [
-                createContentRegistration({
-                    capability: {
-                        process: async (input) => ({
-                            content: `processed ${input.content}`,
-                        }),
-                    },
+                createSampleTextRegistration({
+                    process: async (input) => ({
+                        content: `processed ${input.content}`,
+                    }),
                 }),
             ],
             runLogSink: (record) => records.push(record),
@@ -32,7 +30,7 @@ describe("Process Run activity logging", () => {
         });
 
         const result = await executor.execute({
-            process: "content-processing",
+            process: "sample-text",
             version: "v1",
             input: { content: "sensitive launch copy" },
         });
@@ -47,9 +45,9 @@ describe("Process Run activity logging", () => {
         expect(records).toEqual(
             expect.arrayContaining([
                 expect.objectContaining({
-                    process: "content-processing",
+                    process: "sample-text",
                     version: "v1",
-                    activity: "content_processing",
+                    activity: "text_processing",
                 }),
             ]),
         );
@@ -166,6 +164,7 @@ describe("Process Run activity logging", () => {
                 activity: "call_dependency",
                 outcome: "failed",
                 durationMs: 10,
+                diagnostic: { stage: "execution", code: "internal_failure" },
             }),
         );
         expect(records.at(-1)).toEqual(

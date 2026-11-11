@@ -8,9 +8,13 @@ import { createCharacterEmojiImageClient } from "../src/business-api/character-e
 import { imageUrl } from "../src/processes/character-emoji/catalog.js";
 
 describe("角色图片文件主用与 URL 备用", () => {
-    it.each(["http500", "reference", "cancel", "success"])(
-        "主用结果 %s 时正确控制备用",
-        async (outcome) => {
+    it.each(
+        ["http500", "reference", "cancel", "success"].flatMap((outcome) =>
+            ["legacy", "shared"].map((config) => ({ outcome, config })),
+        ),
+    )(
+        "主用结果 $outcome、配置 $config 时正确控制备用",
+        async ({ outcome, config }) => {
             const directory = await mkdtemp(join(tmpdir(), "emoji-fallback-"));
             if (
                 dirname(resolve(directory)) !== resolve(tmpdir()) ||
@@ -54,6 +58,18 @@ describe("角色图片文件主用与 URL 备用", () => {
                         return new Response(bytes);
                     }
                     if (target.endsWith("/images/edits")) {
+                        expect(target).toBe(
+                            config === "shared"
+                                ? "https://shared.example/v1/images/edits"
+                                : "https://primary.example/v1/images/edits",
+                        );
+                        expect(
+                            new Headers(init?.headers).get("authorization"),
+                        ).toBe(
+                            config === "shared"
+                                ? "Bearer shared-test"
+                                : "Bearer primary-test",
+                        );
                         const form = init?.body;
                         if (!(form instanceof FormData))
                             throw new Error("缺少文件表单");
@@ -107,6 +123,14 @@ describe("角色图片文件主用与 URL 备用", () => {
                 const attempts = vi.fn();
                 const client = createCharacterEmojiImageClient(
                     {
+                        ...(config === "shared"
+                            ? {
+                                  MODEL_GATEWAY_API_KEY: "shared-test",
+                                  MODEL_GATEWAY_BASE_URL:
+                                      "https://shared.example/v1",
+                                  CHARACTER_EMOJI_IMAGE_ENABLED: "true",
+                              }
+                            : {}),
                         CHARACTER_EMOJI_IMAGE_API_KEY: "primary-test",
                         CHARACTER_EMOJI_IMAGE_BASE_URL:
                             "https://primary.example/v1",
@@ -135,4 +159,50 @@ describe("角色图片文件主用与 URL 备用", () => {
             }
         },
     );
+});
+
+it.each([undefined, "false"])(
+    "共享凭证不改变 Magikaru-only，开关 %s",
+    async (flag) => {
+        const fetcher = vi.fn<typeof fetch>(async () =>
+            Response.json({}, { status: 409 }),
+        );
+        const client = createCharacterEmojiImageClient(
+            {
+                MODEL_GATEWAY_BASE_URL: "https://shared.example/v1",
+                MODEL_GATEWAY_API_KEY: "shared-key",
+                MAGIKARU_API_KEY: "backup-key",
+                MAGIKARU_BASE_URL: "https://backup.example",
+                CHARACTER_EMOJI_IMAGE_ENABLED: flag,
+            },
+            { directory: tmpdir(), fetch: fetcher },
+        );
+        if (!client) throw new Error("Missing backup");
+        await expect(
+            client.edit({
+                prompt: "synthetic".repeat(20),
+                size: "864x1536",
+                imageUrls: [imageUrl("Claude", "Chibi")],
+                idempotencyKey: "backup-only",
+            }),
+        ).rejects.toThrow();
+        expect(fetcher).toHaveBeenCalledTimes(1);
+        expect(String(fetcher.mock.calls[0][0])).toBe(
+            "https://backup.example/v1/jobs",
+        );
+        expect(
+            new Headers(fetcher.mock.calls[0][1]?.headers).get("authorization"),
+        ).toBe("Bearer backup-key");
+    },
+);
+it("共享凭证且无已启用渠道时不创建图片客户端", () => {
+    expect(
+        createCharacterEmojiImageClient(
+            {
+                MODEL_GATEWAY_BASE_URL: "https://shared.example/v1",
+                MODEL_GATEWAY_API_KEY: "shared-key",
+            },
+            { directory: tmpdir() },
+        ),
+    ).toBeUndefined();
 });

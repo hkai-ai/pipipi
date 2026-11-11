@@ -1,5 +1,6 @@
 /** 运行记录筛选、分页与详情，使用可分享链接串联异常排查。 */
 import { useEffect, useState } from "preact/hooks";
+import { explainDiagnostic } from "../src/process-runtime/diagnostics.js";
 import {
     type ConsoleProcessDescription,
     findRun,
@@ -12,7 +13,7 @@ import {
 import {
     describeTimeline,
     diagnosticSummary,
-    explainError,
+    explainRunFailure,
 } from "./diagnostics.js";
 import {
     formatDuration,
@@ -458,7 +459,14 @@ export function RunView({
                     </Panel>
                     {value.status === "failed" ? (
                         <section class="failure-notice">
-                            <h2>{explainError(value.errorCode).title}</h2>
+                            <h2>
+                                {
+                                    explainRunFailure(
+                                        value.errorCode,
+                                        details.diagnostic,
+                                    ).title
+                                }
+                            </h2>
                             <p>
                                 失败步骤：
                                 {timeline.loading
@@ -469,7 +477,29 @@ export function RunView({
                                         ? activityName(details.failedActivity)
                                         : "没有足够步骤记录"}
                             </p>
-                            <p>{explainError(value.errorCode).next}</p>
+                            <p>
+                                {
+                                    explainRunFailure(
+                                        value.errorCode,
+                                        details.diagnostic,
+                                    ).next
+                                }
+                            </p>
+                            {details.diagnostic ? (
+                                <p>
+                                    失败阶段：
+                                    {
+                                        explainDiagnostic(details.diagnostic)
+                                            .stage
+                                    }
+                                </p>
+                            ) : null}
+                            {details.diagnostic?.issues?.map((issue) => (
+                                <p key={`${issue.path}:${issue.code}`}>
+                                    校验字段：<code>{issue.path}</code>；规则：
+                                    <code>{issue.code}</code>
+                                </p>
+                            ))}
                             <details>
                                 <summary>技术标识</summary>
                                 <p>

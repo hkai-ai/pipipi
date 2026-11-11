@@ -16,10 +16,7 @@ import {
 const preparation = ({ environment }: ProductionContext) =>
     new HttpTemplateImagePreparation(parseCrtBusinessApiBaseUrl(environment));
 const logger = pino({ name: "template-strategy-diagnostics" });
-const environment = [
-    "CRT_BUSINESS_API_BASE_URL",
-    "BUSINESS_API_BASE_URL",
-] as const;
+const environment = ["CRT_BUSINESS_API_BASE_URL"] as const;
 export const templatePlanProduction = defineProductionProcess({
     id: "template-image-plan",
     environment: [...environment, "TEMPLATE_MODEL"],

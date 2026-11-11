@@ -32,18 +32,18 @@ describe("Async runtime role construction", () => {
 
     it("requires Worker business, persistence, Redis, and retention configuration", () => {
         expect(() => constructProcessWorkerService({})).toThrow(
-            "Deployment environment for process-worker is missing required variables: BUSINESS_API_BASE_URL, DATABASE_URL, REDIS_URL, PROCESS_RUN_ACCEPTED_INPUT_RETENTION_MS, PROCESS_RUN_RESULT_RETENTION_MS, PROCESS_RUN_METADATA_RETENTION_MS, PROCESS_RUN_RECORD_STORE, PROCESS_RUN_RECORD_CONTENT, PROCESS_RUN_RECORD_DIRECTORY",
+            "Deployment environment for process-worker is missing required variables: CRT_BUSINESS_API_BASE_URL, DATABASE_URL, REDIS_URL, PROCESS_RUN_ACCEPTED_INPUT_RETENTION_MS, PROCESS_RUN_RESULT_RETENTION_MS, PROCESS_RUN_METADATA_RETENTION_MS, PROCESS_RUN_RECORD_STORE, PROCESS_RUN_RECORD_CONTENT, PROCESS_RUN_RECORD_DIRECTORY",
         );
         expect(() =>
             constructProcessWorkerService({
-                BUSINESS_API_BASE_URL: "https://business.example",
+                CRT_BUSINESS_API_BASE_URL: "https://business.example",
             }),
         ).toThrow(
             "Deployment environment for process-worker is missing required variables: DATABASE_URL, REDIS_URL, PROCESS_RUN_ACCEPTED_INPUT_RETENTION_MS, PROCESS_RUN_RESULT_RETENTION_MS, PROCESS_RUN_METADATA_RETENTION_MS, PROCESS_RUN_RECORD_STORE, PROCESS_RUN_RECORD_CONTENT, PROCESS_RUN_RECORD_DIRECTORY",
         );
         expect(() =>
             constructProcessWorkerService({
-                BUSINESS_API_BASE_URL: "https://business.example",
+                CRT_BUSINESS_API_BASE_URL: "https://business.example",
                 DATABASE_URL,
             }),
         ).toThrow(
@@ -51,7 +51,7 @@ describe("Async runtime role construction", () => {
         );
         expect(() =>
             constructProcessWorkerService({
-                BUSINESS_API_BASE_URL: "https://business.example",
+                CRT_BUSINESS_API_BASE_URL: "https://business.example",
                 DATABASE_URL,
                 REDIS_URL,
             }),
@@ -63,7 +63,7 @@ describe("Async runtime role construction", () => {
     it("rejects a claim lease that can expire during the Process timeout", () => {
         expect(() =>
             constructProcessWorkerService({
-                BUSINESS_API_BASE_URL: "https://business.example",
+                CRT_BUSINESS_API_BASE_URL: "https://business.example",
                 DATABASE_URL,
                 REDIS_URL,
                 ...WORKER_RETENTION,
@@ -79,7 +79,7 @@ describe("Async runtime role construction", () => {
     it("bounds Worker shutdown below the container stop grace", () => {
         expect(() =>
             constructProcessWorkerService({
-                BUSINESS_API_BASE_URL: "https://business.example",
+                CRT_BUSINESS_API_BASE_URL: "https://business.example",
                 DATABASE_URL,
                 REDIS_URL,
                 ...WORKER_RETENTION,
@@ -137,7 +137,7 @@ const WORKER_OBSERVATION = {
 
 it("完整生产目录按 570 秒编译预算检查 Worker 租约", async () => {
     const environment = {
-        BUSINESS_API_BASE_URL: "https://business.example",
+        CRT_BUSINESS_API_BASE_URL: "https://business.example",
         DATABASE_URL,
         REDIS_URL,
         ...WORKER_RETENTION,

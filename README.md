@@ -8,7 +8,7 @@
 
 图片预处理后的模板内容支持独立重编译：保留已确认成图，提交本轮模板修改要求，只生成新的 Gallery 草稿供人工审阅。
 
-生产 catalog 登记二十七个 Business Process，其中 `composed-task/v1` 默认关闭。文档先按产品场景分组，运行时仍通过统一的 Process identity 和 HTTP Interface 执行：
+生产 catalog 登记二十五个 Business Process，其中 `composed-task/v1` 默认关闭。文档先按产品场景分组，运行时仍通过统一的 Process identity 和 HTTP Interface 执行：
 
 | 场景 | Process | 输入 | 输出 |
 | --- | --- | --- | --- |
@@ -16,8 +16,6 @@
 | `memebuy` | `template-image-plan/v1` | 原图与备注 | 待审替换方案 |
 | `memebuy` | `template-image-render/v1` | 方案批准 | 待审完整 PNG |
 | `memebuy` | `template-from-source/v1` | 成图批准 | 新图引用与模板草稿 |
-| `common` | `content-processing/v1` | `{ "content": string }` | `{ "content": string }` |
-| `common` | `titled-content-processing/v1` | `{ "title": string, "body": string }` | `{ "title": string, "content": string }` |
 | `common` | `minimal-zine-poster/v1` | `{ "brief": string, "text"?: string }` | `{ "prompt", "recipe", "interpretation", "image" }` |
 | `common` | `crt-interface-image/v1` | `{ "sourceImageUrl", "palette", "aspectRatio" }` | `{ "aspectRatio", "image" }` |
 | `memene` | `news-image-narrative-monument/v1` | `{ "title", "summary" }` | `{ "style", "image" }` |
@@ -48,7 +46,7 @@ Memebuy 场景已登记 `template-from-image/v1`，可在 Pipipi 独立编译图
 
 生产启动通过 Installed Skill Catalog 校验 Runtime Skill 的准确名称、版本和 SHA-256。Process 只加载 Registration 固定绑定的 Skill 与窄 Tool；运行期不发现、下载或更新 Skill。
 
-production Agent catalog 精确登记默认关闭的 `design-assistant/v1`，提供 Agent Conversations 多轮文本、owner-scoped 图片和受控 Process Tool 能力。调用方只提交准确 Agent、`afterTurnId`、文本和稳定图片 `resourceId`；服务端 Registration 固定 Runtime Skill、Context/Memory 策略、模型、Tool allow-list、预算、输出与保留。PostgreSQL 保存权威 Turn、幂等、`configRevision`、执行 claim、Outbox 与 Tool Ledger；BullMQ 只投递最小 Turn identity，Dispatcher、Worker 与 Reconciler 通过 lease、revision 和 fencing 处理重投、Worker 中断及 Queue 重建。priced Tool 用稳定子 Run、执行 token 和 after-commit 语义避免重启后重复扣费。owner 可删除 Conversation；30 天闲置期限、立即 fencing、最迟 24 小时物理清理和可续跑 Cleaner 已实现。`AGENT_CONVERSATIONS_ENABLED=false` 使默认部署仍返回 404；受控启用见 [Agent Conversations Runbook](docs/agent-conversations-runbook.md)，公开契约见 [Agent Conversations API](docs/api.md#agent-conversations多轮文本与图片资源)。
+Agent Conversations 框架提供多轮文本、owner-scoped 图片和受控 Process Tool 能力，但 production Agent catalog 当前为空：原 `design-assistant/v1` 已下线，待重新开发后再登记，此时开启 `AGENT_CONVERSATIONS_ENABLED=true` 会在启动时失败。调用方只提交准确 Agent、`afterTurnId`、文本和稳定图片 `resourceId`；服务端 Registration 固定 Runtime Skill、Context/Memory 策略、模型、Tool allow-list、预算、输出与保留。PostgreSQL 保存权威 Turn、幂等、`configRevision`、执行 claim、Outbox 与 Tool Ledger；BullMQ 只投递最小 Turn identity，Dispatcher、Worker 与 Reconciler 通过 lease、revision 和 fencing 处理重投、Worker 中断及 Queue 重建。priced Tool 用稳定子 Run、执行 token 和 after-commit 语义避免重启后重复扣费。owner 可删除 Conversation；30 天闲置期限、立即 fencing、最迟 24 小时物理清理和可续跑 Cleaner 已实现。`AGENT_CONVERSATIONS_ENABLED=false` 使默认部署仍返回 404；受控启用见 [Agent Conversations Runbook](docs/agent-conversations-runbook.md)，公开契约见 [Agent Conversations API](docs/api.md#agent-conversations多轮文本与图片资源)。
 
 通常图片 Process 只公开业务输入和图片引用；模板图片生产向受信任的运营调用方提供待审策略与完整 PNG。Prompt、模型、供应商、Skill 和存储配置留在服务端。内部新闻图片评测默认关闭，只在受控环境复用同一次正式 Process 执行。
 
@@ -58,7 +56,7 @@ production Agent catalog 精确登记默认关闭的 `design-assistant/v1`，提
 
 | 场景 | Process 文档 | 主要 Registration |
 | --- | --- | --- |
-| [`common`](docs/processes/common/) | 文本处理、海报与 CRT 图片 | [`src/processes/`](src/processes) |
+| [`common`](docs/processes/common/) | 海报与 CRT 图片 | [`src/processes/`](src/processes) |
 | [`memene`](docs/processes/memene/) | 三个新闻图片 Process | [`src/processes/news-image/registration.ts`](src/processes/news-image/registration.ts) |
 | [`memebuy`](docs/processes/memebuy/) | 图片转可编辑模板 | [`src/processes/template-from-image/registration.ts`](src/processes/template-from-image/registration.ts) |
 
@@ -90,19 +88,19 @@ npm install
 cp .env.example .env
 ```
 
-`.env` 已被 Git 忽略。文本 Direct 路径不调用模型；执行海报业务验收、文本 Agent 路径或真实模型 smoke 时需要模型凭证。不要把真实凭证提交到仓库。
+`.env` 已被 Git 忽略。执行海报业务验收或真实模型 smoke 时需要模型凭证。不要把真实凭证提交到仓库。
 
 生产预检、Compose 形状、异步发布和付费 smoke 不属于快速开始。部署前分别阅读 [同步发布手册](docs/mvp-release-runbook.md)、[异步发布手册](docs/async-process-runs-runbook.md) 与 [Agent Conversations Runbook](docs/agent-conversations-runbook.md)。
 
-只开发调用方的多轮文本接入时，运行 `npm run dev:agent` 即可在 `127.0.0.1:4300` 获得四个正式 v1 Conversation 路由。该开发入口使用固定 Scripted Agent 和内存 Adapter，不需要 PostgreSQL、Redis 或模型凭证；默认 Bearer Token、请求示例和限制见[开发指南](docs/development.md#本地开发)。
+只开发调用方的多轮文本接入时，运行 `npm run dev:agent` 即可在 `127.0.0.1:4300` 获得四个正式 v1 Conversation 路由。该开发入口使用固定 Scripted Agent（沿用 `design-assistant/v1` 作为调用方契约桩，不是生产 Agent）和内存 Adapter，不需要 PostgreSQL、Redis 或模型凭证；默认 Bearer Token、请求示例和限制见[开发指南](docs/development.md#本地开发)。
 
-在第一个终端启动演示 Business Capability：
+在第一个终端启动内部图片 Business API：
 
 ```bash
 npm run dev:business-api
 ```
 
-文本演示服务只实现 `POST /process`。海报 Process 仍要求 `BUSINESS_API_BASE_URL` 指向实现 `POST /posters` 的受控服务；CRT 与新闻图片 Process 通过 `CRT_BUSINESS_API_BASE_URL` 使用仓库提供的内部图片 Business API。全部产品调用契约见 [`docs/api.md`](docs/api.md)。
+极简海报、CRT 与其他图片 Process 通过必填的 `CRT_BUSINESS_API_BASE_URL` 使用该服务。它默认监听 `127.0.0.1:4400`，需要已有的 FAL 和 OSS 配置；实际执行图片请求会产生费用和存储写入。极简海报的 `POST /posters` 已纳入该服务，正式启动不依赖验收脚本。全部产品调用契约见 [`docs/api.md`](docs/api.md)。
 
 在第二个终端启动处理服务：
 
@@ -110,29 +108,19 @@ npm run dev:business-api
 npm run dev
 ```
 
-执行 `content-processing/v1`：
+不付费地验证 `/execute` 链路时，提交一个不满足 Schema 的请求；服务在调用 Agent 或图片服务前返回 `400 INVALID_INPUT`：
 
 ```bash
 curl -X POST http://127.0.0.1:4300/execute \
   -H 'content-type: application/json' \
   -d '{
-    "process": "content-processing",
+    "process": "minimal-zine-poster",
     "version": "v1",
-    "input": { "content": "  launch   offer  " }
+    "input": {}
   }'
 ```
 
-成功响应包含独立 `runId` 和经过处理的结构化输出：
-
-```json
-{
-  "runId": "...",
-  "process": "content-processing",
-  "version": "v1",
-  "status": "succeeded",
-  "output": { "content": "Processed: launch offer" }
-}
-```
+每个响应都包含独立 `runId`；有效输入会调用模型并生成图片，产生费用和存储写入。
 
 健康检查：
 
@@ -192,6 +180,8 @@ curl http://127.0.0.1:4300/healthz
 
 ## 照片海报模板
 
+模型错误使用统一分类：照片海报、极简海报、CRT、新闻图片、内容优化及模板编译在稳定错误码之外提供阶段、中文原因和排查建议。控制台关联脱敏活动诊断，旧记录不补推根因。超时、取消与未知异常分别收口；实现和工具选择见 [统一诊断](docs/process-runtime-design.md#统一诊断与工具选择)。 公开错误仅解释阶段和已知原因，运维建议留在控制台；公开文案只额外保留禁止重复付费提交等调用方约束。控制台的依赖失败标题和下一步由公开错误码决定，活动诊断补充阶段与字段。默认内部诊断不覆盖已知业务错误；已恢复的活动失败不作为最终原因，成功摘要不包含失败诊断。
+
 Mono Color 支持同一 `v1` 下的五个可编辑预设，供 Memebuy 的五个固定预设 C 类模板调用。每种版式明确标题用色、分行与穿插关系，默认干净近白纸底和细网点，保留参考主体与动作；未提供新参数的调用保持原行为。字段见 [Mono Color API](docs/api.md#mono-color-可编辑预设)。
 
 现有七个照片海报 Process：多巴胺、双色油墨、旅行抽象、彩色蜡笔、黑白蜡笔、木刻，以及摄影剪贴与涂鸦小人。一次请求处理一张公网 HTTPS 照片，返回持久化 PNG 引用；调用方式见 [照片海报 API](docs/api.md#照片海报)，来源与适配见 [通用 Process](docs/processes/common/)。它们均只返回完整风格化成品，不附原图或上下对照；旅行抽象仅由代码补充档案字样。摄影剪贴与涂鸦小人当前已注册，尚未部署。
@@ -217,3 +207,7 @@ CRT 与七个照片海报支持可选背景参数，省略时保持原行为；�
 ## 模板视觉归属 v3
 
 新增 `template-from-image/v2` 与 `template-from-source/v2`，输出 `runtimeSemantics.version=3`；`inputSchema.version` 仍为 2。目标外观写入 `targetInstances[].appearance`，姿势与位置写入 `pose`，全局视觉合同只保留非目标事实。旧 v1 接口继续输出运行语义 v2，恢复既有运行不切换版本。两端发布与验收见 [模板归属升级](docs/processes/memebuy/template-from-image/visual-ownership-v3.md)。
+
+## 模型网关配置
+
+文本模型网关由 Composition Root 统一解析：优先使用完整的 `MODEL_GATEWAY_BASE_URL` / `MODEL_GATEWAY_API_KEY`，两者都未配置才依次兼容 TEXT_MODEL、CHARACTER_EMOJI、OPENAI 旧网关整对配置。表情包构思与搜梗也复用同一对；旧 PLANNER 网关覆盖不再生效。模型、协议与调用预算保持各 Registration 原定义，共享网关也作为图片默认凭证；图片渠道启用与主备策略独立，详见配置说明。

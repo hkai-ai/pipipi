@@ -1,5 +1,12 @@
-/** Pi provider 配置 */
+/** 适配 Pi 模型配置与响应协议，保留固定错误分类并解析 JSON。 */
 import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
+import {
+    AgentExecutionFailure,
+    AgentJsonSyntaxError,
+    agentExecutionDiagnostic,
+} from "./failure.js";
+
+export { AgentJsonSyntaxError } from "./failure.js";
 
 export type OpenAIApiMode = "responses" | "chat-completions";
 
@@ -28,7 +35,10 @@ export function configureOpenAI(
         ? runtime.getModel("openai", options.modelId)
         : undefined;
     if (!sourceModel) {
-        throw new Error("The configured OpenAI model is unavailable");
+        throw new AgentExecutionFailure({
+            stage: "session",
+            code: "configuration",
+        });
     }
 
     runtime.registerProvider("openai", {
@@ -53,34 +63,60 @@ export function configureOpenAI(
     });
 }
 
-/** 区分已完成响应的 JSON 格式错误与模型调用失败，供业务流程有界修正。 */
-export class AgentJsonSyntaxError extends SyntaxError {
-    constructor(readonly responseText: string) {
-        super("模型响应不是合法 JSON");
-        this.name = "AgentJsonSyntaxError";
-    }
-}
-
 export function parseAgentJson(messages: readonly unknown[]): unknown {
     const message = messages.findLast(isAssistantMessage);
-    if (
-        !message ||
-        message.stopReason === "error" ||
-        message.stopReason === "aborted"
-    ) {
-        throw new Error("The Agent did not produce a successful response", {
-            ...(message?.errorMessage
-                ? { cause: new Error(message.errorMessage) }
-                : {}),
+    if (!message)
+        throw new AgentExecutionFailure({
+            stage: "response",
+            code: "empty_response",
         });
+    if (message.stopReason === "aborted")
+        throw new AgentExecutionFailure({
+            stage: "response",
+            code: "cancelled",
+        });
+    if (message.stopReason === "error") {
+        const cause = new Error(
+            message.errorMessage ??
+                "The Agent did not produce a successful response",
+        );
+        // Pi 1.4.0 的 formatProviderError 与 OpenAI 7.19.0 APIError.makeMessage 合同。
+        // 仅 error 消息接受明确格式；任意正文中的裸数字不作为状态证据。
+        const status = cause.message.match(
+            /^(?:OpenAI API error \(([45]\d{2})\):|([45]\d{2}):)(?:\s|$)/u,
+        );
+        const noBody = cause.message.match(
+            /^([45]\d{2}) status code \(no body\)$/u,
+        );
+        const httpStatus =
+            status?.[1] ??
+            status?.[2] ??
+            (noBody?.[0] === cause.message ? noBody[1] : undefined);
+        if (httpStatus)
+            Object.assign(cause, {
+                status: Number(httpStatus),
+            });
+        throw new AgentExecutionFailure(
+            agentExecutionDiagnostic(cause, "request"),
+            cause,
+        );
     }
+    if (message.stopReason === "length")
+        throw new AgentExecutionFailure({
+            stage: "response",
+            code: "incomplete_response",
+        });
 
     const text = message.content
         .filter(isTextContent)
         .map((part) => part.text)
         .join("")
         .trim();
-    if (!text) throw new Error("The Agent response was empty");
+    if (!text)
+        throw new AgentExecutionFailure(
+            { stage: "response", code: "empty_response" },
+            new Error("The Agent response was empty"),
+        );
     try {
         return JSON.parse(text);
     } catch {

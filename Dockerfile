@@ -28,8 +28,6 @@ COPY --chown=node:node llms.txt ./llms.txt
 COPY --chown=node:node docs/api.md ./docs/api.md
 # Shipped so a release can apply its own schema before the new container serves.
 COPY --chown=node:node migrations ./migrations
-COPY --chown=node:node .pi/skills/content-optimization ./.pi/skills/content-optimization
-COPY --chown=node:node .pi/skills/content-integrity ./.pi/skills/content-integrity
 COPY --chown=node:node .pi/skills/minimal-zine-poster-prompt ./.pi/skills/minimal-zine-poster-prompt
 COPY --chown=node:node .pi/skills/tait-crt-interface-prompt ./.pi/skills/tait-crt-interface-prompt
 COPY --chown=node:node .pi/skills/news-image-narrative-monument-prompt ./.pi/skills/news-image-narrative-monument-prompt

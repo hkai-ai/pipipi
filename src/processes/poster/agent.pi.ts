@@ -1,8 +1,10 @@
 /** agent.ts 里 PosterAgent Port 的生产 Pi 实现：无 Tool 把 brief 编译成海报 Prompt */
+
 import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import type { OpenAIApiMode } from "../../agent-runtime/pi.js";
 import type { SkillRef } from "../../agent-runtime/skills.js";
 import { PiStructuredAgent } from "../../agent-runtime/structured.js";
+import type { ModelGateway } from "../../model-gateway.js";
 import type { PosterAgent, PosterAgentRequest } from "./agent.js";
 
 export type PiPosterAgentOptions = {
@@ -11,7 +13,7 @@ export type PiPosterAgentOptions = {
     agentDir?: string;
     provider?: string;
     model?: string;
-    openAIBaseUrl?: string;
+    gateway?: ModelGateway;
     openAIApiMode?: OpenAIApiMode;
     modelRuntime?: ModelRuntime;
 };

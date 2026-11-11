@@ -529,6 +529,11 @@ export function describeRunObservationContract(
                 activity: "crt_prompt_compilation",
                 outcome: "failed",
                 durationMs: 1_234,
+                diagnostic: {
+                    stage: "schema",
+                    code: "invalid_schema",
+                    issues: [{ path: "/prompt", code: "too_small" }],
+                },
             }),
         );
         activities.record(
@@ -547,6 +552,11 @@ export function describeRunObservationContract(
             activity: "crt_prompt_compilation",
             outcome: "failed",
             durationMs: 1_234,
+            diagnostic: {
+                stage: "schema",
+                code: "invalid_schema",
+                issues: [{ path: "/prompt", code: "too_small" }],
+            },
         });
         expect(timeline[1]).toMatchObject({ errorCode: "AGENT_FAILURE" });
     });
@@ -555,6 +565,59 @@ export function describeRunObservationContract(
         const { activities } = await createBackend();
 
         expect(await activities.findByRun("never-ran")).toEqual([]);
+    });
+
+    it("persists maximally bounded diagnostic issues without losing the activity", async () => {
+        const { activities, settle } = await createBackend();
+        activities.record(
+            processRunActivity({
+                event: "process_run_activity_finished",
+                activity: "compile",
+                outcome: "failed",
+                durationMs: 1,
+                diagnostic: {
+                    stage: "schema",
+                    code: "invalid_schema",
+                    issues: Array.from({ length: 20 }, () => ({
+                        path: `/${Array(20).fill("windowConstellation").join("/")}`,
+                        code: "unrecognized_keys",
+                    })),
+                },
+            }),
+        );
+        await settle();
+        const records = await activities.findByRun("run-1");
+        expect(records).toHaveLength(1);
+        const diagnostic =
+            "diagnostic" in records[0] ? records[0].diagnostic : undefined;
+        expect(diagnostic).toBeDefined();
+        expect(diagnostic?.issues).toHaveLength(8);
+        expect(
+            Buffer.byteLength(JSON.stringify(diagnostic, null, 1), "utf8"),
+        ).toBeLessThanOrEqual(4096);
+        expect(diagnostic?.issues?.[0].path).toBe(
+            `/${Array(8).fill("windowConstellation").join("/")}`,
+        );
+    });
+
+    it("preserves terminal cancellation diagnostics independently of activity details", async () => {
+        const { activities, settle } = await createBackend();
+        activities.record(
+            processRunActivity({
+                event: "process_run_attempt_finished",
+                outcome: "cancelled",
+                durationMs: 20,
+                errorCode: "INTERNAL_ERROR",
+                diagnostic: { stage: "execution", code: "process_cancelled" },
+            }),
+        );
+        await settle();
+        expect(await activities.findByRun("run-1")).toEqual([
+            expect.objectContaining({
+                outcome: "cancelled",
+                diagnostic: { stage: "execution", code: "process_cancelled" },
+            }),
+        ]);
     });
 
     it("counts outcomes per Process inside the window", async () => {

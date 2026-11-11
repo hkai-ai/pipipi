@@ -1,5 +1,7 @@
 /** 为每次请求创建配置隔离、禁用缓存预热且不落盘的 Pi Session。 */
+
 import { resolve } from "node:path";
+import { InMemoryCredentialStore } from "@earendil-works/pi-ai";
 import {
     type AgentSession,
     type CreateAgentSessionOptions,
@@ -11,6 +13,8 @@ import {
     SessionManager,
     SettingsManager,
 } from "@earendil-works/pi-coding-agent";
+import type { ModelGateway } from "../model-gateway.js";
+import { AgentExecutionFailure } from "./failure.js";
 import { configureOpenAI, type OpenAIApiMode } from "./pi.js";
 import { createSkillSet, type SkillRef, type SkillSet } from "./skills.js";
 
@@ -25,7 +29,7 @@ export type PiSessionOptions = Readonly<{
     agentDir?: string;
     provider?: string;
     model?: string;
-    openAIBaseUrl?: string;
+    gateway?: ModelGateway;
     openAIApiMode?: OpenAIApiMode;
     thinkingLevel?: "off" | "minimal" | "low" | "medium" | "high";
     modelRuntime?: ModelRuntime;
@@ -52,6 +56,7 @@ export class PiSessionSupport {
     readonly #provider: string | undefined;
     readonly #model: string | undefined;
     readonly #openAIBaseUrl: string | undefined;
+    readonly #openAIApiKey: string | undefined;
     readonly #openAIApiMode: OpenAIApiMode;
     readonly #models: ModelRuntime | undefined;
     readonly #thinkingLevel: PiSessionOptions["thinkingLevel"];
@@ -87,7 +92,13 @@ export class PiSessionSupport {
         );
         this.#provider = options.provider;
         this.#model = options.model;
-        this.#openAIBaseUrl = options.openAIBaseUrl?.trim() || undefined;
+        const usesOpenAI = !options.provider || options.provider === "openai";
+        this.#openAIBaseUrl = usesOpenAI
+            ? options.gateway?.baseUrl?.trim() || undefined
+            : undefined;
+        this.#openAIApiKey = usesOpenAI
+            ? options.gateway?.apiKey?.trim() || undefined
+            : undefined;
         this.#openAIApiMode =
             options.openAIApiMode ??
             (this.#openAIBaseUrl ? "chat-completions" : "responses");
@@ -112,7 +123,10 @@ export class PiSessionSupport {
             this.#provider &&
             (!this.#model || !models.getModel(this.#provider, this.#model))
         ) {
-            throw new Error("The configured Pi model is unavailable");
+            throw new AgentExecutionFailure({
+                stage: "session",
+                code: "configuration",
+            });
         }
     }
 
@@ -147,7 +161,10 @@ export class PiSessionSupport {
                 ? models.getModel(this.#provider, this.#model)
                 : undefined;
         if (this.#provider && !selectedModel) {
-            throw new Error("The configured Pi model is unavailable");
+            throw new AgentExecutionFailure({
+                stage: "session",
+                code: "configuration",
+            });
         }
 
         const { session } = await this.#sessionFactory({
@@ -170,8 +187,19 @@ export class PiSessionSupport {
 
     #getModels(): Promise<ModelRuntime> {
         this.#modelsPromise ??= (
-            this.#models ? Promise.resolve(this.#models) : ModelRuntime.create()
-        ).then((runtime) => {
+            this.#models
+                ? Promise.resolve(this.#models)
+                : ModelRuntime.create(
+                      this.#openAIApiKey
+                          ? {
+                                credentials: new InMemoryCredentialStore(),
+                                modelsPath: null,
+                                refreshOnCreate: false,
+                                allowModelNetwork: false,
+                            }
+                          : {},
+                  )
+        ).then(async (runtime) => {
             if (this.#openAIBaseUrl) {
                 configureOpenAI(runtime, {
                     baseUrl: this.#openAIBaseUrl,
@@ -179,6 +207,8 @@ export class PiSessionSupport {
                     modelId: this.#model,
                 });
             }
+            if (this.#openAIApiKey)
+                await runtime.setRuntimeApiKey("openai", this.#openAIApiKey);
             return runtime;
         });
         return this.#modelsPromise;

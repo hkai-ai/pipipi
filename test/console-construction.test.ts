@@ -2,15 +2,25 @@ import { mkdtemp } from "node:fs/promises";
 import { createServer, type Server } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ProcessingApplication } from "../src/api/application.js";
 import { constructProcessingService } from "../src/app/api.js";
 import type { ProcessRunRecord } from "../src/process-runtime/records.js";
+import { PiPosterAgent } from "../src/processes/poster/agent.pi.js";
 
 const runningApplications: ProcessingApplication[] = [];
 const runningServers: Server[] = [];
 
+beforeEach(() => {
+    // Runs a real production Process without a model: the poster Agent fails
+    // its compile step, which still produces a recorded Run and timeline.
+    vi.spyOn(PiPosterAgent.prototype, "compile").mockRejectedValue(
+        new Error("Test compile failure"),
+    );
+});
+
 afterEach(async () => {
+    vi.restoreAllMocks();
     await Promise.all(
         runningApplications.splice(0).map((application) => application.close()),
     );
@@ -31,7 +41,7 @@ describe("operator console construction", () => {
         const directory = await mkdtemp(join(tmpdir(), "pipipi-console-"));
         const businessApi = await startBusinessApi();
         const url = await startService({
-            BUSINESS_API_BASE_URL: businessApi,
+            CRT_BUSINESS_API_BASE_URL: businessApi,
             PROCESS_RUN_RECORD_DIRECTORY: directory,
             PROCESS_RUN_RECORD_CONTENT: "accepted-input-and-output",
             CONSOLE_ENABLED: "true",
@@ -41,19 +51,19 @@ describe("operator console construction", () => {
             method: "POST",
             headers: { "content-type": "application/json" },
             body: JSON.stringify({
-                process: "content-processing",
+                process: "minimal-zine-poster",
                 version: "v1",
-                input: { content: "整理这段内容" },
+                input: { brief: "雨天书店" },
             }),
         });
-        expect(execution.status).toBe(200);
+        expect(execution.status).toBe(502);
         const { runId } = (await execution.json()) as { runId: string };
 
         const record = await waitForRecord(url, runId);
-        expect(record.process).toBe("content-processing");
-        expect(record.status).toBe("succeeded");
-        expect(record.content?.input).toEqual({ content: "整理这段内容" });
-        expect(record.content?.output).toEqual({ content: "processed" });
+        expect(record.process).toBe("minimal-zine-poster");
+        expect(record.status).toBe("failed");
+        expect(record.content?.input).toEqual({ brief: "雨天书店" });
+        expect(record.content?.output).toBeUndefined();
 
         const page = (await (await fetch(`${url}/console/runs`)).json()) as {
             records: readonly ProcessRunRecord[];
@@ -65,7 +75,7 @@ describe("operator console construction", () => {
         const directory = await mkdtemp(join(tmpdir(), "pipipi-console-"));
         const businessApi = await startBusinessApi();
         const url = await startService({
-            BUSINESS_API_BASE_URL: businessApi,
+            CRT_BUSINESS_API_BASE_URL: businessApi,
             PROCESS_RUN_RECORD_DIRECTORY: directory,
             PROCESS_RUN_RECORD_CONTENT: "accepted-input-and-output",
             CONSOLE_ENABLED: "true",
@@ -75,9 +85,9 @@ describe("operator console construction", () => {
             method: "POST",
             headers: { "content-type": "application/json" },
             body: JSON.stringify({
-                process: "content-processing",
+                process: "minimal-zine-poster",
                 version: "v1",
-                input: { content: "整理这段内容" },
+                input: { brief: "雨天书店" },
             }),
         });
         const { runId } = (await execution.json()) as { runId: string };
@@ -90,7 +100,9 @@ describe("operator console construction", () => {
             "process_run_activity_finished",
             "process_run_attempt_finished",
         ]);
-        expect(timeline.activities[1]?.activity).toBe("content_processing");
+        expect(timeline.activities[1]?.activity).toBe(
+            "poster_prompt_compilation",
+        );
         expect(timeline.activities.at(-1)?.durationMs).toBeGreaterThanOrEqual(
             0,
         );
@@ -135,8 +147,6 @@ describe("operator console construction", () => {
             "character-emoji-comic",
             "character-emoji-planner",
             "character-emoji-single",
-            "content-integrity",
-            "content-optimization",
             "crayon-photo-poster-prompt",
             "dopamine-photo-poster-prompt",
             "manga-panels-prompt",
@@ -182,7 +192,7 @@ describe("operator console construction", () => {
     it("refuses to enable the console without a durable record directory", () => {
         expect(() =>
             constructProcessingService({
-                BUSINESS_API_BASE_URL: "https://business.example",
+                CRT_BUSINESS_API_BASE_URL: "https://business.example",
                 CONSOLE_ENABLED: "true",
             }),
         ).toThrow(/PROCESS_RUN_RECORD_DIRECTORY/);
@@ -191,7 +201,7 @@ describe("operator console construction", () => {
     it("refuses the PostgreSQL record store without a database", () => {
         expect(() =>
             constructProcessingService({
-                BUSINESS_API_BASE_URL: "https://business.example",
+                CRT_BUSINESS_API_BASE_URL: "https://business.example",
                 PROCESS_RUN_RECORD_STORE: "postgres",
                 CONSOLE_ENABLED: "true",
             }),
@@ -201,7 +211,7 @@ describe("operator console construction", () => {
     it("refuses an unknown record store", () => {
         expect(() =>
             constructProcessingService({
-                BUSINESS_API_BASE_URL: "https://business.example",
+                CRT_BUSINESS_API_BASE_URL: "https://business.example",
                 PROCESS_RUN_RECORD_STORE: "mysql",
             }),
         ).toThrow(/PROCESS_RUN_RECORD_STORE/);
@@ -211,7 +221,7 @@ describe("operator console construction", () => {
         const directory = await mkdtemp(join(tmpdir(), "pipipi-console-"));
         const businessApi = await startBusinessApi();
         const url = await startService({
-            BUSINESS_API_BASE_URL: businessApi,
+            CRT_BUSINESS_API_BASE_URL: businessApi,
             PROCESS_RUN_RECORD_DIRECTORY: directory,
             CONSOLE_ENABLED: "true",
             ASYNC_PROCESS_RUNS_ENABLED: "false",
@@ -221,15 +231,16 @@ describe("operator console construction", () => {
             method: "POST",
             headers: { "content-type": "application/json" },
             body: JSON.stringify({
-                process: "content-processing",
+                process: "minimal-zine-poster",
                 version: "v1",
-                input: { content: "内容" },
+                input: { brief: "内容" },
             }),
         });
         const { runId } = (await execution.json()) as { runId: string };
 
         expect(await waitForRecord(url, runId)).toMatchObject({
-            status: "succeeded",
+            process: "minimal-zine-poster",
+            status: "failed",
         });
     });
 
@@ -240,7 +251,7 @@ describe("operator console construction", () => {
 
             expect(() =>
                 constructProcessingService({
-                    BUSINESS_API_BASE_URL: "https://business.example",
+                    CRT_BUSINESS_API_BASE_URL: "https://business.example",
                     PROCESS_RUN_RECORD_DIRECTORY: directory,
                     CONSOLE_ENABLED: "true",
                     CONSOLE_BASE_PATH: basePath,
@@ -254,7 +265,7 @@ async function startService(
     environment: Record<string, string>,
 ): Promise<string> {
     const constructed = constructProcessingService({
-        BUSINESS_API_BASE_URL: "https://business.example",
+        CRT_BUSINESS_API_BASE_URL: "https://business.example",
         ...environment,
     });
     runningApplications.push(constructed.application);

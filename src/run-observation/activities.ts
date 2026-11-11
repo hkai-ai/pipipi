@@ -9,8 +9,8 @@ import type {
  *
  * The same records Pino writes to stdout are appended here, so an operator can
  * still reconstruct an Attempt timeline after the container that produced it
- * has been replaced. Activity records carry no business content by design, so
- * nothing is redacted on the way in. `jsonl.ts` and `postgres.ts` are the two
+ * has been replaced. Adapters project permitted fields and sanitize diagnostics
+ * so records carry no business content. `jsonl.ts` and `postgres.ts` are the two
  * Adapters.
  */
 export type ProcessRunActivityArchive = Readonly<{

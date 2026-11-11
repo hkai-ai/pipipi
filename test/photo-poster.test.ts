@@ -90,6 +90,44 @@ const requestFor = (style: PhotoPosterStyle) => ({
     version: "v1",
     input: inputFor(style),
 });
+
+it.each([false, true])(
+    "照片海报依赖诊断保留 committed=%s 合同",
+    async (committed) => {
+        const events: unknown[] = [];
+        const executor = createProcessRunner({
+            registry: createProcessRegistry([
+                createPhotoPosterRegistration("dopamine", {
+                    agent: { compile: async () => ({ prompt }) },
+                    capability: {
+                        render: async () => {
+                            throw new PhotoPosterRenderingUnavailable({
+                                committed,
+                            });
+                        },
+                    },
+                }),
+            ]),
+            runLogSink: (event) => events.push(event),
+        });
+        expect(await executor.execute(requestFor("dopamine"))).toMatchObject({
+            error: {
+                code: committed
+                    ? "DEPENDENCY_FAILURE_AFTER_COMMIT"
+                    : "DEPENDENCY_FAILURE",
+                message: committed
+                    ? "照片海报生成或交付失败，可能已产生费用，请勿直接重新生成或重放付费操作"
+                    : "照片海报图片依赖暂时不可用",
+            },
+        });
+        expect(events).toContainEqual(
+            expect.objectContaining({
+                activity: "photo_poster_rendering",
+                diagnostic: { stage: "dependency", code: "dependency_failure" },
+            }),
+        );
+    },
+);
 const png = (width: number, height: number, background = "#F3F0E8") =>
     sharp({ create: { width, height, channels: 3, background } })
         .png()
@@ -220,7 +258,12 @@ describe("照片海报的准确版本", () => {
         );
         expect(
             await bad.executor.execute(requestFor("dopamine")),
-        ).toMatchObject({ error: { code: "AGENT_FAILURE" } });
+        ).toMatchObject({
+            error: {
+                code: "AGENT_FAILURE",
+                message: expect.stringContaining("模型结果未通过规则校验"),
+            },
+        });
         expect(bad.render).not.toHaveBeenCalled();
         for (const committed of [false, true]) {
             const run = runtime(
@@ -268,7 +311,7 @@ describe("照片海报的准确版本", () => {
     });
     it("生产 catalog 显式注册照片海报风格，未加入跳过的猫猫绘本", () => {
         const production = createProductionRuntime({
-            BUSINESS_API_BASE_URL: "https://business.example",
+            CRT_BUSINESS_API_BASE_URL: "https://business.example",
         });
         for (const style of photoPosterStyles)
             expect(
@@ -449,7 +492,7 @@ describe("漫画分镜无文字输出", () => {
             "THREE rectangular image panels",
         );
         const production = createProductionRuntime({
-            BUSINESS_API_BASE_URL: "https://business.example",
+            CRT_BUSINESS_API_BASE_URL: "https://business.example",
         });
         expect(
             production.registry.find({ id: "single-ink-manga", version: "v1" }),

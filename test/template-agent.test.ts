@@ -255,9 +255,9 @@ describe("模板生成与独立视觉复核", () => {
             true,
             "anthropic-messages",
         );
-        await expect(unsupported.agent.review(request)).rejects.toThrow(
-            "不支持 JSON Schema",
-        );
+        await expect(unsupported.agent.review(request)).rejects.toMatchObject({
+            diagnostic: { stage: "session", code: "configuration" },
+        });
         expect(unsupported.prompt).not.toHaveBeenCalled();
         expect(unsupported.dispose).toHaveBeenCalledOnce();
     });
@@ -338,7 +338,9 @@ describe("模板生成与独立视觉复核", () => {
         const { agent, prompt } = await agentFor(["{}"], false);
         await expect(
             agent.compile({ image, signal: new AbortController().signal }),
-        ).rejects.toThrow();
+        ).rejects.toMatchObject({
+            diagnostic: { stage: "session", code: "configuration" },
+        });
         expect(prompt).not.toHaveBeenCalled();
     });
     it("独立复核直接修补遗漏，未涉及内容保持不变，不请求第三次复核", async () => {

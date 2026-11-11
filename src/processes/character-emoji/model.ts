@@ -1,19 +1,17 @@
 /** 注册表情包专用 DeepSeek 4.1 Flash 模型与内存凭证，隔离全局 Pi 配置。 */
+
+import { InMemoryCredentialStore } from "@earendil-works/pi-ai";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
+import type { ModelGateway } from "../../model-gateway.js";
 
 export const characterEmojiModel = "deepseek-v4.1-flash";
 export const characterEmojiSearchModel = "deepseek-v4-flash-260425";
 export const characterEmojiProvider = "character-emoji";
-export type CharacterEmojiModelConfig = Readonly<{
-    apiKey: string;
-    baseUrl: string;
-}>;
-
-export async function createCharacterEmojiModel(
-    config: CharacterEmojiModelConfig,
-) {
-    if (!config.apiKey.trim()) throw new Error("表情包需要配置专用模型凭证");
+export async function createCharacterEmojiModel(config: ModelGateway) {
+    if (!config.apiKey?.trim() || !config.baseUrl)
+        throw new Error("表情包需要配置共享文本模型网关与凭证");
     const runtime = await ModelRuntime.create({
+        credentials: new InMemoryCredentialStore(),
         modelsPath: null,
         refreshOnCreate: false,
         allowModelNetwork: false,

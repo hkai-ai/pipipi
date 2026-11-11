@@ -1,6 +1,6 @@
 # Agent Conversations 发布与运维手册
 
-本文面向发布、SRE 和值班人员，用于启用、验证、观测和回滚 production `design-assistant/v1`。公开请求契约以 [`api.md`](api.md#agent-conversations多轮文本与图片资源) 为准；本页不定义第二套产品 API。
+本文面向发布、SRE 和值班人员，用于启用、验证、观测和回滚 production Agent Conversations。原 `design-assistant/v1` 已下线，production Agent catalog 当前为空；在登记新的生产 Agent 之前，本页的启用流程不可执行，开启 `AGENT_CONVERSATIONS_ENABLED=true` 会以 “No production Agent is registered” 在启动时失败。公开请求契约以 [`api.md`](api.md#agent-conversations多轮文本与图片资源) 为准；本页不定义第二套产品 API。
 
 ## 运行结论
 
@@ -8,7 +8,7 @@
 
 PostgreSQL 是 Conversation、Turn、幂等、Outbox、Attempt、Tool Ledger、revision 和删除墓碑的事实来源。Redis/BullMQ 只负责唤醒。owned resource service 负责 caller 图片归属、模型内容与临时读取 URL。API 和 Worker 的 readiness 会校验 PostgreSQL、Redis、资源服务、固定 Runtime Skill、Pi 模型及所有活动 Conversation 所需的 Registration revision。
 
-production Agent catalog 只有准确的 `design-assistant/v1`。它没有默认版本、回退或请求时注册；调用方也不能提交 Prompt、Context 策略、Memory、Skill、Tool、Process、模型、provider、预算、保留或运行参数。
+production Agent catalog 只登记代码中显式列出的准确 Agent identity（当前为空）。它没有默认版本、回退或请求时注册；调用方也不能提交 Prompt、Context 策略、Memory、Skill、Tool、Process、模型、provider、预算、保留或运行参数。
 
 ## 发布前检查
 
@@ -33,7 +33,7 @@ npm run test:integration:agent-runtime:local
 docker compose -f compose.integration.yaml down
 ```
 
-上述测试不调用真实模型或付费图片。真实设计建议、图片生成和资源写入 smoke 需要网络、凭证与费用，必须在候选已部署到受控 internal 环境后单独执行，不能混入确定性门禁，也不能自动重试 `DEPENDENCY_FAILURE_AFTER_COMMIT`。
+上述测试不调用真实模型或付费图片。真实 Agent、图片生成和资源写入 smoke 需要网络、凭证与费用，必须在候选已部署到受控 internal 环境后单独执行，不能混入确定性门禁，也不能自动重试 `DEPENDENCY_FAILURE_AFTER_COMMIT`。
 
 数据库必须已应用 `010_agent_conversations.mjs` 到 `013_agent_conversation_retention.mjs`。按异步发布手册运行两次 migration verify；第二次必须没有待执行 migration。不要对生产执行 migration down。
 
@@ -54,7 +54,7 @@ docker compose -f compose.integration.yaml down
 
 owned resource service 必须实现 `GET /readyz`，以及 Bearer Secret 保护的 `POST /agent-resources/inspect`、`POST /agent-resources/model-content`、`POST /agent-resources/read-projection` 和 `POST /agent-resources/process-output`。最后一个接口只接收 Worker 已成功执行的 priced Process Tool envelope，把其中业务图片复制或登记为当前 owner/Turn 的稳定资源，并返回保持原 invocation/process/version/status、但图片包含 `resourceId` 的净化 envelope。后续 `inspect` 必须能用同一 owner、Turn 和 `resourceId` 证明输出来源；失败按 after-commit 处理，不能重新执行付费 Tool。资源服务不得记录 Bearer Secret、业务图片 URL、模型内容或完整 Tool envelope。
 
-Runtime Skill 固定为 `.pi/skills/design-assistant/SKILL.md` 的准确 name/version/SHA-256。`PI_DESIGN_ASSISTANT_SKILL_DIRECTORY` 只允许部署时切换到内容完全相同的受审快照，不能绕过摘要校验。模型、provider 和 endpoint 是行为配置的一部分；任何变化都会生成新的 `configRevision`。
+每个生产 Agent 的 Runtime Skill 固定为准确 name/version/SHA-256，部署覆盖只能切换到内容完全相同的受审快照，不能绕过摘要校验。模型、provider 和 endpoint 是行为配置的一部分；任何变化都会生成新的 `configRevision`。
 
 ## 分阶段启用
 

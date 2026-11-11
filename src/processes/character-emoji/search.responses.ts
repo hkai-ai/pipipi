@@ -1,10 +1,8 @@
 /** 调用固定 DeepSeek Responses 联网搜梗，校验完成状态并保留来源。 */
 import { z } from "zod";
+import type { ModelGateway } from "../../model-gateway.js";
 import { cancellationCode, EmojiFailure } from "./diagnostics.js";
-import {
-    type CharacterEmojiModelConfig,
-    characterEmojiSearchModel,
-} from "./model.js";
+import { characterEmojiSearchModel } from "./model.js";
 import { readPlannerJson } from "./planner-output.js";
 import {
     bindResearch,
@@ -47,10 +45,10 @@ const responseSchema = z.object({
 });
 
 export class ResponsesMemeSearch implements MemeSearch {
-    readonly #config: CharacterEmojiModelConfig;
+    readonly #config: ModelGateway;
     readonly #fetch: typeof fetch;
-    constructor(config: CharacterEmojiModelConfig & { fetch?: typeof fetch }) {
-        this.#config = config;
+    constructor(config: { gateway: ModelGateway; fetch?: typeof fetch }) {
+        this.#config = config.gateway;
         this.#fetch = config.fetch ?? globalThis.fetch;
     }
     async search(
@@ -61,7 +59,7 @@ export class ResponsesMemeSearch implements MemeSearch {
         let httpStatus: number | undefined;
         try {
             options.signal.throwIfAborted();
-            if (!this.#config.apiKey.trim())
+            if (!this.#config.apiKey?.trim() || !this.#config.baseUrl)
                 throw new EmojiFailure("search", "configuration");
             let endpoint: URL;
             try {

@@ -1,4 +1,10 @@
-/** 按执行轮次展示中文步骤、结果和耗时，并折叠保留原始观测事件。 */
+/** 按执行轮次展示中文步骤、结果和耗时，并以白名单投影展示技术事件。 */
+
+import {
+    explainDiagnostic,
+    sanitizeActivityDiagnostic,
+} from "../src/process-runtime/diagnostics.js";
+import { sanitizeProcessRunLogRecord } from "../src/process-runtime/logging.js";
 import { compareAttemptActivities } from "./activity-comparison.js";
 import type { ProcessRunLogRecord, RunTimeline } from "./api.js";
 import { formatDuration, formatTime } from "./formatting.jsx";
@@ -84,6 +90,12 @@ export function Timeline({
                     </div>
                     <ol class="execution-steps">
                         {attempt.events.map((entry, index) => {
+                            const diagnostic =
+                                "diagnostic" in entry
+                                    ? sanitizeActivityDiagnostic(
+                                          entry.diagnostic,
+                                      )
+                                    : undefined;
                             const failed =
                                 "outcome" in entry &&
                                 entry.outcome !== "succeeded";
@@ -95,6 +107,21 @@ export function Timeline({
                                     <span class="step-dot" aria-hidden="true" />
                                     <div class="step-copy">
                                         <strong>{eventTitle(entry)}</strong>
+                                        {diagnostic ? (
+                                            <p>
+                                                {
+                                                    explainDiagnostic(
+                                                        diagnostic,
+                                                    ).title
+                                                }
+                                                。
+                                                {
+                                                    explainDiagnostic(
+                                                        diagnostic,
+                                                    ).next
+                                                }
+                                            </p>
+                                        ) : null}
                                         <time
                                             class="cell-meta"
                                             dateTime={entry.timestamp}
@@ -121,7 +148,15 @@ export function Timeline({
                         timeline={timeline}
                     />
                 ) : null}
-                <pre>{JSON.stringify(timeline.activities, null, 2)}</pre>
+                <pre>
+                    {JSON.stringify(
+                        timeline.activities
+                            .map(sanitizeProcessRunLogRecord)
+                            .filter((entry) => entry !== undefined),
+                        null,
+                        2,
+                    )}
+                </pre>
             </details>
         </>
     );

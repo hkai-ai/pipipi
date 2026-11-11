@@ -89,7 +89,7 @@ GPT Image 2 的官方图片指南明确支持通过 Images API 编辑一张或�
 
 ## 实现 `POST /crt-images`
 
-生产 Adapter 会调用 `BUSINESS_API_BASE_URL` 下的 `POST /crt-images`：
+生产 Adapter 会调用 `CRT_BUSINESS_API_BASE_URL` 下的 `POST /crt-images`：
 
 ```http
 POST /crt-images HTTP/1.1
@@ -180,7 +180,7 @@ GPT Image 2 负责识别参考图、保留主体关系和重绘整体构图，�
 
 ```bash
 npm test -- test/crt-process.test.ts test/crt-http.test.ts test/runtime-skills.test.ts test/startup-construction.test.ts
-npm test -- test/openai-image-generation.test.ts test/fal-image-generation.test.ts test/openai-image-config.test.ts test/image-generation-config.test.ts test/crt-local-business-api.test.ts test/crt-evidence.test.ts
+npm test -- test/openai-image-generation.test.ts test/fal-image-generation.test.ts test/image-gateway.test.ts test/image-generation-config.test.ts test/crt-local-business-api.test.ts test/crt-evidence.test.ts
 npm run check
 npm run typecheck
 npm test

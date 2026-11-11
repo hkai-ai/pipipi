@@ -17,35 +17,20 @@ function production(version: "v2" | "v3") {
         id: "character-emoji",
         environment: [
             "CRT_BUSINESS_API_BASE_URL",
-            "BUSINESS_API_BASE_URL",
             "PHOTO_POSTER_API_TIMEOUT_MS",
-            "CHARACTER_EMOJI_API_KEY",
-            "CHARACTER_EMOJI_BASE_URL",
-            "CHARACTER_EMOJI_PLANNER_BASE_URL",
-            "CHARACTER_EMOJI_PLANNER_API_KEY",
         ],
         installedSkills: () => createCharacterEmojiSkillRefs(),
-        build: ({ environment, skills, positiveInteger }) => {
-            const config = {
-                apiKey: environment.CHARACTER_EMOJI_API_KEY ?? "",
-                baseUrl:
-                    environment.CHARACTER_EMOJI_BASE_URL?.trim() ||
-                    "https://llmapi.memene.cn/openai/v1",
-            };
+        build: ({ environment, pi, skills, positiveInteger }) => {
+            const gateway = pi.gateway ?? {};
             return createCharacterEmojiRegistration({
                 version,
                 onDiagnostic: (record) => logger.warn(record, record.event),
                 onObservation: (record) => logger.info(record, record.event),
                 agent: new PiCharacterEmojiAgent({
                     version,
-                    apiKey:
-                        environment.CHARACTER_EMOJI_PLANNER_API_KEY?.trim() ||
-                        config.apiKey,
-                    baseUrl:
-                        environment.CHARACTER_EMOJI_PLANNER_BASE_URL?.trim() ||
-                        config.baseUrl,
+                    gateway,
                     skills,
-                    search: new ResponsesMemeSearch(config),
+                    search: new ResponsesMemeSearch({ gateway }),
                 }),
                 capability: new HttpCharacterEmojiRenderingCapability({
                     baseUrl: parseCrtBusinessApiBaseUrl(environment),

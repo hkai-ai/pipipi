@@ -15,7 +15,6 @@ function photoPosterProduction(style: PhotoPosterStyle): ProductionProcess {
         id: photoPosterProcessId(style),
         environment: [
             "CRT_BUSINESS_API_BASE_URL",
-            "BUSINESS_API_BASE_URL",
             "PHOTO_POSTER_API_TIMEOUT_MS",
         ],
         installedSkills: () => createPhotoPosterSkillRefs(style),

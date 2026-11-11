@@ -1,4 +1,5 @@
 /** agent.ts 里 ComposedAgent Port 的生产 Pi 实现：把 Step Tool 挂成 Pi Tool，跑一段受限的规划 Session */
+
 import {
     defineTool,
     type ModelRuntime,
@@ -9,6 +10,7 @@ import type { OpenAIApiMode } from "../../agent-runtime/pi.js";
 import type { PiSessionFactory } from "../../agent-runtime/session.js";
 import type { SkillRef } from "../../agent-runtime/skills.js";
 import { PiTooledAgent } from "../../agent-runtime/tooled.js";
+import type { ModelGateway } from "../../model-gateway.js";
 import type { ComposedAgent, ComposedAgentRequest } from "./agent.js";
 import type { StepTool } from "./tools.js";
 
@@ -18,7 +20,7 @@ export type PiComposedAgentOptions = {
     agentDir?: string;
     provider?: string;
     model?: string;
-    openAIBaseUrl?: string;
+    gateway?: ModelGateway;
     openAIApiMode?: OpenAIApiMode;
     modelRuntime?: ModelRuntime;
     sessionFactory?: PiSessionFactory;

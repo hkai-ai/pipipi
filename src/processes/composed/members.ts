@@ -17,22 +17,6 @@ export type MemberSpec = ProcessToolSpec;
  */
 export const composedMembers: readonly MemberSpec[] = Object.freeze([
     Object.freeze({
-        process: "content-processing",
-        version: "v1",
-        toolName: "run_content_processing",
-        description:
-            "Refine one block of business text through the approved content service. Input {content}; output {content}.",
-        sideEffect: "none" as const,
-    }),
-    Object.freeze({
-        process: "titled-content-processing",
-        version: "v1",
-        toolName: "run_titled_content_processing",
-        description:
-            "Combine a title with a body and refine the result through the approved content service. Input {title, body}; output {title, content}.",
-        sideEffect: "none" as const,
-    }),
-    Object.freeze({
         process: "minimal-zine-poster",
         version: "v1",
         toolName: "run_minimal_zine_poster",

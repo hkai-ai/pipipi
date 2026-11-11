@@ -84,6 +84,7 @@ browserDescribe("operator observation browser", () => {
             activity: "planning",
             outcome: "failed",
             durationMs: 1234,
+            diagnostic: { stage: "json", code: "invalid_json" },
         });
         await activities.flush();
         let executions = 0;
@@ -133,7 +134,7 @@ browserDescribe("operator observation browser", () => {
             await page.getByRole("heading", { name: "运行概览" }).waitFor();
             await page.getByText("56", { exact: true }).waitFor();
             await page.getByText("54", { exact: true }).first().waitFor();
-            const output = path.resolve("artifacts/console-iteration");
+            const output = path.resolve("artifacts/agent-diagnostics/console");
             await mkdir(output, { recursive: true });
             await page.screenshot({
                 path: path.join(output, "overview.png"),
@@ -203,6 +204,14 @@ browserDescribe("operator observation browser", () => {
                 .click();
             await page.getByRole("heading", { name: "运行详情" }).waitFor();
             await page
+                .getByRole("heading", {
+                    name: "解析模型 JSON：模型结果不是合法 JSON",
+                })
+                .waitFor();
+            expect(await page.locator(".failure-notice").innerText()).toContain(
+                "请检查模型结构化输出能力与编译规则",
+            );
+            await page
                 .getByText("失败步骤：业务处理步骤", { exact: true })
                 .waitFor();
             expect(await page.locator("details[open]").count()).toBe(0);
@@ -210,6 +219,78 @@ browserDescribe("operator observation browser", () => {
                 path: path.join(output, "run-detail.png"),
                 fullPage: true,
             });
+            for (const [code, diagnosticCode] of [
+                ["DEPENDENCY_FAILURE", "internal_failure"],
+                ["DEPENDENCY_FAILURE", "dependency_failure"],
+                ["DEPENDENCY_FAILURE_AFTER_COMMIT", "internal_failure"],
+                ["DEPENDENCY_FAILURE_AFTER_COMMIT", "dependency_failure"],
+            ]) {
+                await page.route("**/runs/failure-v3-00", async (route) => {
+                    const response = await route.fetch();
+                    await route.fulfill({
+                        response,
+                        json: { ...(await response.json()), errorCode: code },
+                    });
+                });
+                await page.route(
+                    "**/runs/failure-v3-00/activities",
+                    async (route) => {
+                        const response = await route.fetch();
+                        const body = await response.json();
+                        await route.fulfill({
+                            response,
+                            json: {
+                                ...body,
+                                activities: body.activities.map(
+                                    (entry: Record<string, unknown>) => ({
+                                        ...entry,
+                                        extra: "PRIVATE_EVENT_SENTINEL",
+                                        diagnostic: {
+                                            stage:
+                                                diagnosticCode ===
+                                                "dependency_failure"
+                                                    ? "dependency"
+                                                    : "execution",
+                                            code: diagnosticCode,
+                                            message: "PRIVATE_EVENT_SENTINEL",
+                                        },
+                                    }),
+                                ),
+                            },
+                        });
+                    },
+                );
+                await page.reload();
+                const expected =
+                    code === "DEPENDENCY_FAILURE"
+                        ? "重新提交前确认原请求是否已受理"
+                        : "不应直接重新生成或重放付费操作";
+                await page
+                    .locator(".failure-notice")
+                    .getByText(expected, { exact: false })
+                    .waitFor();
+                expect(
+                    await page
+                        .locator(".failure-notice")
+                        .getByText(expected, { exact: false })
+                        .count(),
+                ).toBe(1);
+                expect(
+                    await page.locator(".failure-notice h2").innerText(),
+                ).toBe(
+                    code === "DEPENDENCY_FAILURE"
+                        ? "外部依赖失败"
+                        : "副作用已提交，交付失败",
+                );
+                await page
+                    .getByText("技术详情：原始事件与步骤标识", { exact: true })
+                    .click();
+                expect(
+                    await page.locator(".technical-details pre").innerText(),
+                ).not.toContain("PRIVATE_EVENT_SENTINEL");
+                await page.unroute("**/runs/failure-v3-00");
+                await page.unroute("**/runs/failure-v3-00/activities");
+            }
             await page.getByRole("link", { name: "返回查询页面" }).click();
             await page.getByText("已加载 50 条").waitFor();
             expect(page.url()).toBe(filteredUrl);

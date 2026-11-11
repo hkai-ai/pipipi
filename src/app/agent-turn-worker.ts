@@ -7,11 +7,11 @@ import { createOwnedServiceAgentResourceResolver } from "../agent-conversations/
 import { createPostgresAgentConversationStore } from "../agent-conversations/store.postgres.js";
 import { createPostgresAgentToolLedger } from "../agent-conversations/tools.postgres.js";
 import { createAgentTurnWorker } from "../agent-conversations/worker.js";
-import { createProductionAgentRuntime } from "../agents/catalog.js";
 import {
-    designAssistantDeletionGraceMs,
-    designAssistantRetentionMs,
-} from "../agents/design-assistant.js";
+    agentConversationDeletionGraceMs,
+    agentConversationRetentionMs,
+    createProductionAgentRuntime,
+} from "../agents/catalog.js";
 import { assertAgentRegistrationRevisions } from "../agents/postgres.js";
 import type {
     ProcessAttemptRunner,
@@ -63,8 +63,8 @@ export function constructAgentTurnWorker(options: {
     });
     const store = createPostgresAgentConversationStore({
         pool,
-        retentionMs: designAssistantRetentionMs,
-        deletionGraceMs: designAssistantDeletionGraceMs,
+        retentionMs: agentConversationRetentionMs,
+        deletionGraceMs: agentConversationDeletionGraceMs,
         claimLeaseMs,
         admission: agentAdmission(environment),
     });

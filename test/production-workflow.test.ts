@@ -2,6 +2,27 @@ import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 
 describe("Production CI/CD workflow", () => {
+    it("forwards the shared text gateway and scans its credential in paid acceptance evidence", async () => {
+        const workflow = await readFile(
+            ".github/workflows/production-ci-cd.yml",
+            "utf8",
+        );
+        const acceptance = step(
+            workflow,
+            "Run three approved news image Process journeys",
+        );
+        const evidence = step(workflow, "Verify safe same-revision evidence");
+        expect(acceptance).toContain(
+            `MODEL_GATEWAY_BASE_URL: \${{ vars.MODEL_GATEWAY_BASE_URL }}`,
+        );
+        expect(acceptance).toContain(
+            `MODEL_GATEWAY_API_KEY: \${{ secrets.MODEL_GATEWAY_API_KEY }}`,
+        );
+        expect(evidence).toContain(
+            `MODEL_GATEWAY_API_KEY: \${{ secrets.MODEL_GATEWAY_API_KEY }}`,
+        );
+        expect(evidence).toContain('"$MODEL_GATEWAY_API_KEY"');
+    });
     it("keeps durable async acceptance separate, ordered, and required for deploy", async () => {
         const [workflow, manifestSource] = await Promise.all([
             readFile(".github/workflows/production-ci-cd.yml", "utf8"),

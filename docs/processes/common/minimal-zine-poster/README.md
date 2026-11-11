@@ -42,6 +42,12 @@ Agent 没有 Tool，也不能使用 Shell、文件系统、代码编辑或任意
 
 ## 错误与副作用
 
+内部 `POST /posters` 由现有 `src/business-api/crt-server.ts` 提供，与 CRT、照片海报等共用图片服务，不需要增加部署角色。生产装配只连接必填的 `CRT_BUSINESS_API_BASE_URL`。正常入口为 `npm run dev:business-api` / `npm run start:business-api`，配置见 [发布手册](../../../mvp-release-runbook.md)。
+
+服务复用已配置的图片生成 Adapter、模型与质量，固定请求 1024×1696 PNG；校验实际格式、尺寸和近似 3:5 比例，保留原始生成字节，不裁切、不自动重绘。生产使用现有 OSS，对象键为 `minimal-zine-poster/<runId>.png`；签名 URL 透传过期时间。无存储的离线测试可以读取服务自身的 `/posters/<runId>.png`。
+
+生图前持久化幂等占位，只保存输入摘要；接受普通 Run ID 和 Process Tool 派生的 `<父RunId>.<调用序号>`。相同键和输入完成后重放图片引用；相同键更换输入拒绝。处理中、提交结果未知或上传失败时保留未完成记录，重复请求和重启后都不再次调用图片 Adapter。调用方取消会传到生图和存储。该保护针对同一 `runId`；重新提交同步 `/execute` 会创建新的 Run，不能当作恢复旧请求。
+
 | 阶段 | 公开错误 | 条件 |
 | --- | --- | --- |
 | 输入接受 | `INVALID_INPUT` | brief 或 text 不符合 Schema，或包含额外字段 |
@@ -60,19 +66,21 @@ Agent 没有 Tool，也不能使用 Shell、文件系统、代码编辑或任意
 | Agent 与 Pi Adapter | [`src/processes/poster/agent.ts`](../../../../src/processes/poster/agent.ts)、[`src/processes/poster/agent.pi.ts`](../../../../src/processes/poster/agent.pi.ts) |
 | Capability 与 HTTP Adapter | [`src/processes/poster/capability.ts`](../../../../src/processes/poster/capability.ts)、[`src/processes/poster/capability.http.ts`](../../../../src/processes/poster/capability.http.ts) |
 | Skill 绑定、规则与来源 | [`src/processes/poster/skills.ts`](../../../../src/processes/poster/skills.ts)、[`minimal-zine-poster-prompt`](../../../../.pi/skills/minimal-zine-poster-prompt/) |
-| 确定性 Process 与 Adapter 测试 | [`test/poster-process.test.ts`](../../../../test/poster-process.test.ts)、[`test/poster-http.test.ts`](../../../../test/poster-http.test.ts)、[`test/runtime-skills.test.ts`](../../../../test/runtime-skills.test.ts) |
+| 确定性 Process 与 Adapter 测试 | [`test/poster-process.test.ts`](../../../../test/poster-process.test.ts)、[`test/poster-business-api.test.ts`](../../../../test/poster-business-api.test.ts)、[`test/poster-http.test.ts`](../../../../test/poster-http.test.ts)、[`test/runtime-skills.test.ts`](../../../../test/runtime-skills.test.ts) |
 | 显式真实业务验收 | [`examples/poster-business-acceptance.ts`](../../../../examples/poster-business-acceptance.ts) |
 
 不联网、不产生模型费用的聚焦验证：
 
 ```bash
-npm test -- test/poster-process.test.ts test/poster-http.test.ts test/runtime-skills.test.ts
+npm test -- test/poster-process.test.ts test/poster-business-api.test.ts test/poster-http.test.ts test/runtime-skills.test.ts
 ```
 
-真实业务验收会联网、调用图片模型，并可能写入对象存储。默认 OpenAI Adapter；设置 `IMAGE_PROVIDER=fal` 与 `FAL_KEY` 可改用 FAL：
+历史真实业务验收使用临时 `/posters` 实现，会联网、调用图片模型，并可能写入对象存储；它不替代共享图片服务部署后的验证。默认 OpenAI Adapter；设置 `IMAGE_PROVIDER=fal` 与 `FAL_KEY` 可改用 FAL：
 
 ```bash
 npm run accept:poster-business
 ```
 
 运行前必须确认凭证、费用和测试内容。环境变量、判据和 `artifacts/` 报告位置见 [`experiments.md`](../../../experiments.md)。当前版本不做自动看图质检、自动重绘或参考图转换。
+
+实际共享图片服务的单次验收使用 `examples/poster-shared-service-acceptance.ts`，不创建替代 Business API。运行条件、付费授权开关与脱敏报告见 [实验说明](../../../experiments.md)。

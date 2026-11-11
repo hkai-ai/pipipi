@@ -1,4 +1,5 @@
 /** 按 Role 声明并校验部署所需的环境变量，缺失或生产环境不合规时报错 */
+import { modelGatewayVariables } from "../model-gateway.js";
 import type { StartupEnvironment } from "./config.js";
 
 export const deploymentRoles = Object.freeze([
@@ -27,7 +28,7 @@ export type DeploymentEnvironmentCheckOptions = Readonly<{
 
 const variablesByRole: Readonly<Record<DeploymentRole, readonly string[]>> =
     Object.freeze({
-        api: Object.freeze(["BUSINESS_API_BASE_URL"]),
+        api: Object.freeze(["CRT_BUSINESS_API_BASE_URL"]),
         "crt-business-api": Object.freeze([
             "IMAGE_PROVIDER",
             "FAL_KEY",
@@ -39,7 +40,7 @@ const variablesByRole: Readonly<Record<DeploymentRole, readonly string[]>> =
         ]),
         "process-dispatcher": Object.freeze(["DATABASE_URL", "REDIS_URL"]),
         "process-worker": Object.freeze([
-            "BUSINESS_API_BASE_URL",
+            "CRT_BUSINESS_API_BASE_URL",
             "DATABASE_URL",
             "REDIS_URL",
             "PROCESS_RUN_ACCEPTED_INPUT_RETENTION_MS",
@@ -121,7 +122,18 @@ export function checkDeploymentEnvironment(
     role: DeploymentRole,
     options: DeploymentEnvironmentCheckOptions = {},
 ): DeploymentEnvironmentCheck {
+    const imageGatewayVariables =
+        options.includeProviderCredentials && role === "crt-business-api"
+            ? [
+                  ...((environment.IMAGE_PROVIDER?.trim() || "openai") ===
+                  "openai"
+                      ? modelGatewayVariables(environment, "image")
+                      : []),
+                  ...modelGatewayVariables(environment, "character-image"),
+              ]
+            : [];
     const requiredCandidates = [
+        ...imageGatewayVariables,
         ...variablesByRole[role],
         ...(role === "api" && environment.ASYNC_PROCESS_RUNS_ENABLED === "true"
             ? asyncApiVariables
@@ -152,7 +164,7 @@ export function checkDeploymentEnvironment(
         ...(options.includeProviderCredentials &&
         agentRoles.includes(role) &&
         environment.PI_PROVIDER === "openai"
-            ? ["OPENAI_API_KEY"]
+            ? modelGatewayVariables(environment)
             : []),
     ];
     const requiredVariables = Object.freeze([...new Set(requiredCandidates)]);

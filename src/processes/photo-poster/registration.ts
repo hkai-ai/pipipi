@@ -1,6 +1,11 @@
 /** 照片海报 Process 的准确版本契约与执行定义。 */
 import { z } from "zod";
 import {
+    agentDiagnostic,
+    agentFailureMessage,
+} from "../../agent-runtime/diagnostics.js";
+import { dependencyDiagnostic } from "../../process-runtime/diagnostics.js";
+import {
     defineProcessRegistration,
     failProcess,
     type ProcessRegistration,
@@ -115,9 +120,14 @@ export function createPhotoPosterRegistration(
                                 ...(design ? { design } : {}),
                             }),
                         ).prompt,
+                    agentDiagnostic,
                 );
-            } catch {
-                return failProcess("AGENT_FAILURE", "照片海报规则编译失败");
+            } catch (error) {
+                context.signal.throwIfAborted();
+                return failProcess(
+                    "AGENT_FAILURE",
+                    agentFailureMessage("照片海报规则编译", error),
+                );
             }
             context.signal.throwIfAborted();
             const travel =
@@ -196,6 +206,11 @@ export function createPhotoPosterRegistration(
                         }
                         return result;
                     },
+                    (error) =>
+                        dependencyDiagnostic(
+                            error instanceof PhotoPosterRenderingUnavailable ||
+                                error instanceof z.ZodError,
+                        ),
                 );
                 return { style, image };
             } catch (error) {
@@ -208,7 +223,10 @@ export function createPhotoPosterRegistration(
                             !error.committed
                             ? "DEPENDENCY_FAILURE"
                             : "DEPENDENCY_FAILURE_AFTER_COMMIT",
-                        "照片海报生成或交付失败，请核对执行记录后再试",
+                        error instanceof PhotoPosterRenderingUnavailable &&
+                            !error.committed
+                            ? "照片海报图片依赖暂时不可用"
+                            : "照片海报生成或交付失败，可能已产生费用，请勿直接重新生成或重放付费操作",
                     );
                 }
                 throw error;
