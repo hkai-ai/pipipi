@@ -1,6 +1,6 @@
 # 业务接口文档
 
-本文面向业务调用方和调用 Agent，记录二十五个 Business Process（默认启用二十四个）、Agent Conversations、重试与通知契约，以及临时开放的内部评测接口。场景列帮助产品找到契约；请求仍只提交准确 Process 或 Agent 版本和业务输入。其中 `composed-task/v1` 随应用发布但默认关闭；production Agent catalog 精确登记 `design-assistant/v1`，其四个业务路由由部署开关控制且默认关闭。
+本文面向业务调用方和调用 Agent，记录二十七个 Business Process（默认启用二十六个）、Agent Conversations、重试与通知契约，以及临时开放的内部评测接口。场景列帮助产品找到契约；请求仍只提交准确 Process 或 Agent 版本和业务输入。其中 `composed-task/v1` 随应用发布但默认关闭；production Agent catalog 精确登记 `design-assistant/v1`，其四个业务路由由部署开关控制且默认关闭。
 
 ## Agent 能力接入结论
 
@@ -1227,3 +1227,9 @@ Memebuy 分步工作台可保留同一替换方案反复生图。`template-image
 先发布支持此字段的 Pi API 与内部图片 Business API，再发布 Memebuy Web 和 Worker；旧方案与旧成图文件原样兼容。
 
 豆包以 "Doubao" 身份提供原版头像延展的 Q 版（仅 "Chibi"），不提供少女版。固定参考图为修正肩颈比例后的版本，保留棕色侧分短发、黑色上衣和 3D 卡通质感。构思同步语音搭子预设及三条原创素材：悄悄问外放答、客气到挂不了电话、正经解答变唠家常；这些不是已核实的流行梗。参考来源为 https://apps.apple.com/cn/app/id6459478672 ，不沿用 AI-Fanworks 素材许可。先部署此角色支持，再解除调用方的远程保护。
+
+## 模板目标视觉归属（Process v2）
+
+`template-from-image/v2` 与 `template-from-source/v2` 分别沿用同名 v1 的输入、审批、错误和图片交付合同，输出模板的 `runtimeSemantics.version` 固定为 `3`，`inputSchema.version` 仍为 `2`。目标增加可选 `appearance: string[]` 与 `pose: string[]`，每类最多 40 条，每条最多 500 字符；正式事实不截断。全局 `visualContract` 仅包含不依附具体目标的视觉规则，拆分后数组可以为空。输出结构或归属复核不通过仍失败，不以 v1 结果兜底。
+
+`template-from-source/v2` 精确依赖 `template-from-image/v2`。两项 v1 接口仍输出运行语义 v2；调用方必须显式提交版本，不支持 latest 或自动回退。发布顺序及历史任务恢复见 [视觉归属升级](processes/memebuy/template-from-image/visual-ownership-v3.md)。

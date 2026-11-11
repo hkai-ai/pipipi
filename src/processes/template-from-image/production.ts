@@ -7,19 +7,25 @@ import { createTemplateSkillRefs } from "./skills.js";
 
 const logger = pino({ name: "template-diagnostics" });
 
-export const templateProduction = defineProductionProcess({
-    id: "template-from-image",
-    environment: ["TEMPLATE_MODEL"],
-    installedSkills: () => createTemplateSkillRefs(),
-    build: ({ pi, skills, environment }) =>
-        createTemplateRegistration({
-            onDiagnostic: (record) => logger.warn(record, record.event),
-            agent: new PiTemplateAgent({
-                ...pi,
-                skills,
-                model:
-                    environment.TEMPLATE_MODEL?.trim() ||
-                    (pi.provider === "openai" ? "gpt-5.4" : pi.model),
+const createProduction = (runtimeVersion: 2 | 3) =>
+    defineProductionProcess({
+        id: "template-from-image",
+        environment: ["TEMPLATE_MODEL"],
+        installedSkills: () => createTemplateSkillRefs(),
+        build: ({ pi, skills, environment }) =>
+            createTemplateRegistration({
+                runtimeVersion,
+                onDiagnostic: (record) => logger.warn(record, record.event),
+                agent: new PiTemplateAgent({
+                    runtimeVersion,
+                    ...pi,
+                    skills,
+                    model:
+                        environment.TEMPLATE_MODEL?.trim() ||
+                        (pi.provider === "openai" ? "gpt-5.4" : pi.model),
+                }),
             }),
-        }),
-});
+    });
+
+export const templateProduction = createProduction(2);
+export const templateV2Production = createProduction(3);

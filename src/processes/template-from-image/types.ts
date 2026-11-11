@@ -27,7 +27,7 @@ export type Template = {
     promptTemplate: string;
     inputSchema: { version: 2; slots: TemplateSlot[] };
     runtimeSemantics: {
-        version: 2;
+        version: 2 | 3;
         targetInstances: {
             id: string;
             kind: "identity_subject" | "identity_group" | "content_element";
@@ -35,6 +35,8 @@ export type Template = {
             region: string;
             minMembers?: number;
             maxMembers?: number;
+            appearance?: string[];
+            pose?: string[];
         }[];
         inputBindings: Record<
             string,

@@ -16,6 +16,7 @@ import {
     templateInputSchema,
     templateOutputSchema,
     templateSemanticIssues,
+    templateV3OutputSchema,
 } from "./contract.js";
 import {
     type TemplateDiagnostic,
@@ -33,6 +34,7 @@ import { sourceAnalysisIssues } from "./quality.js";
 
 export function createTemplateRegistration(options: {
     agent: TemplateAgent;
+    runtimeVersion?: 2 | 3;
     loadImage?: TemplateImageLoader;
     onDiagnostic?: (record: TemplateDiagnostic) => void;
 }): ProcessRegistration {
@@ -42,12 +44,14 @@ export function createTemplateRegistration(options: {
     )
         throw new Error("模板 Agent 必须分别提供 compile 与独立 review");
     const loadImage = options.loadImage ?? loadTemplateImage;
+    const version = options.runtimeVersion ?? 2;
     return defineProcessRegistration({
         id: "template-from-image",
-        version: "v1",
+        version: version === 3 ? "v2" : "v1",
         timeoutMs: 480_000,
         inputSchema: templateInputSchema,
-        outputSchema: templateOutputSchema,
+        outputSchema:
+            version === 3 ? templateV3OutputSchema : templateOutputSchema,
         activities: [
             "template_image_loading",
             "template_compilation",
@@ -174,6 +178,14 @@ export function createTemplateRegistration(options: {
                     );
                 try {
                     plan = readTemplatePlan(output);
+                    if (
+                        draftFromPlan(plan).runtimeSemantics.version !== version
+                    ) {
+                        plan = undefined;
+                        throw new TemplateContractError([
+                            `runtimeSemantics.version 必须为 ${version}`,
+                        ]);
+                    }
                     break;
                 } catch (error) {
                     if (!(error instanceof TemplateContractError)) throw error;
@@ -230,6 +242,10 @@ export function createTemplateRegistration(options: {
             }
             try {
                 const candidate = readTemplateCandidate(reviewed);
+                if (candidate.draft.runtimeSemantics.version !== version)
+                    throw new TemplateContractError([
+                        `runtimeSemantics.version 必须为 ${version}`,
+                    ]);
                 const review =
                     reviewed &&
                     typeof reviewed === "object" &&

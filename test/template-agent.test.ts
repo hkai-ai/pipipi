@@ -50,6 +50,7 @@ async function agentFor(
     texts: string[],
     supportsImage = true,
     api = "openai-completions",
+    runtimeVersion: 2 | 3 = 2,
 ) {
     const prompts: string[] = [];
     const payloads: unknown[] = [];
@@ -74,7 +75,7 @@ async function agentFor(
                 noTools: "all",
                 tools: [],
                 customTools: [],
-                thinkingLevel: "medium",
+                thinkingLevel: runtimeVersion === 3 ? "low" : "medium",
             });
             expect(options.resourceLoader?.getSystemPrompt()).toContain(
                 "团队纪念照的专业图标",
@@ -95,7 +96,10 @@ async function agentFor(
                     agent: control,
                     prompt: async (text: string, options?: unknown) => {
                         payloads.push(
-                            await control.onPayload?.({ messages: [] }, model),
+                            await control.onPayload?.(
+                                { messages: [], max_completion_tokens: 128000 },
+                                model,
+                            ),
                         );
                         await prompt(text, options);
                     },
@@ -113,6 +117,7 @@ async function agentFor(
         },
     );
     const agent = new PiTemplateAgent({
+        runtimeVersion,
         skills: createTemplateSkillRefs(),
         modelRuntime: await ModelRuntime.create({
             modelsPath: null,
@@ -401,4 +406,32 @@ describe("模板生成与独立视觉复核", () => {
             result.review.reviewedDraftSha256,
         );
     });
+});
+
+it("v3 模板使用低延迟思考且移除 SDK 自动补入的输出上限，旧版保留原请求", async () => {
+    const plan = toTemplatePlan(candidate());
+    for (const version of [2, 3] as const) {
+        const service = await agentFor(
+            [JSON.stringify(compactPlan(plan))],
+            true,
+            "openai-completions",
+            version,
+        );
+        await service.agent.compile({
+            image,
+            signal: new AbortController().signal,
+        });
+        expect(service.payloads[0]).toMatchObject({
+            response_format: { type: "json_object" },
+        });
+        if (version === 3)
+            expect(service.payloads[0]).not.toHaveProperty(
+                "max_completion_tokens",
+            );
+        else
+            expect(service.payloads[0]).toHaveProperty(
+                "max_completion_tokens",
+                128000,
+            );
+    }
 });

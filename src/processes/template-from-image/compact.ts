@@ -37,7 +37,9 @@ const compactFields = templatePlanAnalysisSchema.extend({
     spatialRelations: z
         .array(z.tuple([relation.componentIds, brief, relation.relationIndex]))
         .max(64)
-        .describe("每行 [componentIds, 图像证据, relationIndex]"),
+        .describe(
+            "每行 [componentIds, 图像证据, 关系引用]；全局可用 relations 索引，v3 目标动作使用 {targetId,field:'pose',index}",
+        ),
     slotCoverageReview: z
         .record(
             shape.slotCoverageReview.keyType,
@@ -146,6 +148,9 @@ const compactReviewSchema = z.strictObject({
                         selections: compactCheckSchema.shape.evidence.max(2),
                         visualContract:
                             compactCheckSchema.shape.evidence.max(4),
+                        targetInstances: compactCheckSchema.shape.evidence
+                            .max(4)
+                            .optional(),
                     }),
                 ]),
             }),
@@ -172,6 +177,9 @@ const compactReviewSchema = z.strictObject({
                         textRegions: compactCheckSchema.shape.evidence.max(4),
                         visualContract:
                             compactCheckSchema.shape.evidence.max(4),
+                        targetInstances: compactCheckSchema.shape.evidence
+                            .max(4)
+                            .optional(),
                     }),
                 ]),
             }),
@@ -202,6 +210,15 @@ export const compactInspectionSchema = templateInspectionSchema.extend({
 
 export function templateInspectionResponseSchema(plan: object, digest: string) {
     const paths = templateCorrectionPaths(plan);
+    const isV3 = z
+        .object({
+            analysis: z.object({
+                semanticModel: z.object({
+                    runtimeSemantics: z.object({ version: z.literal(3) }),
+                }),
+            }),
+        })
+        .safeParse(plan).success;
     const evidencePaths = inspectionEvidencePaths(plan).filter(
         (path) =>
             compactCheckSchema.shape.evidence.element.shape.path.safeParse(path)
@@ -272,6 +289,13 @@ export function templateInspectionResponseSchema(plan: object, digest: string) {
                     visualContractRespectsInputs: check.extend({
                         evidence: z
                             .strictObject({
+                                ...(isV3
+                                    ? {
+                                          targetInstances: evidenceGroup(
+                                              "/analysis/semanticModel/runtimeSemantics/targetInstances",
+                                          ).max(2),
+                                      }
+                                    : {}),
                                 observations: evidenceGroup(
                                     "/analysis/fieldEvidence/visualContract",
                                 ).max(2),
@@ -280,7 +304,7 @@ export function templateInspectionResponseSchema(plan: object, digest: string) {
                                 ).max(2),
                                 visualContract: evidenceGroup(
                                     "/analysis/semanticModel/runtimeSemantics/visualContract",
-                                ),
+                                ).max(isV3 ? 2 : 4),
                             })
                             .describe(
                                 "先独立看图找遗漏与误读，再逐项判断保留或舍弃是否合理，最后检查执行约束与开放输入。不得仅确认已有引用一致；发现重要特征未观察或无理由舍弃，修正其观察、取舍及相关约束后再报告",
@@ -425,6 +449,7 @@ export function expandTemplateInspection(value: unknown) {
                               ...visualCheck.evidence.observations,
                               ...visualCheck.evidence.selections,
                               ...visualCheck.evidence.visualContract,
+                              ...(visualCheck.evidence.targetInstances ?? []),
                           ],
                 },
                 slotRecallComplete: {

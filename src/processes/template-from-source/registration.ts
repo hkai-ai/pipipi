@@ -10,6 +10,7 @@ import {
 import {
     templateInputSchema,
     templateOutputSchema,
+    templateV3OutputSchema,
 } from "../template-from-image/contract.js";
 import {
     loadTemplateImage,
@@ -199,15 +200,26 @@ export function createTemplateRenderRegistration(
 }
 export function createTemplateSourceRegistration(options: {
     compiler: ProcessRegistration;
+    runtimeVersion?: 2 | 3;
     attemptRunner: ProcessAttemptRunner;
     preparation: TemplateImagePreparation;
 }): ProcessRegistration {
+    const outputSchema =
+        options.runtimeVersion === 3
+            ? templateV3OutputSchema
+            : templateOutputSchema;
+    const compilerVersion = options.runtimeVersion === 3 ? "v2" : "v1";
+    if (
+        options.compiler.identity.id !== "template-from-image" ||
+        options.compiler.identity.version !== compilerVersion
+    )
+        throw new Error("模板编译成员版本不匹配");
     return defineProcessRegistration({
         id: "template-from-source",
-        version: "v1",
+        version: options.runtimeVersion === 3 ? "v2" : "v1",
         timeoutMs: 570000,
         inputSchema: compilationInputSchema,
-        outputSchema: templateOutputSchema.extend({
+        outputSchema: outputSchema.extend({
             coverImageUrl: preparedTemplateImageSchema.shape.url,
             preparedImage: preparedTemplateImageSchema,
         }),
@@ -239,7 +251,7 @@ export function createTemplateSourceRegistration(options: {
                 if (result.status !== "succeeded")
                     throw new Error("编译未完成");
                 return {
-                    ...templateOutputSchema.parse(result.output),
+                    ...outputSchema.parse(result.output),
                     coverImageUrl: image.url,
                     preparedImage: preparedTemplateImageSchema.parse({
                         url: image.url,

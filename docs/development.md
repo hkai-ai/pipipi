@@ -491,3 +491,5 @@ npm run check:deployment-env -- api
 ### 角色表情包 v2 场景合同
 
 单图和漫画每格只有一份 `scene`，以动作、作用对象和可见结果组织构图，核心因果不能仅靠台词或旁白解释；角色列表只登记身份和标识；page 与 frame 只描述画格几何。关键行为或可辨认痕迹留在 scene，adaptation 根据已写画面归纳，同次自检检查手脚占用、支撑和道具接触。不要重新增加同一事实的动作表、构图总结或跨格状态副本。运行时保留结构、来源和准确文字校验；语义质量使用固定材料对照验收，不用结构通过代替画面正确。源规则在 `src/processes/character-emoji/scene-prompt.ts`，公开合同在 `scene.ts`；修改后运行 Skill 生成器并核对摘要。
+
+模板 v3 的新接口与旧接口复用执行治理，版本由 Registration 固定，不接受请求覆盖。跨仓库 Schema 构建、合同验证及付费验收命令见 [视觉归属升级](processes/memebuy/template-from-image/visual-ownership-v3.md)。

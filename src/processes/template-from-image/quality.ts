@@ -11,6 +11,7 @@ import {
     textRegionSchema,
 } from "./analysis-contract.js";
 import type { TemplateDraft } from "./types.js";
+import { targetFacts } from "./visual-facts.js";
 import {
     visualSelectionIssues,
     visualSelectionsSchema,
@@ -150,8 +151,8 @@ export const templateAnalysisSchema = z.strictObject({
     mediumComposition: z
         .strictObject({
             medium: fact,
-            styleTraits: facts.min(1),
-            composition: facts.min(1),
+            styleTraits: facts,
+            composition: facts,
             colorAndLight: facts,
         })
         .describe(
@@ -361,6 +362,10 @@ function sameValues(a: readonly string[], b: readonly string[]): boolean {
 export function sourceAnalysisIssues(
     draft: TemplateDraft,
     analysis: {
+        textRegions?: readonly Pick<
+            z.infer<typeof textRegionSchema>,
+            "id" | "action" | "exactText"
+        >[];
         componentGraph: readonly { id: string }[];
         slotCoverageReview: Record<
             (typeof reviewAxes)[number],
@@ -386,6 +391,35 @@ export function sourceAnalysisIssues(
             ? []
             : [`${component.id}: 组件遗漏八轴审查`],
     );
+    const runtime = draft.runtimeSemantics;
+    const visualText = JSON.stringify(
+        runtime.version === 3
+            ? {
+                  visual: runtime.visualContract,
+                  targetFacts: targetFacts(runtime),
+              }
+            : runtime.visualContract,
+    );
+    for (const region of analysis.textRegions ?? []) {
+        if (
+            region.action === "preserve" &&
+            !visualText.includes(region.exactText)
+        )
+            issues.push(
+                `${region.id}: 固定文字必须逐字保留在视觉约束，不能只保留“标题”等摘要`,
+            );
+        if (
+            region.action === "free_editable" &&
+            !draft.promptTemplate.includes(region.exactText)
+        )
+            issues.push(`${region.id}: 自由编辑文字必须保留在 Prompt`);
+        if (
+            region.action === "remove" &&
+            (visualText.includes(region.exactText) ||
+                draft.promptTemplate.includes(region.exactText))
+        )
+            issues.push(`${region.id}: 删除文字仍出现在输出中`);
+    }
     for (const slot of draft.inputSchema.slots) {
         if (
             draft.runtimeSemantics.inputBindings[slot.id]?.operation !==
@@ -419,7 +453,11 @@ export function analysisIssues({
     const issues: string[] = [
         ...sourceAnalysisIssues(draft, a),
         ...sourceContractIssues({ draft, analysis: a }),
-        ...visualSelectionIssues(a, draft.runtimeSemantics.visualContract),
+        ...visualSelectionIssues(
+            a,
+            draft.runtimeSemantics.visualContract,
+            draft.runtimeSemantics.targetInstances,
+        ),
     ].slice(0, 24);
     const check = (ok: boolean, message: string) => {
         if (!ok && issues.length < 24) issues.push(message);
@@ -427,18 +465,33 @@ export function analysisIssues({
     const slots = draft.inputSchema.slots;
     const runtime = draft.runtimeSemantics;
     const visual = runtime.visualContract;
+    if (runtime.version === 2)
+        check(
+            a.mediumComposition.styleTraits.length > 0 &&
+                a.mediumComposition.composition.length > 0,
+            "mediumComposition: v2 必须保留风格与构图事实",
+        );
     const slotIds = slots.map((slot) => slot.id);
     const componentIds = a.componentGraph.map((item) => item.id);
     const targetIds = runtime.targetInstances.map((item) => item.id);
     const containsComponents = (values: readonly string[]) =>
         values.every((id) => componentIds.includes(id));
     const fixedText = JSON.stringify({
-        targets: runtime.targetInstances,
+        targets:
+            runtime.version === 3
+                ? runtime.targetInstances.map(
+                      ({ appearance: _appearance, ...target }) => target,
+                  )
+                : runtime.targetInstances,
         visual,
         title: draft.title,
         tags: draft.metadata.tags,
     });
-    const visualText = JSON.stringify(visual);
+    const visualText = JSON.stringify(
+        runtime.version === 3
+            ? { visual, targetFacts: targetFacts(runtime) }
+            : visual,
+    );
     check(
         new Set(componentIds).size === componentIds.length,
         "analysis.componentGraph: 组件 ID 重复",
@@ -581,7 +634,7 @@ export function analysisIssues({
             `/analysis/spatialRelations/${index}/componentIds: 空间关系引用未知组件`,
         );
         check(
-            visual.relations.some((item) =>
+            [...visual.relations, ...targetFacts(runtime)].some((item) =>
                 item.includes(relation.runtimeFact),
             ),
             `/analysis/spatialRelations/${index}/runtimeFact -> /draft/runtimeSemantics/visualContract/relations: 空间关系必须逐项落实到 relations；修正对应来源事实或引用`,
@@ -746,22 +799,6 @@ export function analysisIssues({
                 region.slotId === null,
                 `${region.id}: 非槽位文字不能绑定槽位`,
             );
-        if (region.action === "free_editable")
-            check(
-                draft.promptTemplate.includes(region.exactText),
-                `${region.id}: 自由编辑文字必须保留在 Prompt`,
-            );
-        if (region.action === "preserve")
-            check(
-                visualText.includes(region.exactText),
-                `${region.id}: 固定文字必须保留在视觉约束`,
-            );
-        if (region.action === "remove")
-            check(
-                !visualText.includes(region.exactText) &&
-                    !draft.promptTemplate.includes(region.exactText),
-                `${region.id}: 删除文字仍出现在输出中`,
-            );
     }
     return issues;
 }
@@ -795,6 +832,17 @@ export function reviewIssues(
                 `review.visualContractRespectsInputs: 缺少 ${path} 的观察、取舍或约束复核`,
             );
     }
+    if (
+        candidate.draft.runtimeSemantics.version === 3 &&
+        !review.checks.visualContractRespectsInputs.evidence.some((item) =>
+            item.path.startsWith(
+                "/analysis/semanticModel/runtimeSemantics/targetInstances",
+            ),
+        )
+    )
+        issues.push(
+            "review.visualContractRespectsInputs: 缺少目标外观与姿势归属复核",
+        );
     if (candidate.analysis.textRegions.length > 0) {
         const evidence = review.checks.textEditLayersComplete.evidence;
         for (const path of [

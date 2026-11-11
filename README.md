@@ -6,7 +6,7 @@
 
 图片预处理后的模板内容支持独立重编译：保留已确认成图，提交本轮模板修改要求，只生成新的 Gallery 草稿供人工审阅。
 
-生产 catalog 登记二十五个 Business Process，其中 `composed-task/v1` 默认关闭。文档先按产品场景分组，运行时仍通过统一的 Process identity 和 HTTP Interface 执行：
+生产 catalog 登记二十七个 Business Process，其中 `composed-task/v1` 默认关闭。文档先按产品场景分组，运行时仍通过统一的 Process identity 和 HTTP Interface 执行：
 
 | 场景 | Process | 输入 | 输出 |
 | --- | --- | --- | --- |
@@ -211,3 +211,7 @@ CRT 与七个照片海报支持可选背景参数，省略时保持原行为；�
 角色表情包主用 Flare 复用已配置的 OSS 读取固定角色原图，不缩放、不压缩，按原顺序通过 multipart 文件表单上传；独立本地运行未配置 OSS 时才使用公网取图。Flare 对齐已核验的 Memebuy 请求，省略 quality 和 output_format，不继承 CRT 参数；备用 Magikaru 保持公网 URL 直传及原有质量参数。角色表情包按所选角色注入已维护的创作背景；v2 漫画由 Agent 决定自由布局和各格大小，程序仅补编号。每格仍只有一份 scene；page 与 frame 只描述画格几何，关键行动或可辨认痕迹在 scene 呈现，同次自检核对肢体占用与道具支撑；配字优先级及创作规则见[角色表情包专题](docs/processes/common/character-emoji/README.md)。
 
 豆包（Doubao）新增原版 Q 版参考图、个性和三条原创语音素材，仅支持 Chibi；详见角色表情包专题，部署服务端后再开放调用方。
+
+## 模板视觉归属 v3
+
+新增 `template-from-image/v2` 与 `template-from-source/v2`，输出 `runtimeSemantics.version=3`；`inputSchema.version` 仍为 2。目标外观写入 `targetInstances[].appearance`，姿势与位置写入 `pose`，全局视觉合同只保留非目标事实。旧 v1 接口继续输出运行语义 v2，恢复既有运行不切换版本。两端发布与验收见 [模板归属升级](docs/processes/memebuy/template-from-image/visual-ownership-v3.md)。
