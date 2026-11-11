@@ -29,6 +29,7 @@ type ProcessRegistrationRunContext = Readonly<{
 }>;
 
 export type ExpectedProcessErrorCode =
+    | "INVALID_OUTPUT"
     | "AGENT_FAILURE"
     | "DEPENDENCY_FAILURE"
     | "DEPENDENCY_FAILURE_AFTER_COMMIT";
@@ -38,9 +39,9 @@ export type ExpectedProcessErrorCode =
  * deliberately excluded: the dependency's priced effect already landed, so an
  * automatic retry spends again and must stay a human decision.
  */
-export type RetryableProcessErrorCode = Exclude<
+export type RetryableProcessErrorCode = Extract<
     ExpectedProcessErrorCode,
-    "DEPENDENCY_FAILURE_AFTER_COMMIT"
+    "AGENT_FAILURE" | "DEPENDENCY_FAILURE"
 >;
 
 const expectedProcessFailureBrand: unique symbol = Symbol(

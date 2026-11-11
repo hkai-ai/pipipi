@@ -2,6 +2,7 @@
 
 import { setTimeout } from "node:timers/promises";
 import { createFalClient } from "@fal-ai/client";
+import type { ImageBackground } from "../processes/image-background.js";
 import { sourcePhotoSchema } from "../processes/photo-poster/capability.js";
 import { downloadSourcePhoto } from "./source-photo.js";
 export type TemplateImageRenderer = {
@@ -11,6 +12,7 @@ export type TemplateImageRenderer = {
         prompt: string,
         size: string,
         signal: AbortSignal,
+        background?: ImageBackground,
     ): Promise<string>;
     result(requestId: string, signal: AbortSignal): Promise<Buffer>;
 };
@@ -81,7 +83,7 @@ export function createTemplateImageRenderer(
                 }
             }
         },
-        async submit(url, prompt, size, signal) {
+        async submit(url, prompt, size, signal, background) {
             signal.throwIfAborted();
             const [width, height] = size.split("x").map(Number);
             try {
@@ -99,6 +101,7 @@ export function createTemplateImageRenderer(
                             prompt,
                             image_urls: [url],
                             image_size: { width, height },
+                            ...(background ? { background } : {}),
                             quality: "low",
                             num_images: 1,
                             output_format: "png",

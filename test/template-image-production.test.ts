@@ -125,6 +125,7 @@ async function setup(
     planOptions: Partial<
         Parameters<typeof createTemplatePlanRegistration>[0]
     > = {},
+    sourceAlpha = 1,
 ) {
     const directory = await mkdtemp(join(tmpdir(), "pi-template-production-"));
     roots.push(directory);
@@ -132,8 +133,8 @@ async function setup(
         create: {
             width: 1024,
             height: 1024,
-            channels: 3,
-            background: "#eeeeee",
+            channels: 4,
+            background: { r: 238, g: 238, b: 238, alpha: sourceAlpha },
         },
     })
         .png()
@@ -255,6 +256,91 @@ async function setup(
         compile,
     };
 }
+it.each([
+    {
+        alpha: 0.5,
+        note: undefined,
+        requested: "opaque",
+        expected: "transparent",
+    },
+    { alpha: 1, note: undefined, requested: null, expected: undefined },
+    { alpha: 0.5, note: "换标题", requested: null, expected: "transparent" },
+    {
+        alpha: 0.5,
+        note: "改为实色黑底",
+        requested: "opaque",
+        expected: "opaque",
+    },
+    {
+        alpha: 1,
+        note: "生成透明底",
+        requested: "transparent",
+        expected: "transparent",
+    },
+])(
+    "方案冻结原件透明度或明确要求，成图验证像素 $alpha $note",
+    async ({ alpha, note, requested, expected }) => {
+        const s = await setup(
+            false,
+            {
+                agent: {
+                    plan: async () => ({
+                        ...imageStrategy(),
+                        outputBackground: requested,
+                    }),
+                },
+            },
+            alpha,
+        );
+        try {
+            const plan = await s.execute("template-image-plan", {
+                imageUrl: "https://example.com/source.png",
+                note,
+            });
+            expect(plan.status).toBe(200);
+            expect(plan.body.output.strategy).toEqual(
+                expect.objectContaining({ image_size: "1024x1024" }),
+            );
+            expect(
+                (plan.body.output.strategy as { outputBackground?: string })
+                    .outputBackground,
+            ).toBe(expected);
+            const input = {
+                productionId: plan.body.output.productionId,
+                objectSha256: plan.body.output.strategySha256,
+                reviewerRef: "operator",
+            };
+            const rendered = await s.execute("template-image-render", input);
+            expect(s.renderer.submit).toHaveBeenCalledWith(
+                expect.any(String),
+                expect.any(String),
+                "1024x1024",
+                expect.any(AbortSignal),
+                expected,
+            );
+            if (expected === "transparent") {
+                expect(rendered.body).toMatchObject({
+                    error: { code: "INVALID_OUTPUT" },
+                });
+                expect(s.upload).not.toHaveBeenCalled();
+                const valid = await sharp(s.generated)
+                    .ensureAlpha(0.5)
+                    .png()
+                    .toBuffer();
+                s.renderer.result.mockResolvedValueOnce(valid);
+                expect(
+                    (await s.execute("template-image-render", input)).status,
+                ).toBe(200);
+                expect(s.renderer.submit).toHaveBeenCalledTimes(1);
+            } else {
+                expect(rendered.status).toBe(200);
+            }
+        } finally {
+            await s.app.close();
+        }
+    },
+);
+
 it("真实 HTTP 三阶段分别暂停，摘要错误不生图、不上传，重复确认只恢复原图", async () => {
     const s = await setup(true);
     try {

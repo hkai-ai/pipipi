@@ -19,6 +19,7 @@ import {
     parseReplacementStrategy,
     replacementStrategySchema,
 } from "../processes/template-from-source/strategy.js";
+import { assertImageBackground } from "./image-background.js";
 import type { ObjectStorageCapability } from "./object-storage.js";
 import { downloadSourcePhoto } from "./source-photo.js";
 import {
@@ -127,6 +128,15 @@ export class TemplateImageProduction {
             throw new Error("分析后源图已变化，请重新规划");
         const metadata = await sharp(bytes).metadata();
         const sourceImageSha256 = hash(bytes);
+        // 新方案在编译和审批前固定背景；历史方案仅从已批准的快照恢复。
+        const requestedBackground = input.note
+            ? strategy.outputBackground
+            : null;
+        const background =
+            requestedBackground ??
+            (analyzed.hasTransparency ? "transparent" : undefined);
+        if (background) strategy.outputBackground = background;
+        else delete strategy.outputBackground;
         const prompt = compileReplacementPrompt(strategy);
         const execution = {
             version: "v2" as const,
@@ -253,6 +263,7 @@ export class TemplateImageProduction {
                         execution.prompt,
                         plan.strategy.image_size,
                         signal,
+                        plan.strategy.outputBackground ?? undefined,
                     );
                 } catch (error) {
                     const failure =
@@ -292,6 +303,17 @@ export class TemplateImageProduction {
                 meta.height !== height
             )
                 throw new Error("成图格式或尺寸不符合合同");
+            try {
+                await assertImageBackground(
+                    bytes,
+                    plan.strategy.outputBackground ?? undefined,
+                );
+            } catch {
+                throw new TemplateImagePreparationError(
+                    true,
+                    "background_mismatch",
+                );
+            }
             const imageSha256 = hash(bytes);
             if (imageSha256 === plan.sourceImageSha256)
                 throw new Error("来源图不能直接作为产物");

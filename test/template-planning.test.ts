@@ -43,7 +43,11 @@ it.each([
     "竖排三列依次错开",
     "模糊无法判断",
 ])("原图排版观察直接进入持久化合同和最终指令：%s", (contour) => {
-    const candidate = { ...imageStrategy(), textActions: [action(contour)] };
+    const candidate = {
+        ...imageStrategy(),
+        outputBackground: null,
+        textActions: [action(contour)],
+    };
     const before = structuredClone(candidate);
     expect(planningSchema.safeParse(candidate).success).toBe(true);
     const strategy = parseReplacementStrategy(projectPlanning(candidate));
