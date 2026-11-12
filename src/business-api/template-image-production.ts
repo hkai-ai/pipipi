@@ -1,6 +1,13 @@
 /** 持久保存策略与图片审批，先审策略后生图、先审成图后上传，未知提交禁止重投。 */
 import { createHash } from "node:crypto";
-import { mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
+import {
+    mkdir,
+    readFile,
+    rename,
+    stat,
+    unlink,
+    writeFile,
+} from "node:fs/promises";
 import { join } from "node:path";
 import sharp from "sharp";
 import { z } from "zod";
@@ -47,7 +54,14 @@ type Plan = z.infer<typeof planSchema> & {
     sourceMime: z.infer<typeof sourceMimeSchema>;
     execution?: { version: "v2"; prompt: string; promptSha256: string };
 };
+
+import {
+    type GatewayReceipt,
+    receiptSchema,
+} from "./template-gateway-receipt.js";
+
 type Attempt = {
+    gateway?: GatewayReceipt;
     provider?: "fal" | "openai";
     state:
         | "provider_rejected"
@@ -78,6 +92,45 @@ export class TemplateImageProduction {
         input: unknown,
         signal: AbortSignal,
     ): Promise<unknown> {
+        if (operation === "inspect") {
+            const approval = renderInputSchema.parse(input);
+            const prefix = approval.renderId
+                ? `renders/${approval.renderId}/`
+                : "";
+            const attempt = await this.optional<Attempt>(
+                approval.productionId,
+                `${prefix}attempt.json`,
+            );
+            if (
+                attempt?.provider !== "openai" ||
+                attempt.approval.objectSha256 !== approval.objectSha256 ||
+                attempt.approval.reviewerRef !== approval.reviewerRef ||
+                attempt.approval.renderId !== approval.renderId ||
+                attempt.approval.productionId !== approval.productionId
+            )
+                return null;
+            const file = await stat(
+                this.path(
+                    approval.productionId,
+                    `${prefix}provider-result.png`,
+                ),
+            ).catch((error: NodeJS.ErrnoException) => {
+                if (error.code === "ENOENT") return undefined;
+                throw error;
+            });
+            return {
+                ...receiptSchema.parse(
+                    attempt.gateway ?? {
+                        reason: attempt.failure?.httpStatus
+                            ? "http_error"
+                            : "unknown",
+                        httpStatus: attempt.failure?.httpStatus,
+                    },
+                ),
+                hasSavedImage: Boolean(file?.isFile() && file.size > 0),
+                state: attempt.state,
+            };
+        }
         if (operation === "plans") return this.plan(input, signal);
         if (operation === "render")
             return this.render(renderInputSchema.parse(input), signal);
@@ -273,10 +326,14 @@ export class TemplateImageProduction {
                 attempt.state = "submission_unknown";
                 attempt.provider = provider;
                 await this.save(id, `${prefix}attempt.json`, attempt);
+                let receipt: GatewayReceipt | undefined;
                 try {
                     if (provider === "openai") {
                         if (!editor) throw new Error("未配置图片网关");
                         bytes = await editor.edit({
+                            onReceipt: (value) => {
+                                receipt = value;
+                            },
                             image: {
                                 bytes: source,
                                 mimeType: plan.sourceMime,
@@ -314,6 +371,11 @@ export class TemplateImageProduction {
                             : new TemplateImageSubmissionError(
                                   "submission_unknown",
                               );
+                    if (receipt)
+                        attempt.gateway =
+                            receipt.reason === "delivered"
+                                ? { ...receipt, reason: "storage" }
+                                : receipt;
                     attempt.state = failure.type;
                     attempt.failure = {
                         type: failure.type,
@@ -328,6 +390,7 @@ export class TemplateImageProduction {
                 }
                 attempt = {
                     ...attempt,
+                    ...(receipt ? { gateway: receipt } : {}),
                     state:
                         provider === "openai"
                             ? "provider_complete"

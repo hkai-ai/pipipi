@@ -1198,6 +1198,8 @@ Memebuy 分步工作台可保留同一替换方案反复生图。`template-image
 
 Memebuy 可在同步 `POST /execute` 请求中发送 `X-Pipipi-Template-Steps: 1`，取得本次模板执行已结束的步骤；未请求、旧服务或没有可用步骤时保持原回执。可选的 `diagnostics` 与 `output/error` 同级，不改变执行状态、费用或重试规则。
 
+成图步骤的只读历史查询按归档中的原审批读取同一成图回执，可附带 `gateway`：状态、结果文件是否已保存、受控失败原因及已记录的 HTTP 状态、供应商错误码与请求 ID。字段缺失表示未记录；接口不返回供应商原始消息，不恢复或派发生图。
+
 历史查询：`GET /memebuy/template-runs/{runId}/diagnostics`，使用独立的 `Authorization: Bearer <token>`。这是给 Memebuy 后端的产品级只读凭证（Pipipi API 角色配置 `MEMEBUY_TEMPLATE_DIAGNOSTICS_TOKEN`，至少 32 字节），可读取本部署中该产品四个模板流程的脱敏步骤，不提供列表、其他流程、业务输入输出或控制台访问。部署时仅将该 GET 路径代理到 API 并保留 Authorization；控制台继续使用原有鉴权。Memebuy 在服务端验证内容运营权限及本地候选与运行归属，再按保存的外部编号查询。
 
 返回与新回执相同的 `{runId, process, version, steps:[{scope, activity, status, durationMs, diagnostic?:{stage,code}}]}`。先列主流程，再列原运行的编译成员（`scope: "compile"`）；成员耗时包含在父步骤中，不能相加。只展示观测到的活动；归档不完整时不推测根因。历史读取使用既有活动归档，无需重跑；记录仍受服务保留期约束。未授权返回 401，未找到模板父运行返回 404，归档或凭证未配置返回 503。

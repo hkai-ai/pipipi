@@ -6,8 +6,11 @@ import {
     OpenAIImageGenerationClient,
     OpenAIImageGenerationError,
 } from "./openai-image-generation.js";
+import {
+    type GatewayReceipt,
+    receiptSchema,
+} from "./template-gateway-receipt.js";
 import { TemplateImageSubmissionError } from "./template-image-submission.js";
-
 export type TemplateImageEditor = {
     edit(request: {
         image: {
@@ -18,6 +21,7 @@ export type TemplateImageEditor = {
         size: string;
         background?: ImageBackground;
         idempotencyKey: string;
+        onReceipt?: (receipt: GatewayReceipt) => void;
         signal: AbortSignal;
     }): Promise<Buffer>;
 };
@@ -40,6 +44,7 @@ export function createTemplateImageEditor(
             size,
             background,
             idempotencyKey,
+            onReceipt,
             signal,
         }) {
             try {
@@ -57,12 +62,47 @@ export function createTemplateImageEditor(
                     },
                     { singleDispatch: true },
                 );
+                onReceipt?.(
+                    receiptSchema.parse({
+                        reason: "delivered",
+                        httpStatus: result.httpStatus,
+                        requestId: result.requestId,
+                    }),
+                );
                 return result.bytes;
             } catch (error) {
                 const status =
                     error instanceof OpenAIImageGenerationError
                         ? error.status
                         : undefined;
+                const errorCause =
+                    error instanceof Error ? error.cause : undefined;
+                const name =
+                    errorCause instanceof Error ? errorCause.name : undefined;
+                const receipt = receiptSchema.parse({
+                    reason:
+                        status !== undefined
+                            ? status < 300
+                                ? "invalid_response"
+                                : "http_error"
+                            : name === "TimeoutError"
+                              ? "timeout"
+                              : name === "AbortError" || signal.aborted
+                                ? "cancelled"
+                                : errorCause
+                                  ? "connection"
+                                  : "unknown",
+                    httpStatus: status,
+                    requestId:
+                        error instanceof OpenAIImageGenerationError
+                            ? error.requestId
+                            : undefined,
+                    errorCode:
+                        error instanceof OpenAIImageGenerationError
+                            ? error.code
+                            : undefined,
+                });
+                onReceipt?.(receipt);
                 throw TemplateImageSubmissionError.fromStatus(status);
             }
         },

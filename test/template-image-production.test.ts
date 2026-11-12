@@ -417,8 +417,16 @@ it.each(["opaque", "invisible", "unknown", "rejected"])(
                 throw new Error("PRIVATE connection lost");
             if (failure === "rejected")
                 return Response.json(
-                    { error: { message: "PRIVATE rejected" } },
-                    { status: 422 },
+                    {
+                        error: {
+                            message: "PRIVATE rejected",
+                            code: "invalid_parameter",
+                        },
+                    },
+                    {
+                        status: 422,
+                        headers: { "x-request-id": "req-fixture-422" },
+                    },
                 );
             return Response.json({
                 data: [{ b64_json: png.toString("base64") }],
@@ -467,6 +475,30 @@ it.each(["opaque", "invisible", "unknown", "rejected"])(
                 join(s.directory, input.productionId, "attempt.json"),
                 "utf8",
             );
+            const probe = new TemplateImageProduction({
+                directory: s.directory,
+            });
+            const inspect = (ref: string) =>
+                probe.execute(
+                    "inspect",
+                    { ...input, reviewerRef: ref },
+                    new AbortController().signal,
+                );
+            expect(await inspect("not-the-approval")).toBeNull();
+            if (failure === "rejected")
+                expect(await inspect("operator")).toMatchObject({
+                    reason: "http_error",
+                    httpStatus: 422,
+                    errorCode: "invalid_parameter",
+                    requestId: "req-fixture-422",
+                    hasSavedImage: false,
+                });
+            if (failure === "unknown")
+                expect(await inspect("operator")).toMatchObject({
+                    reason: "connection",
+                    hasSavedImage: false,
+                });
+            expect(transport).toHaveBeenCalledTimes(1);
             expect(saved).not.toContain("PRIVATE");
             expect(JSON.parse(saved)).toMatchObject({
                 provider: "openai",

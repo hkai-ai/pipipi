@@ -1,6 +1,7 @@
 /** 为 Memebuy 模板执行回执与只读历史查询投影同一组脱敏父子步骤。 */
 import { AsyncLocalStorage } from "node:async_hooks";
 import { createHash, timingSafeEqual } from "node:crypto";
+import { attemptReceiptSchema } from "../business-api/template-gateway-receipt.js";
 import { sanitizeActivityDiagnostic } from "../process-runtime/diagnostics.js";
 import type {
     ProcessRunLogRecord,
@@ -98,6 +99,7 @@ function timeline(
 
 export function createTemplateDiagnostics(options: {
     secret?: string;
+    inspectRender?: (runId: string) => Promise<unknown>;
     findByRun?: (id: string) => Promise<readonly ProcessRunLogRecord[]>;
 }) {
     const storage = new AsyncLocalStorage<ProcessRunLogRecord[]>();
@@ -161,16 +163,34 @@ export function createTemplateDiagnostics(options: {
                 identity.process === "template-from-source"
                     ? await options.findByRun(`${runId}:compile`)
                     : [];
-            return {
-                status: 200,
-                body: timeline(
-                    runId,
-                    identity.process,
-                    identity.version,
-                    root,
-                    child,
-                ),
-            };
+            const body = timeline(
+                runId,
+                identity.process,
+                identity.version,
+                root,
+                child,
+            );
+            if (
+                identity.process === "template-image-render" &&
+                options.inspectRender &&
+                body.steps.length
+            ) {
+                const receipt = attemptReceiptSchema.safeParse(
+                    await options.inspectRender(runId).catch(() => undefined),
+                );
+                if (receipt.success)
+                    return {
+                        status: 200,
+                        body: {
+                            ...body,
+                            steps: body.steps.map((step) => ({
+                                ...step,
+                                gateway: receipt.data,
+                            })),
+                        },
+                    };
+            }
+            return { status: 200, body };
         },
     };
 }
