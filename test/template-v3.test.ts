@@ -307,3 +307,17 @@ it("独立复核取得遗漏目标事实的准确路径与引用，不能仅凭�
     });
     expect(() => compileTemplateResult(value, imageUrl, image)).toThrow();
 });
+
+it("带引号的已保留原文通过，字段名不能充当原图文字", () => {
+    const value = ownershipCandidate();
+    const check = (exactText: string) =>
+        sourceAnalysisIssues(value.draft, {
+            ...value.analysis,
+            textRegions: [{ id: "heading", action: "preserve", exactText }],
+        });
+    value.draft.runtimeSemantics.visualContract.relations.push(
+        '标题为 Say "Hi"',
+    );
+    expect(check('Say "Hi"')).toEqual([]);
+    expect(check("colorAndLight")).not.toEqual([]);
+});

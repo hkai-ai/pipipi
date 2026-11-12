@@ -92,8 +92,13 @@ export function visualSelectionIssues(
     analysis: SelectionAnalysis,
     visual: VisualContract,
     targets: TemplateDraft["runtimeSemantics"]["targetInstances"] = [],
+    report?: (path: string, code: string) => void,
 ): string[] {
     const issues: string[] = [];
+    function reject(path: string, code: string, message: string) {
+        report?.(path, code);
+        issues.push(message);
+    }
     const selections = analysis.visualSelections;
     const observations = analysis.fieldEvidence.visualContract;
     // 一条观察可支持多个不同事实；只在 v3 目标事实存在时接受分组引用，不改写候选或摘要。
@@ -122,7 +127,9 @@ export function visualSelectionIssues(
         return new Set(refs).size !== refs.length;
     });
     if (coverageInvalid || decisionsInvalid)
-        issues.push(
+        reject(
+            "/analysis/visualSelections",
+            "selection_coverage",
             "visualSelections: 每条原始视觉依据必须有且只有一个取舍决定；分组保留不能重复引用事实",
         );
     for (const item of visualSelectionContext(analysis, visual, targets)) {
@@ -132,11 +139,15 @@ export function visualSelectionIssues(
                 (!selection.facts.length ||
                     selection.facts.some((ref) => ref.fact === null))
             )
-                issues.push(
+                reject(
+                    "/analysis/visualSelections/*/factRefs",
+                    "missing_reference",
                     "visualSelections.factRefs: 保留项必须引用存在的正式视觉约束",
                 );
             if (selection.decision === "omit" && selection.facts.length)
-                issues.push(
+                reject(
+                    "/analysis/visualSelections/*/factRefs",
+                    "omitted_fact_frozen",
                     "visualSelections.factRefs: 舍弃项不得同时声明冻结约束",
                 );
         }
@@ -155,13 +166,19 @@ export function visualSelectionIssues(
                     globalFacts.includes(fact) ||
                     (field === "appearance" && target.pose?.includes(fact))
                 )
-                    issues.push(
+                    reject(
+                        "/analysis/semanticModel/runtimeSemantics/targetInstances",
+                        "duplicate_fact",
                         "visualSelections: 目标事实不得重复冻结到全局或另一类归属",
                     );
             }
         }
     }
     if (unreferencedTargetFacts(analysis, targets).length)
-        issues.push("visualSelections: 每条目标事实必须有原始观察及保留引用");
+        reject(
+            "/analysis/visualSelections",
+            "target_fact_unreferenced",
+            "visualSelections: 每条目标事实必须有原始观察及保留引用",
+        );
     return [...new Set(issues)];
 }

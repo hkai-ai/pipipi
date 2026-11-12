@@ -11,7 +11,7 @@ import {
     textRegionSchema,
 } from "./analysis-contract.js";
 import type { TemplateDraft } from "./types.js";
-import { targetFacts } from "./visual-facts.js";
+import { globalFields, targetFacts } from "./visual-facts.js";
 import {
     visualSelectionIssues,
     visualSelectionsSchema,
@@ -27,27 +27,10 @@ export const reviewAxes = [
     "scene",
     "nested_content",
 ] as const;
-export const reviewChecks = [
-    "templateValueFocused",
-    "playHypothesisGrounded",
-    "slotRecallComplete",
-    "slotPrecisionComplete",
-    "semanticUnitsCoherent",
-    "slotScopeMinimal",
-    "imageModesJustified",
-    "groupPolicyJustified",
-    "featureAuthorityComplete",
-    "textRoutingComplete",
-    "textEditLayersComplete",
-    "titlePortable",
-    "copyUserFacingAndSearchable",
-    "promptUserFacing",
-    "placeholdersExact",
-    "suggestionsSubstituteNaturally",
-    "defaultsNaturalAndIdentitySpecific",
-    "tagsValid",
-    "visualContractRespectsInputs",
-] as const;
+export { reviewChecks } from "../../process-runtime/template-diagnostics.js";
+
+import { reviewChecks } from "../../process-runtime/template-diagnostics.js";
+
 const visualFields = [
     "medium",
     "styleTraits",
@@ -359,6 +342,26 @@ function sameValues(a: readonly string[], b: readonly string[]): boolean {
 }
 
 /** 不依赖派生字段的检查先运行，避免引用错误掩盖其他可修正问题。 */
+function visualFacts(runtime: TemplateDraft["runtimeSemantics"]): string[] {
+    const visual = runtime.visualContract;
+    return [
+        visual.medium,
+        ...globalFields.flatMap((field) => visual[field]),
+        ...targetFacts(runtime),
+    ];
+}
+
+export function missingComponentVisualFields(
+    components: readonly { visualFields: readonly string[] }[],
+) {
+    return visualFields.filter(
+        (field) =>
+            !components.some((component) =>
+                component.visualFields.includes(field),
+            ),
+    );
+}
+
 export function sourceAnalysisIssues(
     draft: TemplateDraft,
     analysis: {
@@ -366,7 +369,10 @@ export function sourceAnalysisIssues(
             z.infer<typeof textRegionSchema>,
             "id" | "action" | "exactText"
         >[];
-        componentGraph: readonly { id: string }[];
+        componentGraph: readonly {
+            id: string;
+            visualFields: readonly string[];
+        }[];
         slotCoverageReview: Record<
             (typeof reviewAxes)[number],
             { componentIds: string[] }
@@ -381,6 +387,7 @@ export function sourceAnalysisIssues(
             }
         >;
     },
+    report?: (path: string, code: string) => void,
 ): string[] {
     const issues = analysis.componentGraph.flatMap((component) =>
         reviewAxes.some((axis) =>
@@ -391,23 +398,28 @@ export function sourceAnalysisIssues(
             ? []
             : [`${component.id}: 组件遗漏八轴审查`],
     );
+    for (const field of missingComponentVisualFields(analysis.componentGraph)) {
+        report?.(
+            "/analysis/componentGraph/*/visualFields",
+            "missing_visual_coverage",
+        );
+        issues.push(
+            `组件分析必须覆盖五个视觉字段，缺少 ${field}；在有原图依据的组件 visualFields 中标出归属`,
+        );
+    }
     const runtime = draft.runtimeSemantics;
-    const visualText = JSON.stringify(
-        runtime.version === 3
-            ? {
-                  visual: runtime.visualContract,
-                  targetFacts: targetFacts(runtime),
-              }
-            : runtime.visualContract,
-    );
-    for (const region of analysis.textRegions ?? []) {
+    const facts = visualFacts(runtime);
+    for (const [index, region] of (analysis.textRegions ?? []).entries()) {
+        const path = `/analysis/textRegions/${index}/exactText`;
         if (
             region.action === "preserve" &&
-            !visualText.includes(region.exactText)
-        )
+            !facts.some((fact) => fact.includes(region.exactText))
+        ) {
+            report?.(path, "fixed_text_missing");
             issues.push(
                 `${region.id}: 固定文字必须逐字保留在视觉约束，不能只保留“标题”等摘要`,
             );
+        }
         if (
             region.action === "free_editable" &&
             !draft.promptTemplate.includes(region.exactText)
@@ -415,7 +427,7 @@ export function sourceAnalysisIssues(
             issues.push(`${region.id}: 自由编辑文字必须保留在 Prompt`);
         if (
             region.action === "remove" &&
-            (visualText.includes(region.exactText) ||
+            (facts.some((fact) => fact.includes(region.exactText)) ||
                 draft.promptTemplate.includes(region.exactText))
         )
             issues.push(`${region.id}: 删除文字仍出现在输出中`);
@@ -446,17 +458,18 @@ export function sourceAnalysisIssues(
     return issues;
 }
 
-export function analysisIssues({
-    draft,
-    analysis: a,
-}: TemplateCandidate): string[] {
+export function analysisIssues(
+    { draft, analysis: a }: TemplateCandidate,
+    report?: (path: string, code: string) => void,
+): string[] {
     const issues: string[] = [
-        ...sourceAnalysisIssues(draft, a),
+        ...sourceAnalysisIssues(draft, a, report),
         ...sourceContractIssues({ draft, analysis: a }),
         ...visualSelectionIssues(
             a,
             draft.runtimeSemantics.visualContract,
             draft.runtimeSemantics.targetInstances,
+            report,
         ),
     ].slice(0, 24);
     const check = (ok: boolean, message: string) => {
@@ -487,11 +500,7 @@ export function analysisIssues({
         title: draft.title,
         tags: draft.metadata.tags,
     });
-    const visualText = JSON.stringify(
-        runtime.version === 3
-            ? { visual, targetFacts: targetFacts(runtime) }
-            : visual,
-    );
+    const facts = visualFacts(runtime);
     check(
         new Set(componentIds).size === componentIds.length,
         "analysis.componentGraph: 组件 ID 重复",
@@ -566,14 +575,6 @@ export function analysisIssues({
         ),
         "组件分析必须覆盖所有正式目标",
     );
-    check(
-        visualFields.every((field) =>
-            a.componentGraph.some((component) =>
-                component.visualFields.includes(field),
-            ),
-        ),
-        "组件分析必须覆盖五个视觉字段",
-    );
     const identityTargets = runtime.targetInstances
         .filter((item) => item.kind !== "content_element")
         .map((item) => item.id);
@@ -642,7 +643,8 @@ export function analysisIssues({
     }
     for (const fact of a.templateValue.backendOnlyFacts)
         check(
-            visualText.includes(fact) && !draft.promptTemplate.includes(fact),
+            facts.some((value) => value.includes(fact)) &&
+                !draft.promptTemplate.includes(fact),
             "backendOnlyFacts 必须在视觉约束中落实且不进入前台 Prompt",
         );
     for (const slot of slots) {
@@ -731,11 +733,10 @@ export function analysisIssues({
                     `${slot.id}: 身份必须由输入接管`,
                 );
                 for (const axis of featureAxes) {
-                    const authority = evidence.featureAuthority[axis];
+                    const { runtimeFact } = evidence.featureAuthority[axis];
                     check(
-                        authority.runtimeFact === null
-                            ? true
-                            : visualText.includes(authority.runtimeFact),
+                        runtimeFact === null ||
+                            facts.some((value) => value.includes(runtimeFact)),
                         `${slot.id}/${axis}: 特征执行事实必须落实到视觉约束，来源特征未额外声明时可为空`,
                     );
                 }
@@ -806,16 +807,30 @@ export function analysisIssues({
 export function reviewIssues(
     candidate: TemplateCandidate,
     value: unknown,
+    report?: (path: string, code: string) => void,
 ): string[] {
     const parsed = templateReviewSchema.safeParse(value);
-    if (!parsed.success)
+    if (!parsed.success) {
+        report?.("/review", "invalid_schema");
         return ["review 必须包含准确摘要、十九项复核及字段引用"];
+    }
     const review = parsed.data;
     const issues: string[] = [];
-    if (review.reviewedDraftSha256 !== candidateDigest(candidate))
+    if (review.reviewedDraftSha256 !== candidateDigest(candidate)) {
+        report?.("/review/reviewedDraftSha256", "digest_mismatch");
         issues.push("review 摘要与本次最终候选不符");
-    if (review.issues.length)
+    }
+    if (review.issues.length) {
+        report?.("/review/issues", "unresolved_review");
         issues.push(...review.issues.map((issue) => `review.issues: ${issue}`));
+    }
+    function evidenceIssue(
+        name: (typeof reviewChecks)[number],
+        message: string,
+    ) {
+        report?.(`/review/checks/${name}/evidence`, "review_evidence");
+        issues.push(message);
+    }
     const observations = new Set<string>();
     for (const path of [
         "/analysis/fieldEvidence/visualContract",
@@ -828,7 +843,8 @@ export function reviewIssues(
                     item.path === path || item.path.startsWith(`${path}/`),
             )
         )
-            issues.push(
+            evidenceIssue(
+                "visualContractRespectsInputs",
                 `review.visualContractRespectsInputs: 缺少 ${path} 的观察、取舍或约束复核`,
             );
     }
@@ -840,7 +856,8 @@ export function reviewIssues(
             ),
         )
     )
-        issues.push(
+        evidenceIssue(
+            "visualContractRespectsInputs",
             "review.visualContractRespectsInputs: 缺少目标外观与姿势归属复核",
         );
     if (candidate.analysis.textRegions.length > 0) {
@@ -860,23 +877,32 @@ export function reviewIssues(
                             )),
                 )
             )
-                issues.push(
+                evidenceIssue(
+                    "textEditLayersComplete",
                     `review.textEditLayersComplete: 缺少 ${path} 的独立文字排版观察`,
                 );
         }
     }
     for (const name of reviewChecks) {
         const item = review.checks[name];
-        if (!item.passed) issues.push(`review.${name} 未通过`);
+        if (!item.passed) {
+            report?.(`/review/checks/${name}/passed`, "check_failed");
+            issues.push(`review.${name} 未通过`);
+        }
         for (const evidence of item.evidence) {
-            if (!resolvePointer(candidate, evidence.path))
+            if (!resolvePointer(candidate, evidence.path)) {
+                report?.(
+                    `/review/checks/${name}/evidence`,
+                    "missing_reference",
+                );
                 issues.push(`review.${name}: 引用不存在 ${evidence.path}`);
+            }
         }
         const observation = item.evidence
             .map((evidence) => evidence.observation)
             .join("\n");
         if (observations.has(observation))
-            issues.push(`review.${name}: 不得用重复套话代替逐项复核`);
+            evidenceIssue(name, `review.${name}: 不得用重复套话代替逐项复核`);
         observations.add(observation);
     }
     for (const axis of reviewAxes) {
@@ -887,7 +913,8 @@ export function reviewIssues(
                     item.path === path || item.path.startsWith(`${path}/`),
             )
         )
-            issues.push(
+            evidenceIssue(
+                "slotRecallComplete",
                 `review.slotRecallComplete: 缺少 ${path} 的独立观察与取舍依据`,
             );
     }

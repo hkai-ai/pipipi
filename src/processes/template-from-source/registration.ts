@@ -1,6 +1,7 @@
 /** 分离策略、审核后生图和审核后编译，人工暂停不占用 Process 等待预算。 */
 import { createHash, randomUUID } from "node:crypto";
 import { z } from "zod";
+import { dependencyDiagnostic } from "../../process-runtime/diagnostics.js";
 import {
     defineProcessRegistration,
     failProcess,
@@ -250,16 +251,23 @@ export function createTemplateSourceRegistration(options: {
                 if (!accepted.accepted) throw new Error("输入不符合编译合同");
                 const result = await context.runActivity(
                     "approved_image_compilation",
-                    () =>
-                        options.attemptRunner.run({
+                    async () => {
+                        const result = await options.attemptRunner.run({
                             runId: `${context.runId}:compile`,
                             registration: options.compiler,
                             acceptedInput: accepted.acceptedInput,
                             signal: context.signal,
-                        }),
+                        });
+                        // 成员失败以结果返回，须在活动内判定，避免被观测为成功。
+                        if (result.status !== "succeeded")
+                            throw new TemplateCompilationFailure();
+                        return result;
+                    },
+                    (error) =>
+                        dependencyDiagnostic(
+                            error instanceof TemplateCompilationFailure,
+                        ),
                 );
-                if (result.status !== "succeeded")
-                    throw new Error("编译未完成");
                 return {
                     ...outputSchema.parse(result.output),
                     coverImageUrl: image.url,
@@ -280,3 +288,5 @@ export function createTemplateSourceRegistration(options: {
         },
     });
 }
+
+class TemplateCompilationFailure extends Error {}

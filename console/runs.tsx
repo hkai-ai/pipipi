@@ -376,6 +376,34 @@ export function RunsView({
     );
 }
 
+function TemplateCompilationTimeline({
+    parentRunId,
+    tick,
+}: {
+    parentRunId: string;
+    tick: number;
+}) {
+    const runId = `${parentRunId}:compile`;
+    const timeline = useAsync(() => findTimeline(runId), [runId, tick]);
+    const detail = describeTimeline(timeline.value);
+    return (
+        <Panel title="模板编译子运行">
+            <p class="hint run-link">{runId}</p>
+            {timeline.error ? (
+                <p role="alert">{timeline.error}</p>
+            ) : (
+                <Timeline timeline={timeline.value} />
+            )}
+            {detail.diagnostic?.issues?.map((issue) => (
+                <p>
+                    校验字段：<code>{issue.path}</code>；规则：
+                    <code>{issue.code}</code>
+                </p>
+            ))}
+        </Panel>
+    );
+}
+
 export function RunView({
     runId,
     back = "#/runs",
@@ -545,6 +573,17 @@ export function RunView({
                             </p>
                         ) : null}
                     </Panel>
+                    {value.process === "template-from-source" &&
+                    timeline.value?.activities.some(
+                        (entry) =>
+                            "activity" in entry &&
+                            entry.activity === "approved_image_compilation",
+                    ) ? (
+                        <TemplateCompilationTimeline
+                            parentRunId={runId}
+                            tick={tick}
+                        />
+                    ) : null}
                     <Panel title="输入与产出">
                         {imagesOf(value.content?.output).length ? (
                             <div class="result-images">

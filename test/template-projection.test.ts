@@ -215,3 +215,33 @@ describe("模板事实投影", () => {
         expect(analysisIssues(result).join()).toContain("开放事实");
     });
 });
+
+it("目标范围反写时复核仍能定位缺少的媒介与写死开放值的风格字段", () => {
+    const plan = toTemplatePlan(candidate());
+    plan.analysis.targetScopes = { pet: ["subject_main"] };
+    for (const component of plan.analysis.componentGraph)
+        component.visualFields = component.visualFields.filter(
+            (f) => f !== "medium",
+        );
+    plan.analysis.semanticModel.runtimeSemantics.visualContract.styleTraits[0] =
+        plan.draft.inputSchema.slots[0].text.defaultValue;
+    expect(() => materializeTemplatePlan(plan)).toThrow(
+        expect.objectContaining({
+            diagnostics: [
+                {
+                    path: "/analysis/targetScopes/*",
+                    code: "invalid_target_scope",
+                },
+            ],
+        }),
+    );
+    const repair = templateRepairContext(plan);
+    expect(repair.targetScopeContract.requiredTargetKeys).toContain(
+        "subject_main",
+    );
+    expect(repair.targetScopeContract.allowedComponentIds).toContain("pet");
+    expect(repair.missingComponentVisualFields).toContain("medium");
+    expect(repair.slotConstraints[0].fixedVisualPaths).toContain(
+        "/analysis/semanticModel/runtimeSemantics/visualContract/styleTraits/0",
+    );
+});

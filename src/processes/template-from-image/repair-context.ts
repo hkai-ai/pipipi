@@ -2,6 +2,7 @@
 
 import { analysisCounts } from "./analysis-contract.js";
 import { draftFromPlan, readTemplatePlan } from "./projection.js";
+import { missingComponentVisualFields } from "./quality.js";
 import { resolveVisualFact } from "./visual-facts.js";
 import {
     unreferencedTargetFacts,
@@ -15,6 +16,17 @@ export function templateRepairContext(value: unknown) {
     const draft = draftFromPlan(plan);
     const visual = draft.runtimeSemantics.visualContract;
     return {
+        targetScopeContract: {
+            requiredTargetKeys: draft.runtimeSemantics.targetInstances.map(
+                (target) => target.id,
+            ),
+            allowedComponentIds: analysis.componentGraph.map(
+                (component) => component.id,
+            ),
+        },
+        missingComponentVisualFields: missingComponentVisualFields(
+            analysis.componentGraph,
+        ),
         counts: analysisCounts({ analysis, draft }),
         visualSelections: visualSelectionContext(
             analysis,
@@ -85,6 +97,21 @@ export function templateRepairContext(value: unknown) {
             path: `/draft/inputSchema/slots/${index}/text/suggestions`,
             defaultValue: slot.text.defaultValue,
             suggestions: slot.text.suggestions,
+            fixedVisualPaths: Object.entries(visual).flatMap(
+                ([field, values]) =>
+                    (Array.isArray(values) ? values : [values]).flatMap(
+                        (fact, index) =>
+                            [
+                                slot.text.defaultValue,
+                                ...(analysis.slotEvidence[slot.id]
+                                    ?.openVisualFacts ?? []),
+                            ].some((value) => fact.includes(value))
+                                ? [
+                                      `/analysis/semanticModel/runtimeSemantics/visualContract/${field}${Array.isArray(values) ? `/${index}` : ""}`,
+                                  ]
+                                : [],
+                    ),
+            ),
             featurePath: `/analysis/slotEvidence/${slot.id}/featureAuthority`,
             requiresFeatureAuthority:
                 draft.runtimeSemantics.inputBindings[slot.id]?.operation ===

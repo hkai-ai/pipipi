@@ -251,29 +251,37 @@ export function createTemplateRegistration(options: {
                 );
             }
             try {
-                const candidate = readTemplateCandidate(reviewed);
-                if (candidate.draft.runtimeSemantics.version !== version)
-                    throw new TemplateContractError([
-                        `runtimeSemantics.version 必须为 ${version}`,
-                    ]);
-                const review =
-                    reviewed &&
-                    typeof reviewed === "object" &&
-                    "review" in reviewed
-                        ? reviewed.review
-                        : undefined;
-                return {
-                    template: await context.runActivity(
-                        "template_validation",
-                        async () =>
-                            compileTemplateResult(
-                                { ...candidate, review },
-                                input.imageUrl,
-                                image,
-                            ),
-                        templateValidationDiagnostic,
-                    ),
-                };
+                const template = await context.runActivity(
+                    "template_validation",
+                    async () => {
+                        const candidate = readTemplateCandidate(reviewed);
+                        if (
+                            candidate.draft.runtimeSemantics.version !== version
+                        )
+                            throw new TemplateContractError(
+                                [`runtimeSemantics.version 必须为 ${version}`],
+                                [
+                                    {
+                                        path: "/draft/runtimeSemantics/version",
+                                        code: "const",
+                                    },
+                                ],
+                            );
+                        const review =
+                            reviewed &&
+                            typeof reviewed === "object" &&
+                            "review" in reviewed
+                                ? reviewed.review
+                                : undefined;
+                        return compileTemplateResult(
+                            { ...candidate, review },
+                            input.imageUrl,
+                            image,
+                        );
+                    },
+                    templateValidationDiagnostic,
+                );
+                return { template };
             } catch (error) {
                 diagnose("validation", 2, error);
                 if (
@@ -292,17 +300,19 @@ export function createTemplateRegistration(options: {
 }
 
 function templateActivityDiagnostic(error: unknown): ActivityDiagnostic {
-    if (
-        error instanceof TemplateContractError ||
-        error instanceof TemplateProjectionError
-    )
-        return { stage: "schema", code: "invalid_contract" };
-    return agentDiagnostic(error);
+    return error instanceof TemplateContractError
+        ? templateValidationDiagnostic(error)
+        : agentDiagnostic(error);
 }
 
 function templateValidationDiagnostic(error: unknown): ActivityDiagnostic {
-    return error instanceof TemplateContractError ||
-        error instanceof TemplateProjectionError
-        ? { stage: "schema", code: "invalid_contract" }
+    return error instanceof TemplateContractError
+        ? {
+              stage: "schema",
+              code: "invalid_contract",
+              ...(error.diagnostics.length
+                  ? { issues: error.diagnostics }
+                  : {}),
+          }
         : { stage: "execution", code: "internal_failure" };
 }

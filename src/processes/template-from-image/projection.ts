@@ -73,10 +73,11 @@ const planAnalysis = templateAnalysisSchema
             .array(shape.componentGraph.element.omit({ targetIds: true }))
             .min(1)
             .max(64),
-        targetScopes: z.record(
-            z.string(),
-            z.array(z.string().min(1)).min(1).max(64),
-        ),
+        targetScopes: z
+            .record(z.string(), z.array(z.string().min(1)).min(1).max(64))
+            .describe(
+                "键为每个 targetInstances[].id，值为一组 componentGraph[].id。每个正式目标恰好出现一次，组件 ID 不能作为键。",
+            ),
     });
 // 字段映射不能把玩法和组件分析挪到最后，模型请求仍遵循来源的分析顺序。
 export const templatePlanAnalysisSchema = z.strictObject({
@@ -222,9 +223,18 @@ export function materializeTemplatePlan(value: unknown): TemplateCandidate {
             new Set(scope).size !== scope.length ||
             scope.some((id) => !componentIds.includes(id))
         )
-            throw new TemplateProjectionError(value, [
-                `/analysis/targetScopes/${targetId}: 每个正式目标必须且只能引用一组已存在且不重复的组件`,
-            ]);
+            throw new TemplateProjectionError(
+                value,
+                [
+                    `/analysis/targetScopes/${targetId}: 每个正式目标必须且只能引用一组已存在且不重复的组件`,
+                ],
+                [
+                    {
+                        path: "/analysis/targetScopes/*",
+                        code: "invalid_target_scope",
+                    },
+                ],
+            );
     }
     const sha = (text: string) =>
         createHash("sha256").update(text).digest("hex");

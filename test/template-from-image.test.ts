@@ -621,3 +621,31 @@ it.each([
     expect(JSON.stringify(result)).not.toMatch(/Fake-IP|DNS|请检查/);
     expect(service.compile).not.toHaveBeenCalled();
 });
+
+it("最终复核保留阻断时只归档固定字段与规则", async () => {
+    const service = await start(
+        undefined,
+        vi.fn(async () => {
+            const value = candidate();
+            value.review.issues.push("PRIVATE_REVIEW_REASON");
+            return value;
+        }),
+    );
+    expect((await (await service.execute()).json()).error.code).toBe(
+        "AGENT_FAILURE",
+    );
+    expect(service.events).toContainEqual(
+        expect.objectContaining({
+            activity: "template_validation",
+            outcome: "failed",
+            diagnostic: {
+                stage: "schema",
+                code: "invalid_contract",
+                issues: [{ path: "/review/issues", code: "unresolved_review" }],
+            },
+        }),
+    );
+    expect(JSON.stringify(service.events)).not.toContain(
+        "PRIVATE_REVIEW_REASON",
+    );
+});

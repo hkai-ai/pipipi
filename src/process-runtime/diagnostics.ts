@@ -1,4 +1,6 @@
 /** 定义活动失败的固定诊断词表与中文提示，并过滤正文和动态字段。 */
+import { validationDiagnostics } from "./template-diagnostics.js";
+
 const diagnosticAdvice = {
     internal_failure: [
         "执行发生异常，具体原因尚未确认",
@@ -125,27 +127,38 @@ export function sanitizeActivityDiagnostic(
         code: candidate.code,
         ...(Array.isArray(candidate.issues)
             ? {
-                  issues: candidate.issues.slice(0, 8).map((issue) => ({
-                      path:
+                  issues: candidate.issues.slice(0, 8).map((issue) => {
+                      const path =
                           typeof issue?.path === "string" &&
                           issue.path.startsWith("/")
                               ? issue.path === "/"
-                                  ? "/"
-                                  : diagnosticPath(
-                                        issue.path
-                                            .slice(1)
-                                            .split("/")
-                                            .map((part: string) =>
-                                                /^(0|[1-9]\d{0,3}|10000)$/u.test(
-                                                    part,
-                                                )
-                                                    ? Number(part)
-                                                    : part,
-                                            ),
-                                    )
-                              : "/*",
-                      code: issueCodes.has(issue?.code) ? issue.code : "custom",
-                  })),
+                                  ? []
+                                  : issue.path
+                                        .slice(1)
+                                        .split("/")
+                                        .slice(0, 8)
+                                        .map((part: string) =>
+                                            /^(0|[1-9]\d{0,3}|10000)$/u.test(
+                                                part,
+                                            )
+                                                ? Number(part)
+                                                : part,
+                                        )
+                              : ["*"];
+                      if (
+                          candidate.stage === "schema" &&
+                          candidate.code === "invalid_contract"
+                      )
+                          return validationDiagnostics([
+                              { path, code: issue?.code },
+                          ])[0];
+                      return {
+                          path: diagnosticPath(path),
+                          code: issueCodes.has(issue?.code)
+                              ? issue.code
+                              : "custom",
+                      };
+                  }),
               }
             : {}),
     };

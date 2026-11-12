@@ -424,12 +424,32 @@ export function compileTemplateResult(
         value && typeof value === "object" && "review" in value
             ? value.review
             : undefined;
-    const issues = [
-        ...templateSemanticIssues(candidate.draft),
-        ...analysisIssues(candidate),
-        ...reviewIssues(candidate, review),
-    ];
-    if (issues.length) throw new TemplateContractError(issues);
+    const draftIssues = templateSemanticIssues(candidate.draft);
+    const diagnostics: TemplateValidationDiagnostic[] = [];
+    if (draftIssues.length)
+        diagnostics.push({ path: "/draft", code: "draft_semantics" });
+    const report = (path: string, code: string) => {
+        if (
+            !diagnostics.some(
+                (item) => item.path === path && item.code === code,
+            )
+        )
+            diagnostics.push({ path, code });
+    };
+    const analysisProblems = analysisIssues(candidate, report);
+    if (
+        analysisProblems.length &&
+        !diagnostics.some((issue) => issue.path.startsWith("/analysis"))
+    )
+        report("/analysis", "analysis_contract");
+    const reviewProblems = reviewIssues(candidate, review, report);
+    if (
+        reviewProblems.length &&
+        !diagnostics.some((issue) => issue.path.startsWith("/review"))
+    )
+        diagnostics.push({ path: "/review/checks", code: "review_evidence" });
+    const issues = [...draftIssues, ...analysisProblems, ...reviewProblems];
+    if (issues.length) throw new TemplateContractError(issues, diagnostics);
     const { draft } = candidate;
     return {
         ...draft,

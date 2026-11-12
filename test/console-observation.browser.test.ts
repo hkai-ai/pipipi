@@ -357,6 +357,61 @@ browserDescribe("operator observation browser", () => {
                 .click();
             await page.getByRole("alert").waitFor();
             expect(await page.getByText("56", { exact: true }).count()).toBe(0);
+            // 历史父活动误记为成功，子运行只有活动归档，没有独立 Run Record。
+            await records.store({
+                schemaVersion: 1,
+                runId: "template-parent",
+                process: "template-from-source",
+                version: "v2",
+                status: "failed",
+                errorCode: "DEPENDENCY_FAILURE_AFTER_COMMIT",
+                recordedAt: at(1),
+            });
+            const event = {
+                schemaVersion: 1,
+                version: "v2",
+                attemptNumber: 1,
+                sequence: 1,
+                timestamp: at(1),
+                event: "process_run_activity_finished",
+                durationMs: 5,
+            } as const;
+            activities.record({
+                ...event,
+                runId: "template-parent",
+                process: "template-from-source",
+                activity: "approved_image_compilation",
+                outcome: "succeeded",
+            });
+            activities.record({
+                ...event,
+                runId: "template-parent:compile",
+                process: "template-from-image",
+                activity: "template_validation",
+                outcome: "failed",
+                diagnostic: {
+                    stage: "schema",
+                    code: "invalid_contract",
+                    issues: [
+                        {
+                            path: "/review/checks/visualContractRespectsInputs/passed",
+                            code: "check_failed",
+                        },
+                    ],
+                },
+            });
+            await activities.flush();
+            await page.goto(`${url}#/run/template-parent`);
+            await page
+                .getByRole("heading", { name: "模板编译子运行" })
+                .waitFor();
+            await page
+                .getByText(
+                    "/review/checks/visualContractRespectsInputs/passed",
+                    { exact: true },
+                )
+                .waitFor();
+            await page.getByText("check_failed", { exact: true }).waitFor();
             expect(executions).toBe(0);
             expect(errors).toEqual([]);
             await context.close();
