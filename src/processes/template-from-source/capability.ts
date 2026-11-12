@@ -59,6 +59,7 @@ export type TemplateImagePreparation = {
     ): Promise<PreparedTemplateImage & { note?: string }>;
 };
 export const preparationFailureMessages = {
+    unsupported_background: "当前成图模型不支持透明背景，尚未提交生成",
     provider_rejected:
         "图片服务已明确拒绝，本次批准已消费；请核对服务配置后重新规划和确认",
     submission_unknown: "生成提交结果未知，必须核对供应商记录，禁止重新提交",
@@ -68,6 +69,7 @@ export const preparationFailureMessages = {
 } as const;
 export type PreparationFailure = keyof typeof preparationFailureMessages;
 export const preparationFailureSchema = z.enum([
+    "unsupported_background",
     "provider_rejected",
     "submission_unknown",
     "reapproval_required",

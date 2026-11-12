@@ -17,13 +17,13 @@
 
 来源固定为 `meme-template-image-producer` 提交 `a52c87668aa6cb7907306864e85ab861978b2f43`。原入口与五份业务引用全文完整打包，分类连续、强制替换、身份分组、资产依赖闭包、特征权限、逐区文字和媒介缺陷按原文处理。程序校验结构关系，人工负责视觉与替换效果。
 
-Agent 无 Tool，不执行来源 Python；TypeScript Adapter 承担持久化、FAL 与 OSS。当前是逐项生产，不包含原离线工具的 5000 项分片、任务级多样性分配或编辑修订工作台，不宣称整个批量工具等价迁移。来源目录、许可证记录与逐文件摘要见 [.pi/skills/template-image-preparer/SOURCE.md](../../../../.pi/skills/template-image-preparer/SOURCE.md)。
+Agent 无 Tool，不执行来源 Python；TypeScript Adapter 承担持久化、受控图片编辑与 OSS。当前是逐项生产，不包含原离线工具的 5000 项分片、任务级多样性分配或编辑修订工作台，不宣称整个批量工具等价迁移。来源目录、许可证记录与逐文件摘要见 [.pi/skills/template-image-preparer/SOURCE.md](../../../../.pi/skills/template-image-preparer/SOURCE.md)。
 
 ## 持久化与恢复
 
 内部 Business API 将源图、策略、两次批准和图片保存在挂载的数据目录 `template-productions/<productionId>/`。新方案同时保存 execution（version=v2、prompt、promptSha256），指令与源图、策略一起纳入 strategySha256；生图只读取已批准指令，不在部署后重新编译。旧方案未提交时必须重新规划和批准，旧 requestId 和成图继续原恢复路径。
 
-生成提交前先写入未知提交状态；拿到 requestId 后只恢复同一请求。固定生成地址单次 HTTP POST，不使用 SDK 强制队列重试。明确非重试 4xx（排除 408、409、425、429）记录 provider_rejected，仅存类型及状态码；连接失联、临时状态、5xx 或无有效回执记录 submission_unknown。两者都不恢复已消费批准；未知状态必须对账，不得自动重新提交。托管最多三次，等待 5/10 秒；托管、查询、下载与轮询支持取消，取消本地等待不取消供应商任务。操作锁冲突拒绝并发；进程崩溃留下的锁按 Runbook 离线核对后恢复。
+生成提交前先写入渠道与未知提交状态；新成图走固定中转站单次编辑，原字节结果先持久保存再校验，恢复不再次派发。历史已提交 FAL 请求只恢复原 requestId；渠道和模型接法见[审核后生成图片](../template-image-render/README.md)。明确非重试 4xx（排除 408、409、425、429）记录 provider_rejected，仅存类型及状态码；连接失联、临时状态、5xx 或无有效回执记录 submission_unknown。两者都不恢复已消费批准；未知状态必须对账，不得自动重新提交。历史 FAL 托管最多三次，等待 5/10 秒；托管、查询、下载与轮询支持取消，取消本地等待不取消供应商任务。操作锁冲突拒绝并发；进程崩溃留下的锁按 Runbook 离线核对后恢复。
 
 图片 SHA-256 决定固定对象 key。OSS 使用禁止覆盖写入；409 仅在现有对象的摘要、长度和类型均一致时复用。编译失败可以重新编译同一图片，不重新付费生图。上传与审批记录不能因容器更新丢失。
 

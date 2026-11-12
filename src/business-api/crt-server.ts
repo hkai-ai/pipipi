@@ -67,6 +67,7 @@ import {
     OpenAIImageGenerationError,
 } from "./openai-image-generation.js";
 import { finalizeTravelPhoto } from "./photo-poster.js";
+import type { TemplateImageEditor } from "./template-image-editor.js";
 import type { TemplateImageRenderer } from "./template-image-fal.js";
 import { TemplateImageProduction } from "./template-image-production.js";
 
@@ -149,6 +150,7 @@ export async function startCrtBusinessApi(
         };
         generationClient?: ImageGenerationClient;
         templateRenderer?: TemplateImageRenderer;
+        templateEditor?: TemplateImageEditor;
         templateStorage?: ObjectStorageCapability;
         provider?: string;
         model?: string;
@@ -170,6 +172,7 @@ export async function startCrtBusinessApi(
     const templateProduction = new TemplateImageProduction({
         directory: join(directory, "template-productions"),
         renderer: options.templateRenderer,
+        editor: options.templateEditor,
         storage: options.templateStorage,
     });
     const outputDirectory = join(directory, "images");

@@ -1169,7 +1169,7 @@ Memebuy 可将两个模板分别绑定同一 Process 与固定 preset，用户�
 
 productionId 为 UUID；摘要为小写 64 位 SHA-256；reviewerRef 为 1–191 字符的服务端审核者引用。字段闭合，不接受额外运行配置。strategy 是待人审阅的完整业务方案，包含替换目标、类别判断、组件分组、依赖与特征权限、文字/标记动作、冻结项、风险；准确结构由 `GET /processes` 的输出 Schema 给出，调用方不能用策略正文替代已持久化 productionId。新输出另含 execution：`{ version: "v2", prompt, promptSha256 }`，精确十二段指令由服务端从策略生成，与源图及策略一起纳入 strategySha256。原审批入参保持不变。
 
-新方案的可选字段 `strategy.outputBackground` 记录已确定的成图背景（`transparent` 或 `opaque`）。原件含透明像素时默认匹配透明，备注明确指定背景时按其要求。该字段绑定方案摘要，审核后传入生图请求；缺失时沿用原有供应商默认值，历史审批不重新推断。
+新方案的可选字段 `strategy.outputBackground` 记录已确定的成图背景（`transparent` 或 `opaque`）。原件含透明像素时默认匹配透明，备注明确指定背景时按其要求。该字段绑定方案摘要，审核后传入生图请求；缺失时沿用原有供应商默认值，历史审批不重新推断。新成图默认走服务端固定中转站；同一成图绑定原渠道，恢复不会跨渠道重新付费。
 
 targetCanvas 增加 carrierRole（none/apparel/device/mechanism）、reason、excludedScopes；frozenSet 改为 `{ scope: "design" | "carrier" | "environment", regionId, instruction }[]`；文字项增加 originalText、componentId，exactText 表示最终文字，删除为空串。replacementComponentIds 关联闭包中实际替换的组件。审核端应展示这些业务要求，旧记录缺失字段标记“未记录”。完整场景需显示依据并显式勾选确认。
 
@@ -1179,7 +1179,7 @@ imageDataUrl 是完整 PNG 的 Base64 Data URL，原 PNG 至多 20,000,000 字�
 
 preparedImage 为 `{ url, sha256, width, height, contentType: "image/png" }`；url 固定为 `https://assets.memebuy.cn/gallery/template-images/<sha256>.png`。template.cover、template.referenceImage 和 coverImageUrl 均引用该图片。公开输出不包含原始策略、两次审批或业务备注。
 
-方案失败返回 `AGENT_FAILURE`；生图或上传编译不能确定完成时返回 `DEPENDENCY_FAILURE_AFTER_COMMIT`。这些错误不授权重新付费生图：人工恢复必须提交原 productionId 与原批准摘要。已知供应商请求继续查询，未知生成提交需要对账。重试编译可能重新调用编译模型，但不会再生成图片。
+旧图片模型在派发前发现不支持已批准的透明背景时，返回 `DEPENDENCY_FAILURE`，本次未提交生图。方案失败返回 `AGENT_FAILURE`；生图或上传编译不能确定完成时返回 `DEPENDENCY_FAILURE_AFTER_COMMIT`。这些错误不授权重新付费生图：人工恢复必须提交原 productionId 与原批准摘要。已知供应商请求继续查询，未知生成提交需要对账。重试编译可能重新调用编译模型，但不会再生成图片。
 
 ## 可重复制作与成图版本
 

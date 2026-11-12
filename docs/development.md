@@ -74,6 +74,8 @@ curl -X POST http://127.0.0.1:4300/execute \
 
 `constructProcessingService` 是生产启动的唯一 Construction Seam。它在监听端口前完成配置解析、跨字段校验、Adapter 选择和 Application 组装。启动失败时先修正配置，不要把校验移到请求路径。
 
+模板新成图在内部图片服务复用 `resolveModelGateway(..., "image")` 与 OpenAI 文件表单编辑 Adapter，固定模型、质量和 PNG，不受 CRT 的 FAL 开关影响。历史 FAL 请求仍按原 requestId 查询；确定性出站、透明校验与恢复测试见 `test/template-image-production.test.ts`，付费验证须单独执行。
+
 联调极简海报时，内部图片服务提供正式 `POST /posters`，复用现有 FAL 与 OSS 配置；文本编译仍需 Pi 模型凭证。图片服务启动不生图，实际图片请求会产生费用与外部写入。配置说明见 [发布手册](mvp-release-runbook.md)，不付费的完整 HTTP 链路验证见 `test/poster-process.test.ts`。
 
 ### 新闻图片内部评测

@@ -190,6 +190,11 @@ export function createTemplateRenderRegistration(
             } catch (error) {
                 if (
                     error instanceof TemplateImagePreparationError &&
+                    error.reason === "unsupported_background"
+                )
+                    return failProcess("DEPENDENCY_FAILURE", error.message);
+                if (
+                    error instanceof TemplateImagePreparationError &&
                     error.reason === "background_mismatch"
                 )
                     return failProcess("INVALID_OUTPUT", error.message);

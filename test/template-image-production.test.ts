@@ -1,11 +1,18 @@
 import { createHash, randomUUID } from "node:crypto";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, unlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import sharp from "sharp";
 import { afterEach, expect, it, vi } from "vitest";
 import { createProcessingApplication } from "../src/api/application.js";
-import { TemplateImageSubmissionError } from "../src/business-api/template-image-fal.js";
+import {
+    createTemplateImageEditor,
+    type TemplateImageEditor,
+} from "../src/business-api/template-image-editor.js";
+import {
+    TemplateImageResultError,
+    TemplateImageSubmissionError,
+} from "../src/business-api/template-image-fal.js";
 import { TemplateImageProduction } from "../src/business-api/template-image-production.js";
 import {
     createProcessAttemptRunner,
@@ -126,6 +133,7 @@ async function setup(
         Parameters<typeof createTemplatePlanRegistration>[0]
     > = {},
     sourceAlpha = 1,
+    editor?: TemplateImageEditor,
 ) {
     const directory = await mkdtemp(join(tmpdir(), "pi-template-production-"));
     roots.push(directory);
@@ -185,6 +193,7 @@ async function setup(
     const service = new TemplateImageProduction({
         directory,
         renderer,
+        editor,
         storage: { provider: "aliyun-oss", upload },
         loadSource: async () => source,
     });
@@ -256,6 +265,266 @@ async function setup(
         compile,
     };
 }
+it.each([undefined, "opaque", "transparent"] as const)(
+    "新成图经真实网关 Adapter 发 multipart，背景 %s，恢复不重复出站",
+    async (background) => {
+        const png = await sharp({
+            create: {
+                width: 1024,
+                height: 1024,
+                channels: 4,
+                background: {
+                    r: 50,
+                    g: 120,
+                    b: 200,
+                    alpha: background === "transparent" ? 0.5 : 1,
+                },
+            },
+        })
+            .png()
+            .toBuffer();
+        const transport = vi.fn(async () =>
+            Response.json({ data: [{ b64_json: png.toString("base64") }] }),
+        );
+        const editor = createTemplateImageEditor(
+            {
+                MODEL_GATEWAY_BASE_URL: "https://gateway.example/openai/v1",
+                MODEL_GATEWAY_API_KEY: "PRIVATE",
+            },
+            { fetch: transport },
+        );
+        const s = await setup(
+            false,
+            {
+                agent: {
+                    plan: async () => ({
+                        ...imageStrategy(),
+                        outputBackground: background,
+                    }),
+                },
+            },
+            1,
+            editor,
+        );
+        try {
+            const planned = await s.execute("template-image-plan", {
+                imageUrl: "https://example.com/source.png",
+                note: "按指定背景生成",
+            });
+            const input = {
+                productionId: String(planned.body.output.productionId),
+                objectSha256: planned.body.output.strategySha256,
+                reviewerRef: "operator",
+                renderId: randomUUID(),
+            };
+            const result = await s.execute("template-image-render", input);
+            expect(result.status).toBe(200);
+            expect(transport).toHaveBeenCalledTimes(1);
+            const [url, init] = transport.mock.calls[0] as unknown as [
+                string,
+                RequestInit,
+            ];
+            expect(url).toBe("https://gateway.example/openai/v1/images/edits");
+            expect(init.redirect).toBe("error");
+            const body = init.body as FormData;
+            expect(body.get("model")).toBe("gpt-image-2.5-flare");
+            expect(body.get("size")).toBe("1024x1024");
+            expect(body.get("background")).toBe(background ?? null);
+            expect(body.get("quality")).toBe("low");
+            expect(body.get("output_format")).toBe("png");
+            expect(body.get("n")).toBe("1");
+            const images = body.getAll("image[]") as File[];
+            expect(images).toHaveLength(1);
+            expect(Buffer.from(await images[0].arrayBuffer())).toEqual(
+                s.source,
+            );
+            expect(new Headers(init.headers).get("idempotency-key")).toBe(
+                `${input.productionId}-${input.renderId}`,
+            );
+            const prefix = join(
+                s.directory,
+                input.productionId,
+                "renders",
+                input.renderId,
+            );
+            const attempt = JSON.parse(
+                await readFile(join(prefix, "attempt.json"), "utf8"),
+            );
+            expect(attempt).toMatchObject({
+                provider: "openai",
+                state: "image_ready",
+            });
+            // 模拟响应已持久化、审核包落盘前退出，重启后只读本地原结果。
+            await unlink(join(prefix, "review.json"));
+            await writeFile(
+                join(prefix, "attempt.json"),
+                JSON.stringify({ ...attempt, state: "submission_unknown" }),
+            );
+            const restarted = new TemplateImageProduction({
+                directory: s.directory,
+                renderer: s.renderer,
+                editor,
+                storage: { provider: "aliyun-oss", upload: s.upload },
+            });
+            expect(
+                await restarted.execute(
+                    "render",
+                    input,
+                    new AbortController().signal,
+                ),
+            ).toEqual(result.body.output);
+            expect(
+                (await s.execute("template-image-render", input)).body.output,
+            ).toEqual(result.body.output);
+            expect(transport).toHaveBeenCalledTimes(1);
+            expect(s.renderer.host).not.toHaveBeenCalled();
+            expect(s.renderer.submit).not.toHaveBeenCalled();
+            expect(s.renderer.result).not.toHaveBeenCalled();
+            expect(s.upload).not.toHaveBeenCalled();
+        } finally {
+            await s.app.close();
+        }
+    },
+);
+
+it.each(["opaque", "invisible", "unknown", "rejected"])(
+    "中转站 %s 失败不重投也不退回 FAL",
+    async (failure) => {
+        const png = await sharp({
+            create: {
+                width: 1024,
+                height: 1024,
+                channels: 4,
+                background: {
+                    r: 30,
+                    g: 60,
+                    b: 90,
+                    alpha: failure === "invisible" ? 0 : 1,
+                },
+            },
+        })
+            .png()
+            .toBuffer();
+        const transport = vi.fn(async () => {
+            if (failure === "unknown")
+                throw new Error("PRIVATE connection lost");
+            if (failure === "rejected")
+                return Response.json(
+                    { error: { message: "PRIVATE rejected" } },
+                    { status: 422 },
+                );
+            return Response.json({
+                data: [{ b64_json: png.toString("base64") }],
+            });
+        });
+        const editor = createTemplateImageEditor(
+            {
+                MODEL_GATEWAY_BASE_URL: "https://gateway.example/v1",
+                MODEL_GATEWAY_API_KEY: "PRIVATE",
+            },
+            { fetch: transport },
+        );
+        const s = await setup(
+            false,
+            {
+                agent: {
+                    plan: async () => ({
+                        ...imageStrategy(),
+                        outputBackground: "transparent",
+                    }),
+                },
+            },
+            1,
+            editor,
+        );
+        try {
+            const plan = await s.execute("template-image-plan", {
+                imageUrl: "https://example.com/source.png",
+                note: "透明背景",
+            });
+            const input = {
+                productionId: String(plan.body.output.productionId),
+                objectSha256: plan.body.output.strategySha256,
+                reviewerRef: "operator",
+            };
+            const first = await s.execute("template-image-render", input);
+            expect(first.status).not.toBe(200);
+            expect(
+                (await s.execute("template-image-render", input)).status,
+            ).not.toBe(200);
+            expect(JSON.stringify(first.body)).not.toContain("PRIVATE");
+            expect(transport).toHaveBeenCalledTimes(1);
+            expect(s.renderer.submit).not.toHaveBeenCalled();
+            expect(s.upload).not.toHaveBeenCalled();
+            const saved = await readFile(
+                join(s.directory, input.productionId, "attempt.json"),
+                "utf8",
+            );
+            expect(saved).not.toContain("PRIVATE");
+            expect(JSON.parse(saved)).toMatchObject({
+                provider: "openai",
+                state:
+                    failure === "unknown"
+                        ? "submission_unknown"
+                        : failure === "rejected"
+                          ? "provider_rejected"
+                          : "provider_complete",
+            });
+        } finally {
+            await s.app.close();
+        }
+    },
+);
+
+it.each([false, true])(
+    "历史 FAL 只恢复原请求，结果拒绝 %s 即落盘终态",
+    async (rejected) => {
+        const edit = vi.fn();
+        const s = await setup(false, {}, rejected ? 0.5 : 1, { edit });
+        try {
+            const plan = await s.execute("template-image-plan", {
+                imageUrl: "https://example.com/source.png",
+            });
+            const input = {
+                productionId: String(plan.body.output.productionId),
+                objectSha256: plan.body.output.strategySha256,
+                reviewerRef: "operator",
+            };
+            const path = join(s.directory, input.productionId, "attempt.json");
+            await writeFile(
+                path,
+                JSON.stringify({
+                    state: "provider_pending",
+                    approval: input,
+                    requestId: "historical-fal-id",
+                }),
+            );
+            if (rejected)
+                s.renderer.result.mockRejectedValueOnce(
+                    new TemplateImageResultError(422),
+                );
+            const result = await s.execute("template-image-render", input);
+            expect(result.status).toBe(rejected ? 502 : 200);
+            expect(s.renderer.result).toHaveBeenCalledWith(
+                "historical-fal-id",
+                expect.any(AbortSignal),
+            );
+            expect(
+                (await s.execute("template-image-render", input)).status,
+            ).toBe(result.status);
+            expect(s.renderer.result).toHaveBeenCalledTimes(1);
+            expect(s.renderer.submit).not.toHaveBeenCalled();
+            expect(edit).not.toHaveBeenCalled();
+            if (rejected)
+                expect(JSON.parse(await readFile(path, "utf8"))).toMatchObject({
+                    state: "provider_rejected",
+                    failure: { httpStatus: 422 },
+                });
+        } finally {
+            await s.app.close();
+        }
+    },
+);
 it.each([
     {
         alpha: 0.5,
@@ -311,29 +580,30 @@ it.each([
                 reviewerRef: "operator",
             };
             const rendered = await s.execute("template-image-render", input);
-            expect(s.renderer.submit).toHaveBeenCalledWith(
-                expect.any(String),
-                expect.any(String),
-                "1024x1024",
-                expect.any(AbortSignal),
-                expected,
-            );
             if (expected === "transparent") {
                 expect(rendered.body).toMatchObject({
-                    error: { code: "INVALID_OUTPUT" },
+                    error: { code: "DEPENDENCY_FAILURE" },
                 });
-                expect(s.upload).not.toHaveBeenCalled();
-                const valid = await sharp(s.generated)
-                    .ensureAlpha(0.5)
-                    .png()
-                    .toBuffer();
-                s.renderer.result.mockResolvedValueOnce(valid);
-                expect(
-                    (await s.execute("template-image-render", input)).status,
-                ).toBe(200);
-                expect(s.renderer.submit).toHaveBeenCalledTimes(1);
+                expect(s.renderer.host).not.toHaveBeenCalled();
+                expect(s.renderer.submit).not.toHaveBeenCalled();
+                await expect(
+                    readFile(
+                        join(
+                            s.directory,
+                            String(input.productionId),
+                            "attempt.json",
+                        ),
+                    ),
+                ).rejects.toMatchObject({ code: "ENOENT" });
             } else {
                 expect(rendered.status).toBe(200);
+                expect(s.renderer.submit).toHaveBeenCalledWith(
+                    expect.any(String),
+                    expect.any(String),
+                    "1024x1024",
+                    expect.any(AbortSignal),
+                    expected,
+                );
             }
         } finally {
             await s.app.close();

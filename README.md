@@ -14,7 +14,7 @@
 | --- | --- | --- | --- |
 | `memebuy` | `template-from-image/v1` | `{ imageUrl, note? }` | `{ template }`，Gallery v2 草稿 |
 | `memebuy` | `template-image-plan/v1` | 原图与备注 | 待审替换方案 |
-| `memebuy` | `template-image-render/v1` | 方案批准 | 待审完整 PNG |
+| `memebuy` | `template-image-render/v1` | 方案批准 | 中转站成图的待审完整 PNG；历史 FAL 按原请求恢复 |
 | `memebuy` | `template-from-source/v1` | 成图批准 | 新图引用与模板草稿 |
 | `common` | `minimal-zine-poster/v1` | `{ "brief": string, "text"?: string }` | `{ "prompt", "recipe", "interpretation", "image" }` |
 | `common` | `crt-interface-image/v1` | `{ "sourceImageUrl", "palette", "aspectRatio" }` | `{ "aspectRatio", "image" }` |

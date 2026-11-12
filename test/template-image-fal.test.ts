@@ -4,6 +4,22 @@ import { HttpTemplateImagePreparation } from "../src/processes/template-from-sou
 
 afterEach(() => vi.unstubAllGlobals());
 const signal = () => new AbortController().signal;
+it("队列完成但结果明确拒绝时标记终态，不能继续作为 pending 恢复", async () => {
+    const transport = vi
+        .fn()
+        .mockResolvedValueOnce(Response.json({ status: "COMPLETED" }))
+        .mockResolvedValueOnce(
+            Response.json(
+                { error: "PRIVATE background rejected" },
+                { status: 422 },
+            ),
+        );
+    vi.stubGlobal("fetch", transport);
+    await expect(
+        createTemplateImageRenderer("test").result("old-fal-request", signal()),
+    ).rejects.toMatchObject({ type: "provider_rejected", httpStatus: 422 });
+    expect(transport).toHaveBeenCalledTimes(2);
+});
 it.each([400, 401, 403, 422, 408, 409, 425, 429, 500, 503])(
     "HTTP %s 只提交一次且不泄漏正文",
     async (status) => {
@@ -51,6 +67,19 @@ it("断连和无效回执均保持未知，成功只返回请求标识", async (
         .mockResolvedValueOnce(Response.json({ request_id: "request-1" }));
     vi.stubGlobal("fetch", transport);
     const renderer = createTemplateImageRenderer("test");
+    await expect(
+        renderer.submit(
+            "https://example.com/image",
+            "prompt",
+            "1024x1024",
+            signal(),
+            "transparent",
+        ),
+    ).rejects.toMatchObject({
+        committed: false,
+        reason: "unsupported_background",
+    });
+    expect(transport).not.toHaveBeenCalled();
     for (let i = 0; i < 2; i++)
         await expect(
             renderer.submit(
@@ -66,11 +95,11 @@ it("断连和无效回执均保持未知，成功只返回请求标识", async (
             "prompt",
             "1024x1024",
             signal(),
-            "transparent",
+            "opaque",
         ),
     ).toBe("request-1");
     expect(JSON.parse(transport.mock.calls[2][1].body).background).toBe(
-        "transparent",
+        "opaque",
     );
     expect(JSON.parse(transport.mock.calls[0][1].body)).not.toHaveProperty(
         "background",

@@ -265,7 +265,7 @@ it("keeps the prior TEXT_MODEL pair compatible before older aliases", () => {
         }),
     ).toThrow(/TEXT_MODEL/);
 });
-it("preflights enabled images with canonical missing names while leaving disabled primary alone", () => {
+it("preflights template image credentials independently of the character primary switch", () => {
     const enabled = checkDeploymentEnvironment(
         { IMAGE_PROVIDER: "fal", CHARACTER_EMOJI_IMAGE_ENABLED: "true" },
         "crt-business-api",
@@ -282,7 +282,8 @@ it("preflights enabled images with canonical missing names while leaving disable
         "crt-business-api",
         { includeProviderCredentials: true },
     );
-    expect(disabled.requiredVariables).not.toContain("MODEL_GATEWAY_API_KEY");
+    // 关闭表情包主用后，模板新成图仍须读取图片网关。
+    expect(disabled.requiredVariables).toContain("MODEL_GATEWAY_API_KEY");
     const generic = checkDeploymentEnvironment({}, "crt-business-api", {
         includeProviderCredentials: true,
     });

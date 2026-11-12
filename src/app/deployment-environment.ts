@@ -125,10 +125,8 @@ export function checkDeploymentEnvironment(
     const imageGatewayVariables =
         options.includeProviderCredentials && role === "crt-business-api"
             ? [
-                  ...((environment.IMAGE_PROVIDER?.trim() || "openai") ===
-                  "openai"
-                      ? modelGatewayVariables(environment, "image")
-                      : []),
+                  // 模板成图固定使用网关，与 CRT 的 IMAGE_PROVIDER 独立。
+                  ...modelGatewayVariables(environment, "image"),
                   ...modelGatewayVariables(environment, "character-image"),
               ]
             : [];

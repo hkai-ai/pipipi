@@ -8,6 +8,19 @@ import {
 } from "../src/app/deployment-environment.js";
 
 describe("Deployment environment", () => {
+    it("FAL CRT 部署仍预检模板成图的独立图片网关凭证", () => {
+        const check = checkDeploymentEnvironment(
+            {
+                IMAGE_PROVIDER: "fal",
+                OPENAI_IMAGE_BASE_URL: "https://images.example/v1",
+                CHARACTER_EMOJI_IMAGE_ENABLED: "false",
+            },
+            "crt-business-api",
+            { includeProviderCredentials: true },
+        );
+        expect(check.requiredVariables).toContain("OPENAI_IMAGE_API_KEY");
+        expect(check.missingVariables).toContain("OPENAI_IMAGE_API_KEY");
+    });
     it("requires only the image Business API URL for the synchronous API", () => {
         expect(checkDeploymentEnvironment({}, "api")).toEqual({
             role: "api",

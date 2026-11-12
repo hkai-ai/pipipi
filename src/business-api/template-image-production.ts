@@ -22,8 +22,11 @@ import {
 import { assertImageBackground } from "./image-background.js";
 import type { ObjectStorageCapability } from "./object-storage.js";
 import { downloadSourcePhoto } from "./source-photo.js";
+import type { TemplateImageEditor } from "./template-image-editor.js";
 import {
+    assertFalTemplateBackground,
     type TemplateImageRenderer,
+    TemplateImageResultError,
     TemplateImageSubmissionError,
 } from "./template-image-fal.js";
 
@@ -43,11 +46,13 @@ type Plan = z.infer<typeof planSchema> & {
     execution?: { version: "v2"; prompt: string; promptSha256: string };
 };
 type Attempt = {
+    provider?: "fal" | "openai";
     state:
         | "provider_rejected"
         | "approved"
         | "submission_unknown"
         | "provider_pending"
+        | "provider_complete"
         | "image_ready";
     approval: z.infer<typeof renderInputSchema> & { decidedAt: string };
     requestId?: string;
@@ -61,6 +66,7 @@ export class TemplateImageProduction {
         private readonly options: {
             directory: string;
             renderer?: TemplateImageRenderer;
+            editor?: TemplateImageEditor;
             storage?: ObjectStorageCapability;
             loadSource?: typeof downloadSourcePhoto;
         },
@@ -197,7 +203,6 @@ export class TemplateImageProduction {
             );
             if (existing) return existing;
             const renderer = this.options.renderer;
-            if (!renderer) throw new Error("未配置固定 FAL 图片服务");
             if (!this.options.storage)
                 throw new Error("未配置模板公读对象存储，禁止提交生图");
             let attempt = await this.optional<Attempt>(
@@ -209,14 +214,33 @@ export class TemplateImageProduction {
                     false,
                     "reapproval_required",
                 );
+            // 仅未派发的成图使用当前默认渠道；旧回执始终属于原渠道。
+            const newSubmission = !attempt || attempt.state === "approved";
+            const provider =
+                attempt?.provider ??
+                (newSubmission && this.options.editor ? "openai" : "fal");
+            if (newSubmission && provider === "fal")
+                assertFalTemplateBackground(plan.strategy.outputBackground);
             if (!attempt) {
                 attempt = {
                     state: "approved",
+                    provider,
                     approval: { ...input, decidedAt: new Date().toISOString() },
                 };
                 await this.save(id, `${prefix}attempt.json`, attempt);
             }
-            if (attempt.state === "submission_unknown")
+            const editor = this.options.editor;
+            const rawResultPath = this.path(id, `${prefix}provider-result.png`);
+            let bytes: Buffer | undefined;
+            if (provider === "openai") {
+                try {
+                    bytes = await readFile(rawResultPath);
+                } catch (error) {
+                    if ((error as NodeJS.ErrnoException).code !== "ENOENT")
+                        throw error;
+                }
+            }
+            if (attempt.state === "submission_unknown" && !bytes)
                 throw new TemplateImagePreparationError(
                     true,
                     "submission_unknown",
@@ -227,6 +251,8 @@ export class TemplateImageProduction {
                     "provider_rejected",
                 );
             if (attempt.state === "approved") {
+                if (provider === "openai" ? !editor : !renderer)
+                    throw new Error("未配置原渠道图片服务");
                 const execution = plan.execution;
                 if (
                     execution?.version !== "v2" ||
@@ -248,23 +274,53 @@ export class TemplateImageProduction {
                 const source = await readFile(this.path(id, "source"));
                 if (hash(source) !== plan.sourceImageSha256)
                     throw new Error("源图摘要不匹配");
-                const url = await renderer.host(
-                    source,
-                    plan.sourceMime,
-                    signal,
-                );
+                let url: string | undefined;
+                if (provider === "fal") {
+                    if (!renderer) throw new Error("未配置原 FAL 图片服务");
+                    url = await renderer.host(source, plan.sourceMime, signal);
+                }
                 signal.throwIfAborted();
                 attempt.state = "submission_unknown";
+                attempt.provider = provider;
                 await this.save(id, `${prefix}attempt.json`, attempt);
-                let requestId: string;
                 try {
-                    requestId = await renderer.submit(
-                        url,
-                        execution.prompt,
-                        plan.strategy.image_size,
-                        signal,
-                        plan.strategy.outputBackground ?? undefined,
-                    );
+                    if (provider === "openai") {
+                        if (!editor) throw new Error("未配置图片网关");
+                        const image = await editor.edit({
+                            image: {
+                                bytes: source,
+                                mimeType: plan.sourceMime as
+                                    | "image/png"
+                                    | "image/jpeg"
+                                    | "image/webp",
+                            },
+                            prompt: execution.prompt,
+                            size: plan.strategy.image_size,
+                            background:
+                                plan.strategy.outputBackground ?? undefined,
+                            idempotencyKey: input.renderId
+                                ? `${id}-${input.renderId}`
+                                : id,
+                            signal,
+                        });
+                        bytes = image.bytes;
+                        // 先持久保存供应商原字节；校验失败或进程重启均只重读该结果。
+                        await writeFile(`${rawResultPath}.tmp`, bytes, {
+                            mode: 0o600,
+                            flush: true,
+                        });
+                        await rename(`${rawResultPath}.tmp`, rawResultPath);
+                    } else {
+                        if (!renderer || !url)
+                            throw new Error("缺少原 FAL 托管图");
+                        attempt.requestId = await renderer.submit(
+                            url,
+                            execution.prompt,
+                            plan.strategy.image_size,
+                            signal,
+                            plan.strategy.outputBackground ?? undefined,
+                        );
+                    }
                 } catch (error) {
                     const failure =
                         error instanceof TemplateImageSubmissionError
@@ -284,11 +340,37 @@ export class TemplateImageProduction {
                     await this.save(id, `${prefix}attempt.json`, attempt);
                     throw new TemplateImagePreparationError(true, failure.type);
                 }
-                attempt = { ...attempt, state: "provider_pending", requestId };
+                attempt = {
+                    ...attempt,
+                    state:
+                        provider === "openai"
+                            ? "provider_complete"
+                            : "provider_pending",
+                };
                 await this.save(id, `${prefix}attempt.json`, attempt);
             }
-            if (!attempt.requestId) throw new Error("缺少可恢复的供应商请求");
-            const bytes = await renderer.result(attempt.requestId, signal);
+            if (provider === "fal") {
+                if (!renderer || !attempt.requestId)
+                    throw new Error("缺少原 FAL 服务或可恢复请求");
+                try {
+                    bytes = await renderer.result(attempt.requestId, signal);
+                } catch (error) {
+                    if (error instanceof TemplateImageResultError) {
+                        attempt.state = "provider_rejected";
+                        attempt.failure = {
+                            type: "provider_rejected",
+                            httpStatus: error.httpStatus,
+                        };
+                        await this.save(id, `${prefix}attempt.json`, attempt);
+                        throw new TemplateImagePreparationError(
+                            true,
+                            "provider_rejected",
+                        );
+                    }
+                    throw error;
+                }
+            }
+            if (!bytes) throw new Error("缺少原渠道已保存成图，禁止重新提交");
             const meta = await sharp(bytes, {
                 limitInputPixels: 40000000,
             }).metadata();

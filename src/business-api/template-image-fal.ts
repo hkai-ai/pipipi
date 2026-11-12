@@ -4,7 +4,18 @@ import { setTimeout } from "node:timers/promises";
 import { createFalClient } from "@fal-ai/client";
 import type { ImageBackground } from "../processes/image-background.js";
 import { sourcePhotoSchema } from "../processes/photo-poster/capability.js";
+import { TemplateImagePreparationError } from "../processes/template-from-source/capability.js";
 import { downloadSourcePhoto } from "./source-photo.js";
+
+export function assertFalTemplateBackground(
+    background?: ImageBackground | null,
+) {
+    if (background === "transparent")
+        throw new TemplateImagePreparationError(
+            false,
+            "unsupported_background",
+        );
+}
 export type TemplateImageRenderer = {
     host(bytes: Buffer, mimeType: string, signal: AbortSignal): Promise<string>;
     submit(
@@ -28,6 +39,12 @@ export class TemplateImageSubmissionError extends Error {
         );
     }
 }
+export class TemplateImageResultError extends Error {
+    readonly type = "provider_rejected";
+    constructor(readonly httpStatus: number) {
+        super("图片服务明确拒绝原请求");
+    }
+}
 export function createTemplateImageRenderer(
     apiKey: string,
 ): TemplateImageRenderer {
@@ -49,6 +66,9 @@ export function createTemplateImageRenderer(
         );
         if (!response.ok) {
             await response.body?.cancel();
+            // 只有完成后的结果校验拒绝能证明生成失败；鉴权/查询错误仍可恢复。
+            if (suffix === "" && [400, 422].includes(response.status))
+                throw new TemplateImageResultError(response.status);
             throw new Error("图片状态查询未完成，请恢复原请求");
         }
         return response.json();
@@ -84,6 +104,7 @@ export function createTemplateImageRenderer(
             }
         },
         async submit(url, prompt, size, signal, background) {
+            assertFalTemplateBackground(background);
             signal.throwIfAborted();
             const [width, height] = size.split("x").map(Number);
             try {

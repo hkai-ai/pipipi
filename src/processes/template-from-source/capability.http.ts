@@ -47,7 +47,8 @@ export class HttpTemplateImagePreparation implements TemplateImagePreparation {
                     payload.error?.reason,
                 );
                 throw new TemplateImagePreparationError(
-                    path !== "plans",
+                    path !== "plans" &&
+                        parsed.data !== "unsupported_background",
                     parsed.success ? parsed.data : "incomplete",
                 );
             }
