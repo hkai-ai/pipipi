@@ -180,7 +180,7 @@ export class OpenAIImageGenerationClient {
 
     async edit(
         request: EditImageRequest,
-        onDispatch?: () => void,
+        options?: { singleDispatch: true; onDispatch?: () => void },
     ): Promise<GeneratedImage> {
         const prompt = request.prompt.trim();
         if (!prompt) throw new Error("GPT image prompt is required");
@@ -232,14 +232,16 @@ export class OpenAIImageGenerationClient {
             );
         }
 
-        if (onDispatch && request.idempotencyKey)
+        if (options?.singleDispatch && request.idempotencyKey)
             headers["idempotency-key"] = request.idempotencyKey;
         signal.throwIfAborted();
-        onDispatch?.();
+        options?.onDispatch?.();
         let response: Response;
         try {
             response = await this.#fetch(`${this.#baseUrl}/images/edits`, {
-                ...(onDispatch ? { redirect: "error" as const } : {}),
+                ...(options?.singleDispatch
+                    ? { redirect: "error" as const }
+                    : {}),
                 method: "POST",
                 headers,
                 body,

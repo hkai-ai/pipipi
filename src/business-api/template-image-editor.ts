@@ -1,15 +1,25 @@
 /** 复用图片网关配置与文件表单 Adapter，固定模板成图模型并净化提交失败。 */
+
 import { resolveModelGateway } from "../model-gateway.js";
+import type { ImageBackground } from "../processes/image-background.js";
 import {
-    type EditImageRequest,
-    type GeneratedImage,
     OpenAIImageGenerationClient,
     OpenAIImageGenerationError,
 } from "./openai-image-generation.js";
-import { TemplateImageSubmissionError } from "./template-image-fal.js";
+import { TemplateImageSubmissionError } from "./template-image-submission.js";
 
 export type TemplateImageEditor = {
-    edit(request: EditImageRequest): Promise<GeneratedImage>;
+    edit(request: {
+        image: {
+            bytes: Buffer;
+            mimeType: "image/png" | "image/jpeg" | "image/webp";
+        };
+        prompt: string;
+        size: string;
+        background?: ImageBackground;
+        idempotencyKey: string;
+        signal: AbortSignal;
+    }): Promise<Buffer>;
 };
 
 export function createTemplateImageEditor(
@@ -24,32 +34,36 @@ export function createTemplateImageEditor(
         ...options,
     });
     return {
-        async edit(request) {
+        async edit({
+            image,
+            prompt,
+            size,
+            background,
+            idempotencyKey,
+            signal,
+        }) {
             try {
-                return await client.edit(
+                const result = await client.edit(
                     {
-                        ...request,
+                        image,
+                        prompt,
+                        size,
+                        background,
+                        idempotencyKey,
+                        signal,
                         model: "gpt-image-2.5-flare",
                         quality: "low",
                         outputFormat: "png",
                     },
-                    // 启用既有 Adapter 的单次派发与幂等头，不自动重发。
-                    () => {},
+                    { singleDispatch: true },
                 );
+                return result.bytes;
             } catch (error) {
                 const status =
                     error instanceof OpenAIImageGenerationError
                         ? error.status
                         : undefined;
-                throw new TemplateImageSubmissionError(
-                    status !== undefined &&
-                        status >= 400 &&
-                        status < 500 &&
-                        ![408, 409, 425, 429].includes(status)
-                        ? "provider_rejected"
-                        : "submission_unknown",
-                    status,
-                );
+                throw TemplateImageSubmissionError.fromStatus(status);
             }
         },
     };

@@ -27,9 +27,11 @@ import {
     assertFalTemplateBackground,
     type TemplateImageRenderer,
     TemplateImageResultError,
-    TemplateImageSubmissionError,
 } from "./template-image-fal.js";
 
+import { TemplateImageSubmissionError } from "./template-image-submission.js";
+
+const sourceMimeSchema = z.enum(["image/png", "image/jpeg", "image/webp"]);
 const hash = (value: string | Buffer) =>
     createHash("sha256").update(value).digest("hex");
 const planSchema = z.strictObject({
@@ -42,7 +44,7 @@ const planSchema = z.strictObject({
 type Plan = z.infer<typeof planSchema> & {
     sourceImageSha256: string;
     strategySha256: string;
-    sourceMime: string;
+    sourceMime: z.infer<typeof sourceMimeSchema>;
     execution?: { version: "v2"; prompt: string; promptSha256: string };
 };
 type Attempt = {
@@ -164,9 +166,7 @@ export class TemplateImageProduction {
             sourceImageSha256,
             strategySha256,
             execution,
-            sourceMime:
-                "image/" +
-                (metadata.format === "jpeg" ? "jpeg" : metadata.format),
+            sourceMime: sourceMimeSchema.parse(`image/${metadata.format}`),
         };
         await mkdir(this.path(input.productionId, "."), { recursive: true });
         await writeFile(this.path(input.productionId, "source"), bytes, {
@@ -276,13 +276,10 @@ export class TemplateImageProduction {
                 try {
                     if (provider === "openai") {
                         if (!editor) throw new Error("未配置图片网关");
-                        const image = await editor.edit({
+                        bytes = await editor.edit({
                             image: {
                                 bytes: source,
-                                mimeType: plan.sourceMime as
-                                    | "image/png"
-                                    | "image/jpeg"
-                                    | "image/webp",
+                                mimeType: plan.sourceMime,
                             },
                             prompt: execution.prompt,
                             size: plan.strategy.image_size,
@@ -293,7 +290,6 @@ export class TemplateImageProduction {
                                 : id,
                             signal,
                         });
-                        bytes = image.bytes;
                         // 先持久保存供应商原字节；校验失败或进程重启均只重读该结果。
                         await writeFile(`${rawResultPath}.tmp`, bytes, {
                             mode: 0o600,

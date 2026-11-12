@@ -140,8 +140,11 @@ export function createCharacterEmojiImageClient(
                         };
                         const image =
                             recoverable && primary && route.client === primary
-                                ? await primary.edit(input, () => {
-                                      dispatched = true;
+                                ? await primary.edit(input, {
+                                      singleDispatch: true,
+                                      onDispatch: () => {
+                                          dispatched = true;
+                                      },
                                   })
                                 : await route.client.edit(input);
                         const metadata = await sharp(image.bytes).metadata();

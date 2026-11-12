@@ -7,6 +7,8 @@ import { sourcePhotoSchema } from "../processes/photo-poster/capability.js";
 import { TemplateImagePreparationError } from "../processes/template-from-source/capability.js";
 import { downloadSourcePhoto } from "./source-photo.js";
 
+import { TemplateImageSubmissionError } from "./template-image-submission.js";
+
 export function assertFalTemplateBackground(
     background?: ImageBackground | null,
 ) {
@@ -24,18 +26,6 @@ export type TemplateImageRenderer = {
     ): Promise<string>;
     result(requestId: string, signal: AbortSignal): Promise<Buffer>;
 };
-export class TemplateImageSubmissionError extends Error {
-    constructor(
-        readonly type: "provider_rejected" | "submission_unknown",
-        readonly httpStatus?: number,
-    ) {
-        super(
-            type === "provider_rejected"
-                ? "图片服务明确拒绝提交"
-                : "图片提交结果未知",
-        );
-    }
-}
 export class TemplateImageResultError extends Error {
     readonly type = "provider_rejected";
     constructor(readonly httpStatus: number) {
@@ -128,12 +118,7 @@ export function createTemplateImageRenderer(
                 );
                 if (!response.ok) {
                     await response.body?.cancel();
-                    const rejected =
-                        response.status >= 400 &&
-                        response.status < 500 &&
-                        ![408, 409, 425, 429].includes(response.status);
-                    throw new TemplateImageSubmissionError(
-                        rejected ? "provider_rejected" : "submission_unknown",
+                    throw TemplateImageSubmissionError.fromStatus(
                         response.status,
                     );
                 }

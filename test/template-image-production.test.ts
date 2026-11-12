@@ -17,11 +17,9 @@ import {
     createTemplateImageEditor,
     type TemplateImageEditor,
 } from "../src/business-api/template-image-editor.js";
-import {
-    TemplateImageResultError,
-    TemplateImageSubmissionError,
-} from "../src/business-api/template-image-fal.js";
+import { TemplateImageResultError } from "../src/business-api/template-image-fal.js";
 import { TemplateImageProduction } from "../src/business-api/template-image-production.js";
+import { TemplateImageSubmissionError } from "../src/business-api/template-image-submission.js";
 import {
     createProcessAttemptRunner,
     defineProcessRegistration,
