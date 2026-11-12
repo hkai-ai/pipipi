@@ -529,6 +529,8 @@ npm run accept:crt-business
 
 发布次序：先审查并执行 Memebuy 的 `20260915090000_template_image_preparation` 迁移（两个状态与 preparation JSONB）；再发布包含三个 Process 的 Pi API、Worker 和内部 Business API；最后发布 Memebuy API 与提取 Worker。旧候选无 preparation 时继续旧链路。迁移未执行时不得运行新 Memebuy 代码。回滚应用可保留新增可空字段和枚举，已进入新审核阶段的项留待兼容版本恢复，勿强改旧状态。
 
+模板历史步骤查询使用独立只读凭证。将与 Memebuy 配置中心一致的值（32–512 个 Base64 或 URL 安全字符）保存在 GitHub `production` Environment 的 `MEMEBUY_TEMPLATE_DIAGNOSTICS_TOKEN`。常规部署经 SSH 原子写入 API 专用的 `shared/template-diagnostics.env`（0600）；同步和异步模式都只挂到 API。更新凭证后重新部署并用原运行号执行只读验收。
+
 内部图片服务的新模板成图复用既有图片网关配置（`OPENAI_IMAGE_*` 优先于 `MODEL_GATEWAY_*`，再兼容 `OPENAI_*`）；仅内部图片服务读取图片专用凭证，启动前须检查整对配置。FAL_KEY 继续服务 CRT 与历史模板请求恢复。模板存储仅在 `OSS_PUBLIC_BASE_URL=https://assets.memebuy.cn` 时装配为公读地址，不改变其他图片业务的访问策略。先核验 bucket/CDN 的公读映射与权限，再允许付费生图。缺少模板存储时 render 在提交前拒绝。模板成图模型与单次派发由服务端固定，见[成图实现](processes/memebuy/template-image-render/README.md)，不由环境或请求覆盖。
 
 `CRT_IMAGE_WORK_DIRECTORY/template-productions` 必须位于持久卷（生产 Compose 已挂载），包含未公开源图、审核图片与批准记录。保护目录权限并纳入备份与容量检查，不用 CRT 临时结果清理任务删除这些生产项。异步 Worker 的 lease 必须严格大于 570000ms，推荐 600000ms；不填写时由完整目录推导。

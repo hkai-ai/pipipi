@@ -428,6 +428,27 @@ jobs:
             "pipipi-${GITHUB_SHA}.update-async.sh" \
             "$REMOTE_USER@$REMOTE_HOST:/tmp/"
 
+      - name: Configure template diagnostics for the API
+        env:
+          DIAGNOSTICS_TOKEN: ${{ secrets.MEMEBUY_TEMPLATE_DIAGNOSTICS_TOKEN }}
+          REMOTE_HOST: ${{ vars.REMOTE_HOST }}
+          REMOTE_USER: ${{ vars.REMOTE_USER }}
+          REMOTE_PATH: ${{ vars.REMOTE_PATH }}
+        run: |
+          set -Eeuo pipefail
+          [[ "$DIAGNOSTICS_TOKEN" =~ ^[a-zA-Z0-9_+/=-]{32,512}$ ]]
+          [[ "$REMOTE_PATH" =~ ^/[a-zA-Z0-9_/-]+$ ]]
+          printf 'MEMEBUY_TEMPLATE_DIAGNOSTICS_TOKEN=%s\n' "$DIAGNOSTICS_TOKEN" |
+            ssh -o BatchMode=yes -o StrictHostKeyChecking=yes "$REMOTE_USER@$REMOTE_HOST" "
+              set -eu
+              cd '$REMOTE_PATH/shared'
+              umask 077
+              tmp=\$(mktemp .template-diagnostics.XXXXXXXX)
+              trap 'rm -f -- \"\$tmp\"' EXIT
+              cat > \"\$tmp\"
+              mv -f -- \"\$tmp\" template-diagnostics.env
+            "
+
       - name: Activate release
         env:
           REMOTE_HOST: ${{ vars.REMOTE_HOST }}

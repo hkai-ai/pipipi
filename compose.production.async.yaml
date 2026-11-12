@@ -16,6 +16,8 @@ services:
     image: ${PIPIPI_IMAGE:?PIPIPI_IMAGE is required}
     env_file: !override
       - ${PIPIPI_ASYNC_API_ENV_FILE:?PIPIPI_ASYNC_API_ENV_FILE is required}
+      - path: ${PIPIPI_TEMPLATE_DIAGNOSTICS_ENV_FILE:-/opt/pipipi/shared/template-diagnostics.env}
+        required: false
     command:
       - sh
       - -ec
