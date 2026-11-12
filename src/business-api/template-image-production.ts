@@ -210,10 +210,7 @@ export class TemplateImageProduction {
                 `${prefix}attempt.json`,
             );
             if ((!attempt || attempt.state === "approved") && !plan.execution)
-                throw new TemplateImagePreparationError(
-                    false,
-                    "reapproval_required",
-                );
+                throw new TemplateImagePreparationError("reapproval_required");
             // 仅未派发的成图使用当前默认渠道；旧回执始终属于原渠道。
             const newSubmission = !attempt || attempt.state === "approved";
             const provider =
@@ -241,15 +238,9 @@ export class TemplateImageProduction {
                 }
             }
             if (attempt.state === "submission_unknown" && !bytes)
-                throw new TemplateImagePreparationError(
-                    true,
-                    "submission_unknown",
-                );
+                throw new TemplateImagePreparationError("submission_unknown");
             if (attempt.state === "provider_rejected")
-                throw new TemplateImagePreparationError(
-                    true,
-                    "provider_rejected",
-                );
+                throw new TemplateImagePreparationError("provider_rejected");
             if (attempt.state === "approved") {
                 if (provider === "openai" ? !editor : !renderer)
                     throw new Error("未配置原渠道图片服务");
@@ -268,7 +259,6 @@ export class TemplateImageProduction {
                     ) !== plan.strategySha256
                 )
                     throw new TemplateImagePreparationError(
-                        false,
                         "reapproval_required",
                     );
                 const source = await readFile(this.path(id, "source"));
@@ -338,7 +328,7 @@ export class TemplateImageProduction {
                             : {}),
                     };
                     await this.save(id, `${prefix}attempt.json`, attempt);
-                    throw new TemplateImagePreparationError(true, failure.type);
+                    throw new TemplateImagePreparationError(failure.type);
                 }
                 attempt = {
                     ...attempt,
@@ -363,7 +353,6 @@ export class TemplateImageProduction {
                         };
                         await this.save(id, `${prefix}attempt.json`, attempt);
                         throw new TemplateImagePreparationError(
-                            true,
                             "provider_rejected",
                         );
                     }
@@ -391,10 +380,7 @@ export class TemplateImageProduction {
                     plan.strategy.outputBackground ?? undefined,
                 );
             } catch {
-                throw new TemplateImagePreparationError(
-                    true,
-                    "background_mismatch",
-                );
+                throw new TemplateImagePreparationError("background_mismatch");
             }
             const imageSha256 = hash(bytes);
             if (imageSha256 === plan.sourceImageSha256)

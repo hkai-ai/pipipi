@@ -76,7 +76,7 @@ it("断连和无效回执均保持未知，成功只返回请求标识", async (
             "transparent",
         ),
     ).rejects.toMatchObject({
-        committed: false,
+        code: "DEPENDENCY_FAILURE",
         reason: "unsupported_background",
     });
     expect(transport).not.toHaveBeenCalled();

@@ -189,22 +189,11 @@ export function createTemplateRenderRegistration(
                     ),
                 );
             } catch (error) {
-                if (
-                    error instanceof TemplateImagePreparationError &&
-                    error.reason === "unsupported_background"
-                )
-                    return failProcess("DEPENDENCY_FAILURE", error.message);
-                if (
-                    error instanceof TemplateImagePreparationError &&
-                    error.reason === "background_mismatch"
-                )
-                    return failProcess("INVALID_OUTPUT", error.message);
-                return failProcess(
-                    "DEPENDENCY_FAILURE_AFTER_COMMIT",
+                const failure =
                     error instanceof TemplateImagePreparationError
-                        ? error.message
-                        : "成图未完成；请恢复同一生产项，不自动重新付费",
-                );
+                        ? error
+                        : new TemplateImagePreparationError();
+                return failProcess(failure.code, failure.message);
             }
         },
     });

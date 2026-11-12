@@ -2,7 +2,6 @@
 import {
     finalizedTemplateImageSchema,
     type ImageApproval,
-    preparationFailureSchema,
     type StrategyApproval,
     type TemplateImagePreparation,
     TemplateImagePreparationError,
@@ -43,19 +42,14 @@ export class HttpTemplateImagePreparation implements TemplateImagePreparation {
                 const payload = (await response.json()) as {
                     error?: { reason?: unknown };
                 };
-                const parsed = preparationFailureSchema.safeParse(
+                throw TemplateImagePreparationError.fromResponse(
                     payload.error?.reason,
-                );
-                throw new TemplateImagePreparationError(
-                    path !== "plans" &&
-                        parsed.data !== "unsupported_background",
-                    parsed.success ? parsed.data : "incomplete",
                 );
             }
             return await response.json();
         } catch (error) {
             if (error instanceof TemplateImagePreparationError) throw error;
-            throw new TemplateImagePreparationError(path !== "plans");
+            throw new TemplateImagePreparationError();
         }
     }
 }

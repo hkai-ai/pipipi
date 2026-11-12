@@ -11,10 +11,7 @@ export function assertFalTemplateBackground(
     background?: ImageBackground | null,
 ) {
     if (background === "transparent")
-        throw new TemplateImagePreparationError(
-            false,
-            "unsupported_background",
-        );
+        throw new TemplateImagePreparationError("unsupported_background");
 }
 export type TemplateImageRenderer = {
     host(bytes: Buffer, mimeType: string, signal: AbortSignal): Promise<string>;

@@ -58,29 +58,48 @@ export type TemplateImagePreparation = {
         signal: AbortSignal,
     ): Promise<PreparedTemplateImage & { note?: string }>;
 };
-export const preparationFailureMessages = {
-    unsupported_background: "当前成图模型不支持透明背景，尚未提交生成",
-    provider_rejected:
-        "图片服务已明确拒绝，本次批准已消费；请核对服务配置后重新规划和确认",
-    submission_unknown: "生成提交结果未知，必须核对供应商记录，禁止重新提交",
-    background_mismatch: "生成结果缺少有效的透明前景，请核对方案后重新生成图片",
-    reapproval_required: "方案执行合同已更新，请重新规划和确认",
-    incomplete: "成图未完成；请恢复同一生产项，不自动重新付费",
+const renderFailures = {
+    unsupported_background: {
+        code: "DEPENDENCY_FAILURE",
+        message: "当前成图模型不支持透明背景，尚未提交生成",
+    },
+    reapproval_required: {
+        code: "DEPENDENCY_FAILURE",
+        message: "方案执行合同已更新，尚未提交生成，请重新规划和确认",
+    },
+    provider_rejected: {
+        code: "DEPENDENCY_FAILURE_AFTER_COMMIT",
+        message:
+            "图片服务已明确拒绝，本次成图批准已消费；如需重做，请确认新的成图版本",
+    },
+    submission_unknown: {
+        code: "DEPENDENCY_FAILURE_AFTER_COMMIT",
+        message: "生成提交结果未知，必须核对供应商记录，禁止重新提交",
+    },
+    background_mismatch: {
+        code: "INVALID_OUTPUT",
+        message: "生成结果缺少有效的透明前景，请核对方案后重新生成图片",
+    },
+    incomplete: {
+        code: "DEPENDENCY_FAILURE_AFTER_COMMIT",
+        message: "成图未完成；请恢复同一生产项，不自动重新付费",
+    },
 } as const;
-export type PreparationFailure = keyof typeof preparationFailureMessages;
-export const preparationFailureSchema = z.enum([
-    "unsupported_background",
-    "provider_rejected",
-    "submission_unknown",
-    "reapproval_required",
-    "background_mismatch",
-    "incomplete",
-]);
+
+type PreparationFailure = keyof typeof renderFailures;
+
 export class TemplateImagePreparationError extends Error {
-    constructor(
-        readonly committed: boolean,
-        readonly reason: PreparationFailure = "incomplete",
-    ) {
-        super(preparationFailureMessages[reason]);
+    readonly code: (typeof renderFailures)[PreparationFailure]["code"];
+    constructor(readonly reason: PreparationFailure = "incomplete") {
+        const { code, message } = renderFailures[reason];
+        super(message);
+        this.code = code;
+    }
+    static fromResponse(reason: unknown) {
+        return new TemplateImagePreparationError(
+            typeof reason === "string" && Object.hasOwn(renderFailures, reason)
+                ? (reason as PreparationFailure)
+                : "incomplete",
+        );
     }
 }

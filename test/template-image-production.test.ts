@@ -1,10 +1,18 @@
 import { createHash, randomUUID } from "node:crypto";
-import { mkdtemp, readFile, rm, unlink, writeFile } from "node:fs/promises";
+import {
+    mkdir,
+    mkdtemp,
+    readFile,
+    rm,
+    unlink,
+    writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import sharp from "sharp";
 import { afterEach, expect, it, vi } from "vitest";
 import { createProcessingApplication } from "../src/api/application.js";
+import { startCrtBusinessApi } from "../src/business-api/crt-server.js";
 import {
     createTemplateImageEditor,
     type TemplateImageEditor,
@@ -25,6 +33,7 @@ import {
     templateOutputSchema,
 } from "../src/processes/template-from-image/contract.js";
 import { decodeTemplateImage } from "../src/processes/template-from-image/image.js";
+import { HttpTemplateImagePreparation } from "../src/processes/template-from-source/capability.http.js";
 import {
     finalizedTemplateImageSchema,
     type TemplateImagePreparation,
@@ -1022,5 +1031,72 @@ it("已知请求取消等待后，旧方案也能恢复原请求且不重提交"
         ]);
     } finally {
         await s.app.close();
+    }
+});
+
+it("旧方案通过内部 HTTP 返回派发前错误，断连保守处理", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "template-http-"));
+    roots.push(directory);
+    const productionId = randomUUID();
+    const path = join(directory, "template-productions", productionId);
+    await mkdir(path, { recursive: true });
+    const objectSha256 = "a".repeat(64);
+    await writeFile(
+        join(path, "plan.json"),
+        JSON.stringify({ strategySha256: objectSha256 }),
+    );
+    const edit = vi.fn();
+    const internal = await startCrtBusinessApi(
+        {
+            directory,
+            imageClient: { edit },
+            templateEditor: { edit },
+            templateStorage: { provider: "aliyun-oss", upload: vi.fn() },
+        },
+        { port: 0 },
+    );
+    const app = createProcessingApplication({
+        executor: createProcessExecutor({
+            registrations: [
+                createTemplateRenderRegistration(
+                    new HttpTemplateImagePreparation(internal.url),
+                ),
+            ],
+        }),
+    });
+    const { url } = await app.listen();
+    const render = async () =>
+        (
+            await fetch(`${url}/execute`, {
+                method: "POST",
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({
+                    process: "template-image-render",
+                    version: "v1",
+                    input: {
+                        productionId,
+                        objectSha256,
+                        reviewerRef: "operator",
+                    },
+                }),
+            })
+        ).json();
+    try {
+        try {
+            expect(await render()).toMatchObject({
+                error: {
+                    code: "DEPENDENCY_FAILURE",
+                    message: expect.stringContaining("重新规划和确认"),
+                },
+            });
+            expect(edit).not.toHaveBeenCalled();
+        } finally {
+            await internal.close();
+        }
+        expect(await render()).toMatchObject({
+            error: { code: "DEPENDENCY_FAILURE_AFTER_COMMIT" },
+        });
+    } finally {
+        await app.close();
     }
 });

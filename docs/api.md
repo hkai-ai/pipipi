@@ -1179,7 +1179,7 @@ imageDataUrl 是完整 PNG 的 Base64 Data URL，原 PNG 至多 20,000,000 字�
 
 preparedImage 为 `{ url, sha256, width, height, contentType: "image/png" }`；url 固定为 `https://assets.memebuy.cn/gallery/template-images/<sha256>.png`。template.cover、template.referenceImage 和 coverImageUrl 均引用该图片。公开输出不包含原始策略、两次审批或业务备注。
 
-旧图片模型在派发前发现不支持已批准的透明背景时，返回 `DEPENDENCY_FAILURE`，本次未提交生图。方案失败返回 `AGENT_FAILURE`；生图或上传编译不能确定完成时返回 `DEPENDENCY_FAILURE_AFTER_COMMIT`。这些错误不授权重新付费生图：人工恢复必须提交原 productionId 与原批准摘要。已知供应商请求继续查询，未知生成提交需要对账。重试编译可能重新调用编译模型，但不会再生成图片。
+方案需要重新批准，或旧图片模型在派发前发现不支持已批准的透明背景时，返回 `DEPENDENCY_FAILURE`，本次未提交生图。方案失败返回 `AGENT_FAILURE`；生图或上传编译不能确定完成时返回 `DEPENDENCY_FAILURE_AFTER_COMMIT`。这些错误不授权重新付费生图：人工恢复必须提交原 productionId 与原批准摘要。已知供应商请求继续查询，未知生成提交需要对账。重试编译可能重新调用编译模型，但不会再生成图片。
 
 ## 可重复制作与成图版本
 
