@@ -116,18 +116,24 @@ export function parseProcessRunRecordCursor(
     }
 }
 
-/**
- * `crt-interface-image` accepts a public reference URL, and a full source URL
- * must not reach a log or a stored record. The record keeps a digest so the
- * same source is still recognisable across runs.
- *
- * Every Run Record Adapter applies this before writing, so the boundary holds
- * no matter which storage a deployment chooses.
- */
+/** 归档保留审批身份与图片摘要，省略成图字节并净化 CRT 来源地址。 */
 export function redactProcessRunRecord(
     record: ProcessRunRecord,
 ): ProcessRunRecord {
-    const input = record.content?.input;
+    const content = record.content;
+    const output = content?.output;
+    if (
+        record.process === "template-image-render" &&
+        record.version === "v1" &&
+        content &&
+        typeof output === "object" &&
+        output !== null &&
+        "imageDataUrl" in output
+    ) {
+        const { imageDataUrl: _imageDataUrl, ...metadata } = output;
+        return { ...record, content: { ...content, output: metadata } };
+    }
+    const input = content?.input;
     if (
         record.process !== "crt-interface-image" ||
         typeof input !== "object" ||

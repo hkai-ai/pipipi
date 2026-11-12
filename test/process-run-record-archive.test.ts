@@ -111,6 +111,27 @@ describe("JSONL Process Run Record Archive", () => {
         expect(second.nextBefore).toBeUndefined();
     });
 
+    it("archives a large render's approval and metadata without storing the PNG", async () => {
+        const archive = createJsonlProcessRunRecordArchive({
+            directory: await createDirectory(),
+            clock: () => new Date("2026-08-11T10:00:00.000Z"),
+        });
+        const input = { productionId: "production", renderId: "render" };
+        const metadata = { ...input, imageSha256: "a".repeat(64) };
+        const imageDataUrl = `data:image/png;base64,${"A".repeat(1_048_576)}`;
+        const output = { ...metadata, imageDataUrl };
+        const run = record({
+            process: "template-image-render",
+            content: { input, output },
+        });
+        await archive.store(run);
+        expect((await archive.find(run.runId))?.content).toEqual({
+            input,
+            output: metadata,
+        });
+        expect(output.imageDataUrl).toBe(imageDataUrl);
+    });
+
     it("replaces a CRT source image URL with a digest", async () => {
         const directory = await createDirectory();
         const archive = createJsonlProcessRunRecordArchive({
