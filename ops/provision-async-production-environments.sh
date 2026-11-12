@@ -419,6 +419,7 @@ agent_keys=(
     COMPOSED_TASK_TIMEOUT_MS
     PI_COMPOSED_SKILL_DIRECTORY
 )
+append_owned_key "$shared_env" MEMEBUY_TEMPLATE_DIAGNOSTICS_TOKEN "$api_candidate"
 for key in "${agent_keys[@]}"; do
     append_owned_key "$shared_env" "$key" "$api_candidate"
     append_owned_key "$shared_env" "$key" "$worker_candidate"

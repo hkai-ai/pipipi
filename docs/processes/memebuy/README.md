@@ -37,3 +37,5 @@ Memebuy C 类采用通用 CRT 与照片海报 Process 的背景合同；背景�
 `gallery.memory_checklist` 绑定 `memory-checklist-photo-poster/v1`，`gallery.risograph_album` 绑定 `risograph-album/v1`。两者都只接收一张私有参考图；标题、caption 和唱片文字由 Pipipi 固定，不作为用户槽位。封面导入和上架另行完成。
 
 模板新提取使用 `template-from-image/v2`、`template-from-source/v2`，交付带目标归属的运行语义 v3；保留两项 v1 精确版本。字段、复核与发布顺序见 [视觉归属升级](template-from-image/visual-ownership-v3.md)。
+
+模板制作工作台可随同步回执保存脱敏步骤，也可按原运行查询保留期内的父流程与编译成员记录；见[模板执行步骤](../../api.md#模板执行步骤)。

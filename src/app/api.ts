@@ -14,6 +14,7 @@ import {
 import { createGatewayCallerIdentityResolver } from "../api/identity.js";
 import { describeProcessCatalog } from "../api/process-catalog.js";
 import { describeSkillCatalog } from "../api/skill-catalog.js";
+import { createTemplateDiagnostics } from "../api/template-diagnostics.js";
 import { createAsyncProcessRuns } from "../process-runs/index.js";
 import {
     type AsyncReleaseStage,
@@ -49,13 +50,20 @@ export function constructProcessingService(
     const port = parsePort(environment.PORT);
     const httpConfiguration = loadHttpConfiguration(environment);
     const archive = constructProcessRunObservation(environment);
+    const templateDiagnostics = createTemplateDiagnostics({
+        secret: environment.MEMEBUY_TEMPLATE_DIAGNOSTICS_TOKEN,
+        findByRun: archive?.activities.findByRun,
+    });
     const runtime = createProductionRuntime(environment, {
         ...(archive
             ? {
                   runRecords: archive.records,
-                  additionalRunLogSinks: [archive.activities.record],
               }
             : {}),
+        additionalRunLogSinks: [
+            templateDiagnostics.record,
+            ...(archive ? [archive.activities.record] : []),
+        ],
     });
     const asyncProcessRuns = constructAsyncProcessRuns(
         environment,
@@ -72,6 +80,7 @@ export function constructProcessingService(
             executor: runtime.executor,
             http: {
                 ...httpConfiguration,
+                templateDiagnostics,
                 ...(asyncProcessRuns
                     ? { asyncProcessRuns: asyncProcessRuns.http }
                     : {}),

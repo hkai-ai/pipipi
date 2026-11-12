@@ -1192,3 +1192,12 @@ Memebuy 分步工作台可保留同一替换方案反复生图。`template-image
 `template-from-image/v2` 与 `template-from-source/v2` 分别沿用同名 v1 的输入、审批、错误和图片交付合同，输出模板的 `runtimeSemantics.version` 固定为 `3`，`inputSchema.version` 仍为 `2`。目标增加可选 `appearance: string[]` 与 `pose: string[]`，每类最多 40 条，每条最多 500 字符；正式事实不截断。全局 `visualContract` 仅包含不依附具体目标的视觉规则，拆分后数组可以为空。输出结构或归属复核不通过仍失败，不以 v1 结果兜底。
 
 `template-from-source/v2` 精确依赖 `template-from-image/v2`。两项 v1 接口仍输出运行语义 v2；调用方必须显式提交版本，不支持 latest 或自动回退。发布顺序及历史任务恢复见 [视觉归属升级](processes/memebuy/template-from-image/visual-ownership-v3.md)。
+
+
+## 模板执行步骤
+
+Memebuy 可在同步 `POST /execute` 请求中发送 `X-Pipipi-Template-Steps: 1`，取得本次模板执行已结束的步骤；未请求、旧服务或没有可用步骤时保持原回执。可选的 `diagnostics` 与 `output/error` 同级，不改变执行状态、费用或重试规则。
+
+历史查询：`GET /memebuy/template-runs/{runId}/diagnostics`，使用独立的 `Authorization: Bearer <token>`。这是给 Memebuy 后端的产品级只读凭证（Pipipi API 角色配置 `MEMEBUY_TEMPLATE_DIAGNOSTICS_TOKEN`，至少 32 字节），可读取本部署中该产品四个模板流程的脱敏步骤，不提供列表、其他流程、业务输入输出或控制台访问。部署时仅将该 GET 路径代理到 API 并保留 Authorization；控制台继续使用原有鉴权。Memebuy 在服务端验证内容运营权限及本地候选与运行归属，再按保存的外部编号查询。
+
+返回与新回执相同的 `{runId, process, version, steps:[{scope, activity, status, durationMs, diagnostic?:{stage,code}}]}`。先列主流程，再列原运行的编译成员（`scope: "compile"`）；成员耗时包含在父步骤中，不能相加。只展示观测到的活动；归档不完整时不推测根因。历史读取使用既有活动归档，无需重跑；记录仍受服务保留期约束。未授权返回 401，未找到模板父运行返回 404，归档或凭证未配置返回 503。

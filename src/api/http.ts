@@ -37,6 +37,7 @@ export type {
 import { createConsoleAssets } from "./console-assets.js";
 import type { CallerIdentityResolver } from "./identity.js";
 import { createPublicDocumentation } from "./public-documents.js";
+import type { TemplateDiagnostics } from "./template-diagnostics.js";
 
 export const defaultHttpMaxRequestBodyBytes = 262_144;
 export const defaultMaxConcurrentExecutions = 4;
@@ -61,6 +62,7 @@ export type ProcessingHttpOptions = {
     clock?: ProcessingClock;
     asyncProcessRuns?: AsyncProcessRunsHttpOptions;
     agentConversations?: AgentConversationsHttpOptions;
+    templateDiagnostics?: TemplateDiagnostics;
     console?: ConsoleHttpOptions;
 };
 
@@ -224,6 +226,7 @@ type RequestHandlingContext = {
     internalEvaluationEnabled: boolean;
     asyncProcessRuns?: AsyncProcessRunsHttpOptions;
     agentConversations?: AgentConversationsHttpOptions;
+    templateDiagnostics?: TemplateDiagnostics;
     console?: ConsoleHttpOptions;
 };
 
@@ -287,6 +290,7 @@ export function createProcessingRequestListener(
             asyncProcessRuns: options.asyncProcessRuns,
             agentConversations: options.agentConversations,
             console: options.console,
+            templateDiagnostics: options.templateDiagnostics,
         };
         void handleRequest(request, response, context).catch(() => {
             emitLog(context.logging, {
@@ -334,6 +338,22 @@ async function handleRequest(
             context.asyncProcessRuns,
             context.agentConversations,
         );
+        return;
+    }
+
+    const templateRunId =
+        request.method === "GET"
+            ? /^\/memebuy\/template-runs\/([0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12})\/diagnostics$/.exec(
+                  request.url ?? "",
+              )?.[1]
+            : undefined;
+    if (templateRunId && context.templateDiagnostics) {
+        response.setHeader("cache-control", "no-store");
+        const result = await context.templateDiagnostics.read(
+            templateRunId,
+            request.headers.authorization,
+        );
+        writeJson(response, result.status, result.body ?? {});
         return;
     }
 
@@ -484,7 +504,13 @@ async function handleRequest(
         }
         const result = evaluated
             ? evaluationResponse(evaluated.result, evaluated.evaluation)
-            : await context.executor.execute(requestBody.value);
+            : context.templateDiagnostics &&
+                request.headers["x-pipipi-template-steps"] === "1"
+              ? await context.templateDiagnostics.execute(
+                    requestBody.value,
+                    context.executor.execute,
+                )
+              : await context.executor.execute(requestBody.value);
         emitLog(context.logging, {
             event: "process_run_completed",
             timestamp: context.logging.clock.timestamp(),
