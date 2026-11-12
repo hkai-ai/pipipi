@@ -30,8 +30,9 @@ const child = {
     durationMs: 11421,
     outcome: "failed",
     diagnostic: {
-        stage: "request",
-        code: "provider_unavailable",
+        stage: "schema",
+        code: "invalid_contract",
+        issues: [{ path: "/review/secretName", code: "unresolved_review" }],
         private: "do not share",
     },
 } as const;
@@ -112,7 +113,11 @@ it("读取旧父子记录与新回执一致，过滤其他运行、流程、动�
             activity: child.activity,
             status: "failed",
             durationMs: 11421,
-            diagnostic: { code: "provider_unavailable", stage: "request" },
+            diagnostic: {
+                code: "invalid_contract",
+                stage: "schema",
+                issues: [{ path: "/review/*", code: "unresolved_review" }],
+            },
         },
     ]);
     expect(calls).toBe(0);

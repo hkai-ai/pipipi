@@ -26,6 +26,7 @@ const activities = {
         "template_compilation",
         "template_correction",
         "template_review",
+        "template_review_correction",
         "template_validation",
     ],
 } as const;
@@ -64,6 +65,11 @@ function project(
                           diagnostic: {
                               stage: diagnostic.stage,
                               code: diagnostic.code,
+                              ...(diagnostic.stage === "schema" &&
+                              diagnostic.code === "invalid_contract" &&
+                              diagnostic.issues?.length
+                                  ? { issues: diagnostic.issues }
+                                  : {}),
                           },
                       }
                     : {}),

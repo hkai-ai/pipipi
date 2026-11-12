@@ -35,7 +35,24 @@ import {
     readTemplatePlan,
     TemplateProjectionError,
 } from "./projection.js";
-import { sourceAnalysisIssues } from "./quality.js";
+import { candidateDigest, sourceAnalysisIssues } from "./quality.js";
+
+// 仅修正已形成候选、可由字段补丁处理的问题；身份、摘要或调用错误直接失败。
+const repairableRules = new Set([
+    "unresolved_review",
+    "check_failed",
+    "review_evidence",
+    "draft_semantics",
+    "analysis_contract",
+    "missing_reference",
+    "fixed_text_missing",
+    "invalid_target_scope",
+    "missing_visual_coverage",
+    "selection_coverage",
+    "omitted_fact_frozen",
+    "duplicate_fact",
+    "target_fact_unreferenced",
+]);
 
 export function createTemplateRegistration(options: {
     agent: TemplateAgent;
@@ -63,6 +80,7 @@ export function createTemplateRegistration(options: {
             "template_correction",
             "template_review",
             "template_validation",
+            "template_review_correction",
         ],
         execute: async (input, context) => {
             const diagnose = (
@@ -210,7 +228,7 @@ export function createTemplateRegistration(options: {
                     "模板编译结果无法读取，本次未生成可用模板",
                 );
 
-            // 可读取计划的全部问题交给唯一的独立复核，避免单项错误先消耗一次修正。
+            // 可读取计划的全部问题交给独立复核，避免单项错误先消耗一次修正。
             const issues = [
                 ...templateSemanticIssues(draftFromPlan(plan)),
                 ...sourceAnalysisIssues(draftFromPlan(plan), plan.analysis),
@@ -222,78 +240,124 @@ export function createTemplateRegistration(options: {
                 diagnose("validation", 1, error);
                 issues.push(...error.issues);
             }
-            let reviewed: unknown;
-            try {
-                reviewed = await context.runActivity(
-                    "template_review",
-                    () =>
-                        options.agent.review({
-                            image,
-                            note: input.note,
-                            plan,
-                            issues: [...new Set(issues)],
-                            signal: context.signal,
-                        }),
-                    templateActivityDiagnostic,
-                );
-            } catch (error) {
-                diagnose("review", 1, error);
-                if (error instanceof TemplateContractError) {
-                    return failProcess(
-                        "AGENT_FAILURE",
-                        "独立复核结果未通过校验，本次未生成可用模板",
-                    );
-                }
-                const failure = templateExecutionFailure(error);
-                return failProcess(
-                    "AGENT_FAILURE",
-                    `模板独立复核未完成：${failure.message}`,
-                );
-            }
-            try {
-                const template = await context.runActivity(
-                    "template_validation",
-                    async () => {
-                        const candidate = readTemplateCandidate(reviewed);
-                        if (
-                            candidate.draft.runtimeSemantics.version !== version
-                        )
-                            throw new TemplateContractError(
-                                [`runtimeSemantics.version 必须为 ${version}`],
-                                [
-                                    {
-                                        path: "/draft/runtimeSemantics/version",
-                                        code: "const",
-                                    },
+            let reviewPlan = plan;
+            let repair:
+                | { error: TemplateContractError; unchangedDigest?: string }
+                | undefined;
+            for (;;) {
+                context.signal.throwIfAborted();
+                let patchedPlan: typeof reviewPlan | undefined;
+                let reviewed: unknown;
+                try {
+                    reviewed = await context.runActivity(
+                        repair
+                            ? "template_review_correction"
+                            : "template_review",
+                        () =>
+                            options.agent.review({
+                                image,
+                                note: input.note,
+                                plan: reviewPlan,
+                                onPatchedPlan: (updated) => {
+                                    patchedPlan = updated;
+                                },
+                                issues: repair?.error.issues ?? [
+                                    ...new Set(issues),
                                 ],
-                            );
-                        const review =
-                            reviewed &&
-                            typeof reviewed === "object" &&
-                            "review" in reviewed
-                                ? reviewed.review
-                                : undefined;
-                        return compileTemplateResult(
-                            { ...candidate, review },
-                            input.imageUrl,
-                            image,
+                                signal: context.signal,
+                            }),
+                        templateActivityDiagnostic,
+                    );
+                } catch (error) {
+                    diagnose("review", repair ? 2 : 1, error);
+                    if (error instanceof TemplateContractError) {
+                        return failProcess(
+                            "AGENT_FAILURE",
+                            "独立复核结果未通过校验，本次未生成可用模板",
                         );
-                    },
-                    templateValidationDiagnostic,
-                );
-                return { template };
-            } catch (error) {
-                diagnose("validation", 2, error);
-                if (
-                    error instanceof TemplateContractError ||
-                    error instanceof TemplateProjectionError
-                ) {
+                    }
+                    const failure = templateExecutionFailure(error);
                     return failProcess(
                         "AGENT_FAILURE",
-                        "模板在独立复核修正后仍未通过校验，本次未生成可用模板",
+                        `模板独立复核未完成：${failure.message}`,
                     );
                 }
-                throw error;
+                try {
+                    const template = await context.runActivity(
+                        "template_validation",
+                        async () => {
+                            const candidate = readTemplateCandidate(reviewed);
+                            if (
+                                repair?.unchangedDigest ===
+                                candidateDigest(candidate)
+                            )
+                                throw repair.error;
+                            if (
+                                candidate.draft.runtimeSemantics.version !==
+                                version
+                            )
+                                throw new TemplateContractError(
+                                    [
+                                        `runtimeSemantics.version 必须为 ${version}`,
+                                    ],
+                                    [
+                                        {
+                                            path: "/draft/runtimeSemantics/version",
+                                            code: "const",
+                                        },
+                                    ],
+                                );
+                            const review =
+                                reviewed &&
+                                typeof reviewed === "object" &&
+                                "review" in reviewed
+                                    ? reviewed.review
+                                    : undefined;
+                            return compileTemplateResult(
+                                { ...candidate, review },
+                                input.imageUrl,
+                                image,
+                            );
+                        },
+                        templateValidationDiagnostic,
+                    );
+                    return { template };
+                } catch (error) {
+                    diagnose("validation", repair ? 3 : 2, error);
+                    if (
+                        version === 3 &&
+                        !repair &&
+                        patchedPlan &&
+                        error instanceof TemplateContractError &&
+                        error.diagnostics.length &&
+                        error.diagnostics.every((issue) =>
+                            repairableRules.has(issue.code),
+                        )
+                    ) {
+                        repair = {
+                            error,
+                            unchangedDigest: error.diagnostics.some(
+                                (issue) => issue.code === "unresolved_review",
+                            )
+                                ? candidateDigest(
+                                      readTemplateCandidate(reviewed),
+                                  )
+                                : undefined,
+                        };
+                        reviewPlan = patchedPlan;
+                        continue;
+                    }
+                    if (
+                        error instanceof TemplateContractError ||
+                        error instanceof TemplateProjectionError
+                    ) {
+                        return failProcess(
+                            "AGENT_FAILURE",
+                            "模板在独立复核修正后仍未通过校验，本次未生成可用模板",
+                        );
+                    }
+                    throw error;
+                }
             }
         },
     });

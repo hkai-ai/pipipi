@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createProcessingApplication } from "../src/api/application.js";
 import { createProcessExecutor } from "../src/processes/catalog.js";
+import type { TemplateAgent } from "../src/processes/template-from-image/agent.js";
 import { templateInspectionResponseSchema } from "../src/processes/template-from-image/compact.js";
 import {
     compileTemplateResult,
@@ -185,6 +186,61 @@ describe("HTTP 精确版本联通", () => {
     afterEach(async () => {
         await Promise.all(applications.splice(0).map((app) => app.close()));
     });
+    it.each([true, false])(
+        "最终复核阻断只修正已审核候选一次（能解决=%s）",
+        async (canRepair) => {
+            const first = ownershipCandidate();
+            const originalPlan = toTemplatePlan(first);
+            const patchedPlan = toTemplatePlan(first);
+            patchedPlan.draft.description = "第一次复核修改的描述";
+            const compile = vi.fn(async () => originalPlan);
+            const loadImage = vi.fn(async () => image);
+            const review = vi
+                .fn<TemplateAgent["review"]>()
+                .mockImplementationOnce(async (request) => {
+                    request.onPatchedPlan?.(patchedPlan);
+                    const result = materializeTemplatePlan(patchedPlan);
+                    const report = ownershipReview(result);
+                    report.issues.push("描述与已批准图片不符");
+                    return { ...result, review: report };
+                })
+                .mockImplementationOnce(async (request) => {
+                    expect(request.plan).toEqual(patchedPlan);
+                    expect(request.issues.join(" ")).toContain(
+                        "描述与已批准图片不符",
+                    );
+                    const result = materializeTemplatePlan(request.plan);
+                    if (canRepair) result.draft.description = "已修正的描述";
+                    return { ...result, review: ownershipReview(result) };
+                });
+            const app = createProcessingApplication({
+                executor: createProcessExecutor({
+                    registrations: [
+                        createTemplateRegistration({
+                            runtimeVersion: 3,
+                            agent: { compile, review },
+                            loadImage,
+                        }),
+                    ],
+                }),
+            });
+            applications.push(app);
+            const address = await app.listen();
+            const response = await fetch(`${address.url}/execute`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    process: "template-from-image",
+                    version: "v2",
+                    input: { imageUrl },
+                }),
+            });
+            expect(response.status).toBe(canRepair ? 200 : 502);
+            expect(review).toHaveBeenCalledTimes(2);
+            expect(compile).toHaveBeenCalledOnce();
+            expect(loadImage).toHaveBeenCalledOnce();
+        },
+    );
     it("同一服务保留 v1，并在 v2 两次调用内交付可解析归属模板", async () => {
         const compile = vi.fn(async () => toTemplatePlan(ownershipCandidate()));
         const review = vi.fn(async () => ownershipCandidate());

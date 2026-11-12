@@ -6,10 +6,7 @@ import {
     applyTemplateCorrection,
     templateCorrectionSchema,
 } from "./correction.js";
-import {
-    materializeTemplatePlan,
-    type readTemplatePlan,
-} from "./projection.js";
+import { materializeTemplatePlan, readTemplatePlan } from "./projection.js";
 import { candidateDigest, templateReviewSchema } from "./quality.js";
 
 export const templateInspectionSchema = z.strictObject({
@@ -25,6 +22,7 @@ export function planDigest(plan: ReturnType<typeof readTemplatePlan>): string {
 export function applyTemplateInspection(
     plan: ReturnType<typeof readTemplatePlan>,
     value: unknown,
+    onPatchedPlan?: (plan: ReturnType<typeof readTemplatePlan>) => void,
 ) {
     const parsed = templateInspectionSchema.safeParse(value);
     if (!parsed.success || JSON.stringify(value).length > 100_000)
@@ -34,9 +32,12 @@ export function applyTemplateInspection(
     if (parsed.data.reviewedPlanSha256 !== planDigest(plan))
         throw new TemplateContractError(["独立复核未绑定本次输入计划摘要"]);
     const updated = parsed.data.changes.length
-        ? applyTemplateCorrection(plan, { changes: parsed.data.changes })
+        ? readTemplatePlan(
+              applyTemplateCorrection(plan, { changes: parsed.data.changes }),
+          )
         : plan;
     const candidate = materializeTemplatePlan(updated);
+    onPatchedPlan?.(updated);
     return {
         ...candidate,
         review: {

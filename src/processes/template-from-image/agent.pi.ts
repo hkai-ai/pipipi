@@ -182,7 +182,11 @@ export class PiTemplateAgent implements TemplateAgent {
             images: observation.images,
             signal: request.signal,
         });
-        return applyTemplateInspection(plan, expandTemplateInspection(output));
+        return applyTemplateInspection(
+            plan,
+            expandTemplateInspection(output),
+            request.onPatchedPlan,
+        );
     }
     async #run(
         agent: PiStructuredAgent,

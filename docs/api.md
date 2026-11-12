@@ -439,7 +439,7 @@ Memebuy 提交豆包 Q 版单图时使用以下 v3 请求。单图省略 `input.
 | `runtimeSemantics` | version 2，明确目标、输入绑定、身份替换策略、服装归属和视觉约束 |
 | `metadata.tags` | 5–8 个发现标签，包含至少一个正式大类 |
 
-Process 最长 480 秒，成功前进行 Schema 与语义校验，先生成分析和草稿，再独立看图复核并返回必要字段补丁，程序合并后统一校验。正常两次视觉模型调用；仅首轮 JSON 或候选结构无法读取时允许一次重新编译，最多三次，之后仍须独立复核。复核或补丁未通过校验则失败，不自动追加模型请求。不向调用方返回内部 analysis、review、图片字节、模型或 Skill 配置。不生成成品、不入库、不发布。JSON 结构正确不代表视觉理解已经人工确认。
+Process 最长 480 秒，成功前进行 Schema 与语义校验，先生成分析和草稿，再独立看图复核并返回必要字段补丁，程序合并后统一校验。正常两次视觉模型调用；仅首轮 JSON 或候选结构无法读取时允许一次重新编译，之后仍须独立复核。v1 复核失败即停止。v2 最终校验遇到可定位的问题，允许在原时限内对已修订计划增加一次独立修正与完整校验。不向调用方返回内部 analysis、review、图片字节、模型或 Skill 配置。不生成成品、不入库、不发布。JSON 结构正确不代表视觉理解已经人工确认。
 
 已完成响应中的 JSON 语法错误与合同错误共用这一次修正预算。模型输入合同与服务端校验均将标题和描述限制为 20 字；单个多余末尾闭括号或 Markdown 包裹可被去除，但不补造草稿字段，且仍需完整校验。
 
@@ -1200,6 +1200,6 @@ Memebuy 可在同步 `POST /execute` 请求中发送 `X-Pipipi-Template-Steps: 1
 
 成图步骤的只读历史查询按归档中的原审批读取同一成图回执，可附带 `gateway`：状态、结果文件是否已保存、受控失败原因及已记录的 HTTP 状态、供应商错误码与请求 ID。字段缺失表示未记录；接口不返回供应商原始消息，不恢复或派发生图。
 
-历史查询：`GET /memebuy/template-runs/{runId}/diagnostics`，使用独立的 `Authorization: Bearer <token>`。这是给 Memebuy 后端的产品级只读凭证（Pipipi API 角色配置 `MEMEBUY_TEMPLATE_DIAGNOSTICS_TOKEN`，至少 32 字节），可读取本部署中该产品四个模板流程的脱敏步骤，不提供列表、其他流程、业务输入输出或控制台访问。部署时仅将该 GET 路径代理到 API 并保留 Authorization；控制台继续使用原有鉴权。Memebuy 在服务端验证内容运营权限及本地候选与运行归属，再按保存的外部编号查询。
+历史查询：`GET /memebuy/template-runs/{runId}/diagnostics`，使用独立的 `Authorization: Bearer <token>`。模板校验失败的步骤可包含 diagnostic.issues（最多 8 个已净化字段路径与规则码），新回执和可用历史归档共用投影。没有归档的字段不补写。这是给 Memebuy 后端的产品级只读凭证（Pipipi API 角色配置 `MEMEBUY_TEMPLATE_DIAGNOSTICS_TOKEN`，至少 32 字节），可读取本部署中该产品四个模板流程的脱敏步骤，不提供列表、其他流程、业务输入输出或控制台访问。部署时仅将该 GET 路径代理到 API 并保留 Authorization；控制台继续使用原有鉴权。Memebuy 在服务端验证内容运营权限及本地候选与运行归属，再按保存的外部编号查询。
 
 返回与新回执相同的 `{runId, process, version, steps:[{scope, activity, status, durationMs, diagnostic?:{stage,code}}]}`。先列主流程，再列原运行的编译成员（`scope: "compile"`）；成员耗时包含在父步骤中，不能相加。只展示观测到的活动；归档不完整时不推测根因。历史读取使用既有活动归档，无需重跑；记录仍受服务保留期约束。未授权返回 401，未找到模板父运行返回 404，归档或凭证未配置返回 503。

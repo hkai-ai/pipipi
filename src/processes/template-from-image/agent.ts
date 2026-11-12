@@ -1,5 +1,7 @@
 /** 定义模板生成与独立视觉复核的受控输入，复核一次返回修正结果。 */
+
 import type { TemplateImage } from "./image.js";
+import type { readTemplatePlan } from "./projection.js";
 
 export type TemplateAgentRequest = Readonly<{
     image: TemplateImage;
@@ -14,6 +16,7 @@ export type TemplateAgent = Readonly<{
             image: TemplateImage;
             note?: string;
             plan: unknown;
+            onPatchedPlan?: (plan: ReturnType<typeof readTemplatePlan>) => void;
             issues: readonly string[];
             signal: AbortSignal;
         }>,
