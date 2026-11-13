@@ -273,3 +273,44 @@ describe("production catalog assembly", () => {
         ).toThrow('Production Process "alpha" built Registration "beta"');
     });
 });
+
+it("同一 Process 各准确版本只接收自己的固定 Skill，缺失时拒绝启动", () => {
+    const old = {
+        name: "old-template",
+        version: "v1",
+        sha256: "a".repeat(64),
+        path: ".pi/old",
+    };
+    const next = {
+        name: "new-template",
+        version: "v1",
+        sha256: "b".repeat(64),
+        path: ".pi/new",
+    };
+    const received: string[][] = [];
+    const catalog = [old, next].map((ref, index) =>
+        defineProductionProcess({
+            id: "template",
+            installedSkills: () => [ref],
+            build: (context) => {
+                received.push(context.skills.map((skill) => skill.name));
+                return defineEchoRegistration("template", {
+                    version: `v${index + 1}`,
+                });
+            },
+        }),
+    );
+    const registrations = buildProductionRegistrations(
+        buildOptions(catalog, { skills: { template: [old, next] } }),
+    );
+    expect(registrations.map((item) => item.identity.version)).toEqual([
+        "v1",
+        "v2",
+    ]);
+    expect(received).toEqual([["old-template"], ["new-template"]]);
+    expect(() =>
+        buildProductionRegistrations(
+            buildOptions(catalog, { skills: { template: [next] } }),
+        ),
+    ).toThrow("exact installed Skill");
+});

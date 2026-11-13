@@ -38,7 +38,7 @@
 | `common` | `character-emoji/v3` | 同角色双版本登场、版本化对白及新版场景参考图，最多 5 位 | `{ image, mode, caption?, plan }` |
 | `common` | [character-emoji/v4](docs/api.md#角色表情包) | 按冻结角色资料生成单图或漫画，图片响应丢失时按原运行核验 | `{ image, mode, caption?, plan }` |
 
-Memebuy 场景已登记 `template-from-image/v1`，可在 Pipipi 独立编译图片模板草稿；Memebuy 改由模板素材箱的提取 Worker 接入，候选需人工确认后保存草稿，部署与真实页面验收另行完成。Pipipi 独立测试与 JSON 下载保留。场景入口和归属规则见 [`docs/processes/README.md`](docs/processes/README.md)。
+Memebuy 场景保留 `template-from-image/v1,v2` 并新增 `template-from-image/v3`、`template-from-source/v3` [印花拆解候选](docs/processes/memebuy/template-from-image/print-design-v4.md)（运行语义 V4），可在 Pipipi 独立编译图片模板草稿；Memebuy 改由模板素材箱的提取 Worker 接入，候选需人工确认后保存草稿，部署与真实页面验收另行完成。Pipipi 独立测试与 JSON 下载保留。场景入口和归属规则见 [`docs/processes/README.md`](docs/processes/README.md)。
 
 `composed-task/v1` 由 `COMPOSED_TASK_ENABLED=true` 开启：一个 Planner Agent 在服务端预算内组合固定 allow-list 中的七个 Process（不含照片海报），每一步仍走对应 Process 自己的校验与治理，调用方只提交目标与素材。
 

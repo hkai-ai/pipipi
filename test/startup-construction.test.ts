@@ -330,7 +330,7 @@ describe("Startup Construction", () => {
         const identity = { id: "composed-task", version: "v1" };
 
         expect(off.registry.find(identity)).toBeUndefined();
-        expect(off.registry.list()).toHaveLength(26);
+        expect(off.registry.list()).toHaveLength(28);
         const registration = on.registry.find(identity);
         expect(registration?.identity).toEqual(identity);
         expect(registration?.timeoutMs).toBe(600_000);
@@ -346,7 +346,7 @@ describe("Startup Construction", () => {
                 skills: ["anything"],
             }),
         ).toEqual({ accepted: false });
-        expect(on.registry.list()).toHaveLength(27);
+        expect(on.registry.list()).toHaveLength(29);
     });
 
     it("validates the Planner Skill only when composed-task/v1 is enabled", () => {

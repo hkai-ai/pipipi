@@ -1,0 +1,39 @@
+{
+  "repository": "hkai-ai/memebuy_monorepo",
+  "revision": "4838accfee73821c038689ba1bfa60eaa2c57324",
+  "license": "内部同组织业务合同；不复制第三方素材或执行脚本",
+  "files": [
+    {
+      "path": "docs/gallery/print-design-preparation.md",
+      "sha256": "1628d7df59ff59a4b53ad14be9452d860fe1097e0600bd572bd3d90c76b25bc9"
+    },
+    {
+      "path": "docs/gallery/agent-template-json-runtime-contract.md",
+      "sha256": "28a86eaf2023bbcc41f85d6c13ae9b9b7646581400e385736064eaf77fb495c3"
+    },
+    {
+      "path": "docs/gallery/template-import/schema.json",
+      "sha256": "deab4c855bd2ad7a1fcbbb562025a935db6dbd39fe2127a13869331dba671e4d"
+    },
+    {
+      "path": "src/modules/gallery/templates/design-spec-schema.ts",
+      "sha256": "03f0a4e1e9a5d893a24e6606a428dbfa0004121665b90db3c08b48160c8a2c0b"
+    },
+    {
+      "path": "src/modules/gallery/generation/compile/design-spec-compiler/checks.ts",
+      "sha256": "38c7023d9b255a3a902c4c9b8f148e361144faa30a867ba2be9abc034c594abe"
+    },
+    {
+      "path": "src/modules/gallery/generation/compile/design-spec-compiler/vocabulary.ts",
+      "sha256": "373e3def39057cede47b0f3d141b03a6b68bedabfbac80c007401432875989e6"
+    },
+    {
+      "path": "src/modules/gallery/generation/compile/design-spec-compiler/types.ts",
+      "sha256": "70e6bef923517ab58fe54e2b309bea10a4fe35c4468d7859f49d913468a68b8f"
+    },
+    {
+      "path": "src/modules/gallery/generation/compile/design-spec-compiler/py-compat.ts",
+      "sha256": "9952f3dcfcbef228e2e61890af67eb24e592637ab018ba6af41b01a057909b7a"
+    }
+  ]
+}

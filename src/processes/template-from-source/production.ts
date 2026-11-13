@@ -48,20 +48,30 @@ export const templateRenderProduction = defineProductionProcess({
     environment,
     build: (context) => createTemplateRenderRegistration(preparation(context)),
 });
-const createSourceProduction = (runtimeVersion: 2 | 3) =>
+const createSourceProduction = (runtimeVersion: 2 | 3 | 4) =>
     defineProductionProcess({
         id: "template-from-source",
         environment,
         members: [
             {
                 id: "template-from-image",
-                version: runtimeVersion === 3 ? "v2" : "v1",
+                version:
+                    runtimeVersion === 4
+                        ? "v3"
+                        : runtimeVersion === 3
+                          ? "v2"
+                          : "v1",
             },
         ],
         build: (context) => {
             const compiler = context.members.registry.find({
                 id: "template-from-image",
-                version: runtimeVersion === 3 ? "v2" : "v1",
+                version:
+                    runtimeVersion === 4
+                        ? "v3"
+                        : runtimeVersion === 3
+                          ? "v2"
+                          : "v1",
             });
             if (!compiler) throw new Error("缺少固定模板编译成员");
             return createTemplateSourceRegistration({
@@ -75,3 +85,5 @@ const createSourceProduction = (runtimeVersion: 2 | 3) =>
 
 export const templateSourceProduction = createSourceProduction(2);
 export const templateSourceV2Production = createSourceProduction(3);
+
+export const templateSourceV3Production = createSourceProduction(4);
