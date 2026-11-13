@@ -51,6 +51,100 @@ export function processRunActivity(
 export function describeRunObservationContract(
     createBackend: () => Promise<ObservationBackend>,
 ): void {
+    it("retains the activity instance and sanitized Pi rounds on a finished step", async () => {
+        const { activities, settle } = await createBackend();
+        const base = processRunActivity({ runId: "pi-rounds" });
+        const session = {
+            sessionId: 1,
+            skills: [{ name: "example", version: "v1" }],
+            rounds: [
+                {
+                    round: 1,
+                    tools: ["search_memes"],
+                    calls: [
+                        {
+                            call: 1,
+                            name: "search_memes",
+                            result: "returned" as const,
+                        },
+                    ],
+                },
+            ],
+        };
+        const started = {
+            ...base,
+            event: "process_run_activity_started" as const,
+            activity: "plan",
+            activityId: 1,
+        };
+        const finished = {
+            ...started,
+            sequence: 2,
+            event: "process_run_activity_finished" as const,
+            durationMs: 9,
+            outcome: "succeeded" as const,
+        };
+        activities.record(started);
+        const unsanitized = {
+            ...finished,
+            sessions: [
+                {
+                    ...session,
+                    rounds: [
+                        {
+                            ...session.rounds[0],
+                            calls: [
+                                {
+                                    ...session.rounds[0].calls[0],
+                                    arguments: "raw-private-probe",
+                                },
+                            ],
+                        },
+                    ],
+                },
+            ],
+        };
+        activities.record(unsanitized);
+        await settle();
+        expect(await activities.findByRun("pi-rounds")).toEqual([
+            started,
+            { ...finished, sessions: [session] },
+        ]);
+    });
+
+    it("keeps attempts across a gap and displays a replayed event once", async () => {
+        const { activities, settle } = await createBackend();
+        const first = processRunActivity({
+            runId: "retry",
+            timestamp: "2026-08-09T10:00:00Z",
+        });
+        const second = processRunActivity({
+            runId: "retry",
+            timestamp: "2026-08-11T10:00:00Z",
+            attemptNumber: 2,
+        });
+        for (const entry of [
+            second,
+            first,
+            processRunActivity({
+                runId: "unrelated",
+                timestamp: "2026-08-10T10:00:00Z",
+            }),
+            second,
+        ]) {
+            activities.record(entry);
+        }
+        await settle();
+        expect(
+            (await activities.findByRun("retry")).map(
+                ({ attemptNumber, sequence }) => [attemptNumber, sequence],
+            ),
+        ).toEqual([
+            [1, 1],
+            [2, 1],
+        ]);
+    });
+
     it("reads back a stored record", async () => {
         const { archive } = await createBackend();
 

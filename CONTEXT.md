@@ -106,7 +106,7 @@ production Agent catalog 当前为空：原 `design-assistant/v1` 已下线，�
 
 运维控制台以概览、运行记录和异常排查组织已归档终态，支持按准确 Process 版本和同一时间窗口下钻。它不把执行次数解释为用户人数，不把 API 进程并发解释为全局 Worker 状态，也不通过错误码推断供应商根因或自动重试付费操作。
 
-Run Observation Module 同时服务同步 API 和异步 Worker。Run Record 与活动日志只用于观测，不决定业务状态、重试或投递；写入失败不能改变 Process Result。模型执行使用共享诊断分类，活动保留固定阶段、净化原因码和校验路径，控制台据此解释原因；未知异常、取消和整体超时分别收口，缺少诊断的旧记录不推断根因。模板编译成员的具体规则由子活动归档，父运行详情按成员运行 ID 查询。异步调用方始终通过 owner-scoped Process Run Store 查询权威状态。 公开失败说明与运维建议分开投影；公开文案保留明确的副作用约束，运维排查留在控制台。依赖失败的活动诊断不能覆盖副作用标题，不能改变业务副作用或重试合同。默认诊断不覆盖已知业务总类；最终失败证据只取本轮最后结束的失败活动或有效终态诊断，成功摘要不输出失败诊断。
+Run Observation Module 同时服务同步 API 和异步 Worker。Run Record 与活动日志只用于观测，不决定业务状态、重试或投递；写入失败不能改变 Process Result。模型执行使用共享诊断分类，活动保留固定阶段、净化原因码和校验路径，控制台据此解释原因；未知异常、取消和整体超时分别收口，缺少诊断的旧记录不推断根因。模板编译成员的具体规则由子活动归档，父运行详情按成员运行 ID 查询。异步调用方始终通过 owner-scoped Process Run Store 查询权威状态。运维控制台从同一数据库只读任务状态和时间；归档按 runId、Attempt、事件序号合并重复展示，活动身份在所属 Attempt 内有效。 公开失败说明与运维建议分开投影；公开文案保留明确的副作用约束，运维排查留在控制台。依赖失败的活动诊断不能覆盖副作用标题，不能改变业务副作用或重试合同。默认诊断不覆盖已知业务总类；最终失败证据只取本轮最后结束的失败活动或有效终态诊断，成功摘要不输出失败诊断。
 
 Agent 只获得 Registration 固定绑定的 Runtime Skill 与窄 Tool。海报、CRT 和新闻图片 Agent 没有 Tool，只编译待校验计划；`character-emoji/v2` 的 Pi Agent 默认无 Tool，仅服务端识别到明确检索或近期事实要求时开放 `search_memes` Tool，由其内部调用固定 DeepSeek Responses 原生 `web_search`，首轮接收服务端挑选的本地短卡，允许无需搜索直接提交经校验的改编或原创方案；开放工具后按需搜索，搜索失败直接原创；`composed-task` 的 Planner Agent 只获得 allow-list 中其他 Process 的 Step Tool，每个 Step 仍经 Member Registration 自己的校验、幂等键和错误净化。Agent 不获得 Shell、文件读写、代码编辑或任意远程工具。Runtime Skill 随应用发布，调用方不能选择、增加或排序。
 

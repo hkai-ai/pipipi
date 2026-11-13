@@ -21,6 +21,7 @@ export type {
 export type RunTimeline = Readonly<{
     runId: string;
     activities: readonly ProcessRunLogRecord[];
+    queue?: import("../src/run-observation/activities.js").RunQueueState;
 }>;
 
 /**

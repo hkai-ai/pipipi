@@ -4,6 +4,13 @@ import type {
     ProcessRunLogSink,
 } from "../process-runtime/index.js";
 
+export type RunQueueState = Readonly<{
+    status: import("../process-runs/store/index.js").ProcessRunStatus;
+    createdAt: string;
+    startedAt?: string;
+    finishedAt?: string;
+}>;
+
 /**
  * The durable half of the activity log.
  *
@@ -17,6 +24,8 @@ export type ProcessRunActivityArchive = Readonly<{
     record: ProcessRunLogSink;
     /** Waits for writes already accepted by this process; failures are isolated. */
     flush: () => Promise<void>;
+    /** Actual persisted async state, when this backend shares the execution database. */
+    queueState?: (runId: string) => Promise<RunQueueState | undefined>;
     /** One Run's records, in the order they were emitted. */
     findByRun: (runId: string) => Promise<readonly ProcessRunLogRecord[]>;
 }>;
