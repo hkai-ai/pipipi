@@ -63,7 +63,7 @@ function review(value = fixture()) {
                 "sourceIsolation",
             ].map((key) => [key, { passed: true, evidence }]),
         ),
-        issues: [] as string[],
+        issues: [] as { check: string; path: string; reason: string }[],
     };
 }
 const applications: ReturnType<typeof createProcessingApplication>[] = [];
@@ -226,7 +226,11 @@ it("复核拒绝保留具体检查，结构错误保留安全字段，动态键�
     const report = review(value);
     report.checks.printForm.passed = false;
     report.checks.inputBindings.passed = false;
-    report.issues.push("私有复核正文");
+    report.issues.push({
+        check: "printForm",
+        path: "/draft/runtimeSemantics/designSpec/whole/printForm",
+        reason: "私有复核正文",
+    });
     expect(() => applyReview(value, report)).toThrowError(
         expect.objectContaining({
             diagnostic: {
@@ -241,7 +245,14 @@ it("复核拒绝保留具体检查，结构错误保留安全字段，动态键�
                         path: "/review/checks/inputBindings/passed",
                         code: "check_failed",
                     },
-                    { path: "/review/issues", code: "unresolved_review" },
+                    {
+                        path: "/review/checks/printForm",
+                        code: "unresolved_review",
+                    },
+                    {
+                        path: "/draft/runtimeSemantics/designSpec/whole/printForm",
+                        code: "review_evidence",
+                    },
                     {
                         path: "/draft/runtimeSemantics/designSpec",
                         code: "review_evidence",
@@ -298,7 +309,11 @@ it("复核补丁修改后完整重验，不补造通过结论，不改变原候�
     bad.reviewedCandidateSha256 = "f".repeat(64);
     expect(() => applyReview(value, bad)).toThrow();
     const blocked = review(value);
-    blocked.issues.push("图片不能确认");
+    blocked.issues.push({
+        check: "imageFidelity",
+        path: "/observation/overview",
+        reason: "图片不能确认",
+    });
     expect(() => applyReview(value, blocked)).toThrow();
     const wrong = review(value);
     wrong.changes.push(

@@ -17,6 +17,25 @@ export function candidatePaths(value: unknown, prefix = ""): string[] {
         return [path, ...candidatePaths(child, path)];
     });
 }
+const reviewChecks = [
+    "imageFidelity",
+    "layoutAndText",
+    "printForm",
+    "inputBindings",
+    "defaultMigration",
+    "sourceIsolation",
+] as const;
+const evidencePath = z
+    .string()
+    .min(1)
+    .max(500)
+    .regex(/^\/(draft|observation)\//u);
+function detailPath(pointer: string) {
+    return pointer
+        .slice(1)
+        .split("/")
+        .map((key) => (/^\d+$/.test(key) ? Number(key) : key));
+}
 export function reviewSchema(candidate: PrintDesignCandidate) {
     const paths = candidatePaths(candidate);
     const containers = [
@@ -55,11 +74,7 @@ export function reviewSchema(candidate: PrintDesignCandidate) {
         evidence: z
             .array(
                 z.strictObject({
-                    path: z
-                        .string()
-                        .min(1)
-                        .max(500)
-                        .regex(/^\/(draft|observation)\//u),
+                    path: evidencePath,
                     observation: z.string().trim().min(1).max(1000),
                 }),
             )
@@ -84,7 +99,15 @@ export function reviewSchema(candidate: PrintDesignCandidate) {
             defaultMigration: check,
             sourceIsolation: check,
         }),
-        issues: z.array(z.string().trim().min(1).max(1000)).max(20),
+        issues: z
+            .array(
+                z.strictObject({
+                    check: z.enum(reviewChecks),
+                    path: evidencePath,
+                    reason: z.string().trim().min(1).max(1000),
+                }),
+            )
+            .max(20),
     });
 }
 export function applyReview(
@@ -124,24 +147,26 @@ export function applyReview(
                     path: ["review", "checks", name, "passed"],
                     code: "check_failed",
                 })),
-                ...(review.issues.length
-                    ? [
-                          {
-                              path: ["review", "issues"],
-                              code: "unresolved_review",
+                ...review.issues.flatMap((issue, index) => [
+                    {
+                        path: ["review", "checks", issue.check],
+                        code: "unresolved_review",
+                    },
+                    paths.has(issue.path)
+                        ? {
+                              path: detailPath(issue.path),
+                              code: "review_evidence",
+                          }
+                        : {
+                              path: ["review", "issues", index, "path"],
+                              code: "missing_reference",
                           },
-                      ]
-                    : []),
+                ]),
                 ...rejected.flatMap(([, check]) =>
                     check.evidence
                         .filter((item) => paths.has(item.path))
                         .map((item) => ({
-                            path: item.path
-                                .slice(1)
-                                .split("/")
-                                .map((key) =>
-                                    /^\d+$/.test(key) ? Number(key) : key,
-                                ),
+                            path: detailPath(item.path),
                             code: "review_evidence",
                         })),
                 ),
