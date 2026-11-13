@@ -23,6 +23,7 @@ import {
 } from "../process-runs/ops/postgres.js";
 import { createPostgresProcessRunStore } from "../process-runs/store/postgres.js";
 import type { ProcessRegistry } from "../process-runtime/index.js";
+import { createLocalTrace } from "../process-runtime/local-trace.js";
 import type { ProcessRuntime } from "../processes/catalog.js";
 import { renderInputSchema } from "../processes/template-from-source/capability.js";
 import { constructAgentConversationsApi } from "./agent-conversations.js";
@@ -175,8 +176,12 @@ function constructConsole(
             "PROCESS_RUN_RECORD_DIRECTORY is required when CONSOLE_ENABLED is true",
         );
     }
+    const local =
+        environment.NODE_ENV === "development" &&
+        environment.CONSOLE_LOCAL_TRACE === "true";
     const revision = parseRevision(environment.PIPIPI_REVISION);
     return Object.freeze({
+        ...(local ? { localTrace: createLocalTrace() } : {}),
         basePath: parseConsoleBasePath(environment.CONSOLE_BASE_PATH),
         ...(revision ? { revision } : {}),
         assetDirectory: consoleAssetDirectory(environment),

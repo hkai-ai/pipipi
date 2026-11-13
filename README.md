@@ -44,6 +44,8 @@ Memebuy 场景已登记 `template-from-image/v1`，可在 Pipipi 独立编译图
 
 全部流程共享同一个 `POST /execute` Interface。每个明确版本由 Process Registration 绑定业务定义、Schema、依赖、运行活动和策略，再进入不可变 Process Registry。Process Runner 统一处理 `runId`、精确版本查找、超时、取消、错误净化和可选 Run Record。
 
+本地开发启用 `CONSOLE_LOCAL_TRACE=true` 和 `NODE_ENV=development` 后，可在控制台「本地实时调试」选择正在执行的同步请求，展开允许查看的模型与工具字段。启动方式见[运维控制台](docs/mvp-release-runbook.md#运维控制台)。
+
 每次 Process Attempt 都输出不含业务内容的结构化活动日志。可选 Run Record 保存终态与活动归档，但只用于观测，不决定业务状态。运维控制台提供用量概览、精确版本记录筛选、异常聚合与失败活动排查，开发工具可查看每个已启用流程版本当前声明的 Runtime Skill，也可提交异步任务；Vite + Preact 页面随 API 发布，Worker 角色保持独立。它没有应用内鉴权，生产访问控制由部署平台负责。详细语义见 [Process Runtime 设计](docs/process-runtime-design.md)。
 
 生产启动通过 Installed Skill Catalog 校验 Runtime Skill 的准确名称、版本和 SHA-256。Process 只加载 Registration 固定绑定的 Skill 与窄 Tool；运行期不发现、下载或更新 Skill。
@@ -217,3 +219,5 @@ CRT 与七个照片海报支持可选背景参数，省略时保持原行为；�
 模板制作工作台可随同步回执保存脱敏步骤，也可按原运行查询保留期内的父流程与编译成员记录；见[模板执行步骤](docs/api.md#模板执行步骤)。
 
 在控制台的运行详情中，用业务响应的 runId 打开执行过程，展开构思活动下的 Pi 会话即可查看各轮工具与用量。异步提交后即可用同一 runId 查排队状态；Worker 启动后，详情按执行轮次显示已归档的活动。
+
+构思修正与搜索兜底在对应模型轮次下展示。无工具的极简海报流程也可在运行详情里查看本次加载的 Skill 和模型轮次。

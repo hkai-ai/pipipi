@@ -18,7 +18,7 @@ import { AgentExecutionFailure } from "./failure.js";
 import { configureOpenAI, type OpenAIApiMode } from "./pi.js";
 import { createSkillSet, type SkillRef, type SkillSet } from "./skills.js";
 
-import { observePiSession } from "./trace.js";
+import { observePiSession, tracePiAbort } from "./trace.js";
 
 export type PiSessionFactory = (
     options: CreateAgentSessionOptions,
@@ -232,6 +232,7 @@ export async function withAbortableSession<Result>(
     operation: () => Promise<Result>,
 ): Promise<Result> {
     const abortSession = () => {
+        tracePiAbort(session, signal);
         void session.abort();
     };
     signal.addEventListener("abort", abortSession, { once: true });

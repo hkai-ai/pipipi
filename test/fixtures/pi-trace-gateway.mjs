@@ -23,7 +23,14 @@ function finalMessage(value) {
     };
 }
 
-function sendStream(response, model, item, inputTokens, outputTokens) {
+function sendStream(
+    response,
+    model,
+    item,
+    inputTokens,
+    outputTokens,
+    thinking,
+) {
     response.writeHead(200, {
         "content-type": "text/event-stream",
         "cache-control": "no-cache",
@@ -36,6 +43,12 @@ function sendStream(response, model, item, inputTokens, outputTokens) {
                 JSON.stringify({ type, ...data }) +
                 "\n\n",
         );
+    const reasoning = {
+        id: "rs_local",
+        type: "reasoning",
+        summary: [{ type: "summary_text", text: thinking }],
+    };
+    const outputIndex = thinking ? 1 : 0;
     const result = {
         id: `resp_demo_${item.id}`,
         model,
@@ -46,31 +59,80 @@ function sendStream(response, model, item, inputTokens, outputTokens) {
             output_tokens: outputTokens,
             total_tokens: inputTokens + outputTokens,
         },
-        output: [item],
+        output: thinking ? [reasoning, item] : [item],
     };
     frame("response.created", {
         response: { ...result, status: "in_progress", output: [] },
     });
+    if (thinking) {
+        frame("response.output_item.added", {
+            output_index: 0,
+            item: { ...reasoning, summary: [] },
+        });
+        frame("response.reasoning_summary_text.delta", {
+            output_index: 0,
+            delta: thinking,
+        });
+        frame("response.output_item.done", {
+            output_index: 0,
+            item: reasoning,
+        });
+    }
     frame("response.output_item.added", {
-        output_index: 0,
+        output_index: outputIndex,
         item: {
             ...item,
             status: "in_progress",
             ...(item.type === "message" ? { content: [] } : { arguments: "" }),
         },
     });
-    frame("response.output_item.done", { output_index: 0, item });
+    frame("response.output_item.done", { output_index: outputIndex, item });
     frame("response.completed", { response: result });
     response.end();
 }
 
-export async function startDemoGateway(fixture, useSearch) {
+export async function startDemoGateway(fixture, useSearch, options = {}) {
     const counts = { plan: 0, search: 0, render: 0 };
     const server = createServer(async (request, response) => {
         try {
             const body = [];
             for await (const chunk of request) body.push(chunk);
             const input = JSON.parse(Buffer.concat(body).toString("utf8"));
+            if (request.method === "POST" && request.url === "/posters") {
+                counts.render++;
+                return sendJson(response, {
+                    ...fixture.output.image,
+                    width: 1024,
+                    height: 1696,
+                });
+            }
+            if (
+                request.method === "POST" &&
+                request.url === "/v1/responses" &&
+                input.model === "gpt-5.4"
+            ) {
+                counts.plan++;
+                if (input.tools?.length)
+                    throw new Error("unexpected tools on poster request");
+                return sendStream(
+                    response,
+                    input.model,
+                    finalMessage({
+                        prompt: "Tall 3:5 aged paper, 82% negative space.\n\nA single small torn-paper clipping.\n\nPrint in saturated cobalt ink at the edge.\n\nFlat paper scan; avoid glossy mockups.",
+                        recipe: {
+                            layout: "lower-left-float",
+                            anchor: "torn-paper clipping",
+                            typography: "archive microtext with date/weather",
+                            accent: "saturated cobalt blue",
+                            texture: "halftone degradation",
+                            mood: "memory",
+                        },
+                        interpretation: "A quiet paper archive.",
+                    }),
+                    50,
+                    20,
+                );
+            }
             if (
                 request.method === "POST" &&
                 request.url === "/character-emojis/v4"
@@ -81,6 +143,7 @@ export async function startDemoGateway(fixture, useSearch) {
                 )
                     throw new Error("unexpected render");
                 counts.render++;
+                await options.beforeRender?.();
                 return sendJson(response, fixture.output.image);
             }
             if (request.method !== "POST" || request.url !== "/v1/responses")
@@ -95,6 +158,12 @@ export async function startDemoGateway(fixture, useSearch) {
                 )
                     throw new Error("unexpected search");
                 counts.search++;
+                if (options.scenario === "search-failure")
+                    return sendJson(
+                        response,
+                        { error: "private dependency failure" },
+                        503,
+                    );
                 return sendJson(response, {
                     status: "completed",
                     output: [
@@ -110,6 +179,8 @@ export async function startDemoGateway(fixture, useSearch) {
             if (input.model !== "deepseek-v4.1-flash" || input.stream !== true)
                 throw new Error("unexpected model");
             counts.plan++;
+            await options.beforePlan?.();
+            if (response.destroyed) return;
             if (
                 useSearch &&
                 input.tools?.some((tool) => tool.name === "search_memes")
@@ -141,10 +212,15 @@ export async function startDemoGateway(fixture, useSearch) {
                 input.model,
                 finalMessage({
                     ...fixture.output.plan,
+                    ...(options.scenario === "repair-rejected" ||
+                    (options.scenario === "repair" && counts.plan === 1)
+                        ? { caption: "错字" }
+                        : {}),
                     adaptation: { entryIds: [], original: "雨狐为云撑伞" },
                 }),
                 215,
                 42,
+                options.thinking,
             );
         } catch (error) {
             console.error("[local gateway]", error.message);

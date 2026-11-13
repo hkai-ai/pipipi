@@ -1,6 +1,7 @@
 /** 装配运维后台导航、共享目录与按职责拆分的页面。 */
 import { render } from "preact";
 import { listProcesses } from "./api.js";
+import { LiveView } from "./live.jsx";
 import { Overview } from "./overview.jsx";
 import { useAsync } from "./resource.js";
 import { hrefFor, type Route, useRoute } from "./routing.js";
@@ -20,6 +21,8 @@ const toolLinks: readonly { route: Route; label: string }[] = [
 ];
 function Console() {
     const route = useRoute();
+    const local =
+        document.querySelector('meta[name="pipipi-local-trace"]') !== null;
     const catalog = useAsync(() => listProcesses(), []);
     const current =
         route.view === "run"
@@ -48,6 +51,16 @@ function Console() {
                 </nav>
                 <p class="nav-label">流程与调试</p>
                 <nav aria-label="流程与调试">
+                    {local ? (
+                        <a
+                            href={hrefFor({ view: "live" })}
+                            aria-current={
+                                current === "live" ? "page" : undefined
+                            }
+                        >
+                            本地实时调试
+                        </a>
+                    ) : null}
                     {toolLinks.map((link) => (
                         <a
                             key={link.label}
@@ -92,6 +105,12 @@ function Console() {
                                 filters={route.filters}
                             />
                         </>
+                    ) : null}
+                    {local && route.view === "live" ? (
+                        <LiveView
+                            key={route.runId ?? "active"}
+                            runId={route.runId}
+                        />
                     ) : null}
                     {route.view === "run" ? (
                         <RunView
