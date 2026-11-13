@@ -10,6 +10,7 @@ import type { PrintDesignAgent } from "../src/processes/template-from-image/desi
 import {
     candidateIssues,
     compileResult,
+    PrintDesignContractError,
     readCandidate,
 } from "../src/processes/template-from-image/design-spec/contract.js";
 import { createPrintDesignRegistration } from "../src/processes/template-from-image/design-spec/registration.js";
@@ -295,4 +296,24 @@ it("语义问题由同一独立复核有界修正；不追加模型轮次或返�
     expect(deps.agent.review).toHaveBeenCalledOnce();
     if (result.status === "succeeded")
         expect(result.output).not.toHaveProperty("observation");
+});
+
+it("结构修正准确指出缺失的文本展示方式与图片来源", () => {
+    const raw = fixture();
+    const slot = raw.draft.inputSchema.slots[0];
+    Reflect.deleteProperty(slot.text, "presentation");
+    if (!slot.image) throw new Error("夹具缺少图片输入");
+    Reflect.deleteProperty(slot.image, "sourceOptions");
+    try {
+        readCandidate(raw);
+        expect.fail("缺失作者字段的候选应进入修正");
+    } catch (error) {
+        if (!(error instanceof PrintDesignContractError)) throw error;
+        expect(error.issues.join("\n")).toContain(
+            "draft.inputSchema.slots.0.text.presentation",
+        );
+        expect(error.issues.join("\n")).toContain(
+            "draft.inputSchema.slots.0.image.sourceOptions",
+        );
+    }
 });

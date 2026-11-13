@@ -488,6 +488,10 @@ it("印花 v4 编译和复核均使用隔离无 Tool 会话，复核使用严格
         expect(options.resourceLoader?.getSystemPrompt()).toContain(
             "运行语义 v4",
         );
+        if (outputs.length === 1)
+            expect(options.resourceLoader?.getSystemPrompt()).toContain(
+                "写入 observation.printRisks",
+            );
         const model = {
             id: "test-vision",
             api: "openai-completions",

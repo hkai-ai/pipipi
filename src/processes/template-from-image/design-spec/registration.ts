@@ -63,19 +63,30 @@ export function createPrintDesignRegistration(options: {
                 context.signal.throwIfAborted();
                 let raw: unknown;
                 try {
-                    raw = await context.runActivity(
+                    candidate = await context.runActivity(
                         attempt
                             ? "template_correction"
                             : "template_compilation",
-                        () => options.agent.compile({ ...request, correction }),
-                        agentDiagnostic,
+                        async () => {
+                            raw = await options.agent.compile({
+                                ...request,
+                                correction,
+                            });
+                            if (
+                                (JSON.stringify(raw)?.length ?? Infinity) >
+                                100000
+                            )
+                                throw new AgentExecutionFailure({
+                                    stage: "schema",
+                                    code: "invalid_contract",
+                                });
+                            return readCandidate(raw);
+                        },
+                        (error) =>
+                            error instanceof PrintDesignContractError
+                                ? { stage: "schema", code: "invalid_schema" }
+                                : agentDiagnostic(error),
                     );
-                    if ((JSON.stringify(raw)?.length ?? Infinity) > 100000)
-                        return failProcess(
-                            "AGENT_FAILURE",
-                            "印花模板候选超出限制",
-                        );
-                    candidate = readCandidate(raw);
                     break;
                 } catch (error) {
                     if (error instanceof PrintDesignContractError)
