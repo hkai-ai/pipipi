@@ -1,7 +1,7 @@
-import { access } from "node:fs/promises";
 import path from "node:path";
 import { chromium, type Page, type Request } from "playwright-core";
 import { describe, expect, it } from "vitest";
+import { chromeExecutable } from "./support/chrome.js";
 import { startConsoleAsyncAcceptanceEnvironment } from "./support/console-async-acceptance-environment.js";
 
 import { renderApproval } from "./support/template-render-api.js";
@@ -220,23 +220,4 @@ async function fillApproval(page: Page, reviewer: string) {
         await page.getByLabel(`${name} *`, { exact: true }).fill(value);
     }
     return input;
-}
-
-async function chromeExecutable(): Promise<string> {
-    const candidates = [
-        process.env.CHROME_PATH,
-        "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
-        "/usr/bin/google-chrome",
-        "/usr/bin/chromium",
-        "/usr/bin/chromium-browser",
-    ].filter((candidate): candidate is string => Boolean(candidate));
-    for (const candidate of candidates) {
-        try {
-            await access(candidate);
-            return candidate;
-        } catch {}
-    }
-    throw new Error(
-        "Chrome is required; set CHROME_PATH to a Chromium-compatible executable",
-    );
 }

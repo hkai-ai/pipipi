@@ -119,11 +119,18 @@ export function Timeline({
                                             ))}
                                         {entry.event ===
                                             "process_run_activity_finished" &&
-                                            !entry.activityId && (
+                                            !entry.sessions && (
                                                 <p class="hint">
-                                                    历史活动未采集会话轨迹
+                                                    会话轨迹未采集
                                                 </p>
                                             )}
+                                        {entry.event ===
+                                            "process_run_activity_finished" &&
+                                        entry.sessions?.length === 0 ? (
+                                            <p class="hint">
+                                                本次活动没有 Pi 会话
+                                            </p>
+                                        ) : null}
                                         {diagnostic ? (
                                             <p>
                                                 {

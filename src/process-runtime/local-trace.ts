@@ -3,13 +3,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { currentTraceActivity } from "./trace-context.js";
 
 export type LocalTraceEvent = {
-    kind:
-        | "input"
-        | "model"
-        | "toolCall"
-        | "toolResult"
-        | "validation"
-        | "result";
+    kind: "input" | "model" | "toolCall" | "toolResult" | "validation";
     field: string;
     value?: string;
     note?: string;

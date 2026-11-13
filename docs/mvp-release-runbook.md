@@ -353,11 +353,11 @@ Schema 由部署脚本在激活新容器前执行 `npm run db:migrate` 应用，
 
 业务排行、失败聚合和 UTC 日柱可下钻到同一时间范围的记录。记录筛选保存在 hash 链接中，可分享、刷新或从详情返回；返回后重新读取第一页，再按需加载更早记录。未知业务或未注册版本仍可按归档原值筛选；缺失身份显示并按 `unknown` 查询。详情先显示结果和最后 Attempt 的失败活动，再展示时间线及默认折叠的输入输出 JSON。复制排障摘要仅包含运行标识、状态、时间、错误码和活动元数据，不包含业务正文或图片 URL。
 
-页面只展示已归档终态，不表示 queued/running 权威状态。日统计使用 UTC 日界，其他时间按浏览器本地时区显示；Attempt 分位数不是端到端耗时，API 进程并发不包括其他实例或异步 Worker。调用方与用户身份尚未采集，不推算人数或产品来源。接口失败会显示读取失败，不以零调用或无异常代替。失败提示只提供排查方向，不自动重放任务。
+运行列表展示已归档的终态。使用 PostgreSQL 的运行详情还会读取异步队列的实际状态和时间。日统计使用 UTC 日界，其他时间按浏览器本地时区显示；Attempt 分位数不是端到端耗时，API 进程并发不包括其他实例或异步 Worker。调用方与用户身份尚未采集，不推算人数或产品来源。接口失败会显示读取失败，不以零调用或无异常代替。失败提示只提供排查方向，不自动重放任务。
 
-本机查看正在执行的同步请求时，配置 `NODE_ENV=development`、`CONSOLE_ENABLED=true`、`CONSOLE_LOCAL_TRACE=true` 和本地 `PROCESS_RUN_RECORD_DIRECTORY`，运行 `npm run build && npm run dev:api`。浏览 `http://127.0.0.1:4300/console/`（如设置过 `PORT` 或 `CONSOLE_BASE_PATH` 则使用对应地址），打开「本地实时调试」，再从正常业务入口发送 `POST /execute`。活跃列表会在响应返回前列出 runId。开启后 API 仅监听 IPv4 回环地址，请直接连接本机服务。
+本机查看正在执行的同步请求时，先运行 `npm run build`，再运行 `NODE_ENV=development CONSOLE_ENABLED=true CONSOLE_LOCAL_TRACE=true PROCESS_RUN_RECORD_DIRECTORY=./artifacts/local-run-records npm run dev:api`。浏览 `http://127.0.0.1:4300/console/`（如设置过 `PORT` 或 `CONSOLE_BASE_PATH` 则使用对应地址），打开「本地实时调试」，再从正常业务入口发送 `POST /execute`。活跃列表会在响应返回前列出 runId。开启后 API 仅监听 IPv4 回环地址，请直接连接本机服务。
 
-角色表情包的模型输入显示实际提交的 `idea`、`captionRule`，工具参数显示模型传给 `search_memes` 的 `focus`。模型回复仅展开从最终文本提取的 `scene` 或分格 `panels[i].scene`。搜索返回内容、来源与改编材料、推理及凭证不进入该接口。工具返回、校验结果和正式业务结果各自标明来源。活跃请求保存在 API 内存中，完成或客户端断开后删除。历史与独立 Worker 的轨迹从运行详情读取，既有 Run Record 的业务输入输出仍按其独立配置保存；若要让测试输入也只保留在内存，请设置 `PROCESS_RUN_RECORD_CONTENT=omit`。
+角色表情包的模型输入显示实际提交的 `idea`、`captionRule`，每轮同时显示实际候选提示规则、发往模型的完整 Schema 的 SHA-256 和画面字段的静态类型与长度约束，来源枚举与角色身份不随 Schema 展开。工具参数显示模型传给 `search_memes` 的 `focus`。模型回复仅展开从最终文本提取的 `scene` 或分格 `panels[i].scene`。搜索返回内容、来源与改编材料、推理及凭证不进入该接口。工具返回与校验结果各自标明来源，正式业务输出由原 `POST /execute` 返回。活跃请求保存在 API 内存中，完成或客户端断开后删除。历史与独立 Worker 的轨迹从运行详情读取，既有 Run Record 的业务输入输出仍按其独立配置保存；若要让测试输入也只保留在内存，请设置 `PROCESS_RUN_RECORD_CONTENT=omit`。
 
 在「开发工具 → 业务流程」展开具体版本，即可查看当前发布为该版本声明的 Runtime Skill。目录独立于运行归档，尚无执行记录的版本也会列出。核对历史运行的实际加载情况，应查看该次运行的会话记录。
 

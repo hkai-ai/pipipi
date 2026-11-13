@@ -2,7 +2,7 @@
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { createProcessAttemptRunner } from "./attempt.js";
-import { recordLocalField, startLocalTrace } from "./local-trace.js";
+import { startLocalTrace } from "./local-trace.js";
 import type { ProcessRunLogClock, ProcessRunLogSink } from "./logging.js";
 import {
     disabledProcessRunRecords,
@@ -135,7 +135,6 @@ export function createProcessRunner(options: {
             ...(captureEvaluation ? { captureEvaluation } : {}),
         });
 
-        recordLocalField("result", "status", () => ({ value: result.status }));
         return completeProcessRun(runRecords, result, {
             input: request.input,
         });

@@ -1,5 +1,6 @@
 /** 按环境选择 JSONL 或 PostgreSQL 观测 Adapter */
 import { Pool } from "pg";
+import { postgresQueueState } from "../process-runs/ops/queue-state.js";
 import {
     type CompletedProcessRun,
     createProcessRunRecords,
@@ -31,6 +32,7 @@ export type ConstructedProcessRunObservation = Readonly<{
     records: ProcessRunRecords;
     archive: ProcessRunRecordArchive;
     activities: ProcessRunActivityArchive;
+    queueState?: ReturnType<typeof postgresQueueState>;
     stats: RunObservationStats;
     close?: () => Promise<void>;
 }>;
@@ -145,6 +147,7 @@ function buildPostgresObservation(
     return {
         archive: createPostgresProcessRunRecordArchive({ pool }),
         activities: createPostgresProcessRunActivityArchive({ pool }),
+        queueState: postgresQueueState(pool),
         stats: createPostgresRunObservationStats({ pool }),
         close: () => pool.end(),
     };

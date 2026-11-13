@@ -1,4 +1,4 @@
-import { access, mkdir, mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -10,6 +10,7 @@ import {
     createJsonlProcessRunRecordArchive,
     createJsonlRunObservationStats,
 } from "../src/run-observation/jsonl.js";
+import { chromeExecutable } from "./support/chrome.js";
 
 const browserDescribe =
     process.env.RUN_CONSOLE_OBSERVATION_BROWSER === "1"
@@ -122,10 +123,7 @@ browserDescribe("operator observation browser", () => {
         if (!address || typeof address === "string")
             throw new Error("Missing address");
         const url = `http://127.0.0.1:${address.port}/ops/`;
-        const executablePath =
-            process.env.CHROME_PATH ??
-            "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
-        await access(executablePath);
+        const executablePath = await chromeExecutable();
         const browser = await chromium.launch({
             executablePath,
             headless: true,
@@ -231,6 +229,7 @@ browserDescribe("operator observation browser", () => {
                 .getByRole("link", { name: "failure-v3-00", exact: true })
                 .click();
             await page.getByRole("heading", { name: "运行详情" }).waitFor();
+            await page.getByText("会话轨迹未采集", { exact: true }).waitFor();
             await page
                 .getByRole("heading", {
                     name: "解析模型 JSON：模型结果不是合法 JSON",

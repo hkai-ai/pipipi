@@ -7,6 +7,7 @@ export type TraceActivity = {
     attemptNumber: number;
     activityId: number;
     activity: string;
+    collectionFailed?: boolean;
     sessions: PiSessionTrace[];
 };
 const context = new AsyncLocalStorage<TraceActivity>();

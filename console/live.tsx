@@ -17,7 +17,6 @@ const labels = {
     toolCall: "工具参数",
     toolResult: "工具返回",
     validation: "服务端校验",
-    result: "正式业务结果",
 };
 export function LiveView({ runId }: { runId?: string }) {
     const [data, setData] = useState<Data>({});
@@ -96,10 +95,8 @@ export function LiveView({ runId }: { runId?: string }) {
                     {event.note ? <p class="hint">{event.note}</p> : null}
                 </details>
             ))}
-            {runId &&
-            data.events &&
-            !data.events.some((e) => e.kind === "result") ? (
-                <p class="hint">正式业务结果将在请求完成时返回。</p>
+            {runId ? (
+                <p class="hint">正式业务输出由原 POST /execute 返回。</p>
             ) : null}
             {runId && data.ended ? (
                 <a href={hrefFor({ view: "run", runId })}>

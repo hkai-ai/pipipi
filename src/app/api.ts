@@ -190,6 +190,7 @@ function constructConsole(
             find: archive.archive.find,
         }),
         activities: archive.activities,
+        ...(archive.queueState ? { queueState: archive.queueState } : {}),
         processes: describeProcessCatalog(runtime.registry),
         skills: describeSkillCatalog(runtime.registry.list()),
         stats: Object.freeze({ summarise: archive.stats.summarise }),

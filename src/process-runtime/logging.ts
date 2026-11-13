@@ -102,7 +102,7 @@ export function createProcessRunAttemptLog(options: {
         activeActivities.delete(activityId);
         let sessions: TraceActivity["sessions"] | undefined;
         try {
-            if (activeActivity.scope.sessions.length)
+            if (!activeActivity.scope.collectionFailed)
                 sessions = sanitizePiSessions(activeActivity.scope.sessions);
         } catch {
             // 单个采集器异常仍须关闭活动并保留业务结果。

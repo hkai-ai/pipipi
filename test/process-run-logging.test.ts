@@ -101,6 +101,7 @@ describe("Process Run activity logging", () => {
             }),
             baseRecord(3, 3, {
                 event: "process_run_activity_finished",
+                sessions: [],
                 activity: "load_policy",
                 activityId: 1,
                 outcome: "succeeded",
@@ -113,6 +114,7 @@ describe("Process Run activity logging", () => {
             }),
             baseRecord(5, 3, {
                 event: "process_run_activity_finished",
+                sessions: [],
                 activity: "apply_policy",
                 activityId: 2,
                 outcome: "succeeded",
@@ -165,6 +167,7 @@ describe("Process Run activity logging", () => {
         expect(records.at(-2)).toEqual(
             baseRecord(3, 1, {
                 event: "process_run_activity_finished",
+                sessions: [],
                 activity: "call_dependency",
                 activityId: 1,
                 outcome: "failed",

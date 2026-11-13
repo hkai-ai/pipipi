@@ -55,6 +55,7 @@ const issues = z
 const decision = z.object({
     kind: z.enum([
         "search_failed",
+        "search_result",
         "original_fallback",
         "validation_failed",
         "repair_started",
@@ -62,6 +63,7 @@ const decision = z.object({
         "retry_started",
         "cancelled",
     ]),
+    material: z.enum(["usable", "insufficient", "unverifiable"]).optional(),
     reason: z
         .enum([
             "configuration",
