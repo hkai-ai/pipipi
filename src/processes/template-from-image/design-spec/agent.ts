@@ -150,6 +150,7 @@ export class PiPrintDesignAgent implements PrintDesignAgent {
                           ]
                         : []),
                     "defaults 的动态键必须引用对应类型的 id：texts 只引用 text，accentSources 只引用 accent，specifiedContent 只引用 accent 或 decoration；colors 要覆盖全部且仅有 whole.colorRoles 的 id。没有适用元素时对应字典留空。colorRoles.appliesTo 只引用已定义元素。",
+                    "编写可执行描述时按绑定目标区分可替换内容与固定版式。可替换主体的原物和独有外形只放观察或证据字段；固定布局以角色和位置描述主体。明确随主体变化的文字标 followsSubject，独立文字按其自己的绑定或固定口号保留。",
                     "先写 observation，再写 draft。defaults 是可执行的默认迁移，主体原物与外形证据写入 originalObject、shapeFeatures；默认主体、动作、固有色与槽默认值按同一份可迁移方案填写。自由文本使用 presentation=free_text；推荐项使用 presentation=suggestions 并列出 suggestions。可传照片的主体槽声明 image.sourceOptions（如 upload），身份绑定声明 groupToSinglePolicy=reject。准确文字逐字记录并映射到文字元素。measurement 未提供的量记未知，不编造统计。bbox 是人审用的候选位置，不能声称像素识别已通过。promptTemplate 由服务端投影，不返回。最多一个主体照片槽，其他只开放文本。只编译批准图片，不改变图像内容。",
                 ],
             }).run({
@@ -177,7 +178,7 @@ export class PiPrintDesignAgent implements PrintDesignAgent {
                     "独立重新观察同一批准图，核对候选观察、designSpec 与输入绑定；先找遗漏与误读，再核对取舍，不能只复述生成者。",
                     "通过时 changes 为空；有具体问题时只修已有路径及必要依赖，valueJson 是替换值的完整 JSON。不得重写整份候选，不补造看不到的事实，不改变语义版本，不生成 promptTemplate。",
                     "对补丁后的完整候选填写六项检查，evidence.path 必须存在，observation 写具体画面依据。issues 仅列补丁后仍未解决的问题；无法确认的检查 passed=false。不允许用编译成功代替视觉或印刷验收，表达机制仍须人工确认。",
-                    "复核本步交付的可编辑草稿。待人审的表达机制、实物打样和上身预览写入 observation.printRisks（必要时提交补丁）；只有影响本次草稿合同且补丁后仍未解决的问题放入 issues。发现原图与候选不符、证据不足以完成六项检查时据实拒绝。检查默认值与所有开放输入一致；换主体不会带入原主体外形、默认字或背景；文字和配色替换仍有唯一接管目标。printForm 检查的是草稿是否准确记录原图形态、边缘和印花风险。若反差、半透明或软边待处理，按原图标注风险和适配状态；实物打样不属于本步验收。若草稿误述原图、漏记风险或虚构了边框，修补后再作判断。",
+                    "复核本步交付的可编辑草稿。待人审的表达机制、实物打样和上身预览写入 observation.printRisks（必要时提交补丁）；只有影响本次草稿合同且补丁后仍未解决的问题放入 issues。发现原图与候选不符、证据不足以完成六项检查时据实拒绝。检查默认值与所有开放输入一致；sourceIsolation 按每个槽实际接管的 targetIds 判断：替换身份后，可执行的固定描述不得仍要求原主体的专属外形、名字或附图内容。观察证据与可被绑定覆盖的 defaults 保留原始或默认值是正常的。仅标记 followsSubject 的文字随主体变化；独立文字槽、固定口号和模板自身的版式背景分别遵守自己的合同。发现固定字段串入原主体特征时，在本次补丁中修正对应字段；若仍无法隔离，报告 false 并用 evidence.path 指向实际冲突的候选字段。printForm 检查的是草稿是否准确记录原图形态、边缘和印花风险。若反差、半透明或软边待处理，按原图标注风险和适配状态；实物打样不属于本步验收。若草稿误述原图、漏记风险或虚构了边框，修补后再作判断。",
                 ],
             }).run({
                 prompt: JSON.stringify({

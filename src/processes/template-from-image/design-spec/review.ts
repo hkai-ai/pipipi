@@ -112,16 +112,18 @@ export function applyReview(
     if (
         review.issues.length ||
         Object.values(review.checks).some((check) => !check.passed)
-    )
+    ) {
+        const paths = new Set(candidatePaths(candidate));
+        const rejected = Object.entries(review.checks).filter(
+            ([, check]) => !check.passed,
+        );
         throw new PrintDesignContractError(
             ["独立复核仍有未解决问题"],
             [
-                ...Object.entries(review.checks)
-                    .filter(([, v]) => !v.passed)
-                    .map(([name]) => ({
-                        path: ["review", "checks", name, "passed"],
-                        code: "check_failed",
-                    })),
+                ...rejected.map(([name]) => ({
+                    path: ["review", "checks", name, "passed"],
+                    code: "check_failed",
+                })),
                 ...(review.issues.length
                     ? [
                           {
@@ -130,8 +132,22 @@ export function applyReview(
                           },
                       ]
                     : []),
+                ...rejected.flatMap(([, check]) =>
+                    check.evidence
+                        .filter((item) => paths.has(item.path))
+                        .map((item) => ({
+                            path: item.path
+                                .slice(1)
+                                .split("/")
+                                .map((key) =>
+                                    /^\d+$/.test(key) ? Number(key) : key,
+                                ),
+                            code: "review_evidence",
+                        })),
+                ),
             ],
         );
+    }
     const updated: unknown = structuredClone(candidate);
     const seen: string[] = [];
     for (const [index, change] of review.changes.entries()) {
