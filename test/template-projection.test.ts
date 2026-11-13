@@ -245,3 +245,13 @@ it("目标范围反写时复核仍能定位缺少的媒介与写死开放值的�
         "/analysis/semanticModel/runtimeSemantics/visualContract/styleTraits/0",
     );
 });
+
+it("同一槽位跨轴重复时，复核可区分主轴登记与入选候选的归属", () => {
+    const plan = toTemplatePlan(candidate());
+    plan.analysis.slotCoverageReview.text.slotIds.push("subject");
+    expect(templateRepairContext(plan).slotConstraints[0]).toMatchObject({
+        slotId: "subject",
+        coverageAxes: ["subject", "text"],
+        candidateAxes: ["subject"],
+    });
+});

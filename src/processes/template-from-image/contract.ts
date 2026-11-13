@@ -161,11 +161,8 @@ export const templateCandidateSchema = z.object({
 
 export function parseTemplateCandidate(value: unknown): TemplateCandidate {
     const candidate = readTemplateCandidate(value);
-    const issues = [
-        ...templateSemanticIssues(candidate.draft),
-        ...analysisIssues(candidate),
-    ];
-    if (issues.length) throw new TemplateContractError(issues);
+    const { issues, diagnostics } = candidateSemanticIssues(candidate);
+    if (issues.length) throw new TemplateContractError(issues, diagnostics);
     return candidate;
 }
 
@@ -414,6 +411,25 @@ function sameSet(left: readonly string[], right: readonly string[]): boolean {
     );
 }
 
+function candidateSemanticIssues(candidate: TemplateCandidate) {
+    const diagnostics: TemplateValidationDiagnostic[] = [];
+    const report = (path: string, code: string) => {
+        if (
+            !diagnostics.some(
+                (item) => item.path === path && item.code === code,
+            )
+        )
+            diagnostics.push({ path, code });
+    };
+    const draftIssues = templateSemanticIssues(candidate.draft);
+    if (draftIssues.length) report("/draft", "draft_semantics");
+    return {
+        issues: [...draftIssues, ...analysisIssues(candidate, report)],
+        diagnostics,
+        report,
+    };
+}
+
 export function compileTemplateResult(
     value: unknown,
     imageUrl: string,
@@ -424,31 +440,14 @@ export function compileTemplateResult(
         value && typeof value === "object" && "review" in value
             ? value.review
             : undefined;
-    const draftIssues = templateSemanticIssues(candidate.draft);
-    const diagnostics: TemplateValidationDiagnostic[] = [];
-    if (draftIssues.length)
-        diagnostics.push({ path: "/draft", code: "draft_semantics" });
-    const report = (path: string, code: string) => {
-        if (
-            !diagnostics.some(
-                (item) => item.path === path && item.code === code,
-            )
-        )
-            diagnostics.push({ path, code });
-    };
-    const analysisProblems = analysisIssues(candidate, report);
-    if (
-        analysisProblems.length &&
-        !diagnostics.some((issue) => issue.path.startsWith("/analysis"))
-    )
-        report("/analysis", "analysis_contract");
+    const { issues, diagnostics, report } = candidateSemanticIssues(candidate);
     const reviewProblems = reviewIssues(candidate, review, report);
     if (
         reviewProblems.length &&
         !diagnostics.some((issue) => issue.path.startsWith("/review"))
     )
         diagnostics.push({ path: "/review/checks", code: "review_evidence" });
-    const issues = [...draftIssues, ...analysisProblems, ...reviewProblems];
+    issues.push(...reviewProblems);
     if (issues.length) throw new TemplateContractError(issues, diagnostics);
     const { draft } = candidate;
     return {

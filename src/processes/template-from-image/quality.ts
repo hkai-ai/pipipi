@@ -389,15 +389,19 @@ export function sourceAnalysisIssues(
     },
     report?: (path: string, code: string) => void,
 ): string[] {
-    const issues = analysis.componentGraph.flatMap((component) =>
-        reviewAxes.some((axis) =>
-            analysis.slotCoverageReview[axis].componentIds.includes(
-                component.id,
-            ),
-        )
-            ? []
-            : [`${component.id}: 组件遗漏八轴审查`],
-    );
+    const issues: string[] = [];
+    for (const [index, component] of analysis.componentGraph.entries()) {
+        if (
+            !reviewAxes.some((axis) =>
+                analysis.slotCoverageReview[axis].componentIds.includes(
+                    component.id,
+                ),
+            )
+        ) {
+            report?.(`/analysis/componentGraph/${index}`, "coverage_mismatch");
+            issues.push(`${component.id}: 组件遗漏八轴审查`);
+        }
+    }
     for (const field of missingComponentVisualFields(analysis.componentGraph)) {
         report?.(
             "/analysis/componentGraph/*/visualFields",
@@ -423,14 +427,18 @@ export function sourceAnalysisIssues(
         if (
             region.action === "free_editable" &&
             !draft.promptTemplate.includes(region.exactText)
-        )
+        ) {
+            report?.(path, "free_text_missing");
             issues.push(`${region.id}: 自由编辑文字必须保留在 Prompt`);
+        }
         if (
             region.action === "remove" &&
             (facts.some((fact) => fact.includes(region.exactText)) ||
                 draft.promptTemplate.includes(region.exactText))
-        )
+        ) {
+            report?.(path, "removed_text_retained");
             issues.push(`${region.id}: 删除文字仍出现在输出中`);
+        }
     }
     for (const slot of draft.inputSchema.slots) {
         if (
@@ -451,8 +459,13 @@ export function sourceAnalysisIssues(
                           "explicit_transformation",
                       ]
                     : ["identity_fidelity", "appearance_continuity"];
-            if (!allowed.includes(feature.basis))
+            if (!allowed.includes(feature.basis)) {
+                report?.(
+                    `/analysis/slotEvidence/*/featureAuthority/${axis}/basis`,
+                    "value_mismatch",
+                );
                 issues.push(`${slot.id}/${axis}: 特征权限依据不匹配`);
+            }
         }
     }
     return issues;
@@ -464,7 +477,7 @@ export function analysisIssues(
 ): string[] {
     const issues: string[] = [
         ...sourceAnalysisIssues(draft, a, report),
-        ...sourceContractIssues({ draft, analysis: a }),
+        ...sourceContractIssues({ draft, analysis: a }, report),
         ...visualSelectionIssues(
             a,
             draft.runtimeSemantics.visualContract,
@@ -472,8 +485,16 @@ export function analysisIssues(
             report,
         ),
     ].slice(0, 24);
-    const check = (ok: boolean, message: string) => {
-        if (!ok && issues.length < 24) issues.push(message);
+    const check = (
+        ok: boolean,
+        path: string,
+        code: string,
+        message: string,
+    ) => {
+        if (!ok && issues.length < 24) {
+            report?.(path, code);
+            issues.push(message);
+        }
     };
     const slots = draft.inputSchema.slots;
     const runtime = draft.runtimeSemantics;
@@ -482,6 +503,8 @@ export function analysisIssues(
         check(
             a.mediumComposition.styleTraits.length > 0 &&
                 a.mediumComposition.composition.length > 0,
+            "/analysis/mediumComposition",
+            "missing_visual_coverage",
             "mediumComposition: v2 必须保留风格与构图事实",
         );
     const slotIds = slots.map((slot) => slot.id);
@@ -503,6 +526,8 @@ export function analysisIssues(
     const facts = visualFacts(runtime);
     check(
         new Set(componentIds).size === componentIds.length,
+        "/analysis/componentGraph",
+        "duplicate_id",
         "analysis.componentGraph: 组件 ID 重复",
     );
     check(
@@ -516,6 +541,8 @@ export function analysisIssues(
                 runtimeSemantics: runtime,
             },
         ),
+        "/analysis/semanticModel",
+        "value_mismatch",
         "analysis.semanticModel 必须与最终 Prompt 和 runtimeSemantics 逐值一致",
     );
     check(
@@ -523,28 +550,46 @@ export function analysisIssues(
             slotIds,
             a.playDecisionModel.coreUserDecisions.map((item) => item.slotId),
         ),
+        "/analysis/playDecisionModel/coreUserDecisions",
+        "coverage_mismatch",
         "每个核心控制必须一对一对应正式槽位",
     );
     const decisions = a.playDecisionModel.coreUserDecisions.map(
         (item) => item.decisionId,
     );
-    check(new Set(decisions).size === decisions.length, "decisionId 不能重复");
+    check(
+        new Set(decisions).size === decisions.length,
+        "/analysis/playDecisionModel/coreUserDecisions/*/decisionId",
+        "duplicate_id",
+        "decisionId 不能重复",
+    );
     check(
         sameValues(slotIds, Object.keys(a.slotEvidence)),
+        "/analysis/slotEvidence",
+        "coverage_mismatch",
         "slotEvidence 必须覆盖全部且仅有正式槽位",
     );
     check(
         sameValues(draft.metadata.tags, Object.keys(a.tagEvidence)),
+        "/analysis/tagEvidence",
+        "coverage_mismatch",
         "tagEvidence 必须覆盖最终每个标签",
     );
     const axisSlots = reviewAxes.flatMap(
         (axis) => a.slotCoverageReview[axis].slotIds,
     );
-    check(sameValues(slotIds, axisSlots), "八轴覆盖必须使每槽恰好归属一个主轴");
+    check(
+        sameValues(slotIds, axisSlots),
+        "/analysis/slotCoverageReview",
+        "coverage_mismatch",
+        "八轴覆盖必须使每槽恰好归属一个主轴",
+    );
     for (const axis of reviewAxes) {
         const coverage = a.slotCoverageReview[axis];
         check(
             containsComponents(coverage.componentIds),
+            `/analysis/slotCoverageReview/${axis}/componentIds`,
+            "missing_reference",
             `${axis}: 引用了不存在的组件`,
         );
         for (const candidate of a.editableCandidates.filter(
@@ -552,18 +597,24 @@ export function analysisIssues(
         )) {
             check(
                 coverage.componentIds.includes(candidate.componentId),
+                `/analysis/slotCoverageReview/${axis}/componentIds`,
+                "coverage_mismatch",
                 `${axis}: 候选组件遗漏覆盖`,
             );
             if (candidate.slotId)
                 check(
                     coverage.slotIds.includes(candidate.slotId),
+                    `/analysis/slotCoverageReview/${axis}/slotIds`,
+                    "coverage_mismatch",
                     `${axis}: 候选槽位遗漏覆盖`,
                 );
         }
     }
-    for (const component of a.componentGraph) {
+    for (const [index, component] of a.componentGraph.entries()) {
         check(
             component.targetIds.every((id) => targetIds.includes(id)),
+            `/analysis/componentGraph/${index}/targetIds`,
+            "missing_reference",
             `${component.id}: 引用未知目标`,
         );
     }
@@ -573,6 +624,8 @@ export function analysisIssues(
                 component.targetIds.includes(id),
             ),
         ),
+        "/analysis/componentGraph/*/targetIds",
+        "coverage_mismatch",
         "组件分析必须覆盖所有正式目标",
     );
     const identityTargets = runtime.targetInstances
@@ -583,33 +636,50 @@ export function analysisIssues(
     );
     check(
         sameValues(identityTargets, topologyTargets),
+        "/analysis/identityTopology/*/targetIds",
+        "coverage_mismatch",
         "身份拓扑必须覆盖每个身份目标且不重复",
     );
     check(
         new Set(a.identityTopology.map((item) => item.identityId)).size ===
             a.identityTopology.length,
+        "/analysis/identityTopology/*/identityId",
+        "duplicate_id",
         "身份单元 ID 不能重复",
     );
-    for (const identity of a.identityTopology)
+    for (const [index, identity] of a.identityTopology.entries())
         check(
             containsComponents(identity.componentIds),
+            `/analysis/identityTopology/${index}/componentIds`,
+            "missing_reference",
             "身份拓扑引用未知组件",
         );
-    for (const candidate of a.editableCandidates) {
+    for (const [index, candidate] of a.editableCandidates.entries()) {
         check(
             componentIds.includes(candidate.componentId),
+            `/analysis/editableCandidates/${index}/componentId`,
+            "missing_reference",
             "候选项引用未知组件",
         );
         if (candidate.slotId) {
-            check(slotIds.includes(candidate.slotId), "候选项引用未知槽位");
+            check(
+                slotIds.includes(candidate.slotId),
+                `/analysis/editableCandidates/${index}/slotId`,
+                "missing_reference",
+                "候选项引用未知槽位",
+            );
             check(
                 gateNames.every((name) => candidate.gates[name].passed),
+                `/analysis/editableCandidates/${index}/gates`,
+                "analysis_gate_failed",
                 `${candidate.slotId}: 入选候选必须通过六项门禁`,
             );
         }
     }
     check(
         a.mediumComposition.medium === visual.medium,
+        "/analysis/mediumComposition/medium",
+        "value_mismatch",
         "mediumComposition.medium 必须与正式媒介逐字一致",
     );
     for (const field of [
@@ -620,31 +690,41 @@ export function analysisIssues(
         check(
             new Set(a.mediumComposition[field]).size ===
                 a.mediumComposition[field].length,
+            `/analysis/mediumComposition/${field}`,
+            "duplicate_fact",
             `${field}: 选定事实不能重复`,
         );
         check(
             a.mediumComposition[field].every((fact) =>
                 visual[field].includes(fact),
             ),
+            `/analysis/mediumComposition/${field}`,
+            "missing_reference",
             `${field}: 选定的视觉事实不得在正式字段中丢失或换字段`,
         );
     }
     for (const [index, relation] of a.spatialRelations.entries()) {
         check(
             containsComponents(relation.componentIds),
+            `/analysis/spatialRelations/${index}/componentIds`,
+            "missing_reference",
             `/analysis/spatialRelations/${index}/componentIds: 空间关系引用未知组件`,
         );
         check(
             [...visual.relations, ...targetFacts(runtime)].some((item) =>
                 item.includes(relation.runtimeFact),
             ),
+            `/analysis/spatialRelations/${index}/relationIndex`,
+            "missing_reference",
             `/analysis/spatialRelations/${index}/runtimeFact -> /draft/runtimeSemantics/visualContract/relations: 空间关系必须逐项落实到 relations；修正对应来源事实或引用`,
         );
     }
-    for (const fact of a.templateValue.backendOnlyFacts)
+    for (const [index, fact] of a.templateValue.backendOnlyFacts.entries())
         check(
             facts.some((value) => value.includes(fact)) &&
                 !draft.promptTemplate.includes(fact),
+            `/analysis/templateValue/backendFactRefs/${index}`,
+            "backend_fact_exposure",
             "backendOnlyFacts 必须在视觉约束中落实且不进入前台 Prompt",
         );
     for (const slot of slots) {
@@ -653,6 +733,8 @@ export function analysisIssues(
         const binding = runtime.inputBindings[slot.id];
         check(
             containsComponents(evidence.componentIds),
+            "/analysis/slotEvidence/*/componentIds",
+            "missing_reference",
             `${slot.id}: 槽位证据引用未知组件`,
         );
         check(
@@ -661,6 +743,8 @@ export function analysisIssues(
                     item.slotId === slot.id &&
                     item.decisionId === evidence.decisionId,
             ),
+            "/analysis/slotEvidence/*/decisionId",
+            "value_mismatch",
             `${slot.id}: 核心控制与槽位证据不对应`,
         );
         check(
@@ -669,10 +753,14 @@ export function analysisIssues(
                     item.slotId === slot.id &&
                     evidence.componentIds.includes(item.componentId),
             ),
+            "/analysis/editableCandidates",
+            "missing_selected_candidate",
             `${slot.id}: 正式槽位没有入选候选`,
         );
         check(
             evidence.defaultValue === slot.text.defaultValue,
+            "/analysis/slotEvidence/*/defaultValue",
+            "value_mismatch",
             `${slot.id}: 分析默认值与正式默认值不同`,
         );
         check(
@@ -680,6 +768,8 @@ export function analysisIssues(
                 slot.text.suggestions,
                 evidence.substitutions.map((item) => item.value),
             ),
+            "/analysis/slotEvidence/*/substitutions",
+            "coverage_mismatch",
             `${slot.id}: 必须实际代入全部三个推荐项`,
         );
         const placeholder = [
@@ -687,7 +777,7 @@ export function analysisIssues(
                 /\{\{\s*([a-zA-Z][a-zA-Z0-9_-]*)\s*\|\s*("(?:[^"\\]|\\.)*")\s*\}\}/gu,
             ),
         ].find((item) => item[1] === slot.id)?.[0];
-        for (const substitution of evidence.substitutions)
+        for (const [index, substitution] of evidence.substitutions.entries())
             check(
                 Boolean(placeholder) &&
                     substitution.prompt ===
@@ -695,16 +785,22 @@ export function analysisIssues(
                             placeholder ?? "",
                             () => substitution.value,
                         ),
+                `/analysis/slotEvidence/*/substitutions/${index}/prompt`,
+                "value_mismatch",
                 `${slot.id}: substitutions.prompt 必须是真实替换本槽后的完整 Prompt`,
             );
-        for (const fact of evidence.openVisualFacts)
+        for (const [index, fact] of evidence.openVisualFacts.entries())
             check(
                 !fixedText.includes(fact),
+                `/analysis/slotEvidence/*/openVisualFacts/${index}`,
+                "open_fact_frozen",
                 `${slot.id}: 固定约束或发现文案锁回了开放事实`,
             );
         if (slot.image)
             check(
                 Boolean(evidence.imageRationale),
+                "/analysis/slotEvidence/*/imageRationale",
+                "missing_evidence",
                 `${slot.id}: 图片能力缺少素材映射依据`,
             );
         if (binding?.operation === "replace_identity") {
@@ -714,22 +810,30 @@ export function analysisIssues(
                         (binding.bindingPolicy === "preserve_group" ||
                             evidence.identityRecognition),
                 ),
+                "/analysis/slotEvidence/*/featureAuthority",
+                "missing_evidence",
                 `${slot.id}: 身份缺少识别或九轴特征权限`,
             );
             if (evidence.identityRecognition?.status === "recognized")
                 check(
                     evidence.identityRecognition.name ===
                         slot.text.defaultValue,
+                    "/analysis/slotEvidence/*/identityRecognition/name",
+                    "value_mismatch",
                     `${slot.id}: 已识别身份必须作为默认值`,
                 );
             if (evidence.featureAuthority) {
                 check(
                     evidence.featureAuthority.clothing.owner ===
                         binding.clothingOwnership,
+                    "/analysis/slotEvidence/*/featureAuthority/clothing/owner",
+                    "value_mismatch",
                     `${slot.id}: 服装归属与分析冲突`,
                 );
                 check(
                     evidence.featureAuthority.identity.owner === "source",
+                    "/analysis/slotEvidence/*/featureAuthority/identity/owner",
+                    "value_mismatch",
                     `${slot.id}: 身份必须由输入接管`,
                 );
                 for (const axis of featureAxes) {
@@ -737,6 +841,8 @@ export function analysisIssues(
                     check(
                         runtimeFact === null ||
                             facts.some((value) => value.includes(runtimeFact)),
+                        `/analysis/slotEvidence/*/featureAuthority/${axis}/runtimeFactRef`,
+                        "missing_reference",
                         `${slot.id}/${axis}: 特征执行事实必须落实到视觉约束，来源特征未额外声明时可为空`,
                     );
                 }
@@ -751,6 +857,8 @@ export function analysisIssues(
                             group.sameKindMembers &&
                             group.noIndependentRoles,
                     ),
+                    "/analysis/slotEvidence/*/groupDecision",
+                    "analysis_gate_failed",
                     `${slot.id}: 群组必须通过五项门禁`,
                 );
             }
@@ -760,6 +868,8 @@ export function analysisIssues(
             check(
                 units.length === 1 &&
                     sameValues(units[0].targetIds, binding.targetIds),
+                "/analysis/identityTopology",
+                "target_binding_mismatch",
                 `${slot.id}: 独立身份和重复实例必须对应同一身份单元`,
             );
         }
@@ -768,11 +878,15 @@ export function analysisIssues(
     check(
         new Set(a.textRegions.map((region) => region.id)).size ===
             a.textRegions.length,
+        "/analysis/textRegions/*/id",
+        "duplicate_id",
         "文字区域 ID 不能重复",
     );
-    for (const region of a.textRegions) {
+    for (const [index, region] of a.textRegions.entries()) {
         check(
             componentIds.includes(region.componentId),
+            `/analysis/textRegions/${index}/componentId`,
+            "missing_reference",
             `${region.id}: 文字区域引用未知组件`,
         );
         const route = JSON.stringify([
@@ -783,21 +897,29 @@ export function analysisIssues(
         check(
             !unitRoutes.has(region.semanticUnitId) ||
                 unitRoutes.get(region.semanticUnitId) === route,
+            `/analysis/textRegions/${index}/semanticUnitId`,
+            "route_mismatch",
             `${region.id}: 同一语义单元必须使用同一路由`,
         );
         unitRoutes.set(region.semanticUnitId, route);
         check(
             region.action !== "review",
+            `/analysis/textRegions/${index}/action`,
+            "unresolved_text",
             `${region.id}: 未解决的文字识别必须阻断交付`,
         );
         if (region.action === "open_slot")
             check(
                 slotIds.includes(region.slotId ?? ""),
+                `/analysis/textRegions/${index}/slotId`,
+                "missing_reference",
                 `${region.id}: 文字引用未知槽位`,
             );
         else
             check(
                 region.slotId === null,
+                `/analysis/textRegions/${index}/slotId`,
+                "unexpected_binding",
                 `${region.id}: 非槽位文字不能绑定槽位`,
             );
     }

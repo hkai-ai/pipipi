@@ -33,7 +33,9 @@ const compactFields = templatePlanAnalysisSchema.extend({
         .array(z.tuple([component.id, brief, component.visualFields]))
         .min(1)
         .max(64)
-        .describe("每行 [id, 图像证据, visualFields]"),
+        .describe(
+            "每行 [id, 图像证据, visualFields]。整张图的组件合计必须覆盖 medium、styleTraits、composition、relations、colorAndLight 五项；每项只标在有图像依据的组件上。",
+        ),
     spatialRelations: z
         .array(z.tuple([relation.componentIds, brief, relation.relationIndex]))
         .max(64)
@@ -45,7 +47,9 @@ const compactFields = templatePlanAnalysisSchema.extend({
             shape.slotCoverageReview.keyType,
             z.tuple([coverage.componentIds, coverage.slotIds, brief]),
         )
-        .describe("八轴各为 [componentIds, slotIds, 图像取舍证据]"),
+        .describe(
+            "八轴各为 [componentIds, slotIds, 图像取舍证据]。每个正式槽位只在一个主轴的 slotIds 出现一次；其他轴可复用组件作为审查依据。入选 editableCandidates 的 axis 与槽位主轴一致。",
+        ),
     editableCandidates: z
         .array(
             candidate.extend({

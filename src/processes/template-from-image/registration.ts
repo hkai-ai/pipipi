@@ -12,6 +12,7 @@ import {
     failProcess,
     type ProcessRegistration,
 } from "../../process-runtime/index.js";
+import { analysisRuleCodes } from "../../process-runtime/template-diagnostics.js";
 import type { TemplateAgent } from "./agent.js";
 import {
     compileTemplateResult,
@@ -25,6 +26,7 @@ import {
 } from "./contract.js";
 import {
     type TemplateDiagnostic,
+    type TemplateValidationDiagnostic,
     validationDiagnostics,
 } from "./diagnostics.js";
 import { templateExecutionFailure } from "./failure.js";
@@ -39,6 +41,7 @@ import { candidateDigest, sourceAnalysisIssues } from "./quality.js";
 
 // 仅修正已形成候选、可由字段补丁处理的问题；身份、摘要或调用错误直接失败。
 const repairableRules = new Set([
+    ...analysisRuleCodes,
     "unresolved_review",
     "check_failed",
     "review_evidence",
@@ -233,12 +236,14 @@ export function createTemplateRegistration(options: {
                 ...templateSemanticIssues(draftFromPlan(plan)),
                 ...sourceAnalysisIssues(draftFromPlan(plan), plan.analysis),
             ];
+            let fieldIssues: readonly TemplateValidationDiagnostic[] = [];
             try {
                 parseTemplateCandidate(materializeTemplatePlan(plan));
             } catch (error) {
                 if (!(error instanceof TemplateContractError)) throw error;
                 diagnose("validation", 1, error);
                 issues.push(...error.issues);
+                fieldIssues = error.diagnostics;
             }
             let reviewPlan = plan;
             let repair:
@@ -261,6 +266,8 @@ export function createTemplateRegistration(options: {
                                 onPatchedPlan: (updated) => {
                                     patchedPlan = updated;
                                 },
+                                fieldIssues:
+                                    repair?.error.diagnostics ?? fieldIssues,
                                 issues: repair?.error.issues ?? [
                                     ...new Set(issues),
                                 ],

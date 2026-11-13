@@ -166,13 +166,21 @@ export function analysisCounts({
     };
 }
 
-export function sourceContractIssues({
-    analysis: a,
-    draft,
-}: TemplateCandidate): string[] {
+export function sourceContractIssues(
+    { analysis: a, draft }: TemplateCandidate,
+    report?: (path: string, code: string) => void,
+): string[] {
     const issues: string[] = [];
-    const check = (ok: boolean, message: string) => {
-        if (!ok) issues.push(message);
+    const check = (
+        ok: boolean,
+        path: string,
+        code: string,
+        message: string,
+    ) => {
+        if (!ok) {
+            report?.(path, code);
+            issues.push(message);
+        }
     };
     const sameKeys = (record: object, keys: string[]) =>
         isDeepStrictEqual(
@@ -184,10 +192,14 @@ export function sourceContractIssues({
     const model = a.semanticModel;
     check(
         Object.values(a.titleEvidence).every((gate) => gate.passed),
+        "/analysis/titleEvidence",
+        "analysis_gate_failed",
         "titleEvidence: 标题未通过全部发现门禁",
     );
     check(
         Object.values(a.descriptionEvidence).every((gate) => gate.passed),
+        "/analysis/descriptionEvidence",
+        "analysis_gate_failed",
         "descriptionEvidence: 简介未通过全部文案门禁",
     );
     check(
@@ -197,6 +209,8 @@ export function sourceContractIssues({
                 slots.map((slot) => [slot.id, `inputSchema.slots.${slot.id}`]),
             ),
         ),
+        "/analysis/semanticModel/dynamicFactSources",
+        "value_mismatch",
         "semanticModel.dynamicFactSources: 每个开放值必须有唯一的正式输入来源",
     );
     check(
@@ -207,6 +221,8 @@ export function sourceContractIssues({
             Object.values(model.sourceIsolationByInput).every(
                 (value) => value === true,
             ),
+        "/analysis/semanticModel/sourceIsolationByInput",
+        "coverage_mismatch",
         "semanticModel.sourceIsolationByInput: 图片输入必须逐项确认来源隔离",
     );
     const identityTargets = Object.values(bindings)
@@ -217,6 +233,8 @@ export function sourceContractIssues({
             Object.values(model.completeRedrawByTarget).every(
                 (value) => value === true,
             ),
+        "/analysis/semanticModel/completeRedrawByTarget",
+        "coverage_mismatch",
         "semanticModel.completeRedrawByTarget: 完整重绘必须准确覆盖身份目标",
     );
     check(
@@ -225,6 +243,8 @@ export function sourceContractIssues({
                 [...a.promptCoverage.slotIds].sort(),
                 slots.map((slot) => slot.id).sort(),
             ),
+        "/analysis/promptCoverage/slotIds",
+        "coverage_mismatch",
         "promptCoverage.slotIds: Prompt 必须覆盖全部编辑槽位",
     );
     check(
@@ -235,25 +255,35 @@ export function sourceContractIssues({
                 .map((region) => region.id)
                 .sort(),
         ),
+        "/analysis/promptCoverage/freeEditableRegionIds",
+        "coverage_mismatch",
         "promptCoverage.freeEditableRegionIds: 自由编辑区域覆盖不一致",
     );
-    for (const region of a.textRegions) {
+    for (const [index, region] of a.textRegions.entries()) {
         check(
             region.editValue === editValues[region.action],
+            `/analysis/textRegions/${index}/editValue`,
+            "route_mismatch",
             "textRegions.editValue: 文字价值与路由不一致",
         );
         check(
             region.role !== "watermark" || region.action === "remove",
+            `/analysis/textRegions/${index}/action`,
+            "watermark_retained",
             "textRegions.role: 水印必须删除",
         );
         check(
             region.role !== "ambiguous" || region.action === "review",
+            `/analysis/textRegions/${index}/action`,
+            "ambiguous_text_unreviewed",
             "textRegions.role: 歧义文字必须待辨识",
         );
         check(
             !identityTargets.length ||
                 region.role !== "identity" ||
                 region.action !== "preserve",
+            `/analysis/textRegions/${index}/action`,
+            "open_identity_frozen",
             "textRegions.role: 开放身份不能保留原身份文字",
         );
     }
@@ -261,13 +291,15 @@ export function sourceContractIssues({
     const covered = new Set<string>();
     const sha = (value: string) =>
         createHash("sha256").update(value).digest("hex");
-    for (const entry of a.translationEquivalences) {
+    for (const [index, entry] of a.translationEquivalences.entries()) {
         const source = byId.get(entry.sourceRegionId);
         const targets = entry.targetRegionIds.map((id) => byId.get(id));
         check(
             Boolean(source) &&
                 targets.every(Boolean) &&
                 new Set(entry.targetRegionIds).size === targets.length,
+            `/analysis/translationEquivalences/${index}/targetRegionIds`,
+            "invalid_region_reference",
             "translationEquivalences: 引用了未知或重复文字区",
         );
         if (!source || targets.some((target) => !target)) continue;
@@ -284,6 +316,8 @@ export function sourceContractIssues({
                             ]),
                     ),
                 ),
+            `/analysis/translationEquivalences/${index}/sourceTextSha256`,
+            "value_mismatch",
             "translationEquivalences: 原文摘要已失效",
         );
         for (const target of targets) {
@@ -291,6 +325,8 @@ export function sourceContractIssues({
             covered.add(target.id);
             check(
                 target.translationSourceRegionId === source.id,
+                `/analysis/translationEquivalences/${index}/sourceRegionId`,
+                "value_mismatch",
                 "translationEquivalences: 翻译来源关联不一致",
             );
         }
@@ -303,6 +339,8 @@ export function sourceContractIssues({
                 .map((region) => region.id)
                 .sort(),
         ),
+        "/analysis/translationEquivalences",
+        "coverage_mismatch",
         "translationEquivalences: 声明的翻译区域缺少准确证据",
     );
     for (const slot of slots) {
@@ -322,11 +360,15 @@ export function sourceContractIssues({
                               identity.name?.endsWith(suffix),
                           )
                         : identity.name === null),
+                "/analysis/slotEvidence/*/identityRecognition",
+                "identity_name_mismatch",
                 "slotEvidence.identityRecognition: 未识别身份不声明专名，识别身份须具体且匹配默认值",
             );
         } else
             check(
                 identity === null,
+                "/analysis/slotEvidence/*/identityRecognition",
+                "unexpected_binding",
                 "slotEvidence.identityRecognition: 识别记录仅用于可寻址身份槽位",
             );
         const values = [slot.text.defaultValue, ...slot.text.suggestions];
@@ -344,6 +386,8 @@ export function sourceContractIssues({
                               [...normalized].length <= 48
                         : [...normalized].length <= 20;
                 }),
+                "/analysis/textRegions",
+                "text_too_long",
                 "textRegions: 快速文字默认值或推荐文字过长",
             );
         const scripts = (value: string) =>
@@ -365,12 +409,16 @@ export function sourceContractIssues({
                     (base.includes(2) && other.includes(1))
                 );
             }),
+            "/analysis/slotEvidence/*/substitutions",
+            "language_mismatch",
             "slotEvidence.substitutions: 推荐项语言脚本与默认值不兼容",
         );
         check(
             Object.values(evidence.defaultLanguageReview).every(
                 (value) => value === true,
             ),
+            "/analysis/slotEvidence/*/defaultLanguageReview",
+            "analysis_gate_failed",
             "slotEvidence.defaultLanguageReview: 默认文案未通过自然语言复核",
         );
         const mode = evidence.inputModeDecision;
@@ -386,25 +434,33 @@ export function sourceContractIssues({
                 mode.modes,
                 slot.image ? ["text", "image"] : ["text"],
             ) && mode.reason === expectedReason,
+            "/analysis/slotEvidence/*/inputModeDecision",
+            "value_mismatch",
             "slotEvidence.inputModeDecision: 输入方式与实际能力不一致",
         );
         check(
             !slot.image ||
                 binding.operation === "replace_identity" ||
                 evidence.selectionReason === "exact_content_asset",
+            "/analysis/slotEvidence/*/selectionReason",
+            "value_mismatch",
             "slotEvidence.selectionReason: 内容图片需要精确素材依据",
         );
         check(
             [slot.text.defaultValue, ...slot.text.suggestions].every((value) =>
                 evidence.openVisualFacts.includes(value),
             ),
+            "/analysis/slotEvidence/*/openVisualFacts",
+            "coverage_mismatch",
             "slotEvidence.openVisualFacts: 缺少默认值或推荐值",
         );
-        for (const item of evidence.substitutions)
+        for (const [index, item] of evidence.substitutions.entries())
             check(
                 item.sameAxis &&
                     item.sameGranularity &&
                     item.mechanismCompatible,
+                `/analysis/slotEvidence/*/substitutions/${index}`,
+                "analysis_gate_failed",
                 "slotEvidence.substitutions: 推荐项未通过语义代入检查",
             );
         if (slot.image && binding.operation === "replace_identity") {
@@ -414,6 +470,8 @@ export function sourceContractIssues({
                     !evidence.inheritFromUpload.some((fact) =>
                         evidence.keepFromTemplate.includes(fact),
                     ),
+                "/analysis/slotEvidence/*/sourceIsolation",
+                "conflicting_ownership",
                 "slotEvidence.sourceIsolation: 身份继承与模板保留必须隔离且不冲突",
             );
         }

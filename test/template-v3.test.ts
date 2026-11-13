@@ -206,6 +206,10 @@ describe("HTTP 精确版本联通", () => {
                 })
                 .mockImplementationOnce(async (request) => {
                     expect(request.plan).toEqual(patchedPlan);
+                    expect(request.fieldIssues).toContainEqual({
+                        path: "/review/issues",
+                        code: "unresolved_review",
+                    });
                     expect(request.issues.join(" ")).toContain(
                         "描述与已批准图片不符",
                     );

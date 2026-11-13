@@ -94,6 +94,19 @@ export function templateRepairContext(value: unknown) {
         ),
         slotConstraints: draft.inputSchema.slots.map((slot, index) => ({
             slotId: slot.id,
+            coverageAxes: Object.entries(analysis.slotCoverageReview).flatMap(
+                ([axis, coverage]) =>
+                    coverage.slotIds
+                        .filter((id) => id === slot.id)
+                        .map(() => axis),
+            ),
+            candidateAxes: [
+                ...new Set(
+                    analysis.editableCandidates
+                        .filter((candidate) => candidate.slotId === slot.id)
+                        .map((candidate) => candidate.axis),
+                ),
+            ],
             path: `/draft/inputSchema/slots/${index}/text/suggestions`,
             defaultValue: slot.text.defaultValue,
             suggestions: slot.text.suggestions,
