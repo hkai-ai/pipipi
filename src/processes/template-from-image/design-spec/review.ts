@@ -57,6 +57,13 @@ export function reviewSchema(candidate: PrintDesignCandidate) {
                 "/observation/texts",
                 "/observation/printRisks",
             ].includes(path) ||
+            /^\/observation\/texts\/\d+\/(text|elementId)$/u.test(path) ||
+            path.startsWith(
+                "/draft/runtimeSemantics/designSpec/defaults/texts/",
+            ) ||
+            /^\/draft\/inputSchema\/slots\/\d+\/text\/defaultValue$/u.test(
+                path,
+            ) ||
             containers.some(
                 (parent) =>
                     path === parent ||

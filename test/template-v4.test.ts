@@ -336,6 +336,33 @@ it("复核补丁修改后完整重验，不补造通过结论，不改变原候�
     const schema = reviewSchema(value);
     expect(schema.safeParse(review(value)).success).toBe(true);
 });
+it("逐字对账区分引用错误与文字冲突，复核可只改出错的文字叶子", () => {
+    const value = fixture();
+    const original = value.observation.texts[0].text;
+    value.observation.texts[0].text = original + "!";
+    expect(candidateIssues(value).join(" ")).toContain(
+        "observation.texts[0].text",
+    );
+    const report = review(value);
+    report.changes.push({
+        path: "/observation/texts/0/text",
+        valueJson: JSON.stringify(original),
+    });
+    expect(candidateIssues(applyReview(value, report))).toEqual([]);
+    value.observation.texts[0].elementId = "unknown";
+    expect(() => compileResult(value, imageUrl, image)).toThrowError(
+        expect.objectContaining({
+            diagnostic: expect.objectContaining({
+                issues: expect.arrayContaining([
+                    {
+                        path: "/observation/texts/0/elementId",
+                        code: "expected_text_element",
+                    },
+                ]),
+            }),
+        }),
+    );
+});
 it.each(["binding", "default", "shapeLeak", "secondImage", "wrongVersion"])(
     "拒绝 %s 违规，不放松作者合同",
     async (reason) => {
