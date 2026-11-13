@@ -55,17 +55,35 @@ const validateOutput = ajv.compile({
     ...source,
     $id: "urn:pipipi:print-design:output:v1",
 });
-const bindingSchema = z.strictObject({
-    operation: z.enum(["replace_identity", "replace_content"]),
-    targetIds: z.array(z.string()).min(1),
-    valueKind: z.enum(["exact_text", "scene_description", "color"]).optional(),
-    bindingPolicy: z.enum(["one_to_one", "same_source_repeated"]).optional(),
-    renderingMode: z.literal("illustration_redraw").optional(),
-    allowedSourceGrouping: z.array(z.literal("single_subject")).optional(),
-    groupToSinglePolicy: z.literal("reject").optional(),
-    clothingOwnership: z.enum(["source", "template"]).optional(),
-    distributionPolicy: z.literal("replace_as_unit").optional(),
+const slotText = z.looseObject({
+    defaultValue: z.string().min(1).max(120),
+    allowCustom: z.literal(true),
 });
+const textModes = z.discriminatedUnion("presentation", [
+    slotText.extend({ presentation: z.literal("free_text") }),
+    slotText.extend({
+        presentation: z.literal("suggestions"),
+        suggestions: z.array(z.string().min(1).max(120)).min(1).max(10),
+    }),
+]);
+const targetIds = z.array(z.string()).min(1);
+const bindingSchema = z.discriminatedUnion("operation", [
+    z.strictObject({
+        operation: z.literal("replace_identity"),
+        targetIds,
+        bindingPolicy: z.literal("one_to_one"),
+        renderingMode: z.literal("illustration_redraw"),
+        allowedSourceGrouping: z.array(z.literal("single_subject")).optional(),
+        groupToSinglePolicy: z.literal("reject"),
+        clothingOwnership: z.enum(["source", "template"]).optional(),
+    }),
+    z.strictObject({
+        operation: z.literal("replace_content"),
+        targetIds,
+        valueKind: z.enum(["exact_text", "scene_description", "color"]),
+        distributionPolicy: z.literal("replace_as_unit"),
+    }),
+]);
 export const draftSchema = z.strictObject({
     key: z.string().regex(/^[a-z][a-z0-9-]{1,59}$/u),
     title: z.string().trim().min(1).max(20),
@@ -81,12 +99,18 @@ export const draftSchema = z.strictObject({
                     id: z.string(),
                     label: z.string(),
                     required: z.literal(false),
-                    text: z.looseObject({
-                        defaultValue: z.string().min(1),
-                        allowCustom: z.literal(true),
-                    }),
+                    text: textModes,
                     image: z
                         .looseObject({
+                            sourceOptions: z
+                                .array(
+                                    z.enum([
+                                        "upload",
+                                        "recent_upload",
+                                        "asset_library",
+                                    ]),
+                                )
+                                .min(1),
                             maxCount: z.literal(1),
                             private: z.literal(true),
                         })
@@ -142,13 +166,21 @@ export function readCandidate(raw: unknown): PrintDesignCandidate {
     if (!result.success)
         throw new PrintDesignContractError(
             result.error.issues.map(
-                (issue) => `${issue.path.join(".")}: ${issue.code}`,
+                (issue) => `${issue.path.join(".")}: ${issue.message}`,
             ),
         );
     if (!validateDraft(result.data.draft))
         throw new PrintDesignContractError(
-            (validateDraft.errors ?? []).map(
-                (issue) => `${issue.instancePath}: ${issue.keyword}`,
+            (validateDraft.errors ?? []).map((issue) =>
+                [
+                    issue.instancePath,
+                    issue.message ?? issue.keyword,
+                    issue.params.additionalProperty,
+                    issue.params.allowedValue,
+                    issue.params.allowedValues?.join(", "),
+                ]
+                    .filter((value) => value !== undefined)
+                    .join(" "),
             ),
         );
     return result.data;
