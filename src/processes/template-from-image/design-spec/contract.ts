@@ -472,21 +472,28 @@ export function candidateIssues(
                 code: "missing_evidence",
             });
         }
-    for (const [index, text] of candidate.observation.texts.entries())
-        if (
-            !spec.elements.some(
-                (element) =>
-                    element.id === text.elementId &&
-                    element.category === "text",
-            ) ||
-            spec.defaults.texts[text.elementId] !== text.text
-        ) {
-            issues.push("observation.texts: 原文与文字元素不一致");
+    for (const [index, text] of candidate.observation.texts.entries()) {
+        const element = spec.elements.find(
+            (item) => item.id === text.elementId,
+        );
+        if (element?.category !== "text") {
+            issues.push(
+                `observation.texts[${index}].elementId: ${text.elementId} 必须引用真实文字元素`,
+            );
+            findings.push({
+                path: ["observation", "texts", index, "elementId"],
+                code: "expected_text_element",
+            });
+        } else if (spec.defaults.texts[text.elementId] !== text.text) {
+            issues.push(
+                `observation.texts[${index}].text 与 designSpec.defaults.texts[${JSON.stringify(text.elementId)}] 不匹配，请依批准图逐字核对，同步关联槽的默认值`,
+            );
             findings.push({
                 path: ["observation", "texts", index, "text"],
                 code: "value_mismatch",
             });
         }
+    }
     return issues;
 }
 
