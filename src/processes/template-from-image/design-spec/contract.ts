@@ -7,6 +7,7 @@ import { fullFormats } from "ajv-formats/dist/formats.js";
 import { z } from "zod";
 import { validationDiagnostics } from "../../../process-runtime/template-diagnostics.js";
 import { type TemplateImage, templateImageSize } from "../image.js";
+import { designFindings } from "./design-findings.js";
 import { checkDesignSpec } from "./vendor/checks.js";
 import {
     type DesignSpec,
@@ -271,31 +272,21 @@ export function draftIssues(
             [...root, "elements"],
             "missing_subject",
         );
-    else
-        for (const message of checkDesignSpec(spec, [
+    else {
+        const errors = checkDesignSpec(spec, [
             { id: "default", ...spec.defaults },
-        ]).errors) {
-            // 固定来源检查器只返回文本；只投影已知规则，不把原词、画面或动态身份写入归档。
-            const rules: [string, string, string[]][] = [
-                ["原物词", "source_word", []],
-                ["抽象风格词", "abstract_style", []],
-                ["会画成半透明的词", "transparency_word", []],
-                ["颜色占位", "unknown_color_role", ["whole", "colorRoles"]],
-                [
-                    "主体固有色策略",
-                    "inherent_color_conflict",
-                    ["whole", "colorRoles"],
-                ],
-                ["印花形态为矩形贴片", "missing_edge", ["elements"]],
-            ];
-            const rule = rules.find(([prefix]) => message.startsWith(prefix));
-            add(
-                false,
-                message,
-                [...root, ...(rule?.[2] ?? [])],
-                rule?.[1] ?? "draft_semantics",
-            );
+        ]).errors;
+        if (errors.length) {
+            for (const finding of designFindings(spec, errors)) {
+                add(
+                    false,
+                    `${[...root, ...finding.path].join(".")}: ${finding.message}`,
+                    [...root, ...finding.path],
+                    finding.code,
+                );
+            }
         }
+    }
     const elements = new Map(
         spec.elements.map((element) => [element.id, element]),
     );
