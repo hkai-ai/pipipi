@@ -206,6 +206,76 @@ it("结构不可读只重编译一次，然后独立复核；模型执行错误�
     expect(failed.agent.compile).toHaveBeenCalledOnce();
     expect(failed.agent.review).not.toHaveBeenCalled();
 });
+it("复核拒绝保留具体检查，结构错误保留安全字段，动态键仅显示星号", () => {
+    const value = fixture();
+    const broken = structuredClone(value);
+    broken.draft.runtimeSemantics.designSpec.defaults.accentSources.private_key =
+        "示例";
+    expect(() => readCandidate(broken)).toThrowError(
+        expect.objectContaining({
+            diagnostic: expect.objectContaining({
+                issues: expect.arrayContaining([
+                    {
+                        path: "/draft/runtimeSemantics/designSpec/defaults/accentSources/*",
+                        code: "expected_accent_element",
+                    },
+                ]),
+            }),
+        }),
+    );
+    const report = review(value);
+    report.checks.printForm.passed = false;
+    report.checks.inputBindings.passed = false;
+    report.issues.push("私有复核正文");
+    expect(() => applyReview(value, report)).toThrowError(
+        expect.objectContaining({
+            diagnostic: {
+                stage: "schema",
+                code: "invalid_contract",
+                issues: [
+                    {
+                        path: "/review/checks/printForm/passed",
+                        code: "check_failed",
+                    },
+                    {
+                        path: "/review/checks/inputBindings/passed",
+                        code: "check_failed",
+                    },
+                    { path: "/review/issues", code: "unresolved_review" },
+                ],
+            },
+        }),
+    );
+    expect(() =>
+        readCandidate({
+            ...value,
+            draft: {
+                ...value.draft,
+                runtimeSemantics: {
+                    ...value.draft.runtimeSemantics,
+                    inputBindings: {
+                        secret: {
+                            operation: "replace_content",
+                            targetIds: ["test"],
+                            distributionPolicy: "replace_as_unit",
+                        },
+                    },
+                },
+            },
+        }),
+    ).toThrowError(
+        expect.objectContaining({
+            diagnostic: expect.objectContaining({
+                issues: expect.arrayContaining([
+                    {
+                        path: "/draft/runtimeSemantics/inputBindings/*/valueKind",
+                        code: "invalid_value",
+                    },
+                ]),
+            }),
+        }),
+    );
+});
 it("复核补丁修改后完整重验，不补造通过结论，不改变原候选", () => {
     const value = fixture();
     const before = structuredClone(value);

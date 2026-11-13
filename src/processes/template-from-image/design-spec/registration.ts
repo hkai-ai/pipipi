@@ -79,12 +79,13 @@ export function createPrintDesignRegistration(options: {
                                 throw new AgentExecutionFailure({
                                     stage: "schema",
                                     code: "invalid_contract",
+                                    issues: [{ path: "/", code: "too_big" }],
                                 });
                             return readCandidate(raw);
                         },
                         (error) =>
                             error instanceof PrintDesignContractError
-                                ? { stage: "schema", code: "invalid_schema" }
+                                ? error.diagnostic
                                 : agentDiagnostic(error),
                     );
                     break;
@@ -133,7 +134,7 @@ export function createPrintDesignRegistration(options: {
                         ),
                     (error) =>
                         error instanceof PrintDesignContractError
-                            ? { stage: "schema", code: "invalid_contract" }
+                            ? error.diagnostic
                             : { stage: "execution", code: "internal_failure" },
                 );
             } catch (error) {

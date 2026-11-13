@@ -1,9 +1,11 @@
 /** 固定运行语义 v4 作者合同并校验拆解数据、默认值与输入绑定，展示提示词由服务端投影。 */
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
+import type { ErrorObject } from "ajv";
 import { Ajv2020 } from "ajv/dist/2020.js";
 import { fullFormats } from "ajv-formats/dist/formats.js";
 import { z } from "zod";
+import { validationDiagnostics } from "../../../process-runtime/template-diagnostics.js";
 import { type TemplateImage, templateImageSize } from "../image.js";
 import { checkDesignSpec } from "./vendor/checks.js";
 import {
@@ -156,9 +158,61 @@ export const candidateSchema = z.strictObject({
 });
 export type PrintDesignCandidate = z.infer<typeof candidateSchema>;
 
+type Finding = { path: readonly PropertyKey[]; code: string };
+function schemaFindings(
+    errors: ErrorObject[] | null | undefined,
+    root: string,
+): Finding[] {
+    return (errors ?? []).map((error) => ({
+        path: [
+            root,
+            ...error.instancePath
+                .split("/")
+                .slice(1)
+                .map((key) => (/^\d+$/.test(key) ? Number(key) : key)),
+            ...(error.keyword === "required"
+                ? [error.params.missingProperty]
+                : []),
+        ],
+        code: error.keyword,
+    }));
+}
+// 固定来源 Schema 的交叉引用检查共用 Zod custom；用其静态路径区分规则。
+function candidateFinding(issue: z.core.$ZodIssue): Finding {
+    if (issue.code !== "custom" || issue.path[2] !== "designSpec") return issue;
+    const [, , , section, field] = issue.path;
+    if (section === "defaults") {
+        const rules: Record<string, string> = {
+            texts: "expected_text_element",
+            specifiedContent: "expected_accent_or_decoration",
+            accentSources: "expected_accent_element",
+            colors:
+                issue.path.length === 5
+                    ? "missing_default_color"
+                    : "expected_color_role",
+        };
+        return { path: issue.path, code: rules[String(field)] ?? issue.code };
+    }
+    if (section === "elements" && issue.path.length === 4)
+        return { path: issue.path, code: "subject_count" };
+    if (issue.path.at(-1) === "id")
+        return { path: issue.path, code: "duplicate_id" };
+    if (issue.path.at(-1) === "appliesTo")
+        return { path: issue.path, code: "missing_reference" };
+    return issue;
+}
 export class PrintDesignContractError extends Error {
-    constructor(readonly issues: readonly string[]) {
+    readonly diagnostic;
+    constructor(
+        readonly issues: readonly string[],
+        findings: readonly Finding[],
+    ) {
         super("印花模板候选未通过校验");
+        this.diagnostic = {
+            stage: "schema",
+            code: "invalid_contract",
+            issues: validationDiagnostics(findings),
+        } as const;
     }
 }
 export function readCandidate(raw: unknown): PrintDesignCandidate {
@@ -168,6 +222,7 @@ export function readCandidate(raw: unknown): PrintDesignCandidate {
             result.error.issues.map(
                 (issue) => `${issue.path.join(".")}: ${issue.message}`,
             ),
+            result.error.issues.map(candidateFinding),
         );
     if (!validateDraft(result.data.draft))
         throw new PrintDesignContractError(
@@ -182,21 +237,65 @@ export function readCandidate(raw: unknown): PrintDesignCandidate {
                     .filter((value) => value !== undefined)
                     .join(" "),
             ),
+            schemaFindings(validateDraft.errors, "draft"),
         );
     return result.data;
 }
-export function draftIssues(draft: PrintDesignDraft): string[] {
+export function draftIssues(
+    draft: PrintDesignDraft,
+    findings: Finding[] = [],
+): string[] {
     const {
         designSpec: spec,
         targetInstances: targets,
         inputBindings: bindings,
     } = draft.runtimeSemantics;
-    const issues = [
-        ...checkDesignSpec(spec, [{ id: "default", ...spec.defaults }]).errors,
-    ];
-    const add = (condition: boolean, message: string) => {
-        if (!condition) issues.push(message);
+    const root = ["draft", "runtimeSemantics", "designSpec"];
+    const issues: string[] = [];
+    const add = (
+        condition: boolean,
+        message: string,
+        path: PropertyKey[],
+        code: string,
+    ) => {
+        if (!condition) {
+            issues.push(message);
+            findings.push({ path, code });
+        }
     };
+    const subject = spec.elements.find((el) => el.category === "subject");
+    if (!subject)
+        add(
+            false,
+            "designSpec 缺少主体元素",
+            [...root, "elements"],
+            "missing_subject",
+        );
+    else
+        for (const message of checkDesignSpec(spec, [
+            { id: "default", ...spec.defaults },
+        ]).errors) {
+            // 固定来源检查器只返回文本；只投影已知规则，不把原词、画面或动态身份写入归档。
+            const rules: [string, string, string[]][] = [
+                ["原物词", "source_word", []],
+                ["抽象风格词", "abstract_style", []],
+                ["会画成半透明的词", "transparency_word", []],
+                ["颜色占位", "unknown_color_role", ["whole", "colorRoles"]],
+                [
+                    "主体固有色策略",
+                    "inherent_color_conflict",
+                    ["whole", "colorRoles"],
+                ],
+                ["印花形态为矩形贴片", "missing_edge", ["elements"]],
+            ];
+            const rule = rules.find(([prefix]) => message.startsWith(prefix));
+            add(
+                false,
+                message,
+                [...root, ...(rule?.[2] ?? [])],
+                rule?.[1] ?? "draft_semantics",
+            );
+        }
     const elements = new Map(
         spec.elements.map((element) => [element.id, element]),
     );
@@ -204,40 +303,66 @@ export function draftIssues(draft: PrintDesignDraft): string[] {
     const targetMap = new Map(targets.map((target) => [target.id, target]));
     const slots = draft.inputSchema.slots;
     const slotIds = new Set(slots.map((slot) => slot.id));
-    add(slotIds.size === slots.length, "输入槽 id 重复");
-    add(targetMap.size === targets.length, "目标 id 重复");
+    add(
+        slotIds.size === slots.length,
+        "输入槽 id 重复",
+        ["draft", "inputSchema", "slots"],
+        "duplicate_id",
+    );
+    add(
+        targetMap.size === targets.length,
+        "目标 id 重复",
+        ["draft", "runtimeSemantics", "targetInstances"],
+        "duplicate_id",
+    );
     add(
         Object.keys(bindings).length === slots.length &&
             Object.keys(bindings).every((id) => slotIds.has(id)),
         "输入槽与 binding 必须一一对应",
+        ["draft", "runtimeSemantics", "inputBindings"],
+        "target_binding_mismatch",
     );
     add(
         slots.filter((slot) => slot.image).length <= 1,
         "当前引擎最多支持一张主体照片",
+        ["draft", "inputSchema", "slots"],
+        "max_image_slots",
     );
-    for (const target of targets)
+    for (const [index, target] of targets.entries())
         add(
             elements.has(target.id) || colors.has(target.id),
             `targetInstances.${target.id}: 缺少同名元素或配色角色`,
+            ["draft", "runtimeSemantics", "targetInstances", index, "id"],
+            "missing_reference",
         );
     const occupied = new Set<string>();
-    for (const slot of slots) {
+    for (const [index, slot] of slots.entries()) {
+        const bindingPath = ["draft", "runtimeSemantics", "inputBindings", "*"];
         const binding = bindings[slot.id];
         if (!binding) continue;
         add(
             new Set(binding.targetIds).size === binding.targetIds.length,
             `inputBindings.${slot.id}: 目标重复`,
+            [...bindingPath, "targetIds"],
+            "duplicate_id",
         );
         for (const id of binding.targetIds) {
             const element = elements.get(id);
             const target = targetMap.get(id);
-            add(Boolean(target), `inputBindings.${slot.id}: 目标不存在`);
+            add(
+                Boolean(target),
+                `inputBindings.${slot.id}: 目标不存在`,
+                [...bindingPath, "targetIds"],
+                "missing_reference",
+            );
             let expected: string | undefined;
             if (binding.operation === "replace_identity") {
                 add(
                     element?.category === "subject" &&
                         target?.kind === "identity_subject",
                     `inputBindings.${slot.id}: 身份只能接管主体`,
+                    [...bindingPath, "targetIds"],
+                    "invalid_target_scope",
                 );
                 add(
                     Boolean(slot.image) &&
@@ -245,10 +370,14 @@ export function draftIssues(draft: PrintDesignDraft): string[] {
                         binding.bindingPolicy === "one_to_one" &&
                         binding.renderingMode === "illustration_redraw",
                     `inputBindings.${slot.id}: 主体照片绑定不完整`,
+                    bindingPath,
+                    "target_binding_mismatch",
                 );
                 add(
                     !occupied.has(id),
                     `inputBindings.${slot.id}: 身份重复占用`,
+                    [...bindingPath, "targetIds"],
+                    "duplicate_id",
                 );
                 occupied.add(id);
                 expected = spec.defaults.subject;
@@ -258,17 +387,23 @@ export function draftIssues(draft: PrintDesignDraft): string[] {
                         target?.kind === "content_element" &&
                         binding.distributionPolicy === "replace_as_unit",
                     `inputBindings.${slot.id}: 内容只支持文本与内容目标`,
+                    bindingPath,
+                    "invalid_target_scope",
                 );
                 if (binding.valueKind === "exact_text") {
                     add(
                         element?.category === "text",
                         `inputBindings.${slot.id}: 文本目标类型不匹配`,
+                        [...bindingPath, "targetIds"],
+                        "invalid_target_scope",
                     );
                     expected = spec.defaults.texts[id];
                 } else if (binding.valueKind === "color") {
                     add(
                         colors.has(id),
                         `inputBindings.${slot.id}: 配色目标类型不匹配`,
+                        [...bindingPath, "targetIds"],
+                        "invalid_target_scope",
                     );
                     expected = spec.defaults.colors[id];
                 } else if (binding.valueKind === "scene_description") {
@@ -277,16 +412,33 @@ export function draftIssues(draft: PrintDesignDraft): string[] {
                             element?.category === "accent" ||
                             element?.category === "decoration",
                         `inputBindings.${slot.id}: 内容目标类型不匹配`,
+                        [...bindingPath, "targetIds"],
+                        "invalid_target_scope",
                     );
                     expected =
                         element?.category === "subject"
                             ? spec.defaults.subject
                             : spec.defaults.specifiedContent[id];
-                } else add(false, `inputBindings.${slot.id}: 缺少 valueKind`);
+                } else
+                    add(
+                        false,
+                        `inputBindings.${slot.id}: 缺少 valueKind`,
+                        [...bindingPath, "valueKind"],
+                        "required",
+                    );
             }
             add(
                 expected !== undefined && slot.text.defaultValue === expected,
                 `inputSchema.${slot.id}: 默认值与 designSpec.defaults 不一致`,
+                [
+                    "draft",
+                    "inputSchema",
+                    "slots",
+                    index,
+                    "text",
+                    "defaultValue",
+                ],
+                "value_mismatch",
             );
         }
     }
@@ -295,12 +447,17 @@ export function draftIssues(draft: PrintDesignDraft): string[] {
             add(
                 Boolean(spec.defaults.texts[element.id]),
                 `designSpec.defaults.texts.${element.id}: 缺少默认文字`,
+                [...root, "defaults", "texts", "*"],
+                "required",
             );
         }
     return issues;
 }
-export function candidateIssues(candidate: PrintDesignCandidate): string[] {
-    const issues = draftIssues(candidate.draft);
+export function candidateIssues(
+    candidate: PrintDesignCandidate,
+    findings: Finding[] = [],
+): string[] {
+    const issues = draftIssues(candidate.draft, findings);
     const spec = candidate.draft.runtimeSemantics.designSpec;
     for (const element of spec.elements)
         if (
@@ -308,9 +465,14 @@ export function candidateIssues(candidate: PrintDesignCandidate): string[] {
             !candidate.observation.texts.some(
                 (text) => text.elementId === element.id,
             )
-        )
+        ) {
             issues.push(`observation.texts.${element.id}: 缺少原文观察`);
-    for (const text of candidate.observation.texts)
+            findings.push({
+                path: ["observation", "texts"],
+                code: "missing_evidence",
+            });
+        }
+    for (const [index, text] of candidate.observation.texts.entries())
         if (
             !spec.elements.some(
                 (element) =>
@@ -318,8 +480,13 @@ export function candidateIssues(candidate: PrintDesignCandidate): string[] {
                     element.category === "text",
             ) ||
             spec.defaults.texts[text.elementId] !== text.text
-        )
+        ) {
             issues.push("observation.texts: 原文与文字元素不一致");
+            findings.push({
+                path: ["observation", "texts", index, "text"],
+                code: "value_mismatch",
+            });
+        }
     return issues;
 }
 
@@ -343,8 +510,9 @@ export function compileResult(
     imageUrl: string,
     image: TemplateImage,
 ) {
-    const issues = candidateIssues(candidate);
-    if (issues.length) throw new PrintDesignContractError(issues);
+    const findings: Finding[] = [];
+    const issues = candidateIssues(candidate, findings);
+    if (issues.length) throw new PrintDesignContractError(issues, findings);
     const template = {
         ...candidate.draft,
         status: "DRAFT" as const,
@@ -359,7 +527,10 @@ export function compileResult(
         ),
     };
     if (!validateOutput(template))
-        throw new PrintDesignContractError(["最终作者 JSON 未通过固定 Schema"]);
+        throw new PrintDesignContractError(
+            ["最终作者 JSON 未通过固定 Schema"],
+            schemaFindings(validateOutput.errors, "template"),
+        );
     return { template };
 }
 export const printDesignOutputSchema = z.strictObject({
