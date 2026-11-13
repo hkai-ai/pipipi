@@ -248,10 +248,67 @@ it("目标范围反写时复核仍能定位缺少的媒介与写死开放值的�
 
 it("同一槽位跨轴重复时，复核可区分主轴登记与入选候选的归属", () => {
     const plan = toTemplatePlan(candidate());
-    plan.analysis.slotCoverageReview.text.slotIds.push("subject");
+    plan.analysis.slotCoverageReview.text.slotIds = ["subject"];
     expect(templateRepairContext(plan).slotConstraints[0]).toMatchObject({
         slotId: "subject",
         coverageAxes: ["subject", "text"],
         candidateAxes: ["subject"],
     });
+});
+
+it("同时定位图片槽隔离和身份目标清单的差异，并保留未确认的输入与原有分组", () => {
+    const plan = toTemplatePlan(candidate());
+    const { runtimeSemantics } = plan.analysis.semanticModel;
+    const subject = plan.draft.inputSchema.slots[0];
+    plan.draft.inputSchema.slots.push({ ...subject, id: "second_image" });
+    plan.analysis.semanticModel.sourceIsolationByInput = {
+        subject: false,
+        subject_main: true,
+    };
+    const main = runtimeSemantics.targetInstances[0];
+    runtimeSemantics.targetInstances.push(
+        { ...main, id: "second_identity" },
+        { ...main, kind: "content_element", id: "headline" },
+    );
+    plan.analysis.targetScopes.second_identity =
+        plan.analysis.targetScopes.subject_main;
+    plan.analysis.targetScopes.headline =
+        plan.analysis.targetScopes.subject_main;
+    plan.analysis.identityTopology[0].targetIds.push(
+        "subject_main",
+        "headline",
+    );
+    const before = structuredClone(plan);
+
+    expect(templateRepairContext(plan)).toMatchObject({
+        sourceIsolationByInput: {
+            requiredImageSlotIds: ["subject", "second_image"],
+            missing: ["second_image"],
+            unexpected: ["subject_main"],
+            explicitlyFalse: ["subject"],
+        },
+        identityTopology: {
+            requiredTargetIds: ["subject_main", "second_identity"],
+            missing: ["second_identity"],
+            unexpected: ["headline"],
+            duplicates: ["subject_main"],
+        },
+    });
+    const diagnostics: { path: string; code: string }[] = [];
+    analysisIssues(materializeTemplatePlan(plan), (path, code) =>
+        diagnostics.push({ path, code }),
+    );
+    expect(diagnostics).toEqual(
+        expect.arrayContaining([
+            {
+                path: "/analysis/identityTopology/*/targetIds",
+                code: "coverage_mismatch",
+            },
+            {
+                path: "/analysis/semanticModel/sourceIsolationByInput",
+                code: "coverage_mismatch",
+            },
+        ]),
+    );
+    expect(plan).toEqual(before);
 });

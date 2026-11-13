@@ -20,7 +20,7 @@ export function compactPlan(plan = toTemplatePlan(candidate())) {
             slotCoverageReview: Object.fromEntries(
                 Object.entries(a.slotCoverageReview).map(([k, x]) => [
                     k,
-                    [x.componentIds, x.slotIds, x.evidence],
+                    [x.componentIds, x.evidence],
                 ]),
             ),
             editableCandidates: a.editableCandidates.map((x) => ({

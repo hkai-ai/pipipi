@@ -119,7 +119,11 @@ export const semanticEvidenceShape = {
         .describe(
             "只覆盖 replace_identity 绑定的 targetIds，各值为 true；replace_content 等其他操作的目标不在此表中。没有身份替换时返回空对象，不把文字内容重绘当作身份重绘",
         ),
-    sourceIsolationByInput: z.record(z.string(), z.boolean()),
+    sourceIsolationByInput: z
+        .record(z.string(), z.boolean())
+        .describe(
+            "键必须与 inputSchema.slots 中所有具有 image 能力的槽位 id 完全相同，包括内容图片槽；纯文字槽和目标 id 不作键。没有图片槽时填空对象。逐项核对上传内容的来源隔离，确认后才写 true；无法确认时保留 false 并报告。",
+        ),
 };
 export const slotEvidenceShape = {
     defaultLanguageReview: z.strictObject({

@@ -1,7 +1,11 @@
 /** 从独立分析与引用计划生成复核上下文，定位未落实的观察和失效引用。 */
 
 import { analysisCounts } from "./analysis-contract.js";
-import { draftFromPlan, readTemplatePlan } from "./projection.js";
+import {
+    draftFromPlan,
+    projectSlotCoverage,
+    readTemplatePlan,
+} from "./projection.js";
 import { missingComponentVisualFields } from "./quality.js";
 import { resolveVisualFact } from "./visual-facts.js";
 import {
@@ -10,12 +14,52 @@ import {
     visualSelectionIssues,
 } from "./visual-selection.js";
 
+/** 比较应覆盖和实际声明的 ID，同一 ID 重复时保留具体值供模型复核。 */
+function coverageDifference(expected: string[], actual: string[]) {
+    const observed = new Set(actual);
+    const required = new Set(expected);
+    return {
+        missing: [...required].filter((id) => !observed.has(id)),
+        unexpected: [...observed].filter((id) => !required.has(id)),
+        duplicates: [
+            ...new Set(
+                actual.filter((id, index) => actual.indexOf(id) !== index),
+            ),
+        ],
+    };
+}
+
 export function templateRepairContext(value: unknown) {
     const plan = readTemplatePlan(value);
     const { analysis } = plan;
     const draft = draftFromPlan(plan);
     const visual = draft.runtimeSemantics.visualContract;
+    const slotCoverage = projectSlotCoverage(
+        analysis.slotCoverageReview,
+        analysis.editableCandidates,
+    );
+    const imageSlotIds = draft.inputSchema.slots
+        .filter((slot) => slot.image)
+        .map((slot) => slot.id);
+    const isolation = analysis.semanticModel.sourceIsolationByInput;
+    const identityTargetIds = draft.runtimeSemantics.targetInstances
+        .filter((target) => target.kind !== "content_element")
+        .map((target) => target.id);
     return {
+        sourceIsolationByInput: {
+            requiredImageSlotIds: imageSlotIds,
+            ...coverageDifference(imageSlotIds, Object.keys(isolation)),
+            explicitlyFalse: Object.keys(isolation).filter(
+                (id) => isolation[id] === false,
+            ),
+        },
+        identityTopology: {
+            requiredTargetIds: identityTargetIds,
+            ...coverageDifference(
+                identityTargetIds,
+                analysis.identityTopology.flatMap((unit) => unit.targetIds),
+            ),
+        },
         targetScopeContract: {
             requiredTargetKeys: draft.runtimeSemantics.targetInstances.map(
                 (target) => target.id,
@@ -94,7 +138,7 @@ export function templateRepairContext(value: unknown) {
         ),
         slotConstraints: draft.inputSchema.slots.map((slot, index) => ({
             slotId: slot.id,
-            coverageAxes: Object.entries(analysis.slotCoverageReview).flatMap(
+            coverageAxes: Object.entries(slotCoverage).flatMap(
                 ([axis, coverage]) =>
                     coverage.slotIds
                         .filter((id) => id === slot.id)

@@ -129,7 +129,10 @@ export const templateAnalysisSchema = z.strictObject({
                 evidence: text,
             }),
         )
-        .max(32),
+        .max(32)
+        .describe(
+            "按原图识别同一身份及其实例。所有单元的 targetIds 合计必须恰好覆盖 runtimeSemantics.targetInstances 中 kind 不为 content_element 的目标 id，每个只出现一次。纯内容目标不建立身份单元，没有身份目标时返回空数组。instanceIds 和 componentIds 分别记录观察到的实例与组件，不能充当 targetIds。",
+        ),
     textRegions: z.array(textRegionSchema).max(64),
     mediumComposition: z
         .strictObject({
@@ -654,6 +657,8 @@ export function analysisIssues(
             "missing_reference",
             "身份拓扑引用未知组件",
         );
+    const selectedComponents = new Set<string>();
+    const slotAxes = new Map<string, (typeof reviewAxes)[number]>();
     for (const [index, candidate] of a.editableCandidates.entries()) {
         check(
             componentIds.includes(candidate.componentId),
@@ -662,6 +667,26 @@ export function analysisIssues(
             "候选项引用未知组件",
         );
         if (candidate.slotId) {
+            const axis = slotAxes.get(candidate.slotId);
+            check(
+                !axis || axis === candidate.axis,
+                `/analysis/editableCandidates/${index}/axis`,
+                "coverage_mismatch",
+                `${candidate.slotId}: 同一正式槽位的入选候选只能归属一个主轴，当前同时声明 ${axis} 与 ${candidate.axis}；核对原图后保留一个主轴，其余轴的关联组件可保留观察`,
+            );
+            slotAxes.set(candidate.slotId, candidate.axis);
+            const selection = JSON.stringify([
+                candidate.axis,
+                candidate.componentId,
+                candidate.slotId,
+            ]);
+            check(
+                !selectedComponents.has(selection),
+                `/analysis/editableCandidates/${index}/slotId`,
+                "duplicate_id",
+                `${candidate.slotId}: 同一组件在同一主轴重复入选同一槽位`,
+            );
+            selectedComponents.add(selection);
             check(
                 slotIds.includes(candidate.slotId),
                 `/analysis/editableCandidates/${index}/slotId`,

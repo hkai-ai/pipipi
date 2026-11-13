@@ -1,5 +1,6 @@
 /** 从独立分析的共同语义模型投影草稿，并展开确定性引用和推荐项代入。 */
 import { createHash } from "node:crypto";
+import { isDeepStrictEqual } from "node:util";
 import { z } from "zod";
 import {
     readTemplateCandidate,
@@ -10,7 +11,12 @@ import {
     type TemplateValidationDiagnostic,
     validationDiagnostics,
 } from "./diagnostics.js";
-import { type TemplateCandidate, templateAnalysisSchema } from "./quality.js";
+import {
+    reviewAxes,
+    type TemplateAnalysis,
+    type TemplateCandidate,
+    templateAnalysisSchema,
+} from "./quality.js";
 import type { TemplateDraft } from "./types.js";
 
 import {
@@ -45,6 +51,48 @@ const planSlot = slot
                 "仅 replace_identity 槽位填写完整九轴具名权限；其他槽位为 null",
             ),
     });
+type Axis = (typeof reviewAxes)[number];
+
+// 新计划仅记录候选主轴；兼容旧计划显式声明的槽位并留给最终校验核对。
+const coverage = shape.slotCoverageReview.valueType.extend({
+    slotIds: shape.slotCoverageReview.valueType.shape.slotIds.optional(),
+});
+type Coverage = Record<Axis, z.infer<typeof coverage>>;
+
+type SelectedCandidate = Pick<
+    TemplateAnalysis["editableCandidates"][number],
+    "axis" | "slotId"
+>;
+
+function selectedSlots(
+    axis: Axis,
+    candidates: readonly SelectedCandidate[],
+): string[] {
+    return [
+        ...new Set(
+            candidates.flatMap((item) =>
+                item.axis === axis && item.slotId ? [item.slotId] : [],
+            ),
+        ),
+    ];
+}
+
+export function projectSlotCoverage(
+    coverage: Coverage,
+    candidates: readonly SelectedCandidate[],
+): TemplateAnalysis["slotCoverageReview"] {
+    return Object.fromEntries(
+        reviewAxes.map((axis) => [
+            axis,
+            {
+                ...coverage[axis],
+                slotIds:
+                    coverage[axis].slotIds ?? selectedSlots(axis, candidates),
+            },
+        ]),
+    ) as TemplateAnalysis["slotCoverageReview"];
+}
+
 const planAnalysis = templateAnalysisSchema
     .omit({
         templateValue: true,
@@ -93,7 +141,7 @@ export const templatePlanAnalysisSchema = z.strictObject({
     mediumComposition: planAnalysis.shape.mediumComposition,
     spatialRelations: planAnalysis.shape.spatialRelations,
     targetScopes: planAnalysis.shape.targetScopes,
-    slotCoverageReview: planAnalysis.shape.slotCoverageReview,
+    slotCoverageReview: z.record(shape.slotCoverageReview.keyType, coverage),
     editableCandidates: planAnalysis.shape.editableCandidates,
     slotEvidence: planAnalysis.shape.slotEvidence,
     titleEvidence: planAnalysis.shape.titleEvidence,
@@ -250,6 +298,10 @@ export function materializeTemplatePlan(value: unknown): TemplateCandidate {
     };
     const analysis = {
         ...sourceAnalysis,
+        slotCoverageReview: projectSlotCoverage(
+            sourceAnalysis.slotCoverageReview,
+            sourceAnalysis.editableCandidates,
+        ),
         translationEquivalences: sourceAnalysis.translationEquivalences.map(
             (entry) => ({
                 ...entry,
@@ -389,6 +441,22 @@ export function toTemplatePlan(candidate: TemplateCandidate) {
             "旧候选的分析事实没有准确对应正式约束，不能转换为字段引用",
         ]);
     };
+    // 显式保留非一致旧声明，避免转换时掩盖重复或错误归属。
+    const coverage = Object.fromEntries(
+        reviewAxes.map((axis) => {
+            const row = analysis.slotCoverageReview[axis];
+            const { slotIds, ...observation } = row;
+            return [
+                axis,
+                isDeepStrictEqual(
+                    slotIds,
+                    selectedSlots(axis, analysis.editableCandidates),
+                )
+                    ? observation
+                    : row,
+            ];
+        }),
+    );
     const rest = analysis;
     const { backendOnlyFacts, ...templateValue } = rest.templateValue;
     const {
@@ -400,6 +468,7 @@ export function toTemplatePlan(candidate: TemplateCandidate) {
         draft: metadata,
         analysis: {
             ...rest,
+            slotCoverageReview: coverage,
             translationEquivalences: rest.translationEquivalences.map(
                 ({ sourceRegionId, targetRegionIds }) => ({
                     sourceRegionId,

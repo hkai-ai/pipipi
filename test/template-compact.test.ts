@@ -7,7 +7,10 @@ import {
     expandTemplatePlan,
     templateInspectionResponseSchema,
 } from "../src/processes/template-from-image/compact.js";
-import { TemplateContractError } from "../src/processes/template-from-image/contract.js";
+import {
+    parseTemplateCandidate,
+    TemplateContractError,
+} from "../src/processes/template-from-image/contract.js";
 import {
     applyTemplateInspection,
     planDigest,
@@ -51,6 +54,84 @@ describe("紧凑模板传输", () => {
         expect(planDigest(readTemplatePlan(expanded))).toBe(planDigest(plan));
     });
 
+    it("八轴保留人工观察，文字候选选中槽位后在初稿及补丁后均按主轴投影", () => {
+        const wire = compactPlan();
+        const expanded = readTemplatePlan(expandTemplatePlan(wire));
+        const original = expanded.analysis.slotCoverageReview;
+        expect(
+            Object.values(original).every((row) => !("slotIds" in row)),
+        ).toBe(true);
+        expanded.analysis.editableCandidates[0].axis = "text";
+        const value = materializeTemplatePlan(expanded);
+        expect(value.analysis.slotCoverageReview.text).toEqual({
+            ...original.text,
+            slotIds: ["subject"],
+        });
+        expect(value.analysis.slotCoverageReview.subject).toEqual({
+            ...original.subject,
+            slotIds: [],
+        });
+        expect(() => parseTemplateCandidate(value)).not.toThrow();
+    });
+
+    it("保留旧格式中的错轴，不用派生数据抹去错误", () => {
+        const wire = compactPlan();
+        const row = wire.analysis.slotCoverageReview.text;
+        wire.analysis.slotCoverageReview.text = [row[0], [], row[1]];
+        wire.analysis.editableCandidates[0].axis = "text";
+        const value = materializeTemplatePlan(expandTemplatePlan(wire));
+        expect(() => parseTemplateCandidate(value)).toThrow(
+            expect.objectContaining({
+                diagnostics: expect.arrayContaining([
+                    {
+                        path: "/analysis/slotCoverageReview/text/slotIds",
+                        code: "coverage_mismatch",
+                    },
+                ]),
+            }),
+        );
+    });
+
+    it("跨轴争用同一槽、重复入选同一组件与未入选的槽均拒绝", () => {
+        const plan = toTemplatePlan(candidate());
+        const selected = plan.analysis.editableCandidates[0];
+        plan.analysis.editableCandidates.push({ ...selected, axis: "text" });
+        const validate = () =>
+            parseTemplateCandidate(materializeTemplatePlan(plan));
+        expect(validate).toThrow(
+            expect.objectContaining({
+                diagnostics: expect.arrayContaining([
+                    {
+                        path: "/analysis/editableCandidates/1/axis",
+                        code: "coverage_mismatch",
+                    },
+                ]),
+            }),
+        );
+        plan.analysis.editableCandidates[1].axis = selected.axis;
+        expect(validate).toThrow(
+            expect.objectContaining({
+                diagnostics: expect.arrayContaining([
+                    {
+                        path: "/analysis/editableCandidates/1/slotId",
+                        code: "duplicate_id",
+                    },
+                ]),
+            }),
+        );
+        plan.analysis.editableCandidates.splice(1);
+        selected.slotId = null;
+        expect(validate).toThrow(
+            expect.objectContaining({
+                diagnostics: expect.arrayContaining([
+                    {
+                        path: "/analysis/editableCandidates",
+                        code: "missing_selected_candidate",
+                    },
+                ]),
+            }),
+        );
+    });
     it.each([1, 64])(
         "含 %i 个分析项的复核仍可引用原始观察与正式约束",
         (count) => {

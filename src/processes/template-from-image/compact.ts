@@ -45,10 +45,10 @@ const compactFields = templatePlanAnalysisSchema.extend({
     slotCoverageReview: z
         .record(
             shape.slotCoverageReview.keyType,
-            z.tuple([coverage.componentIds, coverage.slotIds, brief]),
+            z.tuple([coverage.componentIds, brief]),
         )
         .describe(
-            "八轴各为 [componentIds, slotIds, 图像取舍证据]。每个正式槽位只在一个主轴的 slotIds 出现一次；其他轴可复用组件作为审查依据。入选 editableCandidates 的 axis 与槽位主轴一致。",
+            "八轴分别提供 [componentIds, 图像取舍证据]。每个正式槽位的主轴由入选 editableCandidates 的 axis 声明，覆盖表的 slotIds 由程序汇总。其他轴可复用同一组件作为审查依据。",
         ),
     editableCandidates: z
         .array(
@@ -112,7 +112,21 @@ export const compactAnalysisSchema = z.strictObject({
     semanticModel,
 });
 const compactPlanSchema = z.strictObject({
-    analysis: compactAnalysisSchema,
+    analysis: compactAnalysisSchema.extend({
+        // 已生成的旧三元组保留显式主轴，最终校验仍拒绝冲突。
+        slotCoverageReview: z.record(
+            shape.slotCoverageReview.keyType,
+            z.union([
+                z.tuple([coverage.componentIds, brief]),
+                z.tuple([
+                    coverage.componentIds,
+                    templateAnalysisSchema.shape.slotCoverageReview.valueType
+                        .shape.slotIds,
+                    brief,
+                ]),
+            ]),
+        ),
+    }),
     draft: z.unknown(),
 });
 const compactCheckSchema = z.strictObject({
@@ -395,12 +409,16 @@ export function expandTemplatePlan(value: unknown) {
                 }),
             ),
             slotCoverageReview: Object.fromEntries(
-                Object.entries(a.slotCoverageReview).map(
-                    ([key, [componentIds, slotIds, evidence]]) => [
-                        key,
-                        { componentIds, slotIds, evidence },
-                    ],
-                ),
+                Object.entries(a.slotCoverageReview).map(([key, row]) => [
+                    key,
+                    row.length === 2
+                        ? { componentIds: row[0], evidence: row[1] }
+                        : {
+                              componentIds: row[0],
+                              slotIds: row[1],
+                              evidence: row[2],
+                          },
+                ]),
             ),
             editableCandidates: a.editableCandidates.map((item) => ({
                 ...item,
