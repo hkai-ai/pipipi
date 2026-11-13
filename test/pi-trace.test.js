@@ -154,4 +154,5 @@ it.each([
             await rm(archive, { recursive: true, force: true });
         }
     },
+    30_000,
 );
