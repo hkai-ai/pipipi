@@ -38,6 +38,12 @@ async function readJson<Result>(path: string): Promise<Result> {
     return (await response.json()) as Result;
 }
 
+export function listOpenRuns() {
+    return readJson<{
+        runs: readonly import("../src/run-observation/activities.js").OpenRun[];
+    }>("open-runs");
+}
+
 export function listRuns(
     options: Readonly<{ limit?: number; before?: string }> & RunFilters,
 ): Promise<RunRecordPage> {

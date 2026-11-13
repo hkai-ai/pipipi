@@ -13,6 +13,7 @@ import {
     templateOutputSchema,
     templateV3OutputSchema,
 } from "../template-from-image/contract.js";
+import { printDesignOutputSchema } from "../template-from-image/design-spec/contract.js";
 import {
     loadTemplateImage,
     type TemplateImageLoader,
@@ -200,15 +201,22 @@ export function createTemplateRenderRegistration(
 }
 export function createTemplateSourceRegistration(options: {
     compiler: ProcessRegistration;
-    runtimeVersion?: 2 | 3;
+    runtimeVersion?: 2 | 3 | 4;
     attemptRunner: ProcessAttemptRunner;
     preparation: TemplateImagePreparation;
 }): ProcessRegistration {
     const outputSchema =
-        options.runtimeVersion === 3
-            ? templateV3OutputSchema
-            : templateOutputSchema;
-    const compilerVersion = options.runtimeVersion === 3 ? "v2" : "v1";
+        options.runtimeVersion === 4
+            ? printDesignOutputSchema
+            : options.runtimeVersion === 3
+              ? templateV3OutputSchema
+              : templateOutputSchema;
+    const compilerVersion =
+        options.runtimeVersion === 4
+            ? "v3"
+            : options.runtimeVersion === 3
+              ? "v2"
+              : "v1";
     if (
         options.compiler.identity.id !== "template-from-image" ||
         options.compiler.identity.version !== compilerVersion
@@ -216,7 +224,7 @@ export function createTemplateSourceRegistration(options: {
         throw new Error("模板编译成员版本不匹配");
     return defineProcessRegistration({
         id: "template-from-source",
-        version: options.runtimeVersion === 3 ? "v2" : "v1",
+        version: compilerVersion,
         timeoutMs: 570000,
         inputSchema: compilationInputSchema,
         outputSchema: outputSchema.extend({

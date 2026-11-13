@@ -8,6 +8,7 @@ import { sanitizeProcessRunLogRecord } from "../process-runtime/logging.js";
 import type { ProcessRunRecord } from "../process-runtime/records.js";
 import {
     defaultProcessRunActivityRetentionDays,
+    openRunLimit,
     type ProcessRunActivityArchive,
 } from "./activities.js";
 import { createJsonlDayFiles, utcDayOf } from "./day-files.js";
@@ -126,6 +127,42 @@ export function createJsonlProcessRunActivityArchive(
         record,
 
         flush: () => files.flush().catch(() => {}),
+
+        listOpen: async (since) => {
+            const latest = new Map<string, ProcessRunLogRecord>();
+            for (const entry of await activitiesSince(files, since)) {
+                if (
+                    entry.runId.includes(":") ||
+                    (entry.event !== "process_run_attempt_started" &&
+                        entry.event !== "process_run_attempt_finished")
+                )
+                    continue;
+                const previous = latest.get(entry.runId);
+                if (
+                    !previous ||
+                    entry.attemptNumber > previous.attemptNumber ||
+                    (entry.attemptNumber === previous.attemptNumber &&
+                        entry.sequence > previous.sequence)
+                )
+                    latest.set(entry.runId, entry);
+            }
+            return [...latest.values()]
+                .filter(
+                    (entry) => entry.event === "process_run_attempt_started",
+                )
+                .sort(
+                    (a, b) =>
+                        b.timestamp.localeCompare(a.timestamp) ||
+                        b.runId.localeCompare(a.runId),
+                )
+                .slice(0, openRunLimit)
+                .map(({ runId, process, version, timestamp }) => ({
+                    runId,
+                    process,
+                    version,
+                    startedAt: timestamp,
+                }));
+        },
 
         findByRun: async (runId) => {
             const matches: ProcessRunLogRecord[] = [];

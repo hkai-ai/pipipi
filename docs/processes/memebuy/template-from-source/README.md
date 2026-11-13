@@ -88,3 +88,7 @@ Memebuy 分步工作台可保留同一替换方案反复生图。`template-image
 先发布支持此字段的 Pi API 与内部图片 Business API，再发布 Memebuy Web 和 Worker；旧方案与旧成图文件原样兼容。
 
 新增 v2 接口交付目标视觉归属 v3，旧 v1 合同保留。详见 [视觉归属升级](../template-from-image/visual-ownership-v3.md)。
+
+Process v3 交付运行语义 V4 的[印花拆解候选](../template-from-image/print-design-v4.md)，继续复用批准图片、人工采用与版本链，旧 v1/v2 保持原合同。
+
+从控制台「运行记录」进入父 runId，可在本次编译期间查看读取参考图、编译、独立复核与校验的实际事件。

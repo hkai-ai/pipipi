@@ -163,7 +163,12 @@ export function buildProductionRegistrations(
         process: ProductionProcess,
         members: ProductionMembers,
     ): ProcessRegistration => {
-        const skills = options.skills.get(process) ?? noSkills;
+        const binding = options.skills.get(process);
+        if (!binding && process.installedSkills(options.environment).length)
+            throw new Error(
+                `Missing exact installed Skill binding for ${process.id}`,
+            );
+        const skills = binding ?? noSkills;
         const registration = process.build({
             environment: options.environment,
             pi: options.pi,

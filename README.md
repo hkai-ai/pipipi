@@ -38,11 +38,13 @@
 | `common` | `character-emoji/v3` | 同角色双版本登场、版本化对白及新版场景参考图，最多 5 位 | `{ image, mode, caption?, plan }` |
 | `common` | [character-emoji/v4](docs/api.md#角色表情包) | 按冻结角色资料生成单图或漫画，图片响应丢失时按原运行核验 | `{ image, mode, caption?, plan }` |
 
-Memebuy 场景已登记 `template-from-image/v1`，可在 Pipipi 独立编译图片模板草稿；Memebuy 改由模板素材箱的提取 Worker 接入，候选需人工确认后保存草稿，部署与真实页面验收另行完成。Pipipi 独立测试与 JSON 下载保留。场景入口和归属规则见 [`docs/processes/README.md`](docs/processes/README.md)。
+Memebuy 场景保留 `template-from-image/v1,v2` 并新增 `template-from-image/v3`、`template-from-source/v3` [印花拆解候选](docs/processes/memebuy/template-from-image/print-design-v4.md)（运行语义 V4），可在 Pipipi 独立编译图片模板草稿；Memebuy 改由模板素材箱的提取 Worker 接入，候选需人工确认后保存草稿，部署与真实页面验收另行完成。Pipipi 独立测试与 JSON 下载保留。场景入口和归属规则见 [`docs/processes/README.md`](docs/processes/README.md)。
 
 `composed-task/v1` 由 `COMPOSED_TASK_ENABLED=true` 开启：一个 Planner Agent 在服务端预算内组合固定 allow-list 中的七个 Process（不含照片海报），每一步仍走对应 Process 自己的校验与治理，调用方只提交目标与素材。
 
 全部流程共享同一个 `POST /execute` Interface。每个明确版本由 Process Registration 绑定业务定义、Schema、依赖、运行活动和策略，再进入不可变 Process Registry。Process Runner 统一处理 `runId`、精确版本查找、超时、取消、错误净化和可选 Run Record。
+
+运维控制台的「运行记录」在首次执行活动写入后列出父 runId。点击可跟踪批准图编译和独立复核，结束后同一链接展示结果。
 
 本地开发启用 `CONSOLE_LOCAL_TRACE=true` 和 `NODE_ENV=development` 后，可在控制台「本地实时调试」选择正在执行的同步请求，展开允许查看的模型与工具字段。启动方式见[运维控制台](docs/mvp-release-runbook.md#运维控制台)。
 

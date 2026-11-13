@@ -187,6 +187,7 @@ describe("operator console construction", () => {
             "news-image-raw-humanism-prompt",
             "photo-doodle-collage-prompt",
             "photo-fashion-manga-prompt",
+            "print-design-template-compiler",
             "risograph-album-prompt",
             "tait-crt-interface-prompt",
             "template-image-preparer",

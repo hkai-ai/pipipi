@@ -1,0 +1,305 @@
+{
+    "observation": {
+        "overview": "合成合同夹具：主体配头巾与墨镜，以衣摆收形，无准确文字",
+        "texts": [
+            {
+                "text": "LOOK GOOD",
+                "location": "下方短标题区域",
+                "elementId": "headline"
+            }
+        ],
+        "printRisks": []
+    },
+    "draft": {
+        "key": "print-fashion",
+        "title": "复古宠物时装肖像",
+        "inputSchema": {
+            "version": 2,
+            "slots": [
+                {
+                    "id": "subject",
+                    "label": "主体",
+                    "required": false,
+                    "text": {
+                        "presentation": "free_text",
+                        "allowCustom": true,
+                        "placeholder": "输入主体，或上传 1 张清晰主体图",
+                        "defaultValue": "一只灰色短毛兔"
+                    },
+                    "image": {
+                        "promptValue": "图片中的主体",
+                        "hint": "上传单个主体的清晰图",
+                        "maxCount": 1,
+                        "private": true,
+                        "sourceOptions": [
+                            "upload",
+                            "recent_upload",
+                            "asset_library"
+                        ]
+                    },
+                    "resolutionStrategy": "image_over_text"
+                },
+                {
+                    "id": "headscarf",
+                    "label": "人类的时装配饰，制造反差",
+                    "required": false,
+                    "text": {
+                        "presentation": "free_text",
+                        "allowCustom": true,
+                        "placeholder": "",
+                        "defaultValue": "一条蓝底白色波点头巾"
+                    }
+                },
+                {
+                    "id": "sunglasses",
+                    "label": "人类的时装配饰，遮住双眼，是第一视觉焦点",
+                    "required": false,
+                    "text": {
+                        "presentation": "free_text",
+                        "allowCustom": true,
+                        "placeholder": "",
+                        "defaultValue": "一副玳瑁色方框墨镜"
+                    }
+                },
+                {
+                    "id": "headline",
+                    "label": "标题",
+                    "required": false,
+                    "text": {
+                        "presentation": "free_text",
+                        "allowCustom": true,
+                        "placeholder": "",
+                        "defaultValue": "LOOK GOOD"
+                    }
+                },
+                {
+                    "id": "headline_ink",
+                    "label": "标题色",
+                    "required": false,
+                    "text": {
+                        "presentation": "free_text",
+                        "allowCustom": true,
+                        "placeholder": "",
+                        "defaultValue": "深藏青（#20324c）"
+                    }
+                }
+            ]
+        },
+        "runtimeSemantics": {
+            "version": 4,
+            "targetInstances": [
+                {
+                    "id": "subject",
+                    "kind": "identity_subject",
+                    "role": "扮成时装模特的宠物，全图唯一焦点",
+                    "region": "版面框 [0.19, 0.08, 0.98, 0.98]"
+                },
+                {
+                    "id": "headscarf",
+                    "kind": "content_element",
+                    "role": "人类的时装配饰，制造反差",
+                    "region": "版面框 [0.2, 0.17, 0.86, 0.74]"
+                },
+                {
+                    "id": "sunglasses",
+                    "kind": "content_element",
+                    "role": "人类的时装配饰，遮住双眼，是第一视觉焦点",
+                    "region": "版面框 [0.21, 0.27, 0.63, 0.53]"
+                },
+                {
+                    "id": "headline",
+                    "kind": "content_element",
+                    "role": "标题",
+                    "region": "按已声明版面区域"
+                },
+                {
+                    "id": "headline_ink",
+                    "kind": "content_element",
+                    "role": "标题色",
+                    "region": "仅标题文字"
+                }
+            ],
+            "inputBindings": {
+                "subject": {
+                    "operation": "replace_identity",
+                    "targetIds": ["subject"],
+                    "bindingPolicy": "one_to_one",
+                    "renderingMode": "illustration_redraw",
+                    "allowedSourceGrouping": ["single_subject"],
+                    "groupToSinglePolicy": "reject"
+                },
+                "headscarf": {
+                    "operation": "replace_content",
+                    "valueKind": "scene_description",
+                    "targetIds": ["headscarf"],
+                    "distributionPolicy": "replace_as_unit"
+                },
+                "sunglasses": {
+                    "operation": "replace_content",
+                    "valueKind": "scene_description",
+                    "targetIds": ["sunglasses"],
+                    "distributionPolicy": "replace_as_unit"
+                },
+                "headline": {
+                    "operation": "replace_content",
+                    "targetIds": ["headline"],
+                    "valueKind": "exact_text",
+                    "distributionPolicy": "replace_as_unit"
+                },
+                "headline_ink": {
+                    "operation": "replace_content",
+                    "targetIds": ["headline_ink"],
+                    "valueKind": "color",
+                    "distributionPolicy": "replace_as_unit"
+                }
+            },
+            "designSpec": {
+                "tier": "same_design",
+                "whole": {
+                    "tone": "精致复古的时装杂志式宠物肖像，一本正经，带一点幽默",
+                    "technique": "写实棚拍摄影：照片级真实的毛发、针织纤维、镜框边缘和镜片材质；柔和漫射的正面偏上棚光，毛发与布料上有柔和的明暗层次；镜片反光克制，不映出环境；没有任何描边或插画处理。",
+                    "composition": {
+                        "balance": "非对称平衡：头部在中上偏左，身体向右下延伸",
+                        "types": ["中心式"],
+                        "layout": [
+                            {
+                                "id": "subject",
+                                "role": "主体头肩",
+                                "z": 0,
+                                "content": "@主体",
+                                "bbox": [0.19, 0.08, 0.98, 0.98]
+                            },
+                            {
+                                "id": "headscarf",
+                                "role": "头巾",
+                                "z": 1,
+                                "content": "@headscarf",
+                                "bbox": [0.2, 0.17, 0.86, 0.74]
+                            },
+                            {
+                                "id": "sunglasses",
+                                "role": "墨镜",
+                                "z": 2,
+                                "content": "@sunglasses",
+                                "bbox": [0.21, 0.27, 0.63, 0.53]
+                            },
+                            {
+                                "id": "hem",
+                                "role": "胸口下缘的圆弧",
+                                "z": 3,
+                                "content": "胸口的毛收成一道向下鼓的圆弧",
+                                "bbox": [0.19, 0.84, 0.98, 0.98]
+                            },
+                            {
+                                "id": "headline",
+                                "role": "下方短标题",
+                                "text": "@headline",
+                                "bbox": [0.2, 0.8, 0.8, 0.95],
+                                "z": 3
+                            }
+                        ],
+                        "density": "主体、头巾和墨镜紧贴成一整块，内部没有空隙；胸口下缘收成一道圆弧，圆弧以外留空。",
+                        "canvas": "方形 1:1",
+                        "relations": [
+                            [
+                                "headscarf",
+                                "从头顶包住头部",
+                                "沿脸两侧包到颈下，在左下方打结，结的两角向外伸出；右侧布面向外展开"
+                            ],
+                            [
+                                "sunglasses",
+                                "横跨",
+                                "双眼和鼻梁，压在 headscarf 前面，不遮挡口鼻"
+                            ]
+                        ],
+                        "layers": "三层：墨镜在最前，压住头巾和脸；头巾在中间，包住头部；主体在最后；没有背景。",
+                        "visualWeight": "第一眼是脸上颜色最深的墨镜，第二眼是颜色最鲜艳的头巾；身体是大面积的浅色毛，大而轻。"
+                    },
+                    "printForm": "standalone",
+                    "mechanism": "反差：宠物一本正经地摆出复古时装大片的造型（包头巾、戴墨镜、仰头），动物身份与人类时尚造型的反差产生幽默。（推断，须人确认）",
+                    "paletteSummary": "柔和的高调色彩：主体保持本来的毛色，头巾和墨镜按描述的颜色，最深的颜色只在墨镜上",
+                    "colorRoles": [
+                        {
+                            "id": "headline_ink",
+                            "name": "标题色",
+                            "usage": "短标题的深色细线",
+                            "appliesTo": ["headline"]
+                        }
+                    ]
+                },
+                "elements": [
+                    {
+                        "id": "subject",
+                        "category": "subject",
+                        "purpose": "扮成时装模特的宠物，全图唯一焦点",
+                        "instance": "橘色短毛猫：橘色虎斑条纹，圆胖的大脸盘，三角耳一只露在头巾外",
+                        "originalObject": "橘色短毛猫",
+                        "shapeFeatures": ["橘色虎斑条纹", "圆胖的大脸盘"],
+                        "genericShape": "头肩近景：头部在画面中上部，胸背向右下延伸。",
+                        "inherentColorPolicy": "keep",
+                        "pose": "轻微仰头，脸转向左上方，嘴闭着，神情沉稳"
+                    },
+                    {
+                        "id": "headscarf",
+                        "category": "accent",
+                        "purpose": "人类的时装配饰，制造反差",
+                        "instance": "红底白色小花针织头巾",
+                        "description": "{内容}，柔软的针织布料，从头顶沿脸两侧包到颈下，在左下方打一个结，结的两角向外伸出，右侧的布面向外鼓出展开。"
+                    },
+                    {
+                        "id": "sunglasses",
+                        "category": "accent",
+                        "purpose": "人类的时装配饰，遮住双眼，是第一视觉焦点",
+                        "instance": "黑色圆框墨镜",
+                        "description": "{内容}，镜片是深色，横跨双眼和鼻梁，镜腿贴着头部伸进头巾。"
+                    },
+                    {
+                        "id": "hem",
+                        "category": "edge",
+                        "purpose": "封面在下缘被画布切开；独立图形要完整的外轮廓，把胸口收成一道圆弧",
+                        "description": "胸口的毛在下缘收成一道向下鼓的圆弧，圆弧是一根根清楚的实心短毛组成的边，圆弧以下不画任何东西，也不画底板。"
+                    },
+                    {
+                        "id": "headline",
+                        "category": "text",
+                        "role": "短标题",
+                        "letterform": "细线手写字，字高小于主体头部，用{色:标题色}书写",
+                        "followsSubject": true
+                    }
+                ],
+                "signatureFeatures": [
+                    "头巾从头顶包到颈下、在一侧打结的复古包头方式",
+                    "深色墨镜遮住双眼、仰头的时装姿态",
+                    "纯白高调棚拍的写实质感"
+                ],
+                "lockedInstances": ["仰头"],
+                "bannedWords": ["猫", "小花"],
+                "printFit": {
+                    "verdict": "direct",
+                    "lightIsMood": false
+                },
+                "defaults": {
+                    "subject": "一只灰色短毛兔",
+                    "subjectName": "一只灰色短毛兔",
+                    "subjectShape": "一对长耳朵从头巾顶部伸出、竖着，圆润的脸，短而密的毛",
+                    "subjectInherentColor": "灰色短毛，耳朵内侧和鼻头浅粉色",
+                    "texts": {
+                        "headline": "LOOK GOOD"
+                    },
+                    "specifiedContent": {
+                        "headscarf": "一条蓝底白色波点头巾",
+                        "sunglasses": "一副玳瑁色方框墨镜"
+                    },
+                    "accentSources": {},
+                    "colors": {
+                        "headline_ink": "深藏青（#20324c）"
+                    }
+                }
+            }
+        },
+        "description": "可替换主体与文案的印花",
+        "metadata": {
+            "tags": ["人物", "印花", "线条", "配色", "装饰"]
+        }
+    }
+}

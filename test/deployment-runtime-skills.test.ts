@@ -16,14 +16,26 @@ describe("production Runtime Skill bindings", () => {
         const bindings = createProductionSkillBindings({}, process.cwd());
 
         expect(
-            Object.fromEntries(
-                Array.from(bindings, ([process, refs]) => [
-                    process.id,
+            Array.from(bindings)
+                .filter(([process]) => process.id === "template-from-image")
+                .map(([, refs]) =>
                     refs.map(({ name, version }) => `${name}@${version}`),
-                ]),
+                ),
+        ).toEqual([
+            ["meme-template-json-compiler@v1.13"],
+            ["meme-template-json-compiler@v1.13"],
+            ["print-design-template-compiler@v1"],
+        ]);
+        expect(
+            Object.fromEntries(
+                Array.from(bindings)
+                    .filter(([process]) => process.id !== "template-from-image")
+                    .map(([process, refs]) => [
+                        process.id,
+                        refs.map(({ name, version }) => `${name}@${version}`),
+                    ]),
             ),
         ).toEqual({
-            "template-from-image": ["meme-template-json-compiler@v1.13"],
             "template-image-plan": ["template-image-preparer@v3"],
             "dopamine-photo-poster": ["dopamine-photo-poster-prompt@v1"],
             "photo-doodle-collage": ["photo-doodle-collage-prompt@v1"],

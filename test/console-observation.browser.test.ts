@@ -439,6 +439,94 @@ browserDescribe("operator observation browser", () => {
                 )
                 .waitFor();
             await page.getByText("check_failed", { exact: true }).waitFor();
+            // 在观察端没有任何终态记录时，从列表进入父运行并等待子阶段切换。
+            const parent = {
+                schemaVersion: 1 as const,
+                runId: "live-parent",
+                process: "template-from-source",
+                version: "v3",
+                timestamp: at(0),
+                attemptNumber: 1,
+            };
+            const child = {
+                ...parent,
+                runId: "live-parent:compile",
+                process: "template-from-image",
+            };
+            activities.record({
+                ...parent,
+                sequence: 1,
+                event: "process_run_attempt_started",
+            });
+            await activities.flush();
+            await page.goto(`${url}#/runs`);
+            await page
+                .getByRole("link", { name: parent.runId, exact: true })
+                .click();
+            activities.record({
+                ...parent,
+                sequence: 2,
+                event: "process_run_activity_started",
+                activity: "approved_image_compilation",
+            });
+            activities.record({
+                ...child,
+                sequence: 1,
+                event: "process_run_attempt_started",
+            });
+            activities.record({
+                ...child,
+                sequence: 2,
+                event: "process_run_activity_started",
+                activity: "template_compilation",
+            });
+            await activities.flush();
+            await page.getByText("当前步骤：编译模板").waitFor();
+            activities.record({
+                ...child,
+                sequence: 3,
+                event: "process_run_activity_finished",
+                activity: "template_compilation",
+                durationMs: 1,
+                outcome: "succeeded",
+            });
+            activities.record({
+                ...child,
+                sequence: 4,
+                event: "process_run_activity_started",
+                activity: "template_review",
+            });
+            await activities.flush();
+            await page.getByText("当前步骤：独立复核模板").waitFor();
+            activities.record({
+                ...child,
+                sequence: 5,
+                event: "process_run_activity_finished",
+                activity: "template_review",
+                durationMs: 1,
+                outcome: "succeeded",
+            });
+            for (const entry of [child, parent])
+                activities.record({
+                    ...entry,
+                    sequence: 6,
+                    event: "process_run_attempt_finished",
+                    durationMs: 2,
+                    outcome: "succeeded",
+                });
+            await activities.flush();
+            await records.store({
+                schemaVersion: 1,
+                runId: parent.runId,
+                process: parent.process,
+                version: "v3",
+                status: "succeeded",
+                recordedAt: at(0),
+            });
+            await page.getByRole("heading", { name: "输入与产出" }).waitFor();
+            expect(await page.getByText("当前步骤：独立复核模板").count()).toBe(
+                0,
+            );
             expect(executions).toBe(0);
             expect(errors).toEqual([]);
             await context.close();

@@ -64,8 +64,14 @@ export function Timeline({
             </p>
         );
     const attempts = groupAttempts(timeline.activities);
+    const lastEvent = attempts.at(-1)?.events.at(-1);
     return (
         <>
+            {lastEvent?.event === "process_run_activity_started" && (
+                <p role="status">
+                    当前步骤：{activityName(lastEvent.activity)}
+                </p>
+            )}
             <p class="hint">
                 按时间查看每次执行经过的步骤。缺少结束记录不代表任务仍在运行。
             </p>

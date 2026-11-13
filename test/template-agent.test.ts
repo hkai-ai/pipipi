@@ -437,3 +437,130 @@ it("v3 模板使用低延迟思考且移除 SDK 自动补入的输出上限，�
             );
     }
 });
+
+it("印花 v4 编译和复核均使用隔离无 Tool 会话，复核使用严格补丁 Schema", async () => {
+    const { readFileSync } = await import("node:fs");
+    const { PiPrintDesignAgent } = await import(
+        "../src/processes/template-from-image/design-spec/agent.js"
+    );
+    const { readCandidate, skillRef } = await import(
+        "../src/processes/template-from-image/design-spec/contract.js"
+    );
+    const { candidateDigest } = await import(
+        "../src/processes/template-from-image/design-spec/review.js"
+    );
+    const value = readCandidate(
+        JSON.parse(
+            readFileSync(
+                new URL(
+                    "./fixtures/template-v4-candidate.json",
+                    import.meta.url,
+                ),
+                "utf8",
+            ),
+        ),
+    );
+    const outputs = [
+        value,
+        {
+            reviewedCandidateSha256: candidateDigest(value),
+            changes: [],
+            checks: {},
+            issues: [],
+        },
+    ];
+    const payloads: unknown[] = [];
+    const dispose = vi.fn();
+    const sessionFactory: NonNullable<
+        PiStructuredAgentOptions["sessionFactory"]
+    > = async (options) => {
+        expect(options).toMatchObject({
+            noTools: "all",
+            tools: [],
+            customTools: [],
+            thinkingLevel: "low",
+        });
+        expect(options.settingsManager?.getRetryEnabled()).toBe(false);
+        expect(options.settingsManager?.getCompactionEnabled()).toBe(false);
+        expect(options.resourceLoader?.getSystemPrompt()).toContain(
+            "印花设计预处理与验收框架",
+        );
+        expect(options.resourceLoader?.getSystemPrompt()).toContain(
+            "运行语义 v4",
+        );
+        const model = {
+            id: "test-vision",
+            api: "openai-completions",
+            input: ["text", "image"],
+        };
+        const control = {
+            onPayload: undefined as
+                | undefined
+                | ((payload: unknown, model: unknown) => Promise<unknown>),
+        };
+        return {
+            session: {
+                model,
+                agent: control,
+                prompt: async (
+                    _text: string,
+                    request: { images: { data: string; mimeType: string }[] },
+                ) => {
+                    expect(request.images.length).toBeGreaterThanOrEqual(3);
+                    for (const view of request.images) {
+                        expect(view.mimeType).toBe("image/webp");
+                        expect(
+                            Buffer.from(view.data, "base64").length,
+                        ).toBeLessThanOrEqual(112 * 1024);
+                    }
+                    payloads.push(
+                        await control.onPayload?.(
+                            { messages: [], max_completion_tokens: 128000 },
+                            model,
+                        ),
+                    );
+                },
+                abort: async () => {},
+                dispose,
+                messages: [
+                    {
+                        role: "assistant",
+                        stopReason: "stop",
+                        content: [
+                            {
+                                type: "text",
+                                text: JSON.stringify(outputs.shift()),
+                            },
+                        ],
+                    },
+                ],
+            },
+        } as unknown as CreateAgentSessionResult;
+    };
+    const agent = new PiPrintDesignAgent({
+        skills: [skillRef],
+        sessionFactory,
+        modelRuntime: await ModelRuntime.create({
+            modelsPath: null,
+            refreshOnCreate: false,
+        }),
+    });
+    const request = {
+        image: { ...image, hasTransparency: true },
+        signal: new AbortController().signal,
+    };
+    expect(await agent.compile(request)).toEqual(value);
+    await agent.review({ ...request, candidate: value, issues: [] });
+    expect(payloads[0]).toMatchObject({
+        response_format: { type: "json_object" },
+    });
+    expect(payloads[1]).toMatchObject({
+        response_format: {
+            type: "json_schema",
+            json_schema: { strict: true, name: "print_design_review" },
+        },
+    });
+    for (const payload of payloads)
+        expect(payload).not.toHaveProperty("max_completion_tokens");
+    expect(dispose).toHaveBeenCalledTimes(2);
+});

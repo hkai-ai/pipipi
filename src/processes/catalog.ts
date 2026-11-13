@@ -37,6 +37,7 @@ import {
 } from "./photo-poster/production.js";
 import { posterProduction } from "./poster/production.js";
 import type { ProductionProcess } from "./production.js";
+import { printDesignProduction } from "./template-from-image/design-spec/production.js";
 import {
     templateProduction,
     templateV2Production,
@@ -46,6 +47,7 @@ import {
     templateRenderProduction,
     templateSourceProduction,
     templateSourceV2Production,
+    templateSourceV3Production,
 } from "./template-from-source/production.js";
 
 /**
@@ -77,10 +79,12 @@ export const productionCatalog: readonly ProductionProcess[] = Object.freeze([
     characterEmojiV4Production,
     templateProduction,
     templateV2Production,
+    printDesignProduction,
     templatePlanProduction,
     templateRenderProduction,
     templateSourceProduction,
     templateSourceV2Production,
+    templateSourceV3Production,
     composedProduction,
 ]);
 

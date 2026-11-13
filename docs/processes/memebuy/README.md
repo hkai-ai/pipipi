@@ -39,3 +39,5 @@ Memebuy C 类采用通用 CRT 与照片海报 Process 的背景合同；背景�
 模板新提取使用 `template-from-image/v2`、`template-from-source/v2`，交付带目标归属的运行语义 v3；保留两项 v1 精确版本。字段、复核与发布顺序见 [视觉归属升级](template-from-image/visual-ownership-v3.md)。
 
 模板制作工作台可随同步回执保存脱敏步骤，也可按原运行查询保留期内的父流程与编译成员记录；见[模板执行步骤](../../api.md#模板执行步骤)。
+
+批准图片可通过 Process v3 生成运行语义 V4 的[印花拆解候选](template-from-image/print-design-v4.md)，原方案和成图审批继续复用；旧 v1/v2、历史运行和冻结模板不切换。

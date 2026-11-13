@@ -4,6 +4,7 @@ import { useEffect, useState } from "preact/hooks";
 export function useAsync<Result>(
     load: () => Promise<Result>,
     dependencies: readonly unknown[],
+    refresh = 0,
 ) {
     const key = JSON.stringify(dependencies);
     const [state, setState] = useState<{
@@ -15,7 +16,11 @@ export function useAsync<Result>(
     }>({ key, loading: true });
     useEffect(() => {
         let current = true;
-        setState({ key, loading: true });
+        setState((previous) =>
+            previous.key === key && previous.value !== undefined
+                ? { ...previous, loading: true }
+                : { key, loading: true },
+        );
         load().then(
             (value) =>
                 current &&
@@ -36,6 +41,6 @@ export function useAsync<Result>(
         return () => {
             current = false;
         };
-    }, [key]);
+    }, [key, refresh]);
     return state.key === key ? state : { key, loading: true };
 }

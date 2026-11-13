@@ -6,7 +6,7 @@ import type {
 } from "../process-runtime/index.js";
 import { sanitizeProcessRunLogRecord } from "../process-runtime/log-record.js";
 import type { ProcessRunRecord } from "../process-runtime/records.js";
-import type { ProcessRunActivityArchive } from "./activities.js";
+import { openRunLimit, type ProcessRunActivityArchive } from "./activities.js";
 import {
     encodeProcessRunRecordCursor,
     type ProcessRunRecordArchive,
@@ -179,6 +179,26 @@ export function createPostgresProcessRunActivityArchive(options: {
 
         flush: async () => {
             await Promise.all([...pending]);
+        },
+
+        listOpen: async (since) => {
+            const { rows } = await pool.query(
+                `select * from (
+                    select distinct on (run_id) run_id, process_id, process_version, recorded_at, event
+                    from process_run_activities
+                    where recorded_at >= $1 and strpos(run_id, ':') = 0
+                      and event in ('process_run_attempt_started', 'process_run_attempt_finished')
+                    order by run_id, attempt_number desc, sequence desc, id
+                ) latest where event = 'process_run_attempt_started'
+                order by recorded_at desc, run_id desc limit $2`,
+                [since, openRunLimit],
+            );
+            return rows.map((row) => ({
+                runId: row.run_id,
+                process: row.process_id,
+                version: row.process_version,
+                startedAt: row.recorded_at.toISOString(),
+            }));
         },
 
         findByRun: async (runId) => {

@@ -1194,6 +1194,16 @@ Memebuy 分步工作台可保留同一替换方案反复生图。`template-image
 `template-from-source/v2` 精确依赖 `template-from-image/v2`。两项 v1 接口仍输出运行语义 v2；调用方必须显式提交版本，不支持 latest 或自动回退。发布顺序及历史任务恢复见 [视觉归属升级](processes/memebuy/template-from-image/visual-ownership-v3.md)。
 
 
+## 印花拆解模板（Process v3）
+
+`template-from-image/v3` 沿用图片编译入参，`template-from-source/v3` 沿用成图审批及可选 note，精确依赖前者。两者输出 `inputSchema.version=2`、`runtimeSemantics.version=4`，流程号与语义号分别管理。旧 Process v1/v2 分别继续输出运行语义 v2/v3，不回退或升级已有运行。
+
+V4 模板包含 `targetInstances`、`inputBindings` 与 `designSpec`，不得包含 `visualContract`。完整字段由目录 Schema 与固定作者合同定义；designSpec 保存整体、元素、版面、印花形态、配色角色、印花适配及作者默认迁移。`promptTemplate` 是服务端从默认迁移单向生成的展示文本，不是生成权威；状态、图片与尺寸仍由宿主决定。
+
+输入为 1–12 个可选槽，主体支持文字及一张私有主体照片，其他槽只开放文字；准确文字、指定内容和配色分别绑定同名元素或配色角色。每个槽默认值须与被绑定的 designSpec.defaults 一致。不接受图片内容替换、reference_only 或请求指定运行配置。
+
+编译最长 480 秒，审核后上传与编译最长 570 秒；正常两次独立视觉请求，结构无法读取时最多补一次编译，其后仍须独立复核。复核只修当前字段并完整复验，不重写整份候选、追加生图或自动采用。错误沿图片编译合同；审核后成员失败仍为 `DEPENDENCY_FAILURE_AFTER_COMMIT`，重试复用同一图片，未知提交不自动重投。成功不代表人工视觉或印刷验收通过。部署、来源与验证见 [印花拆解候选](processes/memebuy/template-from-image/print-design-v4.md)。
+
 ## 模板执行步骤
 
 Memebuy 可在同步 `POST /execute` 请求中发送 `X-Pipipi-Template-Steps: 1`，取得本次模板执行已结束的步骤；未请求、旧服务或没有可用步骤时保持原回执。可选的 `diagnostics` 与 `output/error` 同级，不改变执行状态、费用或重试规则。
