@@ -103,7 +103,8 @@ export type ConsoleHttpOptions = Readonly<{
         ) => Promise<ConsoleRecordPage>;
         find: (runId: string) => Promise<ProcessRunRecord | undefined>;
     }>;
-    activities?: Pick<ProcessRunActivityArchive, "findByRun">;
+    activities?: Pick<ProcessRunActivityArchive, "findByRun"> &
+        Partial<Pick<ProcessRunActivityArchive, "listOpen">>;
     queueState?: (
         runId: string,
     ) => Promise<
@@ -1230,6 +1231,15 @@ async function handleConsole(
                 ...(until === undefined ? {} : { until }),
             }),
         );
+        return true;
+    }
+
+    if (options.activities?.listOpen && path === `${base}/open-runs`) {
+        const since = new Date(Date.now() - 3600000).toISOString();
+        response.setHeader("cache-control", "no-store");
+        writeJson(response, 200, {
+            runs: await options.activities.listOpen(since),
+        });
         return true;
     }
 

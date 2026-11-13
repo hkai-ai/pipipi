@@ -5,6 +5,7 @@ import {
     type ConsoleProcessDescription,
     findRun,
     findTimeline,
+    listOpenRuns,
     listProcesses,
     listRuns,
     type ProcessRunRecord,
@@ -27,6 +28,47 @@ import { activityName, processName } from "./labels.js";
 import { useAsync } from "./resource.js";
 import { hrefFor } from "./routing.js";
 import { Timeline } from "./timeline.jsx";
+
+function OpenRuns({ back }: { back: string }) {
+    const [tick, setTick] = useState(0);
+    const result = useAsync(listOpenRuns, [], tick);
+    useEffect(() => {
+        if (result.loading) return;
+        const timer = window.setTimeout(() => setTick((n) => n + 1), 3000);
+        return () => window.clearTimeout(timer);
+    }, [result.loading, tick]);
+    return (
+        <Panel title="最近启动的任务">
+            <p class="hint">
+                显示近一小时已开始且尚未记录结束的最近 100 条执行，每 3 秒刷新。
+            </p>
+            {result.error ? (
+                <p role="alert">{result.error}</p>
+            ) : result.value?.runs.length ? (
+                <ul>
+                    {result.value.runs.map((run) => (
+                        <li key={run.runId}>
+                            {formatTime(run.startedAt)} ·{" "}
+                            {processName(run.process)} / {run.version} ·{" "}
+                            <a
+                                class="run-link"
+                                href={hrefFor({
+                                    view: "run",
+                                    runId: run.runId,
+                                    back,
+                                })}
+                            >
+                                {run.runId}
+                            </a>
+                        </li>
+                    ))}
+                </ul>
+            ) : (
+                <p class="hint">{result.value ? "暂无执行记录" : "读取中…"}</p>
+            )}
+        </Panel>
+    );
+}
 
 export function RunsView({
     processes,
@@ -92,9 +134,7 @@ export function RunsView({
             <div class="page-heading">
                 <div>
                     <h1>运行记录</h1>
-                    <p class="hint">
-                        查看已归档结果；正在排队或执行的任务不在此列表中。
-                    </p>
+                    <p class="hint">按运行 ID 查看执行步骤与已归档结果。</p>
                 </div>
                 <button
                     type="button"
@@ -107,6 +147,7 @@ export function RunsView({
                     刷新记录
                 </button>
             </div>
+            <OpenRuns back={listLink} />
             <Panel title="检索与筛选">
                 <form
                     class="lookup"
@@ -384,7 +425,7 @@ function TemplateCompilationTimeline({
     tick: number;
 }) {
     const runId = `${parentRunId}:compile`;
-    const timeline = useAsync(() => findTimeline(runId), [runId, tick]);
+    const timeline = useAsync(() => findTimeline(runId), [runId], tick);
     const detail = describeTimeline(timeline.value);
     return (
         <Panel title="模板编译子运行">
@@ -412,10 +453,23 @@ export function RunView({
     back?: string;
 }) {
     const [tick, setTick] = useState(0);
-    const record = useAsync(() => findRun(runId), [runId, tick]);
-    const timeline = useAsync(() => findTimeline(runId), [runId, tick]);
+    const record = useAsync(() => findRun(runId), [runId], tick);
+    const timeline = useAsync(() => findTimeline(runId), [runId], tick);
     const catalog = useAsync(() => listProcesses(), []);
     const value = record.value;
+    const recent = timeline.value?.activities.some(
+        (entry) => Date.parse(entry.timestamp) >= Date.now() - 3600000,
+    );
+    const follow =
+        !value &&
+        (recent ||
+            timeline.value?.queue?.status === "queued" ||
+            timeline.value?.queue?.status === "running");
+    useEffect(() => {
+        if (!follow || record.loading || timeline.loading) return;
+        const timer = window.setTimeout(() => setTick((n) => n + 1), 3000);
+        return () => window.clearTimeout(timer);
+    }, [follow, record.loading, timeline.loading, runId, tick]);
     const registration = catalog.value?.processes.find(
         (entry) =>
             entry.process === value?.process &&
@@ -496,6 +550,14 @@ export function RunView({
                     <Timeline timeline={timeline.value} />
                 </Panel>
             ) : null}
+            {timeline.value?.activities.some(
+                (entry) =>
+                    entry.process === "template-from-source" &&
+                    "activity" in entry &&
+                    entry.activity === "approved_image_compilation",
+            ) && (
+                <TemplateCompilationTimeline parentRunId={runId} tick={tick} />
+            )}
             {value ? (
                 <>
                     <Panel
@@ -623,17 +685,6 @@ export function RunView({
                             </p>
                         ) : null}
                     </Panel>
-                    {value.process === "template-from-source" &&
-                    timeline.value?.activities.some(
-                        (entry) =>
-                            "activity" in entry &&
-                            entry.activity === "approved_image_compilation",
-                    ) ? (
-                        <TemplateCompilationTimeline
-                            parentRunId={runId}
-                            tick={tick}
-                        />
-                    ) : null}
                     <Panel title="输入与产出">
                         {imagesOf(value.content?.output).length ? (
                             <div class="result-images">

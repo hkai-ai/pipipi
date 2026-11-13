@@ -51,6 +51,37 @@ export function processRunActivity(
 export function describeRunObservationContract(
     createBackend: () => Promise<ObservationBackend>,
 ): void {
+    it("lists an open top-level attempt before a result exists and removes it after finish", async () => {
+        const { activities, settle } = await createBackend();
+        const start = processRunActivity({ runId: "parent" });
+        const since = "2026-08-11T09:00:00.000Z";
+        for (const runId of ["parent", "parent:compile"])
+            activities.record({ ...start, runId });
+        activities.record({
+            ...start,
+            runId: "expired",
+            timestamp: "2026-08-11T08:59:00.000Z",
+        });
+        await settle();
+        expect(await activities.listOpen(since)).toEqual([
+            {
+                runId: "parent",
+                process: start.process,
+                version: start.version,
+                startedAt: start.timestamp,
+            },
+        ]);
+        activities.record({
+            ...start,
+            sequence: 2,
+            event: "process_run_attempt_finished",
+            outcome: "succeeded",
+            durationMs: 10,
+        });
+        await settle();
+        expect(await activities.listOpen(since)).toEqual([]);
+    });
+
     it("retains the activity instance and sanitized Pi rounds on a finished step", async () => {
         const { activities, settle } = await createBackend();
         const base = processRunActivity({ runId: "pi-rounds" });

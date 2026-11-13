@@ -252,3 +252,5 @@ CRT 与照片海报将背景模式作为可选业务参数；省略时保持原�
 Pi 会话轨迹属于实际执行的 Attempt 和活动实例。Skill 取自会话加载结果，工具权限取自当轮最终请求，调用结果按标识归属。模型输入输出及工具参数不进入轨迹归档。
 
 批准图片的印花拆解使用 `template-from-image/v3` 与 `template-from-source/v3`，交付运行语义 V4；复用原成图审批、人工采用与模板版本，v1/v2 和冻结历史不迁移。同一 Process 各版在生产装配时精确选择自己的固定 Skill，不能覆盖旧版规则。见 [印花拆解候选](docs/processes/memebuy/template-from-image/print-design-v4.md)。
+
+控制台用首次 Attempt 事件发现近期执行，父 runId 在模板编译与复核期间即可查询。活动归档只用于观测。

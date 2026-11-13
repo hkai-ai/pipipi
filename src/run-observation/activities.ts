@@ -4,6 +4,15 @@ import type {
     ProcessRunLogSink,
 } from "../process-runtime/index.js";
 
+export type OpenRun = Readonly<{
+    runId: string;
+    process: string;
+    version: string;
+    startedAt: string;
+}>;
+
+export const openRunLimit = 100;
+
 /**
  * The durable half of the activity log.
  *
@@ -14,6 +23,7 @@ import type {
  * Adapters.
  */
 export type ProcessRunActivityArchive = Readonly<{
+    listOpen: (since: string) => Promise<readonly OpenRun[]>;
     record: ProcessRunLogSink;
     /** Waits for writes already accepted by this process; failures are isolated. */
     flush: () => Promise<void>;

@@ -300,8 +300,11 @@ it("同一 Process 各准确版本只接收自己的固定 Skill，缺失时拒�
             },
         }),
     );
+    const skills = new Map(
+        catalog.map((entry) => [entry, entry.installedSkills({})] as const),
+    );
     const registrations = buildProductionRegistrations(
-        buildOptions(catalog, { skills: { template: [old, next] } }),
+        buildOptions(catalog, { skills }),
     );
     expect(registrations.map((item) => item.identity.version)).toEqual([
         "v1",
@@ -310,7 +313,7 @@ it("同一 Process 各准确版本只接收自己的固定 Skill，缺失时拒�
     expect(received).toEqual([["old-template"], ["new-template"]]);
     expect(() =>
         buildProductionRegistrations(
-            buildOptions(catalog, { skills: { template: [next] } }),
+            buildOptions(catalog, { skills: new Map() }),
         ),
     ).toThrow("exact installed Skill");
 });
