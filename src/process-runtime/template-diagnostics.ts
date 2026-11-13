@@ -78,7 +78,7 @@ const fields = new Set(
     runtimeSemantics visualContract medium styleTraits composition relations colorAndLight
     inputBindings operation targetIds targetId targetInstances appearance targets role region
     metadata tags prompt needsReview rationale reason passed observation
-    reviewedPlanSha256 reviewedDraftSha256 issues`
+    reviewedPlanSha256 reviewedDraftSha256 reviewedCandidateSha256 issues template overview location kind status cover referenceImage imageSize promptTemplate tier signatureFeatures lockedInstances printFit verdict lightIsMood recommendedMethod tone technique canvas balance types shape bbox z layers density visualWeight mechanism paletteSummary usage appliesTo belongsToTechnique omitTemplateImage prePress softEdge paperColor crop edge finish purpose instance originalObject shapeFeatures genericShape inherentColorPolicy layer hasPropText letterform bannedWords subjectName subjectShape subjectInherentColor fun colors accentSources specifiedContent renderingMode allowedSourceGrouping clothingOwnership maxCount private designSpec whole colorRoles defaults elements texts elementId printRisks sourceOptions imageFidelity layoutAndText printForm defaultMigration bindingPolicy valueKind groupToSinglePolicy distributionPolicy resolutionStrategy`
         .split(/\s+/)
         .concat([...reviewChecks]),
 );
@@ -86,7 +86,7 @@ const codes = new Set(
     `invalid_type invalid_value invalid_format too_small too_big invalid_union
     unrecognized_keys invalid_key invalid_element not_multiple_of custom
     type required additionalProperties enum const minItems maxItems minLength maxLength
-    pattern format oneOf anyOf allOf minimum maximum contract draft_semantics analysis_contract review_evidence invalid_schema digest_mismatch unresolved_review check_failed missing_reference fixed_text_missing invalid_target_scope missing_visual_coverage selection_coverage omitted_fact_frozen duplicate_fact target_fact_unreferenced`
+    expected_text_element expected_accent_or_decoration expected_accent_element missing_default_color expected_color_role subject_count missing_subject source_word abstract_style transparency_word unknown_color_role inherent_color_conflict missing_edge max_image_slots patch_overlap invalid_json pattern format oneOf anyOf allOf minimum maximum contract draft_semantics analysis_contract review_evidence invalid_schema digest_mismatch unresolved_review check_failed missing_reference fixed_text_missing invalid_target_scope missing_visual_coverage selection_coverage omitted_fact_frozen duplicate_fact target_fact_unreferenced`
         .split(/\s+/)
         .concat(analysisRuleCodes),
 );
@@ -101,6 +101,9 @@ const dynamicKeys = new Set([
     "completeRedrawByTarget",
     "sourceIsolationByInput",
     "targetTextSha256",
+    "colors",
+    "specifiedContent",
+    "accentSources",
 ]);
 
 export function validationDiagnostics(
@@ -110,7 +113,13 @@ export function validationDiagnostics(
         path: `/${issue.path
             .slice(0, 20)
             .map((part, index, path) => {
-                if (dynamicKeys.has(String(path[index - 1]))) return "*";
+                const parent = path[index - 1];
+                if (
+                    (dynamicKeys.has(String(parent)) &&
+                        path[index - 2] !== "checks") ||
+                    (parent === "texts" && path[index - 2] === "defaults")
+                )
+                    return "*";
                 if (typeof part === "number")
                     return Number.isInteger(part) && part >= 0 && part <= 10_000
                         ? part

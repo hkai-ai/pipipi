@@ -92,19 +92,49 @@ export function applyReview(
     raw: unknown,
 ): PrintDesignCandidate {
     if ((JSON.stringify(raw)?.length ?? Infinity) > 150000)
-        throw new PrintDesignContractError(["独立复核超出限制"]);
+        throw new PrintDesignContractError(
+            ["独立复核超出限制"],
+            [{ path: ["review"], code: "too_big" }],
+        );
     const parsed = reviewSchema(candidate).safeParse(raw);
     if (!parsed.success)
-        throw new PrintDesignContractError(["独立复核格式或摘要不匹配"]);
+        throw new PrintDesignContractError(
+            ["独立复核格式或摘要不匹配"],
+            parsed.error.issues.map((issue) => ({
+                path: ["review", ...issue.path],
+                code:
+                    issue.path[0] === "reviewedCandidateSha256"
+                        ? "digest_mismatch"
+                        : issue.code,
+            })),
+        );
     const review = parsed.data;
     if (
         review.issues.length ||
         Object.values(review.checks).some((check) => !check.passed)
     )
-        throw new PrintDesignContractError(["独立复核仍有未解决问题"]);
+        throw new PrintDesignContractError(
+            ["独立复核仍有未解决问题"],
+            [
+                ...Object.entries(review.checks)
+                    .filter(([, v]) => !v.passed)
+                    .map(([name]) => ({
+                        path: ["review", "checks", name, "passed"],
+                        code: "check_failed",
+                    })),
+                ...(review.issues.length
+                    ? [
+                          {
+                              path: ["review", "issues"],
+                              code: "unresolved_review",
+                          },
+                      ]
+                    : []),
+            ],
+        );
     const updated: unknown = structuredClone(candidate);
     const seen: string[] = [];
-    for (const change of review.changes) {
+    for (const [index, change] of review.changes.entries()) {
         if (
             seen.some(
                 (path) =>
@@ -113,7 +143,15 @@ export function applyReview(
                     path.startsWith(`${change.path}/`),
             )
         )
-            throw new PrintDesignContractError(["复核补丁路径冲突"]);
+            throw new PrintDesignContractError(
+                ["复核补丁路径冲突"],
+                [
+                    {
+                        path: ["review", "changes", index, "path"],
+                        code: "patch_overlap",
+                    },
+                ],
+            );
         seen.push(change.path);
         const parts = change.path
             .slice(1)
@@ -126,7 +164,15 @@ export function applyReview(
                 typeof parent !== "object" ||
                 !Object.hasOwn(parent, part)
             )
-                throw new PrintDesignContractError(["复核补丁路径不存在"]);
+                throw new PrintDesignContractError(
+                    ["复核补丁路径不存在"],
+                    [
+                        {
+                            path: ["review", "changes", index, "path"],
+                            code: "missing_reference",
+                        },
+                    ],
+                );
             parent = Reflect.get(parent, part);
         }
         const key = parts.at(-1);
@@ -136,19 +182,52 @@ export function applyReview(
             typeof parent !== "object" ||
             !Object.hasOwn(parent, key)
         )
-            throw new PrintDesignContractError(["复核补丁路径不存在"]);
+            throw new PrintDesignContractError(
+                ["复核补丁路径不存在"],
+                [
+                    {
+                        path: ["review", "changes", index, "path"],
+                        code: "missing_reference",
+                    },
+                ],
+            );
         let value: unknown;
         try {
             value = JSON.parse(change.valueJson);
         } catch {
-            throw new PrintDesignContractError(["复核补丁值不是 JSON"]);
+            throw new PrintDesignContractError(
+                ["复核补丁值不是 JSON"],
+                [
+                    {
+                        path: ["review", "changes", index, "valueJson"],
+                        code: "invalid_json",
+                    },
+                ],
+            );
         }
         Reflect.set(parent, key, value);
     }
     const result = readCandidate(updated);
     const finalPaths = new Set(candidatePaths(result));
-    for (const check of Object.values(review.checks))
+    for (const [name, check] of Object.entries(review.checks))
         if (check.evidence.some((item) => !finalPaths.has(item.path)))
-            throw new PrintDesignContractError(["复核证据引用了已删除的字段"]);
+            throw new PrintDesignContractError(
+                ["复核证据引用了已删除的字段"],
+                [
+                    {
+                        path: [
+                            "review",
+                            "checks",
+                            name,
+                            "evidence",
+                            check.evidence.findIndex(
+                                (item) => !finalPaths.has(item.path),
+                            ),
+                            "path",
+                        ],
+                        code: "missing_reference",
+                    },
+                ],
+            );
     return result;
 }

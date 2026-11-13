@@ -421,7 +421,7 @@ browserDescribe("operator observation browser", () => {
                     code: "invalid_contract",
                     issues: [
                         {
-                            path: "/review/checks/visualContractRespectsInputs/passed",
+                            path: "/review/checks/printForm/passed",
                             code: "check_failed",
                         },
                     ],
@@ -433,12 +433,10 @@ browserDescribe("operator observation browser", () => {
                 .getByRole("heading", { name: "模板编译子运行" })
                 .waitFor();
             await page
-                .getByText(
-                    "/review/checks/visualContractRespectsInputs/passed",
-                    { exact: true },
-                )
+                .getByText("/review/checks/printForm/passed", { exact: true })
                 .waitFor();
             await page.getByText("check_failed", { exact: true }).waitFor();
+            await page.getByText("印花形态未通过", { exact: false }).waitFor();
             // 在观察端没有任何终态记录时，从列表进入父运行并等待子阶段切换。
             const parent = {
                 schemaVersion: 1 as const,

@@ -426,7 +426,6 @@ function TemplateCompilationTimeline({
 }) {
     const runId = `${parentRunId}:compile`;
     const timeline = useAsync(() => findTimeline(runId), [runId], tick);
-    const detail = describeTimeline(timeline.value);
     return (
         <Panel title="模板编译子运行">
             <p class="hint run-link">{runId}</p>
@@ -435,12 +434,6 @@ function TemplateCompilationTimeline({
             ) : (
                 <Timeline timeline={timeline.value} />
             )}
-            {detail.diagnostic?.issues?.map((issue) => (
-                <p>
-                    校验字段：<code>{issue.path}</code>；规则：
-                    <code>{issue.code}</code>
-                </p>
-            ))}
         </Panel>
     );
 }
@@ -634,12 +627,6 @@ export function RunView({
                                     }
                                 </p>
                             ) : null}
-                            {details.diagnostic?.issues?.map((issue) => (
-                                <p key={`${issue.path}:${issue.code}`}>
-                                    校验字段：<code>{issue.path}</code>；规则：
-                                    <code>{issue.code}</code>
-                                </p>
-                            ))}
                             <details>
                                 <summary>技术标识</summary>
                                 <p>

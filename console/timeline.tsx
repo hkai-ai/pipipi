@@ -1,6 +1,7 @@
 /** 按执行轮次展示中文步骤、结果和耗时，并以白名单投影展示技术事件。 */
 
 import {
+    type ActivityDiagnostic,
     explainDiagnostic,
     sanitizeActivityDiagnostic,
 } from "../src/process-runtime/diagnostics.js";
@@ -11,6 +12,71 @@ import { formatDuration, formatTime } from "./formatting.jsx";
 import { activityName } from "./labels.js";
 
 import { PiTrace } from "./pi-trace.jsx";
+
+const reviewLabels: Record<string, string> = {
+    imageFidelity: "原图还原",
+    layoutAndText: "版式与文字",
+    printForm: "印花形态",
+    inputBindings: "输入绑定",
+    defaultMigration: "默认值迁移",
+    sourceIsolation: "原图特征隔离",
+};
+const ruleLabels: Record<string, string> = {
+    expected_text_element: "默认文字必须引用文字元素",
+    expected_accent_or_decoration: "默认内容必须引用点缀或装饰元素",
+    expected_accent_element: "点缀来源必须引用点缀元素",
+    missing_default_color: "配色角色缺少默认颜色",
+    expected_color_role: "颜色必须引用已声明的配色角色",
+    subject_count: "模板必须有且只有一个主体元素",
+    unresolved_review: "复核报告仍列有待解决的问题",
+    missing_reference: "引用的目标字段不存在",
+    missing_evidence: "缺少原图观察依据",
+    value_mismatch: "字段值与关联字段不一致",
+    target_binding_mismatch: "输入槽与目标绑定不匹配",
+    invalid_target_scope: "目标类型不适用于此绑定",
+    duplicate_id: "标识或绑定目标重复",
+    missing_subject: "缺少主体元素",
+    missing_edge: "矩形贴片缺少收边元素",
+    max_image_slots: "主体照片槽超过一个",
+    source_word: "可迁移描述含原物专属词",
+    abstract_style: "描述使用了受限的抽象风格词",
+    transparency_word: "描述含会造成半透明的词",
+    unknown_color_role: "颜色占位引用了未定义的配色角色",
+    inherent_color_conflict: "配色角色与保留主体固有色冲突",
+    digest_mismatch: "复核报告未绑定本次候选",
+    patch_overlap: "复核补丁路径重叠",
+    invalid_json: "补丁值无法解析为 JSON",
+    required: "缺少必填字段",
+    invalid_type: "字段缺失或类型不匹配",
+    invalid_value: "字段不符合约定取值",
+    unrecognized_keys: "对象含合同之外的字段",
+    too_big: "超出合同上限",
+    too_small: "未达到合同下限",
+};
+function ContractIssues({ diagnostic }: { diagnostic?: ActivityDiagnostic }) {
+    if (!diagnostic?.issues?.length)
+        return diagnostic?.code === "invalid_contract" ? (
+            <p>这次运行未保存具体字段和规则。</p>
+        ) : null;
+    return (
+        <>
+            {diagnostic.issues.map((issue, index) => {
+                const check = issue.path.split("/")[3];
+                const explanation =
+                    issue.code === "check_failed"
+                        ? `${reviewLabels[check] ?? "独立复核检查"}未通过`
+                        : ruleLabels[issue.code];
+                return (
+                    <p key={`${index}-${issue.path}`}>
+                        {explanation && <strong>{explanation} · </strong>}
+                        校验字段 <code>{issue.path}</code> · 规则{" "}
+                        <code>{issue.code}</code>
+                    </p>
+                );
+            })}
+        </>
+    );
+}
 
 const outcomes: Record<string, string> = {
     succeeded: "成功",
@@ -152,6 +218,9 @@ export function Timeline({
                                                 }
                                             </p>
                                         ) : null}
+                                        <ContractIssues
+                                            diagnostic={diagnostic}
+                                        />
                                         <time
                                             class="cell-meta"
                                             dateTime={entry.timestamp}
