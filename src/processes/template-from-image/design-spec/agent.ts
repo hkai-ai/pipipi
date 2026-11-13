@@ -150,7 +150,7 @@ export class PiPrintDesignAgent implements PrintDesignAgent {
                           ]
                         : []),
                     "defaults 的动态键必须引用对应类型的 id：texts 只引用 text，accentSources 只引用 accent，specifiedContent 只引用 accent 或 decoration；colors 要覆盖全部且仅有 whole.colorRoles 的 id。没有适用元素时对应字典留空。colorRoles.appliesTo 只引用已定义元素。",
-                    "编写可执行描述时按绑定目标区分可替换内容与固定版式。可替换主体的原物和独有外形只放观察或证据字段；固定布局以角色和位置描述主体。明确随主体变化的文字标 followsSubject，独立文字按其自己的绑定或固定口号保留。",
+                    "原物词检查覆盖 whole 的描述、元素画法以及 defaults 的主体、动作和点缀来源。这些可执行字段不能含 originalObject、shapeFeatures 和 bannedWords 中的词；保留源图依据，作者默认迁移需选可替代的主体，勿将原物换个位置写回。编写可执行描述时按绑定目标区分可替换内容与固定版式。可替换主体的原物和独有外形只放观察或证据字段；固定布局以角色和位置描述主体。明确随主体变化的文字标 followsSubject，独立文字按其自己的绑定或固定口号保留。",
                     "先写 observation，再写 draft。defaults 是可执行的默认迁移，主体原物与外形证据写入 originalObject、shapeFeatures；默认主体、动作、固有色与槽默认值按同一份可迁移方案填写。自由文本使用 presentation=free_text；推荐项使用 presentation=suggestions 并列出 suggestions。可传照片的主体槽声明 image.sourceOptions（如 upload），身份绑定声明 groupToSinglePolicy=reject。准确文字按完整文字元素逐字记录。相同元素的多行合为一项；大小写、标点、换行在 observation.texts[].text、defaults.texts[elementId] 及对应文字槽的默认值中必须逐值一致。measurement 未提供的量记未知，不编造统计。bbox 是人审用的候选位置，不能声称像素识别已通过。promptTemplate 由服务端投影，不返回。最多一个主体照片槽，其他只开放文本。只编译批准图片，不改变图像内容。",
                 ],
             }).run({
