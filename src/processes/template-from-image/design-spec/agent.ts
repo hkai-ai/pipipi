@@ -150,7 +150,7 @@ export class PiPrintDesignAgent implements PrintDesignAgent {
                           ]
                         : []),
                     "defaults 的动态键必须引用对应类型的 id：texts 只引用 text，accentSources 只引用 accent，specifiedContent 只引用 accent 或 decoration；colors 要覆盖全部且仅有 whole.colorRoles 的 id。没有适用元素时对应字典留空。colorRoles.appliesTo 只引用已定义元素。",
-                    "原物词检查覆盖 whole 的描述、元素画法以及 defaults 的主体、动作和点缀来源。这些可执行字段不能含 originalObject、shapeFeatures 和 bannedWords 中的词；保留源图依据，作者默认迁移需选可替代的主体，勿将原物换个位置写回。编写可执行描述时按绑定目标区分可替换内容与固定版式。可替换主体的原物和独有外形只放观察或证据字段；固定布局以角色和位置描述主体。明确随主体变化的文字标 followsSubject，独立文字按其自己的绑定或固定口号保留。",
+                    "原物词检查覆盖 whole 的描述、元素画法以及 defaults 的主体、动作和点缀来源。尤其检查 whole.composition.relations 的每个三元组：两端使用中性元素 id 或版面角色，中间只写位置或遮挡关系。元素 id 也用角色命名，原物词即使嵌入英文 id 仍会命中。不要从观察里照抄原物名或独有部位。上述可执行字段不能含 originalObject、shapeFeatures 和 bannedWords 中的词；保留源图依据，作者默认迁移需选可替代的主体，勿将原物换个位置写回。编写可执行描述时按绑定目标区分可替换内容与固定版式。可替换主体的原物和独有外形只放观察或证据字段；固定布局以角色和位置描述主体。明确随主体变化的文字标 followsSubject，独立文字按其自己的绑定或固定口号保留。",
                     "先写 observation，再写 draft。defaults 是可执行的默认迁移，主体原物与外形证据写入 originalObject、shapeFeatures；默认主体、动作、固有色与槽默认值按同一份可迁移方案填写。自由文本使用 presentation=free_text；推荐项使用 presentation=suggestions 并列出 suggestions。可传照片的主体槽声明 image.sourceOptions（如 upload），身份绑定声明 groupToSinglePolicy=reject。准确文字按完整文字元素逐字记录。相同元素的多行合为一项；大小写、标点、换行在 observation.texts[].text、defaults.texts[elementId] 及对应文字槽的默认值中必须逐值一致。measurement 未提供的量记未知，不编造统计。bbox 是人审用的候选位置，不能声称像素识别已通过。promptTemplate 由服务端投影，不返回。最多一个主体照片槽，其他只开放文本。只编译批准图片，不改变图像内容。",
                 ],
             }).run({
@@ -177,7 +177,7 @@ export class PiPrintDesignAgent implements PrintDesignAgent {
                 instructions: [
                     "独立重新观察同一批准图，核对候选观察、designSpec 与输入绑定；先找遗漏与误读，再核对取舍，不能只复述生成者。",
                     "通过时 changes 为空；有具体问题时只修已有路径及必要依赖，valueJson 是替换值的完整 JSON。不得重写整份候选，不补造看不到的事实，不改变语义版本，不生成 promptTemplate。",
-                    "涉及原文、文字元素或默认字的补丁，先核对同一 elementId 的 observation.texts、defaults.texts 和对应输入槽，改动一处后检查另两处。按原图纠正冲突，使用具体叶子路径，保留无关字段。对补丁后的完整候选填写六项检查，evidence.path 必须存在，observation 写具体画面依据。issues 仅列补丁后仍阻断草稿的问题，每项给出所属 check、该问题对应的具体候选字段 path 和 reason；该项检查须标 passed=false。可在原预算内用现有路径修补的问题应先修补，再检查修改后的候选。所有检查通过时 issues 为空。不允许用编译成功代替视觉或印刷验收，表达机制仍须人工确认。",
+                    "对 issues 中的程序检查逐条修补，逐一核对 path 与命中的词。关系行检查同时扫描三个值；有原物词则替换该行三元组，用可迁移角色表达原来的空间关系，保留其余行。复核新写的关系也需过同样的原物词检查。涉及原文、文字元素或默认字的补丁，先核对同一 elementId 的 observation.texts、defaults.texts 和对应输入槽，改动一处后检查另两处。按原图纠正冲突，使用具体叶子路径，保留无关字段。对补丁后的完整候选填写六项检查，evidence.path 必须存在，observation 写具体画面依据。issues 仅列补丁后仍阻断草稿的问题，每项给出所属 check、该问题对应的具体候选字段 path 和 reason；该项检查须标 passed=false。可在原预算内用现有路径修补的问题应先修补，再检查修改后的候选。所有检查通过时 issues 为空。不允许用编译成功代替视觉或印刷验收，表达机制仍须人工确认。",
                     "复核本步交付的可编辑草稿。待人审的表达机制、实物打样和上身预览写入 observation.printRisks（必要时提交补丁）；只有影响本次草稿合同且补丁后仍未解决的问题放入 issues。发现原图与候选不符、证据不足以完成六项检查时据实拒绝。检查默认值与所有开放输入一致；sourceIsolation 按每个槽实际接管的 targetIds 判断：替换身份后，可执行的固定描述不得仍要求原主体的专属外形、名字或附图内容。观察证据与可被绑定覆盖的 defaults 保留原始或默认值是正常的。仅标记 followsSubject 的文字随主体变化；独立文字槽、固定口号和模板自身的版式背景分别遵守自己的合同。发现固定字段串入原主体特征时，在本次补丁中修正对应字段；若仍无法隔离，报告 false 并用 evidence.path 指向实际冲突的候选字段。printForm 检查的是草稿是否准确记录原图形态、边缘和印花风险。若反差、半透明或软边待处理，按原图标注风险和适配状态；实物打样不属于本步验收。若草稿误述原图、漏记风险或虚构了边框，修补后再作判断。",
                 ],
             }).run({

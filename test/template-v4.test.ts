@@ -356,6 +356,30 @@ it("原物词命中可执行字段时记录叶子路径与规则，不泄露禁�
         }),
     );
 });
+it("复核可单独修正命中原物词的关系行并通过最终合同", () => {
+    const value = fixture();
+    const spec = value.draft.runtimeSemantics.designSpec;
+    const relations = spec.whole.composition.relations;
+    if (!relations?.length) throw new Error("测试样本必须包含构图关系");
+    const original = structuredClone(relations[0]);
+    spec.bannedWords.push("受限原物");
+    relations[0][2] = "受限原物";
+    const rowPath =
+        "/draft/runtimeSemantics/designSpec/whole/composition/relations/0";
+    expect(() => compileResult(value, imageUrl, image)).toThrowError(
+        expect.objectContaining({
+            diagnostic: expect.objectContaining({
+                issues: [{ path: rowPath, code: "source_word" }],
+            }),
+        }),
+    );
+    const report = review(value);
+    report.changes.push({ path: rowPath, valueJson: JSON.stringify(original) });
+    expect(
+        compileResult(applyReview(value, report), imageUrl, image).template
+            .status,
+    ).toBe("DRAFT");
+});
 it("逐字对账区分引用错误与文字冲突，复核可只改出错的文字叶子", () => {
     const value = fixture();
     const original = value.observation.texts[0].text;
