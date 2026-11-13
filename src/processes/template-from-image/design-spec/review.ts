@@ -57,6 +57,9 @@ export function reviewSchema(candidate: PrintDesignCandidate) {
                 "/observation/texts",
                 "/observation/printRisks",
             ].includes(path) ||
+            /^\/draft\/runtimeSemantics\/designSpec\/whole\/composition\/relations\/\d+$/u.test(
+                path,
+            ) ||
             /^\/observation\/texts\/\d+\/(text|elementId)$/u.test(path) ||
             path.startsWith(
                 "/draft/runtimeSemantics/designSpec/defaults/texts/",
