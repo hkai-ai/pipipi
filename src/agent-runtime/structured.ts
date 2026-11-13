@@ -24,7 +24,10 @@ export type PiStructuredAgentOptions = PiSessionOptions &
 export type StructuredAgentRequest = Readonly<{
     prompt: string;
     signal: AbortSignal;
-    images?: readonly Readonly<{ data: string; mimeType: "image/png" }>[];
+    images?: readonly Readonly<{
+        data: string;
+        mimeType: "image/png" | "image/webp";
+    }>[];
 }>;
 
 export type StructuredAgentResult = Readonly<{

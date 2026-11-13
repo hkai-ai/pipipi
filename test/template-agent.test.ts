@@ -504,9 +504,15 @@ it("印花 v4 编译和复核均使用隔离无 Tool 会话，复核使用严格
                 agent: control,
                 prompt: async (
                     _text: string,
-                    request: { images: unknown[] },
+                    request: { images: { data: string; mimeType: string }[] },
                 ) => {
-                    expect(request.images.length).toBeGreaterThan(0);
+                    expect(request.images.length).toBeGreaterThanOrEqual(3);
+                    for (const view of request.images) {
+                        expect(view.mimeType).toBe("image/webp");
+                        expect(
+                            Buffer.from(view.data, "base64").length,
+                        ).toBeLessThanOrEqual(112 * 1024);
+                    }
                     payloads.push(
                         await control.onPayload?.(
                             { messages: [], max_completion_tokens: 128000 },
@@ -539,7 +545,10 @@ it("印花 v4 编译和复核均使用隔离无 Tool 会话，复核使用严格
             refreshOnCreate: false,
         }),
     });
-    const request = { image, signal: new AbortController().signal };
+    const request = {
+        image: { ...image, hasTransparency: true },
+        signal: new AbortController().signal,
+    };
     expect(await agent.compile(request)).toEqual(value);
     await agent.review({ ...request, candidate: value, issues: [] });
     expect(payloads[0]).toMatchObject({

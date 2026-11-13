@@ -35,6 +35,33 @@ export interface PrintDesignAgent {
         },
     ): Promise<unknown>;
 }
+// 为指令、候选和 JSON 编码留出网关空间。缩放只作用于传给模型的观察副本。
+async function encodeObservation(
+    source: Buffer,
+    signal: AbortSignal,
+    background?: string,
+) {
+    for (let width = 1600; width >= 100; width = Math.floor(width * 0.75)) {
+        signal.throwIfAborted();
+        const view = sharp(source).resize({
+            width,
+            height: width,
+            fit: "inside",
+            withoutEnlargement: true,
+        });
+        if (background) view.flatten({ background });
+        const bytes = await view
+            .webp({ quality: 82, alphaQuality: 90 })
+            .toBuffer();
+        if (bytes.length <= 112 * 1024)
+            return {
+                data: bytes.toString("base64"),
+                mimeType: "image/webp" as const,
+            };
+    }
+    throw new Error("模板观察图编码超出预算");
+}
+
 export class PiPrintDesignAgent implements PrintDesignAgent {
     readonly #options: Omit<PiStructuredAgentOptions, "instructions">;
     constructor(options: Omit<PiStructuredAgentOptions, "instructions">) {
@@ -80,22 +107,22 @@ export class PiPrintDesignAgent implements PrintDesignAgent {
             request.signal,
             "content",
         );
-        const images = [...views.images];
-        const backgrounds: string[] = [];
-        if (request.image.hasTransparency)
-            for (const background of ["#ffffff", "#101010"]) {
-                request.signal.throwIfAborted();
-                images.push({
-                    data: (
-                        await sharp(Buffer.from(request.image.data, "base64"))
-                            .flatten({ background })
-                            .png()
-                            .toBuffer()
-                    ).toString("base64"),
-                    mimeType: "image/png",
-                });
-                backgrounds.push(background);
-            }
+        const images = await Promise.all(
+            views.images.map((view) =>
+                encodeObservation(
+                    Buffer.from(view.data, "base64"),
+                    request.signal,
+                ),
+            ),
+        );
+        const backgrounds = request.image.hasTransparency
+            ? ["#ffffff", "#101010"]
+            : [];
+        const source = Buffer.from(request.image.data, "base64");
+        for (const background of backgrounds)
+            images.push(
+                await encodeObservation(source, request.signal, background),
+            );
         request.signal.throwIfAborted();
         return {
             images,
