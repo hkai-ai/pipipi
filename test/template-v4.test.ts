@@ -242,6 +242,14 @@ it("复核拒绝保留具体检查，结构错误保留安全字段，动态键�
                         code: "check_failed",
                     },
                     { path: "/review/issues", code: "unresolved_review" },
+                    {
+                        path: "/draft/runtimeSemantics/designSpec",
+                        code: "review_evidence",
+                    },
+                    {
+                        path: "/draft/runtimeSemantics/designSpec",
+                        code: "review_evidence",
+                    },
                 ],
             },
         }),

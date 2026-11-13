@@ -22,6 +22,7 @@ const reviewLabels: Record<string, string> = {
     sourceIsolation: "原图特征隔离",
 };
 const ruleLabels: Record<string, string> = {
+    review_evidence: "未通过的复核项引用了此候选字段",
     expected_text_element: "默认文字必须引用文字元素",
     expected_accent_or_decoration: "默认内容必须引用点缀或装饰元素",
     expected_accent_element: "点缀来源必须引用点缀元素",
