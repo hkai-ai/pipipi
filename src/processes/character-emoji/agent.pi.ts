@@ -1,5 +1,6 @@
 /** 在受限 Pi 会话中选用本地素材、按需搜梗并提交经业务校验的方案。 */
 
+import { createHash } from "node:crypto";
 import {
     createAgentSession,
     defineTool,
@@ -26,6 +27,7 @@ import {
     promptPi,
     recordPiDecision,
     recordPiField,
+    recordPiToolField,
     tracePiValidation,
 } from "../../agent-runtime/trace.js";
 import type { ModelGateway } from "../../model-gateway.js";
@@ -270,6 +272,11 @@ export class PiCharacterEmojiAgent
                     failed = true;
                     throw new Error("搜梗调用超过预算");
                 }
+                recordPiToolField(session, callId, "focus", () =>
+                    typeof args.focus === "string"
+                        ? { value: args.focus }
+                        : { note: "本次调用未提供 focus。" },
+                );
                 const finishSearch = (
                     result: MemeResearch,
                     error?: unknown,
@@ -277,6 +284,12 @@ export class PiCharacterEmojiAgent
                     completedSearches++;
                     research.push(result);
                     session.setActiveToolsByName([]);
+                    if (result.status !== "failed")
+                        recordPiDecision(
+                            session,
+                            { kind: "search_result", material: result.status },
+                            callId,
+                        );
                     if (result.status === "failed") {
                         recordPiDecision(
                             session,
@@ -501,11 +514,56 @@ export class PiCharacterEmojiAgent
                 if (!Array.isArray(request.input))
                     throw new Error("表情包模型输入格式无效");
                 // 首轮也可能直接出稿；每轮提供当前来源合同，不增加专门的搜索判断请求。
+                const candidateRule =
+                    "提交时只返回符合以下 JSON Schema 的完整方案对象：";
+                const candidateSchema = z.toJSONSchema(schema());
+                const serialized = JSON.stringify(candidateSchema);
+                recordPiField(session, "input", "candidateRule", () => ({
+                    value: candidateRule,
+                }));
+                recordPiField(
+                    session,
+                    "input",
+                    "candidateSchema.sha256",
+                    () => ({
+                        value: createHash("sha256")
+                            .update(serialized)
+                            .digest("hex"),
+                    }),
+                );
+                const property = mode === "single" ? "scene" : "panels";
+                recordPiField(
+                    session,
+                    "input",
+                    `candidateSchema.properties.${property}`,
+                    () => {
+                        const fields = candidateSchema.properties?.[property];
+                        if (!fields || typeof fields !== "object")
+                            return { note: "该候选未声明此字段。" };
+                        // Never emit nested schemas: cast identities and source IDs may be request-dependent enums.
+                        const {
+                            type,
+                            minLength,
+                            maxLength,
+                            minItems,
+                            maxItems,
+                        } = fields;
+                        return {
+                            value: JSON.stringify({
+                                type,
+                                minLength,
+                                maxLength,
+                                minItems,
+                                maxItems,
+                            }),
+                        };
+                    },
+                );
                 request.input = [
                     ...request.input,
                     {
                         role: "system",
-                        content: `提交时只返回符合以下 JSON Schema 的完整方案对象：${JSON.stringify(z.toJSONSchema(schema()))}`,
+                        content: candidateRule + serialized,
                     },
                 ];
                 return {

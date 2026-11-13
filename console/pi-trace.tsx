@@ -15,6 +15,7 @@ const outcomes = {
     deferred: "已延后",
 } as const;
 const decisions = {
+    search_result: "搜索材料",
     search_failed: "联网搜索失败",
     original_fallback: "改用原创",
     validation_failed: "校验失败",
@@ -137,6 +138,9 @@ function DecisionList({ entries }: { entries?: PiDecision[] }) {
                 <li key={index}>
                     {decisions[decision.kind]}
                     {decision.call ? ` · 调用 ${decision.call}` : ""}
+                    {decision.material
+                        ? ` · ${{ usable: "可用", insufficient: "不足", unverifiable: "未核验" }[decision.material]}`
+                        : ""}
                     {decision.reason ? ` · ${decision.reason}` : ""}
                     {decision.httpStatus
                         ? ` · HTTP ${decision.httpStatus}`

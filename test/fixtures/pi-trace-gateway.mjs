@@ -6,7 +6,7 @@ function sendJson(response, value, status = 200) {
     response.end(JSON.stringify(value));
 }
 
-function finalMessage(value) {
+function finalMessage(value, annotations = []) {
     return {
         id: "msg_demo",
         type: "message",
@@ -17,7 +17,7 @@ function finalMessage(value) {
             {
                 type: "output_text",
                 text: JSON.stringify(value),
-                annotations: [],
+                annotations,
             },
         ],
     };
@@ -139,7 +139,8 @@ export async function startDemoGateway(fixture, useSearch, options = {}) {
             ) {
                 if (
                     !request.headers["idempotency-key"] ||
-                    input.imageUrls?.length !== 1
+                    input.imageUrls?.length !==
+                        fixture.request.input.cast.length
                 )
                     throw new Error("unexpected render");
                 counts.render++;
@@ -164,20 +165,47 @@ export async function startDemoGateway(fixture, useSearch, options = {}) {
                         { error: "private dependency failure" },
                         503,
                     );
+                const withSource =
+                    options.scenario === "usable" ||
+                    options.scenario === "unverifiable";
+                const sourceUrl = "https://example.test/private-source-417";
+                const sourceText = "仅供检索的私密探针-417";
                 return sendJson(response, {
                     status: "completed",
                     output: [
                         { type: "web_search_call", status: "completed" },
-                        finalMessage({
-                            entries: [],
-                            insufficiency:
-                                "本地演示无可引用的社区梗，按给定题材原创。",
-                        }),
+                        finalMessage(
+                            {
+                                entries: withSource
+                                    ? [
+                                          {
+                                              kind: "community_primary",
+                                              sourceUrl,
+                                              summary: sourceText,
+                                          },
+                                      ]
+                                    : [],
+                                insufficiency: withSource
+                                    ? ""
+                                    : "本地演示无可引用的社区梗，按给定题材原创。",
+                            },
+                            options.scenario === "usable"
+                                ? [
+                                      {
+                                          type: "url_citation",
+                                          url: sourceUrl,
+                                          title: "fixture",
+                                          summary: sourceText,
+                                      },
+                                  ]
+                                : [],
+                        ),
                     ],
                 });
             }
             if (input.model !== "deepseek-v4.1-flash" || input.stream !== true)
                 throw new Error("unexpected model");
+            options.onCandidateRequest?.(input);
             counts.plan++;
             await options.beforePlan?.();
             if (response.destroyed) return;
@@ -212,6 +240,13 @@ export async function startDemoGateway(fixture, useSearch, options = {}) {
                 input.model,
                 finalMessage({
                     ...fixture.output.plan,
+                    ...(fixture.output.plan.panels
+                        ? {
+                              panels: fixture.output.plan.panels.map(
+                                  ({ index: _, ...panel }) => panel,
+                              ),
+                          }
+                        : {}),
                     ...(options.scenario === "repair-rejected" ||
                     (options.scenario === "repair" && counts.plan === 1)
                         ? { caption: "错字" }

@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -5,6 +6,7 @@ import { chromium } from "playwright-core";
 import { expect, it, vi } from "vitest";
 import { constructProcessingService } from "../src/app/api.ts";
 import { startDemoGateway } from "./fixtures/pi-trace-gateway.mjs";
+import { chromeExecutable } from "./support/chrome.js";
 
 const fixture = JSON.parse(
     await readFile(
@@ -16,7 +18,16 @@ it("discovers a live /execute run, reads approved fields and discards them on co
     const archive = await mkdtemp(join(tmpdir(), "local-trace-"));
     const rendering = Promise.withResolvers();
     const release = Promise.withResolvers();
+    const providerSchemas = [];
     const gateway = await startDemoGateway(fixture, true, {
+        onCandidateRequest: (input) => {
+            const message = input.input.at(-1).content;
+            const wireSchema = message.slice(message.indexOf("{"));
+            providerSchemas.push({
+                digest: createHash("sha256").update(wireSchema).digest("hex"),
+                scene: JSON.parse(wireSchema).properties.scene,
+            });
+        },
         thinking: "HIDDEN_REASONING_PROBE_417",
         beforeRender: () => {
             rendering.resolve();
@@ -80,6 +91,32 @@ it("discovers a live /execute run, reads approved fields and discards them on co
         const detail = await fetch(`${endpoint}/${runId}`);
         expect(detail.headers.get("cache-control")).toBe("no-store");
         const { events } = await detail.json();
+        expect(providerSchemas).toHaveLength(2);
+        for (const [index, wire] of providerSchemas.entries()) {
+            const fields = events.filter(
+                (e) => e.round === index + 1 && e.kind === "input",
+            );
+            expect(fields).toEqual(
+                expect.arrayContaining([
+                    expect.objectContaining({
+                        field: "candidateSchema.sha256",
+                        value: wire.digest,
+                    }),
+                    expect.objectContaining({
+                        field: "candidateSchema.properties.scene",
+                        value: JSON.stringify({
+                            type: wire.scene.type,
+                            minLength: wire.scene.minLength,
+                            maxLength: wire.scene.maxLength,
+                        }),
+                    }),
+                    expect.objectContaining({
+                        field: "candidateRule",
+                        value: "提交时只返回符合以下 JSON Schema 的完整方案对象：",
+                    }),
+                ]),
+            );
+        }
         expect(events).toEqual(
             expect.arrayContaining([
                 expect.objectContaining({
@@ -118,14 +155,25 @@ it("discovers a live /execute run, reads approved fields and discards them on co
         let page;
         if (process.env.RUN_CONSOLE_OBSERVATION_BROWSER === "1") {
             browser = await chromium.launch({
-                executablePath:
-                    process.env.CHROME_PATH ??
-                    "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+                executablePath: await chromeExecutable(),
             });
             page = await browser.newPage();
             await page.goto(`${url}/console/`);
             await page.getByRole("link", { name: "本地实时调试" }).click();
             await page.getByRole("link", { name: runId }).click();
+            await page
+                .getByText("模型输入 · candidateSchema.sha256", { exact: true })
+                .first()
+                .click();
+            await page
+                .getByText(providerSchemas[0].digest, { exact: true })
+                .first()
+                .waitFor();
+            await page
+                .getByText("正式业务输出由原 POST /execute 返回。", {
+                    exact: true,
+                })
+                .waitFor();
             await page.getByText("模型回复 · scene").click();
             await page
                 .getByText(fixture.output.plan.scene, { exact: true })

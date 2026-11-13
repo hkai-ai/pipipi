@@ -103,7 +103,12 @@ export type ConsoleHttpOptions = Readonly<{
         ) => Promise<ConsoleRecordPage>;
         find: (runId: string) => Promise<ProcessRunRecord | undefined>;
     }>;
-    activities?: Pick<ProcessRunActivityArchive, "findByRun" | "queueState">;
+    activities?: Pick<ProcessRunActivityArchive, "findByRun">;
+    queueState?: (
+        runId: string,
+    ) => Promise<
+        import("../process-runs/ops/queue-state.js").RunQueueState | undefined
+    >;
     /** The fixed production catalog. Absent when catalog exposure is off. */
     processes?: readonly ConsoleProcessDescription[];
     /** The installed Runtime Skills. Absent when Skill exposure is off. */
@@ -1235,7 +1240,7 @@ async function handleConsole(
         response.setHeader("cache-control", "no-store");
         const [activities, queue] = await Promise.all([
             options.activities.findByRun(activityRunId),
-            options.activities.queueState?.(activityRunId),
+            options.queueState?.(activityRunId),
         ]);
         writeJson(response, 200, {
             runId: activityRunId,

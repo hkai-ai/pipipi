@@ -10,14 +10,17 @@ import {
     createProcessAttemptRunner,
 } from "../src/process-runtime/index.ts";
 import { startDemoGateway } from "./fixtures/pi-trace-gateway.mjs";
+import { chromeExecutable } from "./support/chrome.js";
 
-const fixture = JSON.parse(
+const fixtures = JSON.parse(
     await readFile(
         new URL("./fixtures/character-emoji-v4.json", import.meta.url),
         "utf8",
     ),
-).single;
+);
+const fixture = fixtures.single;
 it.each([
+    ["漫画模式创作", fixtures.comic.request.input.idea, false, [], "comic"],
     ["海报无工具流程", "", false, [], "poster"],
     ["普通创作", "雨狐给云撑伞", false, []],
     ["允许但跳过搜索", "请联网搜梗，画雨狐给云撑伞", false, ["search_memes"]],
@@ -30,10 +33,25 @@ it.each([
         ["search_memes"],
         "search-failure",
     ],
+    [
+        "可用搜索材料",
+        "请联网搜梗，画雨狐给云撑伞",
+        true,
+        ["search_memes"],
+        "usable",
+    ],
+    [
+        "未核验搜索材料",
+        "请联网搜梗，画雨狐给云撑伞",
+        true,
+        ["search_memes"],
+        "unverifiable",
+    ],
     ["实际搜索后继续", "请联网搜梗，画雨狐给云撑伞", true, ["search_memes"]],
 ])(
     "通过同步业务入口查看%s的真实 Pi 执行轨迹",
     async (_title, idea, useSearch, tools, scenario) => {
+        const fixture = scenario === "comic" ? fixtures.comic : fixtures.single;
         const archive = await mkdtemp(join(tmpdir(), "pi-trace-"));
         const gateway = await startDemoGateway(fixture, useSearch, {
             scenario,
@@ -41,8 +59,9 @@ it.each([
         const fetcher = globalThis.fetch;
         vi.stubGlobal("fetch", (url, init) => {
             if (
-                String(url) ===
-                    fixture.request.input.cast[0].referenceImageUrl &&
+                fixture.request.input.cast.some(
+                    (member) => member.referenceImageUrl === String(url),
+                ) &&
                 init?.method === "HEAD"
             )
                 return Promise.resolve(new Response(null));
@@ -147,9 +166,7 @@ it.each([
                 ]);
                 if (process.env.RUN_CONSOLE_OBSERVATION_BROWSER === "1") {
                     const browser = await chromium.launch({
-                        executablePath:
-                            process.env.CHROME_PATH ??
-                            "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+                        executablePath: await chromeExecutable(),
                     });
                     try {
                         const page = await browser.newPage();
@@ -171,7 +188,9 @@ it.each([
             }
             expect(session.skills.map((s) => s.name)).toEqual([
                 "character-emoji-planner",
-                "character-emoji-single",
+                scenario === "comic"
+                    ? "character-emoji-comic"
+                    : "character-emoji-single",
             ]);
             expect(session.skills.every((s) => s.version)).toBe(true);
             expect(session.validation).toBe("passed");
@@ -213,6 +232,19 @@ it.each([
                     { kind: "original_fallback", call: 1 },
                 ]);
             }
+            if (useSearch && scenario !== "search-failure") {
+                expect(session.rounds[0].decisions).toContainEqual({
+                    kind: "search_result",
+                    material: scenario ?? "insufficient",
+                    call: 1,
+                });
+            }
+            const rendered = activities.find(
+                (e) =>
+                    e.event === "process_run_activity_finished" &&
+                    e.activity === "character_emoji_rendering",
+            );
+            expect(rendered.sessions).toEqual([]);
             if (useSearch) {
                 expect(session.rounds[0]).toMatchObject({
                     calls: [
@@ -234,6 +266,8 @@ it.each([
                 usage: { input: 215, output: 42 },
             });
             for (const secret of [
+                "仅供检索的私密探针-417",
+                "private-source-417",
                 idea,
                 "offline-secret",
                 "call_demo",
@@ -242,15 +276,34 @@ it.each([
                 expect(JSON.stringify(activities)).not.toContain(secret);
             if (process.env.RUN_CONSOLE_OBSERVATION_BROWSER === "1") {
                 const browser = await chromium.launch({
-                    executablePath:
-                        process.env.CHROME_PATH ??
-                        "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+                    executablePath: await chromeExecutable(),
                 });
                 try {
                     const page = await browser.newPage();
                     await page.goto(`${url}/console/#/run/${result.runId}`);
                     await page.getByText("Pi 会话 1", { exact: true }).click();
                     await page.getByText("最终业务校验通过").waitFor();
+                    await page
+                        .getByText("本次活动没有 Pi 会话", { exact: true })
+                        .waitFor();
+                    await page
+                        .getByText(
+                            scenario === "comic"
+                                ? "character-emoji-comic · v6"
+                                : "character-emoji-single · v4",
+                            { exact: true },
+                        )
+                        .waitFor();
+                    if (useSearch && scenario !== "search-failure")
+                        await page
+                            .getByText(
+                                scenario === "usable"
+                                    ? /搜索材料.*可用/
+                                    : scenario === "unverifiable"
+                                      ? /搜索材料.*未核验/
+                                      : /搜索材料.*不足/,
+                            )
+                            .waitFor();
                     if (scenario === "repair") {
                         await page
                             .getByText(/校验失败.*caption_setting_mismatch/)
