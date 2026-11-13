@@ -100,6 +100,15 @@ acceptanceDescribe("built Console async browser acceptance", () => {
                             exact: true,
                         })
                         .click({ noWaitAfter: true });
+                    const queuedPage = await context.newPage();
+                    await queuedPage.goto(
+                        `${environment.url}/console/#/run/${runId}`,
+                    );
+                    await queuedPage
+                        .getByText("等待 Worker", { exact: true })
+                        .waitFor({ timeout: 3000 });
+                    expect(await queuedPage.getByRole("alert").count()).toBe(0);
+                    await queuedPage.close();
                     await environment.startWorker();
 
                     const terminal = page.getByText(

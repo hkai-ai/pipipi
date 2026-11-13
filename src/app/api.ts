@@ -189,9 +189,7 @@ function constructConsole(
             list: archive.archive.list,
             find: archive.archive.find,
         }),
-        activities: Object.freeze({
-            findByRun: archive.activities.findByRun,
-        }),
+        activities: archive.activities,
         processes: describeProcessCatalog(runtime.registry),
         skills: describeSkillCatalog(runtime.registry.list()),
         stats: Object.freeze({ summarise: archive.stats.summarise }),

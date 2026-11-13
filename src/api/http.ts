@@ -17,10 +17,10 @@ import type {
     ProcessErrorCode,
     ProcessEvaluationResult,
     ProcessExecutor,
-    ProcessRunLogRecord,
     ProcessRunResult,
 } from "../process-runtime/index.js";
 import type { ProcessRunRecord } from "../process-runtime/records.js";
+import type { ProcessRunActivityArchive } from "../run-observation/activities.js";
 import type {
     ConsoleProcessDescription,
     ConsoleSkillDescription,
@@ -103,9 +103,7 @@ export type ConsoleHttpOptions = Readonly<{
         ) => Promise<ConsoleRecordPage>;
         find: (runId: string) => Promise<ProcessRunRecord | undefined>;
     }>;
-    activities?: Readonly<{
-        findByRun: (runId: string) => Promise<readonly ProcessRunLogRecord[]>;
-    }>;
+    activities?: Pick<ProcessRunActivityArchive, "findByRun" | "queueState">;
     /** The fixed production catalog. Absent when catalog exposure is off. */
     processes?: readonly ConsoleProcessDescription[];
     /** The installed Runtime Skills. Absent when Skill exposure is off. */
@@ -1235,9 +1233,14 @@ async function handleConsole(
         : undefined;
     if (options.activities && activityRunId !== undefined) {
         response.setHeader("cache-control", "no-store");
+        const [activities, queue] = await Promise.all([
+            options.activities.findByRun(activityRunId),
+            options.activities.queueState?.(activityRunId),
+        ]);
         writeJson(response, 200, {
             runId: activityRunId,
-            activities: await options.activities.findByRun(activityRunId),
+            activities,
+            ...(queue ? { queue } : {}),
         });
         return true;
     }

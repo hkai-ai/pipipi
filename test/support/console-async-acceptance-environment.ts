@@ -1,6 +1,4 @@
-import { mkdtemp, rm } from "node:fs/promises";
 import type { Server } from "node:http";
-import { tmpdir } from "node:os";
 import path from "node:path";
 import { Redis } from "ioredis";
 import { runner } from "node-pg-migrate";
@@ -29,6 +27,7 @@ export async function startConsoleAsyncAcceptanceEnvironment(
         databaseUrl: string;
         redisUrl: string;
         assetDirectory?: string;
+        modelGatewayUrl?: string;
     }>,
 ): Promise<ConsoleAsyncAcceptanceEnvironment> {
     assertTestDatabase(options.databaseUrl);
@@ -37,20 +36,24 @@ export async function startConsoleAsyncAcceptanceEnvironment(
 
     const closeResources: (() => Promise<void>)[] = [];
     try {
-        const records = await mkdtemp(
-            path.join(tmpdir(), "pipipi-console-acceptance-"),
-        );
-        closeResources.push(() =>
-            rm(records, { recursive: true, force: true }),
-        );
-
         const businessApi = await startTemplateRenderApi();
         closeResources.push(businessApi.close);
 
         const gatewaySecret =
             "browser-acceptance-gateway-secret-at-least-32-bytes";
         const sharedEnvironment = {
-            CRT_BUSINESS_API_BASE_URL: businessApi.url,
+            CRT_BUSINESS_API_BASE_URL:
+                options.modelGatewayUrl ?? businessApi.url,
+            ...(options.modelGatewayUrl
+                ? {
+                      MODEL_GATEWAY_BASE_URL: `${options.modelGatewayUrl}/v1`,
+                      MODEL_GATEWAY_API_KEY: "offline-test-key",
+                      PI_PROVIDER: "openai",
+                      PI_MODEL: "gpt-5.4",
+                  }
+                : {}),
+            PROCESS_RUN_RECORD_STORE: "postgres",
+            PROCESS_RUN_RECORD_CONTENT: "accepted-input-and-output",
             DATABASE_URL: options.databaseUrl,
             REDIS_URL: options.redisUrl,
             PROCESS_QUEUE_PREFIX: "pipipi-console-browser-acceptance",
@@ -72,9 +75,6 @@ export async function startConsoleAsyncAcceptanceEnvironment(
             ASYNC_CALLER_BACKLOG_LIMIT: "100",
             ASYNC_BACKLOG_RETRY_AFTER_SECONDS: "5",
             ASYNC_RETRY_AFTER_SECONDS: "1",
-            PROCESS_RUN_RECORD_STORE: "file",
-            PROCESS_RUN_RECORD_DIRECTORY: records,
-            PROCESS_RUN_RECORD_CONTENT: "accepted-input-and-output",
             CONSOLE_ENABLED: "true",
             CONSOLE_BASE_PATH: "/console",
             CONSOLE_ASSET_DIRECTORY:
@@ -95,10 +95,7 @@ export async function startConsoleAsyncAcceptanceEnvironment(
         closeResources.push(dispatcher.application.close);
         const worker = constructProcessWorkerService({
             ...sharedEnvironment,
-            PROCESS_RUN_RECORD_STORE: "file",
-            PROCESS_RUN_RECORD_DIRECTORY: records,
-            PROCESS_RUN_RECORD_CONTENT: "accepted-input-and-output",
-            PROCESS_WORKER_CONCURRENCY: "1",
+            PROCESS_WORKER_CONCURRENCY: "2",
             PROCESS_WORKER_SHUTDOWN_GRACE_MS: "1000",
         });
         closeResources.push(worker.application.close);

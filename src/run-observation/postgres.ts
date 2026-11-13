@@ -1,12 +1,12 @@
 /** 同一组 Interface 的 PostgreSQL Adapter */
 import type { Pool } from "pg";
-import { sanitizeActivityDiagnostic } from "../process-runtime/diagnostics.js";
 import type {
     ProcessErrorCode,
     ProcessRunLogRecord,
 } from "../process-runtime/index.js";
+import { sanitizeProcessRunLogRecord } from "../process-runtime/log-record.js";
 import type { ProcessRunRecord } from "../process-runtime/records.js";
-import type { ProcessRunActivityArchive } from "./activities.js";
+import type { ProcessRunActivityArchive, RunQueueState } from "./activities.js";
 import {
     encodeProcessRunRecordCursor,
     type ProcessRunRecordArchive,
@@ -128,11 +128,11 @@ export function createPostgresProcessRunActivityArchive(options: {
     const pending = new Set<Promise<void>>();
 
     return Object.freeze({
-        record: (record) => {
+        record: (entry) => {
+            const record = sanitizeProcessRunLogRecord(entry);
+            if (!record) return;
             const diagnostic =
-                "diagnostic" in record
-                    ? sanitizeActivityDiagnostic(record.diagnostic)
-                    : undefined;
+                "diagnostic" in record ? record.diagnostic : undefined;
             // 缩进 JSON 的字节数保守覆盖 PostgreSQL jsonb::text 的分隔空格。
             // 即使未来词表扩展超限，也只省略诊断，不让 CHECK 丢失整条活动。
             const encoded =
@@ -148,8 +148,8 @@ export function createPostgresProcessRunActivityArchive(options: {
                     `insert into process_run_activities
                        (run_id, recorded_at, process_id, process_version,
                         attempt_number, sequence, event, activity, outcome,
-                        duration_ms, error_code, diagnostic)
-                     values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+                        duration_ms, error_code, diagnostic, activity_id, pi_sessions)
+                     values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
                     [
                         record.runId,
                         record.timestamp,
@@ -163,6 +163,10 @@ export function createPostgresProcessRunActivityArchive(options: {
                         "durationMs" in record ? record.durationMs : null,
                         "errorCode" in record ? record.errorCode : null,
                         encoded,
+                        "activityId" in record ? record.activityId : null,
+                        "sessions" in record
+                            ? JSON.stringify(record.sessions)
+                            : null,
                     ],
                 )
                 .then(
@@ -177,17 +181,46 @@ export function createPostgresProcessRunActivityArchive(options: {
             await Promise.all([...pending]);
         },
 
+        queueState: async (runId) => {
+            // 同步与成员运行允许非 UUID，其活动仍然可查。
+            if (!/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(runId))
+                return;
+            const { rows } = await pool.query<{
+                status: RunQueueState["status"];
+                created_at: Date;
+                started_at: Date | null;
+                finished_at: Date | null;
+            }>(
+                `select status, created_at, started_at, finished_at from process_runs where run_id = $1`,
+                [runId],
+            );
+            const row = rows[0];
+            if (!row) return;
+            return {
+                status: row.status,
+                createdAt: row.created_at.toISOString(),
+                ...(row.started_at && {
+                    startedAt: row.started_at.toISOString(),
+                }),
+                ...(row.finished_at && {
+                    finishedAt: row.finished_at.toISOString(),
+                }),
+            };
+        },
         findByRun: async (runId) => {
             const { rows } = await pool.query(
-                `select run_id, recorded_at, process_id, process_version,
+                `select distinct on (attempt_number, sequence)
+                        run_id, recorded_at, process_id, process_version,
                         attempt_number, sequence, event, activity, outcome,
-                        duration_ms, error_code, diagnostic
+                        duration_ms, error_code, diagnostic, activity_id, pi_sessions
                    from process_run_activities
                   where run_id = $1
                   order by attempt_number, sequence, id`,
                 [runId],
             );
-            return Object.freeze(rows.map(toActivity));
+            return Object.freeze(
+                rows.map(toActivity).filter((record) => record !== undefined),
+            );
         },
     });
 }
@@ -340,6 +373,8 @@ type RecordRow = Readonly<{
 }>;
 
 type ActivityRow = Readonly<{
+    activity_id: number | null;
+    pi_sessions: unknown;
     diagnostic?: unknown;
     run_id: string;
     recorded_at: Date;
@@ -373,9 +408,8 @@ function toRecord(row: RecordRow): ProcessRunRecord {
     } as ProcessRunRecord;
 }
 
-function toActivity(row: ActivityRow): ProcessRunLogRecord {
-    const diagnostic = sanitizeActivityDiagnostic(row.diagnostic);
-    return {
+function toActivity(row: ActivityRow): ProcessRunLogRecord | undefined {
+    return sanitizeProcessRunLogRecord({
         schemaVersion: 1,
         timestamp: row.recorded_at.toISOString(),
         runId: row.run_id,
@@ -388,8 +422,10 @@ function toActivity(row: ActivityRow): ProcessRunLogRecord {
         ...(row.outcome === null ? {} : { outcome: row.outcome }),
         ...(row.duration_ms === null ? {} : { durationMs: row.duration_ms }),
         ...(row.error_code === null ? {} : { errorCode: row.error_code }),
-        ...(diagnostic ? { diagnostic } : {}),
-    } as ProcessRunLogRecord;
+        activityId: row.activity_id,
+        sessions: row.pi_sessions,
+        diagnostic: row.diagnostic,
+    });
 }
 
 function toRecentFailure(row: RecentFailureRow) {

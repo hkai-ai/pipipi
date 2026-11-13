@@ -129,17 +129,15 @@ export function createJsonlProcessRunActivityArchive(
 
         findByRun: async (runId) => {
             const matches: ProcessRunLogRecord[] = [];
-            // Newest day first, so stop as soon as a day contributed nothing
-            // after an earlier one already matched: a Run cannot span a gap.
-            for (const file of await files.files()) {
-                const found = (await files.read(file)).filter(
-                    (entry) => entry.runId === runId,
-                );
-                if (found.length === 0) {
-                    if (matches.length > 0) break;
-                    continue;
+            const seen = new Set<string>();
+            for (const file of (await files.files()).toReversed()) {
+                for (const entry of await files.read(file)) {
+                    if (entry.runId !== runId) continue;
+                    const key = `${entry.attemptNumber}/${entry.sequence}`;
+                    if (seen.has(key)) continue;
+                    seen.add(key);
+                    matches.push(entry);
                 }
-                matches.unshift(...found);
             }
             return Object.freeze(
                 matches.sort(

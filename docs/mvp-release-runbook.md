@@ -525,6 +525,8 @@ npm run accept:crt-business
 
 统一模型诊断现已复用到极简海报、CRT、新闻图片、内容优化和模板编译。未接入专用分类的失败活动记录未知原因；整体超时和取消诊断记录在 Attempt 终态，控制台优先展示。无需新增环境变量、外部监控服务或模型调用；不得通过采集完整异常来替代固定诊断。字段迁移仍按下一段执行。
 
+异步 Pi 轨迹使用 `016_activity_pi_sessions.mjs` 的可空活动身份和会话列。PostgreSQL 按上述备份与显式迁移流程升级后再切换 API 与 Worker；两者使用同一运行数据库。旧记录保留原有活动信息，JSONL 无需迁移。控制台按 runId 从任务表读取受理、启动和终态时间，步骤事件按执行轮次和序号归并。
+
 照片编译诊断写在 `process_run_activity_finished.diagnostic`，控制台运行详情显示中文原因、排查方向和净化校验路径。按 `runId` 关联；旧活动没有此字段时保持原因未知。PostgreSQL 部署须按既有备份与显式迁移发布流程应用 `014_activity_diagnostics.mjs` 后再切换镜像；普通更新不代跑迁移。JSONL 归档无需迁移。诊断存储失败不改变业务结果，但不能据此宣称归档完整；回滚应用可保留新增可空列。
 
 本批照片海报 Process 尚未部署。发布前核对全部固定 Skill 的 LICENSE/SOURCE，包括摄影剪贴与涂鸦小人的来源授权；镜像预检必须包含新增 Runtime Skill。主 API 与内部图片服务使用同一镜像，`PHOTO_POSTER_API_TIMEOUT_MS` 默认 180000；图片服务需要供应商出站连接和工作目录容量。回滚恢复上一镜像及对应 catalog。真实验收见 [照片海报实验](experiments.md#照片海报业务验收)。
