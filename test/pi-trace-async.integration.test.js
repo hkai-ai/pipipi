@@ -14,7 +14,10 @@ it.skipIf(!databaseUrl || !redisUrl)(
                 "utf8",
             ),
         ).single;
-        const gateway = await startDemoGateway(fixture, true);
+        const rendering = Promise.withResolvers();
+        const gateway = await startDemoGateway(fixture, true, {
+            beforeRender: () => rendering.promise,
+        });
         const nativeFetch = globalThis.fetch;
         vi.stubGlobal("fetch", (url, init) => {
             if (
@@ -68,6 +71,29 @@ it.skipIf(!databaseUrl || !redisUrl)(
                 activities: [],
             });
             await roles.startWorker();
+            try {
+                await vi.waitFor(
+                    async () => {
+                        expect(gateway.counts.render).toBe(2);
+                        for (const id of [first, second]) {
+                            const { queue, activities } = await read(id);
+                            expect(queue).toMatchObject({
+                                status: "running",
+                                startedAt: expect.any(String),
+                            });
+                            expect(queue.finishedAt).toBeUndefined();
+                            expect(activities.at(-1)).toMatchObject({
+                                event: "process_run_activity_started",
+                                activity: "character_emoji_rendering",
+                                activityId: 2,
+                            });
+                        }
+                    },
+                    { timeout: 10_000 },
+                );
+            } finally {
+                rendering.resolve();
+            }
             for (const id of [first, second]) {
                 await vi.waitFor(
                     async () => {
@@ -122,6 +148,7 @@ it.skipIf(!databaseUrl || !redisUrl)(
             }
             expect(gateway.counts).toEqual({ plan: 4, search: 2, render: 2 });
         } finally {
+            rendering.resolve();
             await roles?.close();
             vi.unstubAllGlobals();
             await gateway.close();
