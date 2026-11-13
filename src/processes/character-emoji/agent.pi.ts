@@ -25,6 +25,7 @@ import type { SkillRef } from "../../agent-runtime/skills.js";
 import {
     promptPi,
     recordPiDecision,
+    recordPiField,
     tracePiValidation,
 } from "../../agent-runtime/trace.js";
 import type { ModelGateway } from "../../model-gateway.js";
@@ -574,11 +575,42 @@ export class PiCharacterEmojiAgent
                     throw error;
                 }
             };
+            const recordCandidate = (raw: unknown) => {
+                // Extract only the visible scene text from the selected assistant text.
+                // No search evidence, adaptation metadata or raw model blocks enter this view.
+                const candidate = raw as {
+                    scene?: unknown;
+                    panels?: { scene?: unknown }[];
+                } | null;
+                if (mode === "comic" && Array.isArray(candidate?.panels)) {
+                    candidate.panels.slice(0, 6).forEach((panel, index) => {
+                        recordPiField(
+                            session,
+                            "model",
+                            `panels[${index}].scene`,
+                            () =>
+                                typeof panel?.scene === "string"
+                                    ? { value: panel.scene }
+                                    : { note: "此格没有可展示的 scene 字段。" },
+                        );
+                    });
+                } else
+                    recordPiField(session, "model", "scene", () =>
+                        typeof candidate?.scene === "string"
+                            ? { value: candidate.scene }
+                            : { note: "此回复没有可展示的 scene 字段。" },
+                    );
+            };
             const readOutput = () => {
                 const text = outputText();
                 try {
-                    return readPlannerJson(text);
+                    const raw = readPlannerJson(text);
+                    recordCandidate(raw);
+                    return raw;
                 } catch {
+                    recordPiField(session, "model", "scene", () => ({
+                        note: "回复无法解析，候选原文已省略。",
+                    }));
                     throw new EmojiFailure(
                         "planning",
                         "invalid_json",
@@ -689,6 +721,10 @@ export class PiCharacterEmojiAgent
                 });
                 recordPiDecision(session, { kind: "repair_started" });
                 repairing = true;
+                tracePiValidation(session, "failed");
+                recordPiField(session, "input", "correction", () => ({
+                    note: "修正上下文可能包含候选和来源材料，正文已省略。",
+                }));
                 session.setActiveToolsByName([]);
                 await prompt(text);
             };
@@ -706,6 +742,14 @@ export class PiCharacterEmojiAgent
                     ),
                 );
             const plannerBrief = JSON.parse(input);
+            recordPiField(session, "input", "idea", () => ({
+                value: plannerBrief.idea,
+            }));
+            recordPiField(session, "input", "captionRule", () =>
+                typeof plannerBrief.captionRule === "string"
+                    ? { value: plannerBrief.captionRule }
+                    : { note: "本次输入未提供 captionRule。" },
+            );
             try {
                 await prompt(
                     JSON.stringify({

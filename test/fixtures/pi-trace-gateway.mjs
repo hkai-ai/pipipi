@@ -23,7 +23,14 @@ function finalMessage(value) {
     };
 }
 
-function sendStream(response, model, item, inputTokens, outputTokens) {
+function sendStream(
+    response,
+    model,
+    item,
+    inputTokens,
+    outputTokens,
+    thinking,
+) {
     response.writeHead(200, {
         "content-type": "text/event-stream",
         "cache-control": "no-cache",
@@ -36,6 +43,12 @@ function sendStream(response, model, item, inputTokens, outputTokens) {
                 JSON.stringify({ type, ...data }) +
                 "\n\n",
         );
+    const reasoning = {
+        id: "rs_local",
+        type: "reasoning",
+        summary: [{ type: "summary_text", text: thinking }],
+    };
+    const outputIndex = thinking ? 1 : 0;
     const result = {
         id: `resp_demo_${item.id}`,
         model,
@@ -46,20 +59,34 @@ function sendStream(response, model, item, inputTokens, outputTokens) {
             output_tokens: outputTokens,
             total_tokens: inputTokens + outputTokens,
         },
-        output: [item],
+        output: thinking ? [reasoning, item] : [item],
     };
     frame("response.created", {
         response: { ...result, status: "in_progress", output: [] },
     });
+    if (thinking) {
+        frame("response.output_item.added", {
+            output_index: 0,
+            item: { ...reasoning, summary: [] },
+        });
+        frame("response.reasoning_summary_text.delta", {
+            output_index: 0,
+            delta: thinking,
+        });
+        frame("response.output_item.done", {
+            output_index: 0,
+            item: reasoning,
+        });
+    }
     frame("response.output_item.added", {
-        output_index: 0,
+        output_index: outputIndex,
         item: {
             ...item,
             status: "in_progress",
             ...(item.type === "message" ? { content: [] } : { arguments: "" }),
         },
     });
-    frame("response.output_item.done", { output_index: 0, item });
+    frame("response.output_item.done", { output_index: outputIndex, item });
     frame("response.completed", { response: result });
     response.end();
 }
@@ -116,6 +143,7 @@ export async function startDemoGateway(fixture, useSearch, options = {}) {
                 )
                     throw new Error("unexpected render");
                 counts.render++;
+                await options.beforeRender?.();
                 return sendJson(response, fixture.output.image);
             }
             if (request.method !== "POST" || request.url !== "/v1/responses")
@@ -192,6 +220,7 @@ export async function startDemoGateway(fixture, useSearch, options = {}) {
                 }),
                 215,
                 42,
+                options.thinking,
             );
         } catch (error) {
             console.error("[local gateway]", error.message);
