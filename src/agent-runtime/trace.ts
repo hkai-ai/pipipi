@@ -5,6 +5,7 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import { recordLocalField } from "../process-runtime/local-trace.js";
 import type {
+    PiDecision,
     PiRoundTrace,
     PiSessionTrace,
 } from "../process-runtime/pi-trace.js";
@@ -85,6 +86,36 @@ export function tracePiValidation(
             { sessionId: state.trace.sessionId, round: state.current?.round },
         );
     }
+}
+
+export function tracePiAbort(session: AgentSession, signal: AbortSignal) {
+    observe(() => {
+        const state = sessions.get(session);
+        if (!state?.current || state.current.outcome) return;
+        recordPiDecision(session, {
+            kind: "cancelled",
+            reason:
+                signal.reason?.name === "TimeoutError"
+                    ? "timeout"
+                    : "cancelled",
+        });
+    });
+}
+
+export function recordPiDecision(
+    session: AgentSession,
+    decision: PiDecision,
+    toolCallId?: string,
+) {
+    observe(() => {
+        const state = sessions.get(session);
+        const round = state?.current;
+        if (!round || !state) return;
+        round.decisions ??= [];
+        if (round.decisions.length >= 32) return;
+        const call = toolCallId ? state.calls.get(toolCallId)?.call : undefined;
+        round.decisions.push({ ...decision, ...(call ? { call } : {}) });
+    });
 }
 
 function recordEvent(state: Collector, event: AgentSessionEvent) {

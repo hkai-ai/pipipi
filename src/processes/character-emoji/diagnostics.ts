@@ -2,6 +2,7 @@
 import { agentDiagnostic } from "../../agent-runtime/diagnostics.js";
 import { AgentExecutionFailure } from "../../agent-runtime/failure.js";
 import type { ActivityDiagnostic } from "../../process-runtime/diagnostics.js";
+import { traceIssueFields } from "../../process-runtime/pi-trace.js";
 import type { AdaptationSource } from "./materials.js";
 
 export type EmojiFailureCode =
@@ -23,12 +24,6 @@ export type EmojiFailureCode =
     | "repair_changed_content"
     | "execution";
 
-const diagnosticFields = new Set(
-    "caption scene joke actors character expression action position identityMark text carrier placement propMarks composition punchlineDetail continuity page layout readingOrder frame aspectRatio panels texts kind speaker adaptation entryId entryIds original".split(
-        " ",
-    ),
-);
-
 /** 只保留固定字段与规则码，动态路径不进入诊断。 */
 export function planningIssues(
     issues: readonly { path: readonly PropertyKey[]; code: string }[],
@@ -36,7 +31,7 @@ export function planningIssues(
     return issues.slice(0, 12).map(({ path, code }) => ({
         path: path
             .map((part) =>
-                typeof part === "number" || diagnosticFields.has(String(part))
+                typeof part === "number" || traceIssueFields.has(String(part))
                     ? String(part)
                     : "*",
             )

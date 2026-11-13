@@ -365,3 +365,5 @@ Composition Root 通过单一配置解析入口选择文本 base URL 与 API key
 显式凭证只放入 Agent 私有内存 ModelRuntime，不改 process.env，也不写全局 Pi auth/models 文件。不同 Agent 的并发请求各自保留注入的凭证。共享 MODEL_GATEWAY 对可供已启用的 Flare 和通用 OpenAI 图片 Adapter 使用；FAL、Magikaru、OSS 仍独立。共享凭证不会启用图片渠道，`CHARACTER_EMOJI_IMAGE_ENABLED` 缺省保留旧图片 key 的启用规则，false 禁用、true 启用主用。
 
 图片选择规则也由 `src/model-gateway.ts` 拥有：通用 OpenAI 图片覆盖 `OPENAI_IMAGE_*` 优先于共享 MODEL_GATEWAY 对，最后兼容旧 OPENAI 对。Flare 已启用时优先共享 MODEL_GATEWAY 对，其次旧 CHARACTER_EMOJI_IMAGE 对；旧 image key-only 保留各自默认地址，不从其他组取 base。任一被选中的共享组不完整即失败。渠道启用由独立开关决定，不从共享 key 的存在推断。关闭的 Flare 不校验无效旧主用配置，未设置开关时旧 base-only 仍拒绝。
+
+会话可附加由业务校验和工具执行处记录的事件。同轮按发生顺序展示，工具内的失败和兜底按调用编号归属。Worker 主动取消时，运行中的模型轮次记录取消来源；供应商尚未返回的用量保持缺失。

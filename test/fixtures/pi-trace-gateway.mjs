@@ -98,6 +98,41 @@ export async function startDemoGateway(fixture, useSearch, options = {}) {
             const body = [];
             for await (const chunk of request) body.push(chunk);
             const input = JSON.parse(Buffer.concat(body).toString("utf8"));
+            if (request.method === "POST" && request.url === "/posters") {
+                counts.render++;
+                return sendJson(response, {
+                    ...fixture.output.image,
+                    width: 1024,
+                    height: 1696,
+                });
+            }
+            if (
+                request.method === "POST" &&
+                request.url === "/v1/responses" &&
+                input.model === "gpt-5.4"
+            ) {
+                counts.plan++;
+                if (input.tools?.length)
+                    throw new Error("unexpected tools on poster request");
+                return sendStream(
+                    response,
+                    input.model,
+                    finalMessage({
+                        prompt: "Tall 3:5 aged paper, 82% negative space.\n\nA single small torn-paper clipping.\n\nPrint in saturated cobalt ink at the edge.\n\nFlat paper scan; avoid glossy mockups.",
+                        recipe: {
+                            layout: "lower-left-float",
+                            anchor: "torn-paper clipping",
+                            typography: "archive microtext with date/weather",
+                            accent: "saturated cobalt blue",
+                            texture: "halftone degradation",
+                            mood: "memory",
+                        },
+                        interpretation: "A quiet paper archive.",
+                    }),
+                    50,
+                    20,
+                );
+            }
             if (
                 request.method === "POST" &&
                 request.url === "/character-emojis/v4"
@@ -123,6 +158,12 @@ export async function startDemoGateway(fixture, useSearch, options = {}) {
                 )
                     throw new Error("unexpected search");
                 counts.search++;
+                if (options.scenario === "search-failure")
+                    return sendJson(
+                        response,
+                        { error: "private dependency failure" },
+                        503,
+                    );
                 return sendJson(response, {
                     status: "completed",
                     output: [
@@ -138,6 +179,8 @@ export async function startDemoGateway(fixture, useSearch, options = {}) {
             if (input.model !== "deepseek-v4.1-flash" || input.stream !== true)
                 throw new Error("unexpected model");
             counts.plan++;
+            await options.beforePlan?.();
+            if (response.destroyed) return;
             if (
                 useSearch &&
                 input.tools?.some((tool) => tool.name === "search_memes")
@@ -169,6 +212,10 @@ export async function startDemoGateway(fixture, useSearch, options = {}) {
                 input.model,
                 finalMessage({
                     ...fixture.output.plan,
+                    ...(options.scenario === "repair-rejected" ||
+                    (options.scenario === "repair" && counts.plan === 1)
+                        ? { caption: "错字" }
+                        : {}),
                     adaptation: { entryIds: [], original: "雨狐为云撑伞" },
                 }),
                 215,
