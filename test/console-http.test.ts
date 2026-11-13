@@ -3,17 +3,30 @@ import { createServer, type RequestListener, type Server } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
+import { z } from "zod";
 import {
     type ConsoleHttpOptions,
     type ConsoleSkillCatalog,
     type ConsoleSkillDescription,
     createProcessingRequestListener,
 } from "../src/api/http.js";
+import { describeProcessCatalog } from "../src/api/process-catalog.js";
+import { createProductionSkillBindings } from "../src/app/runtime-skills.js";
 import type {
     ProcessExecutor,
     ProcessRunLogRecord,
 } from "../src/process-runtime/index.js";
+import {
+    createProcessAttemptRunner,
+    createProcessRegistry,
+    defineProcessRegistration,
+} from "../src/process-runtime/index.js";
 import type { ProcessRunRecord } from "../src/process-runtime/records.js";
+import { createCharacterEmojiSkillRefs } from "../src/processes/character-emoji/skills.js";
+import {
+    buildProductionRegistrations,
+    defineProductionProcess,
+} from "../src/processes/production.js";
 
 type RunningService = { url: string; close: () => Promise<void> };
 
@@ -356,6 +369,7 @@ describe("operator console HTTP boundary", () => {
                 {
                     process: "news-image-pale-watercolor",
                     version: "v1",
+                    skills: [],
                     activities: ["news_image_rendering"],
                     retry: { maximumAttempts: 1, retryableErrorCodes: [] },
                     input: { type: "object" },
@@ -370,6 +384,60 @@ describe("operator console HTTP boundary", () => {
         expect(
             ((await response.json()) as { processes: unknown[] }).processes,
         ).toHaveLength(1);
+    });
+
+    it("keeps the Skills used to build each enabled version separate in the catalog response", async () => {
+        const [planner, single] = createCharacterEmojiSkillRefs();
+        const catalog = [
+            { version: "v2", refs: [planner] },
+            { version: "v3", refs: [single] },
+            { version: "v4", refs: [] },
+        ].map(({ version, refs }) =>
+            defineProductionProcess({
+                id: "character-emoji",
+                installedSkills: () => refs,
+                build: () =>
+                    defineProcessRegistration({
+                        id: "character-emoji",
+                        version,
+                        activities: ["planning"],
+                        inputSchema: z.object({ idea: z.string() }),
+                        outputSchema: z.object({}),
+                        execute: async () => ({}),
+                    }),
+            }),
+        );
+        const registrations = buildProductionRegistrations({
+            catalog,
+            environment: {},
+            pi: {},
+            skills: createProductionSkillBindings({}, process.cwd(), catalog),
+            positiveInteger: (_name, fallback) => fallback,
+            attemptRunner: createProcessAttemptRunner(),
+        });
+        const processes = describeProcessCatalog(
+            createProcessRegistry(registrations),
+        );
+        const service = await startConsole({ processes });
+        const response = await fetch(`${service.url}/console/processes`);
+        const catalogResponse = await response.json();
+        expect(catalogResponse.processes).toEqual([
+            expect.objectContaining({
+                process: "character-emoji",
+                version: "v2",
+                skills: [{ name: planner.name, version: planner.version }],
+            }),
+            expect.objectContaining({
+                process: "character-emoji",
+                version: "v3",
+                skills: [{ name: single.name, version: single.version }],
+            }),
+            expect.objectContaining({
+                process: "character-emoji",
+                version: "v4",
+                skills: [],
+            }),
+        ]);
     });
 
     it("omits the catalog route when the catalog is not configured", async () => {

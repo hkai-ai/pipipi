@@ -126,6 +126,33 @@ describe("operator console construction", () => {
         });
     });
 
+    it("lists exact Skill identities for enabled versions before the first run", async () => {
+        const directory = await mkdtemp(join(tmpdir(), "pipipi-console-"));
+        const url = await startService({
+            PROCESS_RUN_RECORD_DIRECTORY: directory,
+            CONSOLE_ENABLED: "true",
+        });
+        const response = await fetch(`${url}/console/processes`);
+        expect(response.status).toBe(200);
+        const { processes } = await response.json();
+        expect(processes).toEqual(
+            expect.arrayContaining([
+                expect.objectContaining({
+                    process: "minimal-zine-poster",
+                    version: "v1",
+                    skills: [
+                        { name: "minimal-zine-poster-prompt", version: "v1" },
+                    ],
+                }),
+                expect.objectContaining({
+                    process: "template-image-render",
+                    version: "v1",
+                    skills: [],
+                }),
+            ]),
+        );
+    });
+
     it("serves the installed Skill catalog with its shipped covers", async () => {
         const directory = await mkdtemp(join(tmpdir(), "pipipi-console-"));
         const url = await startService({

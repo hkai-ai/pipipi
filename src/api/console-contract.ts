@@ -31,6 +31,7 @@ export type ConsoleStats = ConsoleStatsSummary &
 export type ConsoleProcessDescription = Readonly<{
     process: string;
     version: string;
+    skills: readonly Readonly<{ name: string; version: string }>[];
     activities: readonly string[];
     retry: Readonly<{
         maximumAttempts: number;

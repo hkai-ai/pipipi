@@ -26,7 +26,6 @@ export function ProcessesView({
     version?: string;
 }) {
     const catalog = useAsync(() => listProcesses(), []);
-    const skills = useAsync(() => listSkills(), []);
     const entries = catalog.value?.processes.filter(
         (entry) =>
             (!process || entry.process === process) &&
@@ -64,47 +63,6 @@ export function ProcessesView({
                     expanded={Boolean(process)}
                 />
             ))}
-            {process && entries?.length ? (
-                <section>
-                    <h3>相关 Agent 技能</h3>
-                    <p class="hint">
-                        以下为当前服务按业务流程关联的技能；目录未区分流程版本，不能据此还原历史运行的精确技能绑定。
-                    </p>
-                    {skills.error ? (
-                        <p class="error">技能目录读取失败。</p>
-                    ) : skills.loading ? (
-                        <p class="hint">读取中…</p>
-                    ) : (
-                        <>
-                            {skills.value?.skills
-                                .filter((skill) =>
-                                    skill.processes.includes(process),
-                                )
-                                .map((skill) => (
-                                    <p key={`${skill.name}@${skill.version}`}>
-                                        <a
-                                            href={hrefFor({
-                                                view: "skill",
-                                                name: skill.name,
-                                                version: skill.version,
-                                            })}
-                                        >
-                                            {skill.name} · 技能版本{" "}
-                                            {skill.version}
-                                        </a>
-                                    </p>
-                                ))}
-                            {!skills.value?.skills.some((skill) =>
-                                skill.processes.includes(process),
-                            ) ? (
-                                <p class="hint">
-                                    当前技能目录未列出此流程的关联技能。
-                                </p>
-                            ) : null}
-                        </>
-                    )}
-                </section>
-            ) : null}
         </Panel>
     );
 }
@@ -126,6 +84,20 @@ function ProcessEntry({
                 {entry.activities.map(activityName).join(" → ")}。最多执行次数：
                 {entry.retry.maximumAttempts}
             </p>
+            <h3>当前声明的 Runtime Skill</h3>
+            {entry.skills.length > 0 ? (
+                <ul>
+                    {entry.skills.map(({ name, version }) => (
+                        <li key={`${name}@${version}`}>
+                            <a href={hrefFor({ view: "skill", name, version })}>
+                                {name} · {version}
+                            </a>
+                        </li>
+                    ))}
+                </ul>
+            ) : (
+                <p class="hint">此版本未绑定 Runtime Skill。</p>
+            )}
             <SchemaTable label="输入" schema={entry.input} />
             <SchemaTable label="输出" schema={entry.output} />
         </details>

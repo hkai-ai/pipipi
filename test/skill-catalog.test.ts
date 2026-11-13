@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { InstalledSkillRef } from "../src/agent-runtime/skills.js";
 import { describeSkillCatalog } from "../src/api/skill-catalog.js";
-import { createProductionSkillBindings } from "../src/app/runtime-skills.js";
+import { createProductionRuntime } from "../src/app/business-processes.js";
 
 const temporaryDirectories: string[] = [];
 
@@ -38,10 +38,10 @@ describe("console Skill catalog", () => {
             body: "Plain body.",
         });
 
-        const catalog = describeSkillCatalog({
-            "process-a": [illustrated, plain],
-            "process-b": [illustrated],
-        });
+        const catalog = describeSkillCatalog([
+            { identity: { id: "process-a" }, skills: [illustrated, plain] },
+            { identity: { id: "process-b" }, skills: [illustrated] },
+        ]);
         const skills = catalog.list();
 
         expect(skills.map((skill) => `${skill.name}@${skill.version}`)).toEqual(
@@ -84,7 +84,9 @@ describe("console Skill catalog", () => {
             extras: { "cover.webp": bytes },
         });
 
-        const catalog = describeSkillCatalog({ "process-a": [skill] });
+        const catalog = describeSkillCatalog([
+            { identity: { id: "process-a" }, skills: [skill] },
+        ]);
         const cover = await catalog.readCover("webp-style", "v1");
 
         expect(cover?.mediaType).toBe("image/webp");
@@ -101,7 +103,9 @@ describe("console Skill catalog", () => {
             body: "Body.",
         });
 
-        const catalog = describeSkillCatalog({ "process-a": [skill] });
+        const catalog = describeSkillCatalog([
+            { identity: { id: "process-a" }, skills: [skill] },
+        ]);
 
         expect(catalog.list()[0]?.cover).toBeUndefined();
         expect(await catalog.readCover("bare-style", "v1")).toBeUndefined();
@@ -121,7 +125,9 @@ describe("console Skill catalog", () => {
             },
         });
 
-        const catalog = describeSkillCatalog({ "process-a": [skill] });
+        const catalog = describeSkillCatalog([
+            { identity: { id: "process-a" }, skills: [skill] },
+        ]);
 
         expect(catalog.list()[0]?.cover).toEqual({
             file: "cover.jpg",
@@ -131,7 +137,9 @@ describe("console Skill catalog", () => {
 
     it("describes every Runtime Skill the production catalog installs", () => {
         const catalog = describeSkillCatalog(
-            createProductionSkillBindings({}, process.cwd()),
+            createProductionRuntime({
+                CRT_BUSINESS_API_BASE_URL: "https://business.example",
+            }).registry.list(),
         );
         const skills = catalog.list();
 

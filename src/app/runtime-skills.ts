@@ -1,14 +1,13 @@
 /** 由 production catalog 派生的 Runtime Skill 安装集合、启动完整性校验和精确 Process 绑定 */
 import { createInstalledSkillCatalog } from "../agent-runtime/catalog.js";
-import type { InstalledSkillRef, SkillRef } from "../agent-runtime/skills.js";
+import type { InstalledSkillRef } from "../agent-runtime/skills.js";
 import { productionCatalog } from "../processes/catalog.js";
-import { enabledProductionProcesses } from "../processes/production.js";
+import {
+    enabledProductionProcesses,
+    type ProductionProcess,
+    type ProductionSkillBindings,
+} from "../processes/production.js";
 import type { StartupEnvironment } from "./config.js";
-
-/** Resolved Skill refs keyed by Process id; Processes without Skills are absent. */
-export type ProductionSkillBindings = Readonly<
-    Record<string, readonly SkillRef[]>
->;
 
 /**
  * Validates every Runtime Skill the enabled production catalog declares and
@@ -19,21 +18,21 @@ export type ProductionSkillBindings = Readonly<
 export function createProductionSkillBindings(
     environment: StartupEnvironment,
     cwd = process.cwd(),
+    processes: readonly ProductionProcess[] = productionCatalog,
 ): ProductionSkillBindings {
-    const declared = enabledProductionProcesses(productionCatalog, environment)
+    const declared = enabledProductionProcesses(processes, environment)
         .map((process) => ({
-            id: process.id,
+            process,
             refs: process.installedSkills(environment),
         }))
         .filter(({ refs }) => refs.length > 0);
+    if (declared.length === 0) return new Map();
     const catalog = createInstalledSkillCatalog(
         uniqueInstalled(declared.flatMap(({ refs }) => refs)),
         cwd,
     );
-    return Object.freeze(
-        Object.fromEntries(
-            declared.map(({ id, refs }) => [id, catalog.resolve(refs)]),
-        ),
+    return new Map(
+        declared.map(({ process, refs }) => [process, catalog.resolve(refs)]),
     );
 }
 

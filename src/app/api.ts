@@ -1,4 +1,5 @@
 /** API 配置翻译、校验、Adapter 选择和完整生产组装 */
+
 import { fileURLToPath } from "node:url";
 import { Pool } from "pg";
 import {
@@ -22,12 +23,10 @@ import {
 } from "../process-runs/ops/postgres.js";
 import { createPostgresProcessRunStore } from "../process-runs/store/postgres.js";
 import type { ProcessRegistry } from "../process-runtime/index.js";
+import type { ProcessRuntime } from "../processes/catalog.js";
 import { renderInputSchema } from "../processes/template-from-source/capability.js";
 import { constructAgentConversationsApi } from "./agent-conversations.js";
-import {
-    createProductionRuntime,
-    type ProductionRuntime,
-} from "./business-processes.js";
+import { createProductionRuntime } from "./business-processes.js";
 import type { StartupEnvironment } from "./config.js";
 import { assertDeploymentEnvironment } from "./deployment-environment.js";
 import {
@@ -166,7 +165,7 @@ function consoleAssetDirectory(environment: StartupEnvironment): string {
 function constructConsole(
     environment: StartupEnvironment,
     archive: ConstructedProcessRunObservation | undefined,
-    runtime: ProductionRuntime,
+    runtime: ProcessRuntime,
 ): NonNullable<ProcessingHttpOptions["console"]> | undefined {
     if (!parseFeatureFlag(environment.CONSOLE_ENABLED, "CONSOLE_ENABLED")) {
         return undefined;
@@ -189,7 +188,7 @@ function constructConsole(
             findByRun: archive.activities.findByRun,
         }),
         processes: describeProcessCatalog(runtime.registry),
-        skills: describeSkillCatalog(runtime.skills),
+        skills: describeSkillCatalog(runtime.registry.list()),
         stats: Object.freeze({ summarise: archive.stats.summarise }),
     });
 }
