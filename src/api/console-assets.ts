@@ -14,6 +14,7 @@ export type ConsoleAssets = Readonly<{
     writeDocument: (
         response: ServerResponse,
         basePath: string,
+        localTrace?: boolean,
     ) => Promise<void>;
     writeAsset: (response: ServerResponse, name: string) => Promise<boolean>;
 }>;
@@ -49,7 +50,7 @@ export function createConsoleAssets(options: {
     };
 
     return Object.freeze({
-        writeDocument: async (response, basePath) => {
+        writeDocument: async (response, basePath, localTrace) => {
             const document = await read(join(directory, "index.html"));
             if (!document) {
                 writeText(
@@ -64,7 +65,10 @@ export function createConsoleAssets(options: {
             // whether or not the request carried a trailing slash.
             const body = document
                 .toString("utf8")
-                .replace("<head>", `<head><base href="${basePath}/">`);
+                .replace(
+                    "<head>",
+                    `<head><base href="${basePath}/">${localTrace ? '<meta name="pipipi-local-trace" content="enabled">' : ""}`,
+                );
             response.writeHead(200, {
                 "content-type": "text/html; charset=utf-8",
                 "cache-control": "no-store",

@@ -3,6 +3,7 @@ import type {
     AgentSession,
     AgentSessionEvent,
 } from "@earendil-works/pi-coding-agent";
+import { recordLocalField } from "../process-runtime/local-trace.js";
 import type {
     PiRoundTrace,
     PiSessionTrace,
@@ -52,12 +53,38 @@ export function observePiSession(
     });
 }
 
+/** 仅由业务 Adapter 投影本模式允许观察的实际字段。 */
+export function recordPiField(
+    session: AgentSession,
+    kind: "input" | "model",
+    field: string,
+    read: () => { value?: string; note?: string },
+) {
+    const state = sessions.get(session);
+    if (state)
+        recordLocalField(kind, field, read, {
+            sessionId: state.trace.sessionId,
+            round:
+                kind === "input"
+                    ? state.trace.rounds.length + 1
+                    : state.current?.round,
+        });
+}
+
 export function tracePiValidation(
     session: AgentSession,
     validation: "passed" | "failed",
 ) {
     const state = sessions.get(session);
-    if (state) state.trace.validation = validation;
+    if (state) {
+        state.trace.validation = validation;
+        recordLocalField(
+            "validation",
+            "candidate",
+            () => ({ value: validation }),
+            { sessionId: state.trace.sessionId, round: state.current?.round },
+        );
+    }
 }
 
 function recordEvent(state: Collector, event: AgentSessionEvent) {
@@ -66,6 +93,7 @@ function recordEvent(state: Collector, event: AgentSessionEvent) {
     if (event.type === "message_end" && event.message.role === "assistant") {
         round.outcome = event.message.stopReason;
         round.durationMs = Math.round(performance.now() - state.started);
+        const link = { sessionId: state.trace.sessionId, round: round.round };
         for (const part of event.message.content) {
             if (part.type !== "toolCall" || round.calls.length >= 64) continue;
             const call = {
@@ -74,6 +102,18 @@ function recordEvent(state: Collector, event: AgentSessionEvent) {
             };
             round.calls.push(call);
             state.calls.set(part.id, call);
+            if (call.name === "search_memes")
+                recordLocalField(
+                    "toolCall",
+                    "focus",
+                    () => {
+                        const focus = object(part.arguments)?.focus;
+                        return typeof focus === "string"
+                            ? { value: focus }
+                            : { note: "本次调用未提供 focus。" };
+                    },
+                    { ...link, call: call.call },
+                );
         }
     } else if (event.type === "tool_execution_end") {
         const call = state.calls.get(event.toolCallId);
@@ -84,6 +124,16 @@ function recordEvent(state: Collector, event: AgentSessionEvent) {
             Number.isFinite(event.durationMs)
         )
             call.durationMs = Math.max(0, Math.round(event.durationMs));
+        recordLocalField(
+            "toolResult",
+            call.name ?? "tool",
+            () => ({ value: call.result, note: "工具返回的正文已省略。" }),
+            {
+                sessionId: state.trace.sessionId,
+                round: round.round,
+                call: call.call,
+            },
+        );
         state.calls.delete(event.toolCallId);
     }
 }
