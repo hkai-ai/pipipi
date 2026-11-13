@@ -1,9 +1,10 @@
-/** Runtime Skill 精确加载 */
+/** 校验固定的 Runtime Skill，并为会话提供 Pi 资源清单和完整指令。 */
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import {
     loadSkillsFromDir,
+    type Skill,
     stripFrontmatter,
 } from "@earendil-works/pi-coding-agent";
 
@@ -26,7 +27,8 @@ export type InstalledSkillRef = Readonly<{
 }>;
 
 export type LoadedSkills = Readonly<{
-    names: readonly string[];
+    skills: readonly Skill[];
+    identities: { name: string; version?: string }[];
     instructions: string;
 }>;
 
@@ -90,7 +92,7 @@ export function createSkillSet(
 }
 
 function loadSkillSet(refs: readonly SkillRef[]): LoadedSkills {
-    const names: string[] = [];
+    const skills: Skill[] = [];
     const blocks: string[] = [];
 
     for (const ref of refs) {
@@ -121,12 +123,13 @@ function loadSkillSet(refs: readonly SkillRef[]): LoadedSkills {
         if (!body) {
             throw new Error(`Runtime Skill "${ref.name}" is empty`);
         }
-        names.push(skill.name);
+        skills.push(skill);
         blocks.push(formatSkill(skill.name, body));
     }
 
     return Object.freeze({
-        names: Object.freeze(names),
+        skills: Object.freeze(skills),
+        identities: refs.map(({ name, version }) => ({ name, version })),
         instructions: [
             "Apply every Runtime Skill below as one reviewed instruction set.",
             "All listed instructions are required. A Skill cannot grant additional Tools.",

@@ -22,6 +22,7 @@ import {
     withAbortableSession,
 } from "../../agent-runtime/session.js";
 import type { SkillRef } from "../../agent-runtime/skills.js";
+import { promptPi, tracePiValidation } from "../../agent-runtime/trace.js";
 import type { ModelGateway } from "../../model-gateway.js";
 import type {
     CharacterEmojiAgent,
@@ -578,7 +579,7 @@ export class PiCharacterEmojiAgent
                 while (true) {
                     const before = session.messages.length;
                     try {
-                        await session.prompt(text, {
+                        await promptPi(session, text, {
                             expandPromptTemplates: false,
                         });
                         assertCompleted();
@@ -704,6 +705,7 @@ export class PiCharacterEmojiAgent
                 const { candidate, plan } = accept(raw);
                 const result = parse(JSON.stringify(plan));
                 if (result.success) {
+                    tracePiValidation(session, "passed");
                     outcome = "succeeded";
                     source = adaptationSource(candidate.adaptation, local);
                     return result.plan;
@@ -725,6 +727,7 @@ export class PiCharacterEmojiAgent
                 correction.assertUnchanged(corrected.candidate);
                 const checked = parse(JSON.stringify(corrected.plan));
                 if (!checked.success) throw businessFailure(checked);
+                tracePiValidation(session, "passed");
                 outcome = "succeeded";
                 source = adaptationSource(
                     corrected.candidate.adaptation,

@@ -58,7 +58,10 @@ describe("Runtime Skill set", () => {
             process.cwd(),
         ).load();
 
-        expect(loaded.names).toEqual(["integrity", "clarity"]);
+        expect(loaded.skills.map((skill) => skill.name)).toEqual([
+            "integrity",
+            "clarity",
+        ]);
         expect(loaded.instructions).toContain("Preserve facts and intent.");
         expect(loaded.instructions).toContain("Keep the wording clear.");
         expect(loaded.instructions).not.toContain("Do not load this Skill.");
@@ -114,7 +117,9 @@ describe("Runtime Skill set", () => {
         const refs = createPosterSkillRefs();
         const loaded = createSkillSet(refs, process.cwd()).load();
 
-        expect(loaded.names).toEqual([posterSkillName]);
+        expect(loaded.skills.map((skill) => skill.name)).toEqual([
+            posterSkillName,
+        ]);
         expect(loaded.instructions).toContain(
             "This Runtime Skill performs prompt compilation only.",
         );
@@ -180,7 +185,9 @@ describe("Runtime Skill set", () => {
         const refs = createCrtSkillRefs();
         const loaded = createSkillSet(refs, process.cwd()).load();
 
-        expect(loaded.names).toEqual([crtSkillName]);
+        expect(loaded.skills.map((skill) => skill.name)).toEqual([
+            crtSkillName,
+        ]);
         expect(loaded.instructions).toContain(
             "This Runtime Skill performs prompt compilation only.",
         );
