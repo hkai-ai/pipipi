@@ -4,11 +4,13 @@ import {
     explainDiagnostic,
     sanitizeActivityDiagnostic,
 } from "../src/process-runtime/diagnostics.js";
-import { sanitizeProcessRunLogRecord } from "../src/process-runtime/logging.js";
+import { sanitizeProcessRunLogRecord } from "../src/process-runtime/log-record.js";
 import { compareAttemptActivities } from "./activity-comparison.js";
 import type { ProcessRunLogRecord, RunTimeline } from "./api.js";
 import { formatDuration, formatTime } from "./formatting.jsx";
 import { activityName } from "./labels.js";
+
+import { PiTrace } from "./pi-trace.jsx";
 
 const outcomes: Record<string, string> = {
     succeeded: "成功",
@@ -107,6 +109,28 @@ export function Timeline({
                                     <span class="step-dot" aria-hidden="true" />
                                     <div class="step-copy">
                                         <strong>{eventTitle(entry)}</strong>
+                                        {entry.event ===
+                                            "process_run_activity_finished" &&
+                                            entry.sessions?.map((session) => (
+                                                <PiTrace
+                                                    key={session.sessionId}
+                                                    session={session}
+                                                />
+                                            ))}
+                                        {entry.event ===
+                                            "process_run_activity_finished" &&
+                                            !entry.sessions && (
+                                                <p class="hint">
+                                                    会话轨迹未采集
+                                                </p>
+                                            )}
+                                        {entry.event ===
+                                            "process_run_activity_finished" &&
+                                        entry.sessions?.length === 0 ? (
+                                            <p class="hint">
+                                                本次活动没有 Pi 会话
+                                            </p>
+                                        ) : null}
                                         {diagnostic ? (
                                             <p>
                                                 {

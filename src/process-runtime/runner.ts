@@ -2,6 +2,7 @@
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { createProcessAttemptRunner } from "./attempt.js";
+import { startLocalTrace } from "./local-trace.js";
 import type { ProcessRunLogClock, ProcessRunLogSink } from "./logging.js";
 import {
     disabledProcessRunRecords,
@@ -126,6 +127,7 @@ export function createProcessRunner(options: {
             );
         }
 
+        startLocalTrace({ runId, ...identity });
         const result = await attemptRunner.run({
             runId,
             registration,

@@ -1,5 +1,6 @@
 /** 定义 Process Registration：校验输入输出 Schema、快照化 JSON、声明可用活动与重试策略，产出可执行的 Registration */
 import type { z } from "zod";
+import type { InstalledSkillRef } from "../agent-runtime/skills.js";
 import type { ProcessRunActivity } from "./logging.js";
 
 const inputMaxBytes = 262_144;
@@ -121,6 +122,8 @@ export const processRegistrationBrand: unique symbol = Symbol(
 
 export type ProcessRegistration = Readonly<{
     identity: ProcessIdentity;
+    /** Runtime Skills declared when this exact Registration was built. */
+    skills: readonly InstalledSkillRef[];
     retryPolicy: ProcessRetryPolicy;
     /**
      * This Process's own Attempt time limit. Absent means the Attempt Runner's
@@ -295,6 +298,7 @@ export function defineProcessRegistration<
 
     return Object.freeze({
         identity,
+        skills: Object.freeze([]),
         retryPolicy,
         timeoutMs,
         inputSchema,

@@ -1,4 +1,5 @@
 /** 把受控 Context、图片和 Registration Process Tool 送入请求级 Pi Session */
+
 import {
     defineTool,
     type ToolDefinition,
@@ -10,6 +11,7 @@ import {
     PiSessionSupport,
     withAbortableSession,
 } from "../agent-runtime/session.js";
+import { promptPi } from "../agent-runtime/trace.js";
 import type {
     InteractiveAgent,
     InteractiveAgentRequest,
@@ -56,7 +58,7 @@ export class PiInteractiveAgent implements InteractiveAgent {
             void session.abort();
         };
         return withAbortableSession(session, request.signal, async () => {
-            await session.prompt(promptFor(request), {
+            await promptPi(session, promptFor(request), {
                 images: request.imageAccess.map((image) => ({
                     type: "image" as const,
                     mimeType: image.mediaType,

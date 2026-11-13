@@ -1,5 +1,6 @@
 /** 在受限 Pi 会话中选用本地素材、按需搜梗并提交经业务校验的方案。 */
 
+import { createHash } from "node:crypto";
 import {
     createAgentSession,
     defineTool,
@@ -22,6 +23,13 @@ import {
     withAbortableSession,
 } from "../../agent-runtime/session.js";
 import type { SkillRef } from "../../agent-runtime/skills.js";
+import {
+    promptPi,
+    recordPiDecision,
+    recordPiField,
+    recordPiToolField,
+    tracePiValidation,
+} from "../../agent-runtime/trace.js";
 import type { ModelGateway } from "../../model-gateway.js";
 import type {
     CharacterEmojiAgent,
@@ -256,7 +264,7 @@ export class PiCharacterEmojiAgent
                 { additionalProperties: false },
             ),
             executionMode: "sequential",
-            execute: async (_id, args, toolSignal) => {
+            execute: async (callId, args, toolSignal) => {
                 const searchStarted = Date.now();
                 signal.throwIfAborted();
                 if (!searchAllowed) throw new Error("本次创意未开放联网搜索");
@@ -264,6 +272,11 @@ export class PiCharacterEmojiAgent
                     failed = true;
                     throw new Error("搜梗调用超过预算");
                 }
+                recordPiToolField(session, callId, "focus", () =>
+                    typeof args.focus === "string"
+                        ? { value: args.focus }
+                        : { note: "本次调用未提供 focus。" },
+                );
                 const finishSearch = (
                     result: MemeResearch,
                     error?: unknown,
@@ -271,6 +284,34 @@ export class PiCharacterEmojiAgent
                     completedSearches++;
                     research.push(result);
                     session.setActiveToolsByName([]);
+                    if (result.status !== "failed")
+                        recordPiDecision(
+                            session,
+                            { kind: "search_result", material: result.status },
+                            callId,
+                        );
+                    if (result.status === "failed") {
+                        recordPiDecision(
+                            session,
+                            {
+                                kind: "search_failed",
+                                reason:
+                                    error instanceof EmojiFailure
+                                        ? error.code
+                                        : "execution",
+                                ...(error instanceof EmojiFailure &&
+                                error.httpStatus !== undefined
+                                    ? { httpStatus: error.httpStatus }
+                                    : {}),
+                            },
+                            callId,
+                        );
+                        recordPiDecision(
+                            session,
+                            { kind: "original_fallback" },
+                            callId,
+                        );
+                    }
                     report({
                         stage: "search",
                         outcome: result.status,
@@ -473,11 +514,56 @@ export class PiCharacterEmojiAgent
                 if (!Array.isArray(request.input))
                     throw new Error("表情包模型输入格式无效");
                 // 首轮也可能直接出稿；每轮提供当前来源合同，不增加专门的搜索判断请求。
+                const candidateRule =
+                    "提交时只返回符合以下 JSON Schema 的完整方案对象：";
+                const candidateSchema = z.toJSONSchema(schema());
+                const serialized = JSON.stringify(candidateSchema);
+                recordPiField(session, "input", "candidateRule", () => ({
+                    value: candidateRule,
+                }));
+                recordPiField(
+                    session,
+                    "input",
+                    "candidateSchema.sha256",
+                    () => ({
+                        value: createHash("sha256")
+                            .update(serialized)
+                            .digest("hex"),
+                    }),
+                );
+                const property = mode === "single" ? "scene" : "panels";
+                recordPiField(
+                    session,
+                    "input",
+                    `candidateSchema.properties.${property}`,
+                    () => {
+                        const fields = candidateSchema.properties?.[property];
+                        if (!fields || typeof fields !== "object")
+                            return { note: "该候选未声明此字段。" };
+                        // Never emit nested schemas: cast identities and source IDs may be request-dependent enums.
+                        const {
+                            type,
+                            minLength,
+                            maxLength,
+                            minItems,
+                            maxItems,
+                        } = fields;
+                        return {
+                            value: JSON.stringify({
+                                type,
+                                minLength,
+                                maxLength,
+                                minItems,
+                                maxItems,
+                            }),
+                        };
+                    },
+                );
                 request.input = [
                     ...request.input,
                     {
                         role: "system",
-                        content: `提交时只返回符合以下 JSON Schema 的完整方案对象：${JSON.stringify(z.toJSONSchema(schema()))}`,
+                        content: candidateRule + serialized,
                     },
                 ];
                 return {
@@ -547,11 +633,42 @@ export class PiCharacterEmojiAgent
                     throw error;
                 }
             };
+            const recordCandidate = (raw: unknown) => {
+                // Extract only the visible scene text from the selected assistant text.
+                // No search evidence, adaptation metadata or raw model blocks enter this view.
+                const candidate = raw as {
+                    scene?: unknown;
+                    panels?: { scene?: unknown }[];
+                } | null;
+                if (mode === "comic" && Array.isArray(candidate?.panels)) {
+                    candidate.panels.slice(0, 6).forEach((panel, index) => {
+                        recordPiField(
+                            session,
+                            "model",
+                            `panels[${index}].scene`,
+                            () =>
+                                typeof panel?.scene === "string"
+                                    ? { value: panel.scene }
+                                    : { note: "此格没有可展示的 scene 字段。" },
+                        );
+                    });
+                } else
+                    recordPiField(session, "model", "scene", () =>
+                        typeof candidate?.scene === "string"
+                            ? { value: candidate.scene }
+                            : { note: "此回复没有可展示的 scene 字段。" },
+                    );
+            };
             const readOutput = () => {
                 const text = outputText();
                 try {
-                    return readPlannerJson(text);
+                    const raw = readPlannerJson(text);
+                    recordCandidate(raw);
+                    return raw;
                 } catch {
+                    recordPiField(session, "model", "scene", () => ({
+                        note: "回复无法解析，候选原文已省略。",
+                    }));
                     throw new EmojiFailure(
                         "planning",
                         "invalid_json",
@@ -578,7 +695,7 @@ export class PiCharacterEmojiAgent
                 while (true) {
                     const before = session.messages.length;
                     try {
-                        await session.prompt(text, {
+                        await promptPi(session, text, {
                             expandPromptTemplates: false,
                         });
                         assertCompleted();
@@ -633,12 +750,39 @@ export class PiCharacterEmojiAgent
                         )
                             throw new AgentExecutionFailure(diagnostic, error);
                         recoveredConnection = true;
+                        if (
+                            diagnostic.code === "connection" ||
+                            diagnostic.code === "timeout" ||
+                            diagnostic.code === "provider_unavailable"
+                        ) {
+                            recordPiDecision(session, {
+                                kind: "retry_started",
+                                reason: diagnostic.code,
+                            });
+                        }
                         // 原会话保留任务、材料及修正约束，恢复只再请求一次模型。
                     }
                 }
             };
-            const repair = async (text: string) => {
+            const repair = async (
+                text: string,
+                reason:
+                    | "invalid_json"
+                    | "invalid_schema"
+                    | "business_validation",
+                issues?: EmojiFailure["issues"],
+            ) => {
+                recordPiDecision(session, {
+                    kind: "validation_failed",
+                    reason,
+                    ...(issues ? { issues } : {}),
+                });
+                recordPiDecision(session, { kind: "repair_started" });
                 repairing = true;
+                tracePiValidation(session, "failed");
+                recordPiField(session, "input", "correction", () => ({
+                    note: "修正上下文可能包含候选和来源材料，正文已省略。",
+                }));
                 session.setActiveToolsByName([]);
                 await prompt(text);
             };
@@ -656,6 +800,14 @@ export class PiCharacterEmojiAgent
                     ),
                 );
             const plannerBrief = JSON.parse(input);
+            recordPiField(session, "input", "idea", () => ({
+                value: plannerBrief.idea,
+            }));
+            recordPiField(session, "input", "captionRule", () =>
+                typeof plannerBrief.captionRule === "string"
+                    ? { value: plannerBrief.captionRule }
+                    : { note: "本次输入未提供 captionRule。" },
+            );
             try {
                 await prompt(
                     JSON.stringify({
@@ -679,7 +831,7 @@ export class PiCharacterEmojiAgent
                             modelCalls >= budget.maxModelCalls)
                     )
                         throw error;
-                    await repair(JSON_CORRECTION_PROMPT);
+                    await repair(JSON_CORRECTION_PROMPT, "invalid_json");
                     raw = readOutput();
                 }
                 let accepted = schema().safeParse(raw);
@@ -695,7 +847,11 @@ export class PiCharacterEmojiAgent
                         accepted.error,
                     );
                     if (!correction) throw schemaFailure(accepted.error);
-                    await repair(correction.prompt);
+                    await repair(
+                        correction.prompt,
+                        "invalid_schema",
+                        schemaFailure(accepted.error).issues,
+                    );
                     raw = readOutput();
                     correction.assertUnchanged(raw);
                     accepted = schema().safeParse(raw);
@@ -704,6 +860,8 @@ export class PiCharacterEmojiAgent
                 const { candidate, plan } = accept(raw);
                 const result = parse(JSON.stringify(plan));
                 if (result.success) {
+                    recordPiDecision(session, { kind: "validation_passed" });
+                    tracePiValidation(session, "passed");
                     outcome = "succeeded";
                     source = adaptationSource(candidate.adaptation, local);
                     return result.plan;
@@ -716,7 +874,11 @@ export class PiCharacterEmojiAgent
                         modelCalls >= budget.maxModelCalls)
                 )
                     throw businessFailure(result);
-                await repair(correction.prompt);
+                await repair(
+                    correction.prompt,
+                    "business_validation",
+                    businessFailure(result).issues,
+                );
                 const correctedRaw = readOutput();
                 const correctedResult = schema().safeParse(correctedRaw);
                 if (!correctedResult.success)
@@ -725,12 +887,31 @@ export class PiCharacterEmojiAgent
                 correction.assertUnchanged(corrected.candidate);
                 const checked = parse(JSON.stringify(corrected.plan));
                 if (!checked.success) throw businessFailure(checked);
+                recordPiDecision(session, { kind: "validation_passed" });
+                tracePiValidation(session, "passed");
                 outcome = "succeeded";
                 source = adaptationSource(
                     corrected.candidate.adaptation,
                     local,
                 );
                 return checked.plan;
+            } catch (error) {
+                if (
+                    error instanceof EmojiFailure &&
+                    (error.code === "invalid_json" ||
+                        error.code === "invalid_schema" ||
+                        error.code === "invalid_source" ||
+                        error.code === "business_validation" ||
+                        error.code === "repair_changed_content")
+                ) {
+                    recordPiDecision(session, {
+                        kind: "validation_failed",
+                        reason: error.code,
+                        ...(error.issues ? { issues: error.issues } : {}),
+                    });
+                    tracePiValidation(session, "failed");
+                }
+                throw error;
             } finally {
                 if (calls === 0 && outcome === "succeeded") {
                     report({

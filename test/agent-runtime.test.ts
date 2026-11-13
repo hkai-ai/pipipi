@@ -128,7 +128,7 @@ describe("structured Pi Agent", () => {
         });
 
         const result = await agent.run({
-            prompt: "Return the result.",
+            prompt: "/skill:minimal-zine-poster-prompt",
             signal: new AbortController().signal,
         });
 
@@ -137,7 +137,10 @@ describe("structured Pi Agent", () => {
             modelId: "test-model",
         });
         expect(prompt).toHaveBeenCalledOnce();
-        expect(prompt).toHaveBeenCalledWith("Return the result.");
+        expect(prompt).toHaveBeenCalledWith(
+            "/skill:minimal-zine-poster-prompt",
+            { expandPromptTemplates: false },
+        );
         expect(abort).not.toHaveBeenCalled();
         expect(dispose).toHaveBeenCalledOnce();
         expect(captured).toMatchObject({
@@ -247,6 +250,14 @@ describe("Pi SDK session isolation", () => {
                     expect(
                         session.getAllTools().map((tool) => tool.name),
                     ).toEqual(tools.map((tool) => tool.name));
+                    expect(
+                        session.resourceLoader
+                            .getSkills()
+                            .skills.map((skill) => skill.name),
+                    ).toEqual(["minimal-zine-poster-prompt"]);
+                    expect(session.systemPrompt).toContain(
+                        "This Runtime Skill performs prompt compilation only.",
+                    );
                     expect(session.messages).toEqual([]);
                 } finally {
                     session.dispose();

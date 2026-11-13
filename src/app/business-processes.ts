@@ -19,18 +19,7 @@ import {
 } from "../processes/production.js";
 import { createPinoProcessRunLogSink } from "../run-observation/pino.js";
 import { parsePositiveInteger, type StartupEnvironment } from "./config.js";
-import {
-    createProductionSkillBindings,
-    type ProductionSkillBindings,
-} from "./runtime-skills.js";
-
-/**
- * The production Runtime plus the exact Skill bindings it was built from, so
- * the operator console can describe installed Skills without validating the
- * snapshots a second time.
- */
-export type ProductionRuntime = ProcessRuntime &
-    Readonly<{ skills: ProductionSkillBindings }>;
+import { createProductionSkillBindings } from "./runtime-skills.js";
 
 export function createProductionRuntime(
     environment: StartupEnvironment,
@@ -44,7 +33,7 @@ export function createProductionRuntime(
         additionalRunLogSinks?: readonly ProcessRunLogSink[];
         runRecords?: ProcessRunRecords;
     } = {},
-): ProductionRuntime {
+): ProcessRuntime {
     const baseRunLogSink =
         options.runLogSink ??
         createPinoProcessRunLogSink({
@@ -83,13 +72,10 @@ export function createProductionRuntime(
             logSink: runLogSink,
         }),
     });
-    return Object.freeze({
-        ...createProcessRuntime({
-            registrations,
-            processTimeoutMs,
-            runLogSink,
-            ...(options.runRecords ? { runRecords: options.runRecords } : {}),
-        }),
-        skills,
+    return createProcessRuntime({
+        registrations,
+        processTimeoutMs,
+        runLogSink,
+        ...(options.runRecords ? { runRecords: options.runRecords } : {}),
     });
 }

@@ -20,6 +20,10 @@ export function describeProcessCatalog(
             Object.freeze({
                 process: registration.identity.id,
                 version: registration.identity.version,
+                skills: registration.skills.map(({ name, version }) => ({
+                    name,
+                    version,
+                })),
                 activities: registration.activities,
                 retry: Object.freeze({
                     maximumAttempts: registration.retryPolicy.maximumAttempts,

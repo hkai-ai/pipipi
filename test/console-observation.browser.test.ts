@@ -1,4 +1,4 @@
-import { access, mkdir, mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -10,6 +10,7 @@ import {
     createJsonlProcessRunRecordArchive,
     createJsonlRunObservationStats,
 } from "../src/run-observation/jsonl.js";
+import { chromeExecutable } from "./support/chrome.js";
 
 const browserDescribe =
     process.env.RUN_CONSOLE_OBSERVATION_BROWSER === "1"
@@ -33,9 +34,16 @@ browserDescribe("operator observation browser", () => {
         const stats = createJsonlRunObservationStats({ directory, clock });
         const at = (minutes: number) =>
             new Date(now.getTime() - minutes * 60_000).toISOString();
-        const processes = ["v2", "v3"].map((version) => ({
+        const planner = { name: "test-planner", version: "v1" };
+        const single = { name: "test-planner", version: "v2" };
+        const processes = [
+            { version: "v2", skills: [planner] },
+            { version: "v3", skills: [single] },
+            { version: "v4", skills: [] },
+        ].map(({ version, skills }) => ({
             process: "character-emoji",
             version,
+            skills,
             activities: ["planning"],
             retry: { maximumAttempts: 1, retryableErrorCodes: [] },
             input: {
@@ -115,10 +123,7 @@ browserDescribe("operator observation browser", () => {
         if (!address || typeof address === "string")
             throw new Error("Missing address");
         const url = `http://127.0.0.1:${address.port}/ops/`;
-        const executablePath =
-            process.env.CHROME_PATH ??
-            "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
-        await access(executablePath);
+        const executablePath = await chromeExecutable();
         const browser = await chromium.launch({
             executablePath,
             headless: true,
@@ -181,6 +186,27 @@ browserDescribe("operator observation browser", () => {
             expect(await page.locator("details[open]").innerText()).toContain(
                 "流程版本 v3",
             );
+            const detail = page.locator("details[open]");
+            expect(await detail.innerText()).toContain(
+                "当前声明的 Runtime Skill",
+            );
+            expect(
+                await detail
+                    .getByRole("link", { name: "test-planner · v2" })
+                    .count(),
+            ).toBe(1);
+            expect(await detail.innerText()).not.toContain("test-planner · v1");
+            await page.goto(
+                `${url}#/processes?process=character-emoji&version=v2`,
+            );
+            await detail
+                .getByRole("link", { name: "test-planner · v1" })
+                .waitFor();
+            expect(await detail.innerText()).not.toContain("test-planner · v2");
+            await page.goto(
+                `${url}#/processes?process=character-emoji&version=v4`,
+            );
+            await detail.getByText("此版本未绑定 Runtime Skill。").waitFor();
             await page.goto(
                 filteredUrl
                     .replace("version=v3", "version=v99")
@@ -203,6 +229,7 @@ browserDescribe("operator observation browser", () => {
                 .getByRole("link", { name: "failure-v3-00", exact: true })
                 .click();
             await page.getByRole("heading", { name: "运行详情" }).waitFor();
+            await page.getByText("会话轨迹未采集", { exact: true }).waitFor();
             await page
                 .getByRole("heading", {
                     name: "解析模型 JSON：模型结果不是合法 JSON",

@@ -121,7 +121,9 @@ Registration 会捕获 Definition 的 Schema 与执行函数，Registry 会复�
 
 ## 错误归属
 
-### 统一诊断与工具选择
+#从控制台运行详情按 runId 展开业务活动。每次 Attempt 独立分配活动实例编号；其中的 Pi 会话和模型轮次各自编号。每轮工具权限取自最终请求，调用与返回按 SDK 的工具调用 ID 匹配后用本轮序号展示。供应商未报告的用量留空，历史记录不从当前目录回填 Skill 或工具。
+
+## 统一诊断与工具选择
 
 公开文案按“失败事实、调用方约束、运维操作”区分。公开响应说明已知失败事实；仅当会影响调用方是否发起新副作用时，保留明确约束，例如“可能已产生费用，请勿直接重新生成或重放付费操作”。核对凭证、DNS/Fake-IP、日志、取消来源、步骤耗时或下游请求状态属于运维排查，只在控制台展示；不使用“核对后再试”暗示完成检查就允许重投。Attempt 的取消、超时和未知异常只陈述结果，图片读取只陈述无法读取/解码或已知地址拒绝。已有公开错误码与重试合同不变。
 
@@ -363,3 +365,5 @@ Composition Root 通过单一配置解析入口选择文本 base URL 与 API key
 显式凭证只放入 Agent 私有内存 ModelRuntime，不改 process.env，也不写全局 Pi auth/models 文件。不同 Agent 的并发请求各自保留注入的凭证。共享 MODEL_GATEWAY 对可供已启用的 Flare 和通用 OpenAI 图片 Adapter 使用；FAL、Magikaru、OSS 仍独立。共享凭证不会启用图片渠道，`CHARACTER_EMOJI_IMAGE_ENABLED` 缺省保留旧图片 key 的启用规则，false 禁用、true 启用主用。
 
 图片选择规则也由 `src/model-gateway.ts` 拥有：通用 OpenAI 图片覆盖 `OPENAI_IMAGE_*` 优先于共享 MODEL_GATEWAY 对，最后兼容旧 OPENAI 对。Flare 已启用时优先共享 MODEL_GATEWAY 对，其次旧 CHARACTER_EMOJI_IMAGE 对；旧 image key-only 保留各自默认地址，不从其他组取 base。任一被选中的共享组不完整即失败。渠道启用由独立开关决定，不从共享 key 的存在推断。关闭的 Flare 不校验无效旧主用配置，未设置开关时旧 base-only 仍拒绝。
+
+会话可附加由业务校验和工具执行处记录的事件。同轮按发生顺序展示，工具内的失败和兜底按调用编号归属。Worker 主动取消时，运行中的模型轮次记录取消来源；供应商尚未返回的用量保持缺失。

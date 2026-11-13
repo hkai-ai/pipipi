@@ -19,6 +19,8 @@ Pi SDK 固定为 `@earendil-works/pi-coding-agent@1.4.0`，依赖树由 `package
 
 部署预检和启动过程都通过 Installed Skill Catalog 校验全部本地 Runtime Skill，并按准确名称和版本向各 Agent 提供绑定。生产请求到达后，production catalog 精确找到 Process Registration；Registration 执行业务定义；需要模型任务时调用窄 Agent Interface；Pi Adapter 只加载已绑定的 Runtime Skill，并只提供代码中显式配置的 Tool；Registration 再校验结果并决定是否调用 Business Capability。Runtime Skill 影响模型如何完成任务，不拥有流程、权限或副作用。
 
+会话创建时，Pi Adapter 把本次绑定且通过校验的 Skill 正文加入系统提示，并通过 `session.resourceLoader.getSkills().skills` 提供同一份绑定清单。模型从第一轮就收到完整指令。业务请求中的 `/skill:名称` 按普通文本处理。
+
 ### 当前生产流程定位
 
 | 流程 | 流程与校验 | Agent | Skill 绑定与正文 | Capability | 契约与业务验收 |

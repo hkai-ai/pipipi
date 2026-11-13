@@ -422,6 +422,8 @@ export function RunView({
             entry.version === value?.version,
     );
     const details = describeTimeline(timeline.value);
+    const partialTimeline =
+        !value && (timeline.value?.queue || timeline.value?.activities.length);
     return (
         <>
             <a class="back-link" href={back}>
@@ -441,10 +443,58 @@ export function RunView({
                 </button>
             </div>
             {record.loading ? <p aria-live="polite">读取中…</p> : null}
-            {record.error ? (
+            {record.error && !timeline.loading && !partialTimeline ? (
                 <p class="notice" role="alert">
                     {record.error} 记录也可能不存在或已过保留期。
                 </p>
+            ) : null}
+            {timeline.value?.queue && (
+                <Panel title="异步任务">
+                    <div class="detail-facts">
+                        <div>
+                            <span>队列状态</span>
+                            <strong>
+                                {
+                                    {
+                                        queued: "等待 Worker",
+                                        running: "Worker 执行中",
+                                        succeeded: "已成功",
+                                        failed: "已失败",
+                                    }[timeline.value.queue.status]
+                                }
+                            </strong>
+                        </div>
+                        <div>
+                            <span>受理时间</span>
+                            <strong>
+                                {formatTime(timeline.value.queue.createdAt)}
+                            </strong>
+                        </div>
+                        {timeline.value.queue.startedAt && (
+                            <div>
+                                <span>首次开始</span>
+                                <strong>
+                                    {formatTime(timeline.value.queue.startedAt)}
+                                </strong>
+                            </div>
+                        )}
+                        {timeline.value.queue.finishedAt && (
+                            <div>
+                                <span>结束时间</span>
+                                <strong>
+                                    {formatTime(
+                                        timeline.value.queue.finishedAt,
+                                    )}
+                                </strong>
+                            </div>
+                        )}
+                    </div>
+                </Panel>
+            )}
+            {partialTimeline && timeline.value?.activities.length ? (
+                <Panel title="执行过程">
+                    <Timeline timeline={timeline.value} />
+                </Panel>
             ) : null}
             {value ? (
                 <>

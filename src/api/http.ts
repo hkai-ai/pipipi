@@ -17,10 +17,10 @@ import type {
     ProcessErrorCode,
     ProcessEvaluationResult,
     ProcessExecutor,
-    ProcessRunLogRecord,
     ProcessRunResult,
 } from "../process-runtime/index.js";
 import type { ProcessRunRecord } from "../process-runtime/records.js";
+import type { ProcessRunActivityArchive } from "../run-observation/activities.js";
 import type {
     ConsoleProcessDescription,
     ConsoleSkillDescription,
@@ -103,19 +103,39 @@ export type ConsoleHttpOptions = Readonly<{
         ) => Promise<ConsoleRecordPage>;
         find: (runId: string) => Promise<ProcessRunRecord | undefined>;
     }>;
-    activities?: Readonly<{
-        findByRun: (runId: string) => Promise<readonly ProcessRunLogRecord[]>;
-    }>;
+    activities?: Pick<ProcessRunActivityArchive, "findByRun">;
+    queueState?: (
+        runId: string,
+    ) => Promise<
+        import("../process-runs/ops/queue-state.js").RunQueueState | undefined
+    >;
     /** The fixed production catalog. Absent when catalog exposure is off. */
     processes?: readonly ConsoleProcessDescription[];
     /** The installed Runtime Skills. Absent when Skill exposure is off. */
     skills?: ConsoleSkillCatalog;
+    localTrace?: ReturnType<
+        typeof import("../process-runtime/local-trace.js").createLocalTrace
+    >;
     stats?: Readonly<{
         summarise: (
             query: Readonly<{ since: string; until?: string }>,
         ) => Promise<ConsoleStatsSummary>;
     }>;
 }>;
+
+function localConsoleRequest(request: IncomingMessage) {
+    const address = request.socket.remoteAddress;
+    return (
+        (address === "127.0.0.1" ||
+            address === "::1" ||
+            address === "::ffff:127.0.0.1") &&
+        /^(?:127\.0\.0\.1|localhost|\[::1\])(?::\d+)?$/.test(
+            request.headers.host ?? "",
+        ) &&
+        !request.headers.forwarded &&
+        !request.headers["x-forwarded-for"]
+    );
+}
 
 export type ConsoleSkillCatalog = Readonly<{
     list: () => readonly ConsoleSkillDescription[];
@@ -510,7 +530,12 @@ async function handleRequest(
                     requestBody.value,
                     context.executor.execute,
                 )
-              : await context.executor.execute(requestBody.value);
+              : await executeBusinessRequest(
+                    request,
+                    response,
+                    context,
+                    requestBody.value,
+                );
         emitLog(context.logging, {
             event: "process_run_completed",
             timestamp: context.logging.clock.timestamp(),
@@ -531,6 +556,28 @@ async function handleRequest(
         writeJson(response, statusFor(result), result);
     } finally {
         releaseExecution();
+    }
+}
+
+async function executeBusinessRequest(
+    request: IncomingMessage,
+    response: ServerResponse,
+    context: RequestHandlingContext,
+    input: unknown,
+) {
+    const local = context.console?.localTrace;
+    if (!local || !localConsoleRequest(request))
+        return context.executor.execute(input);
+    const controller = new AbortController();
+    const close = () => controller.abort();
+    response.once("close", close);
+    if (response.destroyed) close();
+    try {
+        return await local.request(controller.signal, () =>
+            context.executor.execute(input),
+        );
+    } finally {
+        response.off("close", close);
     }
 }
 
@@ -978,7 +1025,11 @@ async function handleConsole(
     }
 
     if (path === base || path === `${base}/`) {
-        await assetsFor(options).writeDocument(response, base);
+        await assetsFor(options).writeDocument(
+            response,
+            base,
+            Boolean(options.localTrace) && localConsoleRequest(request),
+        );
         return true;
     }
 
@@ -986,6 +1037,31 @@ async function handleConsole(
         const name = path.slice(`${base}/assets/`.length);
         if (await assetsFor(options).writeAsset(response, name)) return true;
         writeFailureJson(response, 404, "ROUTE_NOT_FOUND", "Route not found");
+        return true;
+    }
+
+    const livePath = `${base}/live`;
+    if (
+        options.localTrace &&
+        localConsoleRequest(request) &&
+        (path === livePath || path.startsWith(`${livePath}/`))
+    ) {
+        response.setHeader("cache-control", "no-store");
+        if (path === livePath)
+            writeJson(response, 200, { runs: options.localTrace.list() });
+        else {
+            const run = options.localTrace.find(
+                path.slice(livePath.length + 1),
+            );
+            if (run) writeJson(response, 200, run);
+            else
+                writeFailureJson(
+                    response,
+                    404,
+                    "ROUTE_NOT_FOUND",
+                    "Run is no longer active",
+                );
+        }
         return true;
     }
 
@@ -1162,9 +1238,14 @@ async function handleConsole(
         : undefined;
     if (options.activities && activityRunId !== undefined) {
         response.setHeader("cache-control", "no-store");
+        const [activities, queue] = await Promise.all([
+            options.activities.findByRun(activityRunId),
+            options.queueState?.(activityRunId),
+        ]);
         writeJson(response, 200, {
             runId: activityRunId,
-            activities: await options.activities.findByRun(activityRunId),
+            activities,
+            ...(queue ? { queue } : {}),
         });
         return true;
     }

@@ -1,142 +1,17 @@
-/** 定义并净化 Process Run 活动记录，管理 Attempt 日志与多 Sink 故障隔离。 */
-
+/** 管理 Attempt 的活动实例、计时与多个观测 Sink 的故障隔离。 */
 import {
     type ActivityDiagnostic,
     sanitizeActivityDiagnostic,
 } from "./diagnostics.js";
+import type { ProcessRunLogEvent, ProcessRunLogRecord } from "./log-record.js";
+import { sanitizePiSessions } from "./pi-trace.js";
 import type { ProcessErrorCode } from "./result.js";
+import { type TraceActivity, withTraceActivity } from "./trace-context.js";
 
-type ProcessRunLogBase = Readonly<{
-    schemaVersion: 1;
-    timestamp: string;
-    runId: string;
-    process: string;
-    version: string;
-    attemptNumber: number;
-    sequence: number;
-}>;
-
-type ProcessRunLogEvent =
-    | Readonly<{
-          event: "process_run_attempt_started";
-      }>
-    | Readonly<{
-          event: "process_run_activity_started";
-          activity: string;
-      }>
-    | Readonly<{
-          event: "process_run_activity_finished";
-          activity: string;
-          outcome: "succeeded" | "failed" | "cancelled";
-          durationMs: number;
-          diagnostic?: ActivityDiagnostic;
-      }>
-    | Readonly<{
-          event: "process_run_attempt_finished";
-          outcome: "succeeded";
-          durationMs: number;
-      }>
-    | Readonly<{
-          event: "process_run_attempt_finished";
-          outcome: "failed" | "timed_out" | "cancelled";
-          durationMs: number;
-          errorCode: ProcessErrorCode;
-          diagnostic?: ActivityDiagnostic;
-      }>;
-
-export type ProcessRunLogRecord = ProcessRunLogBase & ProcessRunLogEvent;
-
-/** 从归档或展示输入投影允许的活动字段，丢弃旧数据中的额外属性。 */
-export function sanitizeProcessRunLogRecord(
-    value: unknown,
-): ProcessRunLogRecord | undefined {
-    if (!value || typeof value !== "object") return undefined;
-    const record = value as Record<string, unknown>;
-    if (
-        record.schemaVersion !== 1 ||
-        ![record.timestamp, record.runId, record.process, record.version].every(
-            (part) => typeof part === "string",
-        ) ||
-        !Number.isSafeInteger(record.attemptNumber) ||
-        !Number.isSafeInteger(record.sequence)
-    )
-        return undefined;
-    const base: ProcessRunLogBase = {
-        schemaVersion: 1,
-        timestamp: record.timestamp as string,
-        runId: record.runId as string,
-        process: record.process as string,
-        version: record.version as string,
-        attemptNumber: record.attemptNumber as number,
-        sequence: record.sequence as number,
-    };
-    if (record.event === "process_run_attempt_started")
-        return { ...base, event: record.event };
-    if (
-        record.event === "process_run_activity_started" &&
-        typeof record.activity === "string"
-    )
-        return { ...base, event: record.event, activity: record.activity };
-    if (
-        typeof record.durationMs !== "number" ||
-        !Number.isFinite(record.durationMs) ||
-        record.durationMs < 0
-    )
-        return undefined;
-    const diagnostic = sanitizeActivityDiagnostic(record.diagnostic);
-    const detail = diagnostic ? { diagnostic } : {};
-    if (
-        record.event === "process_run_activity_finished" &&
-        typeof record.activity === "string" &&
-        (record.outcome === "succeeded" ||
-            record.outcome === "failed" ||
-            record.outcome === "cancelled")
-    )
-        return {
-            ...base,
-            event: record.event,
-            activity: record.activity,
-            outcome: record.outcome,
-            durationMs: record.durationMs,
-            ...detail,
-        };
-    if (record.event !== "process_run_attempt_finished") return undefined;
-    if (record.outcome === "succeeded")
-        return {
-            ...base,
-            event: record.event,
-            outcome: record.outcome,
-            durationMs: record.durationMs,
-        };
-    const codes = {
-        AGENT_FAILURE: true,
-        DEPENDENCY_FAILURE: true,
-        DEPENDENCY_FAILURE_AFTER_COMMIT: true,
-        INTERNAL_ERROR: true,
-        INVALID_INPUT: true,
-        INVALID_OUTPUT: true,
-        PROCESS_NOT_FOUND: true,
-        PROCESS_TIMEOUT: true,
-    } satisfies Record<ProcessErrorCode, true>;
-    if (
-        typeof record.errorCode !== "string" ||
-        !Object.hasOwn(codes, record.errorCode) ||
-        !(
-            record.outcome === "failed" ||
-            record.outcome === "timed_out" ||
-            record.outcome === "cancelled"
-        )
-    )
-        return undefined;
-    return {
-        ...base,
-        event: record.event,
-        outcome: record.outcome,
-        durationMs: record.durationMs,
-        errorCode: record.errorCode as ProcessErrorCode,
-        ...detail,
-    };
-}
+export {
+    type ProcessRunLogRecord,
+    sanitizeProcessRunLogRecord,
+} from "./log-record.js";
 
 export type ProcessRunLogSink = (record: ProcessRunLogRecord) => void;
 
@@ -192,7 +67,7 @@ export function createProcessRunAttemptLog(options: {
     let nextActivityId = 0;
     const activeActivities = new Map<
         number,
-        Readonly<{ activity: string; startedAt: number | undefined }>
+        Readonly<{ scope: TraceActivity; startedAt: number | undefined }>
     >();
     const base = {
         schemaVersion: 1 as const,
@@ -225,9 +100,18 @@ export function createProcessRunAttemptLog(options: {
         const activeActivity = activeActivities.get(activityId);
         if (!activeActivity) return;
         activeActivities.delete(activityId);
+        let sessions: TraceActivity["sessions"] | undefined;
+        try {
+            if (!activeActivity.scope.collectionFailed)
+                sessions = sanitizePiSessions(activeActivity.scope.sessions);
+        } catch {
+            // 单个采集器异常仍须关闭活动并保留业务结果。
+        }
         emit({
             event: "process_run_activity_finished",
-            activity: activeActivity.activity,
+            activity: activeActivity.scope.activity,
+            activityId,
+            ...(sessions ? { sessions } : {}),
             outcome,
             durationMs: elapsedMilliseconds(clock, activeActivity.startedAt),
             ...(diagnostic ? { diagnostic } : {}),
@@ -241,10 +125,21 @@ export function createProcessRunAttemptLog(options: {
             if (finished) return operation();
             const activityId = ++nextActivityId;
             const startedAt = monotonicMilliseconds(clock);
-            activeActivities.set(activityId, { activity, startedAt });
-            emit({ event: "process_run_activity_started", activity });
+            const scope: TraceActivity = {
+                runId: options.runId,
+                attemptNumber: options.attemptNumber,
+                activityId,
+                activity,
+                sessions: [],
+            };
+            activeActivities.set(activityId, { scope, startedAt });
+            emit({
+                event: "process_run_activity_started",
+                activity,
+                activityId,
+            });
             try {
-                const result = await operation();
+                const result = await withTraceActivity(scope, operation);
                 finishActivity(
                     activityId,
                     options.signal.aborted ? "cancelled" : "succeeded",

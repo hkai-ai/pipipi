@@ -6,6 +6,7 @@ import {
     combineProcessRunLogSinks,
     type ProcessRunLogRecord,
 } from "../src/process-runtime/index.js";
+import type { PiSessionTrace } from "../src/process-runtime/pi-trace.js";
 import {
     createJsonlProcessRunActivityArchive,
     pruneProcessRunActivities,
@@ -69,6 +70,51 @@ describe("JSONL Process Run Activity Archive", () => {
             "process_run_activity_finished",
         ]);
         expect(timeline.at(-1)).toMatchObject({ durationMs: 41_230 });
+    });
+
+    it("preserves only allowlisted Pi session metadata on the owning activity", async () => {
+        const directory = await createDirectory();
+        const archive = createJsonlProcessRunActivityArchive({
+            directory,
+            clock: fixedClock,
+        });
+        const session: PiSessionTrace = {
+            sessionId: 1,
+            skills: [{ name: "character-emoji-single", version: "v2" }],
+            rounds: [
+                {
+                    round: 1,
+                    tools: ["search_memes"],
+                    calls: [
+                        {
+                            call: 1,
+                            name: "search_memes",
+                            result: "returned",
+                            durationMs: 8,
+                        },
+                    ],
+                    outcome: "toolUse",
+                    durationMs: 12,
+                    usage: { input: 123, output: 9 },
+                },
+            ],
+            validation: "passed",
+        };
+        const untrusted = { ...session, prompt: "PRIVATE" };
+        archive.record(
+            activity({
+                event: "process_run_activity_finished",
+                activity: "planning",
+                outcome: "succeeded",
+                durationMs: 30,
+                activityId: 3,
+                sessions: [untrusted],
+            }),
+        );
+        await archive.flush();
+        const [entry] = await archive.findByRun("run-1");
+        expect(entry).toMatchObject({ activityId: 3, sessions: [session] });
+        expect(JSON.stringify(entry)).not.toContain("PRIVATE");
     });
 
     it("orders a multi-Attempt Run by attempt then sequence", async () => {

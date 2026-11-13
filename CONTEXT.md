@@ -102,9 +102,13 @@ production Agent catalog 当前为空：原 `design-assistant/v1` 已下线，�
 
 显式启用异步入口后，PostgreSQL 保存权威 Process Run，Redis/BullMQ 只负责调度。API、Dispatcher、Process Worker、Webhook Worker 和 Retention Cleaner 是独立角色。Queue 只承诺至少一次投递；Business Capability 使用稳定 `runId` 控制重复副作用。网关删除调用方伪造的身份头，并注入稳定 caller subject；查询、幂等和 Webhook 按 owner 隔离。
 
+本地调试正文按同步请求隔离，由对应 Adapter 选择可展示字段，请求完成或客户端断开时清除。Run Observation 归档继续保存脱敏轨迹。
+
+当前 Runtime Skill 绑定随服务端构建的精确 Process Registration 进入目录。版本启用后即可查阅，历史会话的实际加载情况以该次运行的观测为准。
+
 运维控制台以概览、运行记录和异常排查组织已归档终态，支持按准确 Process 版本和同一时间窗口下钻。它不把执行次数解释为用户人数，不把 API 进程并发解释为全局 Worker 状态，也不通过错误码推断供应商根因或自动重试付费操作。
 
-Run Observation Module 同时服务同步 API 和异步 Worker。Run Record 与活动日志只用于观测，不决定业务状态、重试或投递；写入失败不能改变 Process Result。模型执行使用共享诊断分类，活动保留固定阶段、净化原因码和校验路径，控制台据此解释原因；未知异常、取消和整体超时分别收口，缺少诊断的旧记录不推断根因。模板编译成员的具体规则由子活动归档，父运行详情按成员运行 ID 查询。异步调用方始终通过 owner-scoped Process Run Store 查询权威状态。 公开失败说明与运维建议分开投影；公开文案保留明确的副作用约束，运维排查留在控制台。依赖失败的活动诊断不能覆盖副作用标题，不能改变业务副作用或重试合同。默认诊断不覆盖已知业务总类；最终失败证据只取本轮最后结束的失败活动或有效终态诊断，成功摘要不输出失败诊断。
+Run Observation Module 同时服务同步 API 和异步 Worker。Run Record 与活动日志只用于观测，不决定业务状态、重试或投递；写入失败不能改变 Process Result。模型执行使用共享诊断分类，活动保留固定阶段、净化原因码和校验路径，控制台据此解释原因；未知异常、取消和整体超时分别收口，缺少诊断的旧记录不推断根因。模板编译成员的具体规则由子活动归档，父运行详情按成员运行 ID 查询。异步调用方始终通过 owner-scoped Process Run Store 查询权威状态。运维控制台从同一数据库只读任务状态和时间；归档按 runId、Attempt、事件序号合并重复展示，活动身份在所属 Attempt 内有效。 公开失败说明与运维建议分开投影；公开文案保留明确的副作用约束，运维排查留在控制台。依赖失败的活动诊断不能覆盖副作用标题，不能改变业务副作用或重试合同。默认诊断不覆盖已知业务总类；最终失败证据只取本轮最后结束的失败活动或有效终态诊断，成功摘要不输出失败诊断。
 
 Agent 只获得 Registration 固定绑定的 Runtime Skill 与窄 Tool。海报、CRT 和新闻图片 Agent 没有 Tool，只编译待校验计划；`character-emoji/v2` 的 Pi Agent 默认无 Tool，仅服务端识别到明确检索或近期事实要求时开放 `search_memes` Tool，由其内部调用固定 DeepSeek Responses 原生 `web_search`，首轮接收服务端挑选的本地短卡，允许无需搜索直接提交经校验的改编或原创方案；开放工具后按需搜索，搜索失败直接原创；`composed-task` 的 Planner Agent 只获得 allow-list 中其他 Process 的 Step Tool，每个 Step 仍经 Member Registration 自己的校验、幂等键和错误净化。Agent 不获得 Shell、文件读写、代码编辑或任意远程工具。Runtime Skill 随应用发布，调用方不能选择、增加或排序。
 
@@ -244,3 +248,5 @@ CRT 与照片海报将背景模式作为可选业务参数；省略时保持原�
 文本模型网关由 Composition Root 统一解析：优先使用完整的 `MODEL_GATEWAY_BASE_URL` / `MODEL_GATEWAY_API_KEY`，两者都未配置才依次兼容 TEXT_MODEL、CHARACTER_EMOJI、OPENAI 旧网关整对配置。表情包构思与搜梗也复用同一对；旧 PLANNER 网关覆盖不再生效。模型、协议与调用预算保持各 Registration 原定义，共享网关也作为图片默认凭证；图片渠道启用与主备策略独立，详见配置说明。
 
 模板制作工作台可随同步回执保存脱敏步骤，也可按原运行查询保留期内的父流程与编译成员记录；见[模板执行步骤](docs/api.md#模板执行步骤)。
+
+Pi 会话轨迹属于实际执行的 Attempt 和活动实例。Skill 取自会话加载结果，工具权限取自当轮最终请求，调用结果按标识归属。模型输入输出及工具参数不进入轨迹归档。

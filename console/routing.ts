@@ -5,6 +5,7 @@ import type { RunFilters } from "./api.js";
 export type Route =
     | Readonly<{ view: "overview" | "exceptions"; hours?: number }>
     | Readonly<{ view: "runs"; filters?: RunFilters }>
+    | Readonly<{ view: "live"; runId?: string }>
     | Readonly<{ view: "run"; runId: string; back?: string }>
     | Readonly<{ view: "skills" | "submit" }>
     | Readonly<{ view: "processes"; process?: string; version?: string }>
@@ -15,6 +16,11 @@ export function parseRoute(hash: string): Route {
         const [path, search = ""] = hash.replace(/^#\/?/, "").split("?");
         const [head, ...rest] = path.split("/");
         const params = new URLSearchParams(search);
+        if (head === "live")
+            return {
+                view: "live",
+                runId: rest[0] ? decodeURIComponent(rest[0]) : undefined,
+            };
         if (head === "run" && rest[0]) {
             const back = params.get("back") ?? undefined;
             return {
@@ -83,6 +89,10 @@ export function hrefFor(route: Route): string {
             if (route.process) query.set("process", route.process);
             if (route.version) query.set("version", route.version);
             return `#/processes${query.size ? `?${query}` : ""}`;
+        case "live":
+            return route.runId
+                ? `#/live/${encodeURIComponent(route.runId)}`
+                : "#/live";
         case "run":
             if (safeBack(route.back)) query.set("back", route.back as string);
             return `#/run/${encodeURIComponent(route.runId)}${query.size ? `?${query}` : ""}`;

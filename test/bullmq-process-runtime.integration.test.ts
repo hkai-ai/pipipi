@@ -48,6 +48,7 @@ import {
     defineProcessRegistration,
     failProcess,
 } from "../src/process-runtime/index.js";
+import { createPostgresProcessRunActivityArchive } from "../src/run-observation/postgres.js";
 import { signStandardWebhook } from "../src/webhooks/delivery/signing.js";
 import { createWebhookTargetPolicy } from "../src/webhooks/delivery/target-policy.js";
 import {
@@ -228,6 +229,7 @@ integrationDescribe("BullMQ Process Runtime", () => {
             version: "v1",
             inputSchema: z.strictObject({ value: z.string() }),
             outputSchema: z.strictObject({ value: z.string() }),
+            activities: ["dependency"],
             retryPolicy: {
                 maximumAttempts: 3,
                 retryableErrorCodes: ["DEPENDENCY_FAILURE"],
@@ -236,12 +238,17 @@ integrationDescribe("BullMQ Process Runtime", () => {
             execute: async (input, context) => {
                 seenRunIds.push(context.runId);
                 executionCount += 1;
-                return executionCount === 1
-                    ? failProcess(
-                          "DEPENDENCY_FAILURE",
-                          "The test dependency is unavailable",
-                      )
-                    : { value: `recovered:${input.value}` };
+                try {
+                    return await context.runActivity("dependency", async () => {
+                        if (executionCount === 1) throw new Error("temporary");
+                        return { value: `recovered:${input.value}` };
+                    });
+                } catch {
+                    return failProcess(
+                        "DEPENDENCY_FAILURE",
+                        "The test dependency is unavailable",
+                    );
+                }
             },
         });
         const registry = createProcessRegistry([process]);
@@ -257,15 +264,23 @@ integrationDescribe("BullMQ Process Runtime", () => {
             outbox: createPostgresProcessOutbox({ pool }),
             queue,
         });
+        const archive = createPostgresProcessRunActivityArchive({ pool });
+        const execution = createProcessWorker({
+            registry,
+            store,
+            attemptRunner: createProcessAttemptRunner({
+                processTimeoutMs: 5_000,
+                logSink: (entry) => {
+                    // 一条归档失败不能改变原有重试和终态。
+                    if (entry.attemptNumber === 1 && entry.sequence === 1)
+                        throw new Error("archive unavailable");
+                    return archive.record(entry);
+                },
+            }),
+        });
         const worker = createBullMqProcessWorker({
             redisUrl: redisUrl as string,
-            worker: createProcessWorker({
-                registry,
-                store,
-                attemptRunner: createProcessAttemptRunner({
-                    processTimeoutMs: 5_000,
-                }),
-            }),
+            worker: execution,
         });
 
         try {
@@ -296,6 +311,33 @@ integrationDescribe("BullMQ Process Runtime", () => {
                 status: "succeeded",
                 output: { value: "recovered:request" },
             });
+            expect(
+                await execution.process({
+                    schemaVersion: 1,
+                    runId: submitted.runId,
+                }),
+            ).toBe("ignored");
+            await archive.flush();
+            const trace = await archive.findByRun(submitted.runId);
+            expect(
+                trace.map((entry) => [entry.attemptNumber, entry.sequence]),
+            ).toEqual([
+                [1, 2],
+                [1, 3],
+                [1, 4],
+                [2, 1],
+                [2, 2],
+                [2, 3],
+                [2, 4],
+            ]);
+            expect(
+                trace.filter(
+                    (entry) => entry.event === "process_run_activity_finished",
+                ),
+            ).toMatchObject([
+                { attemptNumber: 1, activityId: 1, outcome: "failed" },
+                { attemptNumber: 2, activityId: 1, outcome: "succeeded" },
+            ]);
             expect(seenRunIds).toEqual([submitted.runId, submitted.runId]);
             const attempts = await pool.query<{
                 attempt_number: number;
