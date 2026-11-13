@@ -97,20 +97,24 @@ describe("Process Run activity logging", () => {
             baseRecord(2, 3, {
                 event: "process_run_activity_started",
                 activity: "load_policy",
+                activityId: 1,
             }),
             baseRecord(3, 3, {
                 event: "process_run_activity_finished",
                 activity: "load_policy",
+                activityId: 1,
                 outcome: "succeeded",
                 durationMs: 15,
             }),
             baseRecord(4, 3, {
                 event: "process_run_activity_started",
                 activity: "apply_policy",
+                activityId: 2,
             }),
             baseRecord(5, 3, {
                 event: "process_run_activity_finished",
                 activity: "apply_policy",
+                activityId: 2,
                 outcome: "succeeded",
                 durationMs: 20,
             }),
@@ -162,6 +166,7 @@ describe("Process Run activity logging", () => {
             baseRecord(3, 1, {
                 event: "process_run_activity_finished",
                 activity: "call_dependency",
+                activityId: 1,
                 outcome: "failed",
                 durationMs: 10,
                 diagnostic: { stage: "execution", code: "internal_failure" },
@@ -334,6 +339,7 @@ describe("Process Run Pino Adapter", () => {
             baseRecord(2, 1, {
                 event: "process_run_activity_finished",
                 activity: "call_dependency",
+                activityId: 1,
                 outcome: "failed",
                 durationMs: 12,
             }),

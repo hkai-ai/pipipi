@@ -1,4 +1,4 @@
-/** 为每次请求创建配置隔离、禁用缓存预热且不落盘的 Pi Session。 */
+/** 为每次请求创建仅公开已绑定 Skill、配置隔离且不落盘的 Pi Session。 */
 
 import { resolve } from "node:path";
 import { InMemoryCredentialStore } from "@earendil-works/pi-ai";
@@ -17,6 +17,8 @@ import type { ModelGateway } from "../model-gateway.js";
 import { AgentExecutionFailure } from "./failure.js";
 import { configureOpenAI, type OpenAIApiMode } from "./pi.js";
 import { createSkillSet, type SkillRef, type SkillSet } from "./skills.js";
+
+import { observePiSession } from "./trace.js";
 
 export type PiSessionFactory = (
     options: CreateAgentSessionOptions,
@@ -44,9 +46,8 @@ export type PiSessionToolSurface = Pick<
 
 /**
  * Owns the fixed parts of a request-local Pi Session. `open` builds a fresh
- * in-memory Session with Pi's extensions, Skills, prompt templates, themes and
- * context files all switched off, so the same inputs always see the same
- * context; callers dispose the Session they receive.
+ * in-memory Session with automatic resource discovery disabled. Callers
+ * dispose the Session they receive.
  */
 export class PiSessionSupport {
     readonly #cwd: string;
@@ -144,6 +145,10 @@ export class PiSessionSupport {
             settingsManager,
             noExtensions: true,
             noSkills: true,
+            skillsOverride: ({ diagnostics }) => ({
+                skills: [...loaded.skills],
+                diagnostics,
+            }),
             noPromptTemplates: true,
             noThemes: true,
             noContextFiles: true,
@@ -182,6 +187,7 @@ export class PiSessionSupport {
             sessionManager: SessionManager.inMemory(this.#cwd),
             ...toolSurface,
         });
+        observePiSession(session, loaded.identities, toolSurface.tools ?? []);
         return session;
     }
 

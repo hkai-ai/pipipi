@@ -8,6 +8,7 @@ import {
     PiSessionSupport,
     withAbortableSession,
 } from "./session.js";
+import { promptPi } from "./trace.js";
 
 export type PiStructuredAgentSessionFactory = PiSessionFactory;
 
@@ -116,35 +117,25 @@ export class PiStructuredAgent {
                     };
                 };
             }
-            if (request.images?.length) {
-                if (!session.model?.input.includes("image")) {
-                    throw new AgentExecutionFailure({
-                        stage: "session",
-                        code: "configuration",
-                    });
-                }
-                await session
-                    .prompt(request.prompt, {
-                        images: request.images.map((image) => ({
-                            type: "image",
-                            ...image,
-                        })),
-                        expandPromptTemplates: false,
-                    })
-                    .catch((error: unknown) => {
-                        throw new AgentExecutionFailure(
-                            agentExecutionDiagnostic(error, "request"),
-                            error,
-                        );
-                    });
-            } else {
-                await session.prompt(request.prompt).catch((error: unknown) => {
-                    throw new AgentExecutionFailure(
-                        agentExecutionDiagnostic(error, "request"),
-                        error,
-                    );
+            const images = request.images?.map((image) => ({
+                type: "image" as const,
+                ...image,
+            }));
+            if (images?.length && !session.model?.input.includes("image")) {
+                throw new AgentExecutionFailure({
+                    stage: "session",
+                    code: "configuration",
                 });
             }
+            await promptPi(session, request.prompt, {
+                expandPromptTemplates: false,
+                ...(images?.length ? { images } : {}),
+            }).catch((error: unknown) => {
+                throw new AgentExecutionFailure(
+                    agentExecutionDiagnostic(error, "request"),
+                    error,
+                );
+            });
             request.signal.throwIfAborted();
             return Object.freeze({
                 output: parseAgentJson(session.messages),

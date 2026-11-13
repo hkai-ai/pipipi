@@ -6,6 +6,7 @@
  * write）始终不启用；Tool 能做什么由调用方在 `execute` 里决定，本文件只保证
  * 名称唯一、只有列出的 Tool 可见，以及超过预算后 Session 被中止。
  */
+
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { AgentExecutionFailure, agentExecutionDiagnostic } from "./failure.js";
 import { parseAgentJson } from "./pi.js";
@@ -14,6 +15,7 @@ import {
     PiSessionSupport,
     withAbortableSession,
 } from "./session.js";
+import { promptPi } from "./trace.js";
 
 const toolNamePattern = /^[a-z][a-z0-9_]{0,63}$/;
 
@@ -97,7 +99,9 @@ export class PiTooledAgent {
             void session.abort();
         };
         return withAbortableSession(session, request.signal, async () => {
-            await session.prompt(request.prompt).catch((error: unknown) => {
+            await promptPi(session, request.prompt, {
+                expandPromptTemplates: false,
+            }).catch((error: unknown) => {
                 throw new AgentExecutionFailure(
                     agentExecutionDiagnostic(error, "request"),
                     error,
