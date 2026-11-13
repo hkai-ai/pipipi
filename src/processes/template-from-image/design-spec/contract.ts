@@ -55,6 +55,17 @@ const validateOutput = ajv.compile({
     ...source,
     $id: "urn:pipipi:print-design:output:v1",
 });
+const slotText = z.looseObject({
+    defaultValue: z.string().min(1).max(120),
+    allowCustom: z.literal(true),
+});
+const textModes = z.discriminatedUnion("presentation", [
+    slotText.extend({ presentation: z.literal("free_text") }),
+    slotText.extend({
+        presentation: z.literal("suggestions"),
+        suggestions: z.array(z.string().min(1).max(120)).min(1).max(10),
+    }),
+]);
 const targetIds = z.array(z.string()).min(1);
 const bindingSchema = z.discriminatedUnion("operation", [
     z.strictObject({
@@ -88,11 +99,7 @@ export const draftSchema = z.strictObject({
                     id: z.string(),
                     label: z.string(),
                     required: z.literal(false),
-                    text: z.looseObject({
-                        presentation: z.enum(["free_text", "suggestions"]),
-                        defaultValue: z.string().min(1),
-                        allowCustom: z.literal(true),
-                    }),
+                    text: textModes,
                     image: z
                         .looseObject({
                             sourceOptions: z
