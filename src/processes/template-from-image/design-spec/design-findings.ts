@@ -14,19 +14,19 @@ function descriptionFields(spec: DesignSpec) {
         add(["whole", key], whole[key]);
     for (const key of ["density", "layers", "visualWeight", "balance"] as const)
         add(["whole", "composition", key], whole.composition[key]);
-    whole.composition.types.forEach((value, i) =>
-        add(["whole", "composition", "types", i], value),
-    );
+    whole.composition.types.forEach((value, i) => {
+        add(["whole", "composition", "types", i], value);
+    });
     whole.composition.layout.forEach((item, i) => {
         for (const key of ["role", "shape", "region"] as const)
             add(["whole", "composition", "layout", i, key], item[key]);
     });
-    whole.composition.relations?.forEach((relation, i) =>
-        add(["whole", "composition", "relations", i], relation.join(" ")),
-    );
-    whole.colorRoles.forEach((role, i) =>
-        add(["whole", "colorRoles", i, "usage"], role.usage),
-    );
+    whole.composition.relations?.forEach((relation, i) => {
+        add(["whole", "composition", "relations", i], relation.join(" "));
+    });
+    whole.colorRoles.forEach((role, i) => {
+        add(["whole", "colorRoles", i, "usage"], role.usage);
+    });
     spec.elements.forEach((el, i) => {
         const path = ["elements", i];
         if (el.category === "subject") {

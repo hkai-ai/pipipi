@@ -359,7 +359,7 @@ it("原物词命中可执行字段时记录叶子路径与规则，不泄露禁�
 it("逐字对账区分引用错误与文字冲突，复核可只改出错的文字叶子", () => {
     const value = fixture();
     const original = value.observation.texts[0].text;
-    value.observation.texts[0].text = original + "!";
+    value.observation.texts[0].text = `${original}!`;
     expect(candidateIssues(value).join(" ")).toContain(
         "observation.texts[0].text",
     );
