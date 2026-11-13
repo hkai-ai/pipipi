@@ -17,8 +17,8 @@ describe("production Runtime Skill bindings", () => {
 
         expect(
             Object.fromEntries(
-                Object.entries(bindings).map(([process, refs]) => [
-                    process,
+                Array.from(bindings, ([process, refs]) => [
+                    process.id,
                     refs.map(({ name, version }) => `${name}@${version}`),
                 ]),
             ),

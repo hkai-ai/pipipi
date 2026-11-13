@@ -1,10 +1,6 @@
 /** 多个流程共用的启动期 Skill 完整性与版本 Catalog */
 import { resolve } from "node:path";
-import {
-    createSkillSet,
-    type InstalledSkillRef,
-    type SkillRef,
-} from "./skills.js";
+import { createSkillSet, type InstalledSkillRef } from "./skills.js";
 
 export type SkillRequirement = Readonly<{
     name: string;
@@ -18,7 +14,9 @@ export type InstalledSkillInfo = Readonly<{
 }>;
 
 export type InstalledSkillCatalog = Readonly<{
-    resolve: (requirements: readonly SkillRequirement[]) => readonly SkillRef[];
+    resolve: (
+        requirements: readonly SkillRequirement[],
+    ) => readonly InstalledSkillRef[];
     list: () => readonly InstalledSkillInfo[];
 }>;
 

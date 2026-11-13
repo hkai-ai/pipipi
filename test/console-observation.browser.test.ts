@@ -33,9 +33,16 @@ browserDescribe("operator observation browser", () => {
         const stats = createJsonlRunObservationStats({ directory, clock });
         const at = (minutes: number) =>
             new Date(now.getTime() - minutes * 60_000).toISOString();
-        const processes = ["v2", "v3"].map((version) => ({
+        const planner = { name: "test-planner", version: "v1" };
+        const single = { name: "test-planner", version: "v2" };
+        const processes = [
+            { version: "v2", skills: [planner] },
+            { version: "v3", skills: [single] },
+            { version: "v4", skills: [] },
+        ].map(({ version, skills }) => ({
             process: "character-emoji",
             version,
+            skills,
             activities: ["planning"],
             retry: { maximumAttempts: 1, retryableErrorCodes: [] },
             input: {
@@ -181,6 +188,27 @@ browserDescribe("operator observation browser", () => {
             expect(await page.locator("details[open]").innerText()).toContain(
                 "流程版本 v3",
             );
+            const detail = page.locator("details[open]");
+            expect(await detail.innerText()).toContain(
+                "当前声明的 Runtime Skill",
+            );
+            expect(
+                await detail
+                    .getByRole("link", { name: "test-planner · v2" })
+                    .count(),
+            ).toBe(1);
+            expect(await detail.innerText()).not.toContain("test-planner · v1");
+            await page.goto(
+                `${url}#/processes?process=character-emoji&version=v2`,
+            );
+            await detail
+                .getByRole("link", { name: "test-planner · v1" })
+                .waitFor();
+            expect(await detail.innerText()).not.toContain("test-planner · v2");
+            await page.goto(
+                `${url}#/processes?process=character-emoji&version=v4`,
+            );
+            await detail.getByText("此版本未绑定 Runtime Skill。").waitFor();
             await page.goto(
                 filteredUrl
                     .replace("version=v3", "version=v99")

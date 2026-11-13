@@ -46,20 +46,29 @@ export type ConsoleSkillCover = Readonly<{
  * construction; the request path only serves what was read.
  */
 export function describeSkillCatalog(
-    bindings: Readonly<Record<string, readonly SkillRef[]>>,
+    registrations: readonly {
+        identity: { id: string };
+        skills: readonly SkillRef[];
+    }[],
 ): ConsoleSkillCatalog {
     const byIdentity = new Map<
         string,
-        { ref: SkillRef; processes: string[] }
+        { ref: SkillRef; processes: Set<string> }
     >();
-    for (const [process, refs] of Object.entries(bindings)) {
-        for (const ref of refs) {
+    for (const {
+        identity: { id: process },
+        skills,
+    } of registrations) {
+        for (const ref of skills) {
             const identity = formatIdentity(ref);
             const existing = byIdentity.get(identity);
             if (existing) {
-                existing.processes.push(process);
+                existing.processes.add(process);
             } else {
-                byIdentity.set(identity, { ref, processes: [process] });
+                byIdentity.set(identity, {
+                    ref,
+                    processes: new Set([process]),
+                });
             }
         }
     }
@@ -67,7 +76,7 @@ export function describeSkillCatalog(
     const entries = [...byIdentity.entries()]
         .map(([identity, { ref, processes }]) => ({
             identity,
-            ...describeSkill(ref, processes),
+            ...describeSkill(ref, [...processes]),
         }))
         .sort((left, right) => left.identity.localeCompare(right.identity));
 
