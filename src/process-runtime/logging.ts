@@ -100,7 +100,7 @@ export function createProcessRunAttemptLog(options: {
         const activeActivity = activeActivities.get(activityId);
         if (!activeActivity) return;
         activeActivities.delete(activityId);
-        let sessions;
+        let sessions: TraceActivity["sessions"] | undefined;
         try {
             if (activeActivity.scope.sessions.length)
                 sessions = sanitizePiSessions(activeActivity.scope.sessions);
