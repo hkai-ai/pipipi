@@ -22,7 +22,11 @@ import {
     withAbortableSession,
 } from "../../agent-runtime/session.js";
 import type { SkillRef } from "../../agent-runtime/skills.js";
-import { promptPi, tracePiValidation } from "../../agent-runtime/trace.js";
+import {
+    promptPi,
+    recordPiDecision,
+    tracePiValidation,
+} from "../../agent-runtime/trace.js";
 import type { ModelGateway } from "../../model-gateway.js";
 import type {
     CharacterEmojiAgent,
@@ -257,7 +261,7 @@ export class PiCharacterEmojiAgent
                 { additionalProperties: false },
             ),
             executionMode: "sequential",
-            execute: async (_id, args, toolSignal) => {
+            execute: async (callId, args, toolSignal) => {
                 const searchStarted = Date.now();
                 signal.throwIfAborted();
                 if (!searchAllowed) throw new Error("本次创意未开放联网搜索");
@@ -272,6 +276,28 @@ export class PiCharacterEmojiAgent
                     completedSearches++;
                     research.push(result);
                     session.setActiveToolsByName([]);
+                    if (result.status === "failed") {
+                        recordPiDecision(
+                            session,
+                            {
+                                kind: "search_failed",
+                                reason:
+                                    error instanceof EmojiFailure
+                                        ? error.code
+                                        : "execution",
+                                ...(error instanceof EmojiFailure &&
+                                error.httpStatus !== undefined
+                                    ? { httpStatus: error.httpStatus }
+                                    : {}),
+                            },
+                            callId,
+                        );
+                        recordPiDecision(
+                            session,
+                            { kind: "original_fallback" },
+                            callId,
+                        );
+                    }
                     report({
                         stage: "search",
                         outcome: result.status,
@@ -634,11 +660,34 @@ export class PiCharacterEmojiAgent
                         )
                             throw new AgentExecutionFailure(diagnostic, error);
                         recoveredConnection = true;
+                        if (
+                            diagnostic.code === "connection" ||
+                            diagnostic.code === "timeout" ||
+                            diagnostic.code === "provider_unavailable"
+                        ) {
+                            recordPiDecision(session, {
+                                kind: "retry_started",
+                                reason: diagnostic.code,
+                            });
+                        }
                         // 原会话保留任务、材料及修正约束，恢复只再请求一次模型。
                     }
                 }
             };
-            const repair = async (text: string) => {
+            const repair = async (
+                text: string,
+                reason:
+                    | "invalid_json"
+                    | "invalid_schema"
+                    | "business_validation",
+                issues?: EmojiFailure["issues"],
+            ) => {
+                recordPiDecision(session, {
+                    kind: "validation_failed",
+                    reason,
+                    ...(issues ? { issues } : {}),
+                });
+                recordPiDecision(session, { kind: "repair_started" });
                 repairing = true;
                 session.setActiveToolsByName([]);
                 await prompt(text);
@@ -680,7 +729,7 @@ export class PiCharacterEmojiAgent
                             modelCalls >= budget.maxModelCalls)
                     )
                         throw error;
-                    await repair(JSON_CORRECTION_PROMPT);
+                    await repair(JSON_CORRECTION_PROMPT, "invalid_json");
                     raw = readOutput();
                 }
                 let accepted = schema().safeParse(raw);
@@ -696,7 +745,11 @@ export class PiCharacterEmojiAgent
                         accepted.error,
                     );
                     if (!correction) throw schemaFailure(accepted.error);
-                    await repair(correction.prompt);
+                    await repair(
+                        correction.prompt,
+                        "invalid_schema",
+                        schemaFailure(accepted.error).issues,
+                    );
                     raw = readOutput();
                     correction.assertUnchanged(raw);
                     accepted = schema().safeParse(raw);
@@ -705,6 +758,7 @@ export class PiCharacterEmojiAgent
                 const { candidate, plan } = accept(raw);
                 const result = parse(JSON.stringify(plan));
                 if (result.success) {
+                    recordPiDecision(session, { kind: "validation_passed" });
                     tracePiValidation(session, "passed");
                     outcome = "succeeded";
                     source = adaptationSource(candidate.adaptation, local);
@@ -718,7 +772,11 @@ export class PiCharacterEmojiAgent
                         modelCalls >= budget.maxModelCalls)
                 )
                     throw businessFailure(result);
-                await repair(correction.prompt);
+                await repair(
+                    correction.prompt,
+                    "business_validation",
+                    businessFailure(result).issues,
+                );
                 const correctedRaw = readOutput();
                 const correctedResult = schema().safeParse(correctedRaw);
                 if (!correctedResult.success)
@@ -727,6 +785,7 @@ export class PiCharacterEmojiAgent
                 correction.assertUnchanged(corrected.candidate);
                 const checked = parse(JSON.stringify(corrected.plan));
                 if (!checked.success) throw businessFailure(checked);
+                recordPiDecision(session, { kind: "validation_passed" });
                 tracePiValidation(session, "passed");
                 outcome = "succeeded";
                 source = adaptationSource(
@@ -734,6 +793,23 @@ export class PiCharacterEmojiAgent
                     local,
                 );
                 return checked.plan;
+            } catch (error) {
+                if (
+                    error instanceof EmojiFailure &&
+                    (error.code === "invalid_json" ||
+                        error.code === "invalid_schema" ||
+                        error.code === "invalid_source" ||
+                        error.code === "business_validation" ||
+                        error.code === "repair_changed_content")
+                ) {
+                    recordPiDecision(session, {
+                        kind: "validation_failed",
+                        reason: error.code,
+                        ...(error.issues ? { issues: error.issues } : {}),
+                    });
+                    tracePiValidation(session, "failed");
+                }
+                throw error;
             } finally {
                 if (calls === 0 && outcome === "succeeded") {
                     report({

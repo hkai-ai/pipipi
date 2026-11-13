@@ -1,5 +1,8 @@
 /** 展开实际加载的 Skill、每轮工具权限、调用结果及业务校验。 */
-import type { PiSessionTrace } from "../src/process-runtime/pi-trace.js";
+import type {
+    PiDecision,
+    PiSessionTrace,
+} from "../src/process-runtime/pi-trace.js";
 import { formatDuration } from "./formatting.jsx";
 
 const outcomes = {
@@ -11,6 +14,16 @@ const outcomes = {
     pending: "等待中",
     deferred: "已延后",
 } as const;
+const decisions = {
+    search_failed: "联网搜索失败",
+    original_fallback: "改用原创",
+    validation_failed: "校验失败",
+    repair_started: "开始修正",
+    validation_passed: "校验通过",
+    retry_started: "恢复模型请求",
+    cancelled: "停止当前轮次",
+} as const;
+
 export function PiTrace({ session }: { session: PiSessionTrace }) {
     return (
         <details class="technical-details">
@@ -50,6 +63,11 @@ export function PiTrace({ session }: { session: PiSessionTrace }) {
                                         <li key={call.call}>
                                             调用 {call.call} ·{" "}
                                             {call.name ?? "工具名称未采集"} ·{" "}
+                                            <DecisionList
+                                                entries={round.decisions?.filter(
+                                                    (d) => d.call === call.call,
+                                                )}
+                                            />
                                             {call.result === "returned"
                                                 ? "工具返回成功"
                                                 : call.result === "error"
@@ -67,6 +85,11 @@ export function PiTrace({ session }: { session: PiSessionTrace }) {
                             ) : round.tools?.length ? (
                                 <p>{round.outcome ? "未调用" : "调用未采集"}</p>
                             ) : null}
+                            <DecisionList
+                                entries={round.decisions?.filter(
+                                    (d) => d.call === undefined,
+                                )}
+                            />
                             <p>
                                 {round.usage ? (
                                     <>
@@ -105,4 +128,24 @@ export function PiTrace({ session }: { session: PiSessionTrace }) {
             </p>
         </details>
     );
+}
+
+function DecisionList({ entries }: { entries?: PiDecision[] }) {
+    return entries?.length ? (
+        <ol>
+            {entries.map((decision, index) => (
+                <li key={index}>
+                    {decisions[decision.kind]}
+                    {decision.call ? ` · 调用 ${decision.call}` : ""}
+                    {decision.reason ? ` · ${decision.reason}` : ""}
+                    {decision.httpStatus
+                        ? ` · HTTP ${decision.httpStatus}`
+                        : ""}
+                    {decision.issues?.map(
+                        (issue) => ` · ${issue.path} (${issue.code})`,
+                    )}
+                </li>
+            ))}
+        </ol>
+    ) : null;
 }
