@@ -30,7 +30,12 @@ export function createProcessingApplication(
 
     return {
         listen: async (listenOptions) => ({
-            url: await listen(server, listenOptions),
+            url: await listen(
+                server,
+                options.http?.console?.localTrace
+                    ? { ...listenOptions, host: "127.0.0.1" }
+                    : listenOptions,
+            ),
         }),
         close: async () => {
             try {

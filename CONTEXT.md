@@ -102,6 +102,8 @@ production Agent catalog 当前为空：原 `design-assistant/v1` 已下线，�
 
 显式启用异步入口后，PostgreSQL 保存权威 Process Run，Redis/BullMQ 只负责调度。API、Dispatcher、Process Worker、Webhook Worker 和 Retention Cleaner 是独立角色。Queue 只承诺至少一次投递；Business Capability 使用稳定 `runId` 控制重复副作用。网关删除调用方伪造的身份头，并注入稳定 caller subject；查询、幂等和 Webhook 按 owner 隔离。
 
+本地调试正文按同步请求隔离，由对应 Adapter 选择可展示字段，请求完成或客户端断开时清除。Run Observation 归档继续保存脱敏轨迹。
+
 当前 Runtime Skill 绑定随服务端构建的精确 Process Registration 进入目录。版本启用后即可查阅，历史会话的实际加载情况以该次运行的观测为准。
 
 运维控制台以概览、运行记录和异常排查组织已归档终态，支持按准确 Process 版本和同一时间窗口下钻。它不把执行次数解释为用户人数，不把 API 进程并发解释为全局 Worker 状态，也不通过错误码推断供应商根因或自动重试付费操作。
