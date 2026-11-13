@@ -42,7 +42,7 @@ function buildOptions(
         catalog,
         environment: {},
         pi: {},
-        skills: {},
+        skills: new Map(),
         positiveInteger: (_name, fallback) => fallback,
         attemptRunner: createProcessAttemptRunner(),
         ...overrides,
@@ -63,7 +63,7 @@ describe("production catalog assembly", () => {
         ];
 
         const registrations = buildProductionRegistrations(
-            buildOptions(catalog, { skills: { alpha: [] } }),
+            buildOptions(catalog),
         );
 
         expect(registrations.map((r) => r.identity.id)).toEqual(["alpha"]);

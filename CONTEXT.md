@@ -102,6 +102,8 @@ production Agent catalog 当前为空：原 `design-assistant/v1` 已下线，�
 
 显式启用异步入口后，PostgreSQL 保存权威 Process Run，Redis/BullMQ 只负责调度。API、Dispatcher、Process Worker、Webhook Worker 和 Retention Cleaner 是独立角色。Queue 只承诺至少一次投递；Business Capability 使用稳定 `runId` 控制重复副作用。网关删除调用方伪造的身份头，并注入稳定 caller subject；查询、幂等和 Webhook 按 owner 隔离。
 
+当前 Runtime Skill 绑定随服务端构建的精确 Process Registration 进入目录。版本启用后即可查阅，历史会话的实际加载情况以该次运行的观测为准。
+
 运维控制台以概览、运行记录和异常排查组织已归档终态，支持按准确 Process 版本和同一时间窗口下钻。它不把执行次数解释为用户人数，不把 API 进程并发解释为全局 Worker 状态，也不通过错误码推断供应商根因或自动重试付费操作。
 
 Run Observation Module 同时服务同步 API 和异步 Worker。Run Record 与活动日志只用于观测，不决定业务状态、重试或投递；写入失败不能改变 Process Result。模型执行使用共享诊断分类，活动保留固定阶段、净化原因码和校验路径，控制台据此解释原因；未知异常、取消和整体超时分别收口，缺少诊断的旧记录不推断根因。模板编译成员的具体规则由子活动归档，父运行详情按成员运行 ID 查询。异步调用方始终通过 owner-scoped Process Run Store 查询权威状态。 公开失败说明与运维建议分开投影；公开文案保留明确的副作用约束，运维排查留在控制台。依赖失败的活动诊断不能覆盖副作用标题，不能改变业务副作用或重试合同。默认诊断不覆盖已知业务总类；最终失败证据只取本轮最后结束的失败活动或有效终态诊断，成功摘要不输出失败诊断。

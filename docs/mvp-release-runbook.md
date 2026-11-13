@@ -342,7 +342,7 @@ Schema 由部署脚本在激活新容器前执行 `npm run db:migrate` 应用，
 | `GET {base}/runs?limit=&before=&process=&version=&status=&errorCode=&since=&until=` | 按记录时间倒序读取 Run Record；组合筛选 Process、精确版本、状态、错误码和时间范围。`since` 为闭区间、`until` 为开区间；`before` 是服务端返回的不透明稳定游标 |
 | `GET {base}/runs/{runId}` | 读取单条 Run Record |
 | `GET {base}/runs/{runId}/activities` | 读取该 Run 的 Attempt 与活动时间线，按 Attempt 序号和 sequence 排序 |
-| `GET {base}/processes` | 读取生产 catalog：精确版本、固定活动名、Registration 级重试策略，以及输入输出字段表 |
+| `GET {base}/processes` | 读取生产 catalog：每个精确流程版本当前声明的 Runtime Skill 名称与版本（无绑定时为 `[]`）、固定活动名、Registration 级重试策略，以及输入输出字段表 |
 | `GET {base}/skills` | 读取随本次发布安装、并被已启用 Process 绑定的 Runtime Skill：精确 `name`/`version`/SHA-256、`description`、绑定它的 Process id、`SKILL.md` 指令正文、快照文件清单、封面信息与 `SOURCE.md` 来源记录 |
 | `GET {base}/skills/{name}@{version}/cover` | 读取该 Skill 快照目录内的封面图。无封面、身份不精确或格式不合法时返回 `404`；响应带 ETag，按 `no-cache` 重验证 |
 | `GET {base}/stats?hours=` | 窗口内的执行计数、按 Process 汇总、UTC 每日吞吐与错误码分布、按业务版本与错误码聚合的全部失败及最近发生时间、最近成功时间、最近十条失败、Attempt 耗时分位数，以及当前 API 进程并发占用。`hours` 为 1–720，缺省 24 |
@@ -354,6 +354,8 @@ Schema 由部署脚本在激活新容器前执行 `npm run db:migrate` 应用，
 业务排行、失败聚合和 UTC 日柱可下钻到同一时间范围的记录。记录筛选保存在 hash 链接中，可分享、刷新或从详情返回；返回后重新读取第一页，再按需加载更早记录。未知业务或未注册版本仍可按归档原值筛选；缺失身份显示并按 `unknown` 查询。详情先显示结果和最后 Attempt 的失败活动，再展示时间线及默认折叠的输入输出 JSON。复制排障摘要仅包含运行标识、状态、时间、错误码和活动元数据，不包含业务正文或图片 URL。
 
 页面只展示已归档终态，不表示 queued/running 权威状态。日统计使用 UTC 日界，其他时间按浏览器本地时区显示；Attempt 分位数不是端到端耗时，API 进程并发不包括其他实例或异步 Worker。调用方与用户身份尚未采集，不推算人数或产品来源。接口失败会显示读取失败，不以零调用或无异常代替。失败提示只提供排查方向，不自动重放任务。
+
+在「开发工具 → 业务流程」展开具体版本，即可查看当前发布为该版本声明的 Runtime Skill。目录独立于运行归档，尚无执行记录的版本也会列出。核对历史运行的实际加载情况，应查看该次运行的会话记录。
 
 Skill 目录来自生产 Composition Root 构建 Process 时使用的同一组 Skill 绑定，因此它只会列出本次发布真正装载、且被启用 Process 精确绑定的版本；被 `enabled` 关闭的 Process 不会贡献 Skill。目录只读：安装、更新或移除 Skill 仍是代码评审与发布动作，控制台不提供任何写入。封面按目录约定读取——在 Skill 快照目录放置 `cover.png`、`cover.jpg`、`cover.jpeg`、`cover.webp` 或 `cover.gif`（按此顺序取第一个非空、不超过 10 MiB 的文件）即可，不需要改 `SKILL.md`，也不影响其 SHA-256 完整性校验。封面在启动时定位、首次请求时读入并常驻内存。
 

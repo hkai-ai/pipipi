@@ -121,12 +121,17 @@ export function enabledProductionProcesses(
     );
 }
 
+/** Key by the catalog entry itself: different versions can share a Process id. */
+export type ProductionSkillBindings = ReadonlyMap<
+    ProductionProcess,
+    readonly InstalledSkillRef[]
+>;
+
 export type ProductionBuildOptions = Readonly<{
     catalog: readonly ProductionProcess[];
     environment: ProductionEnvironment;
     pi: PiAgentConfig;
-    /** Resolved Skill refs keyed by Process id; absent means no Skills. */
-    skills: Readonly<Record<string, readonly SkillRef[]>>;
+    skills: ProductionSkillBindings;
     positiveInteger: ProductionContext["positiveInteger"];
     /** Runs Member Steps under the same governance as top-level Attempts. */
     attemptRunner: ProcessAttemptRunner;
@@ -158,10 +163,11 @@ export function buildProductionRegistrations(
         process: ProductionProcess,
         members: ProductionMembers,
     ): ProcessRegistration => {
+        const skills = options.skills.get(process) ?? noSkills;
         const registration = process.build({
             environment: options.environment,
             pi: options.pi,
-            skills: options.skills[process.id] ?? [],
+            skills,
             members,
             positiveInteger: options.positiveInteger,
         });
@@ -170,7 +176,7 @@ export function buildProductionRegistrations(
                 `Production Process "${process.id}" built Registration "${registration.identity.id}"`,
             );
         }
-        return registration;
+        return Object.freeze({ ...registration, skills });
     };
 
     const built = standalone.map((process) => build(process, emptyMembers));
