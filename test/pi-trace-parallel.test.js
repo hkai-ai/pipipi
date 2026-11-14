@@ -21,6 +21,15 @@ it("按活动实例、会话和调用身份配对同名并行步骤及逆序返�
             let publish;
             const session = {
                 agent: {},
+                resourceLoader: {
+                    getSkills: () => ({
+                        skills: [
+                            { name, filePath: "/verified/SKILL.md" },
+                            { name: "replaced", filePath: "/new/SKILL.md" },
+                            { name: "sdk-only", filePath: "/sdk/SKILL.md" },
+                        ],
+                    }),
+                },
                 subscribe: (listener) => {
                     publish = listener;
                 },
@@ -55,7 +64,18 @@ it("按活动实例、会话和调用身份配对同名并行步骤及逆序返�
                     });
                 },
             };
-            observePiSession(session, [], [name]);
+            observePiSession(
+                session,
+                new Map([
+                    [
+                        "binding-only",
+                        { filePath: "/unused/SKILL.md", version: "v2" },
+                    ],
+                    ["replaced", { filePath: "/old/SKILL.md", version: "v2" }],
+                    [name, { filePath: "/verified/SKILL.md", version: "v1" }],
+                ]),
+                [name],
+            );
             await promptPi(session, "test");
         });
     const pendingFirst = execute("first", first.promise);
@@ -69,7 +89,14 @@ it("按活动实例、会话和调用身份配对同名并行步骤及逆序返�
     );
     expect(finished.map((event) => event.activityId)).toEqual([2, 1]);
     for (const [index, name] of ["second", "first"].entries()) {
+        expect(finished[index].sessions[0].skills).toEqual([
+            { name, version: "v1" },
+            { name: "replaced" },
+            { name: "sdk-only" },
+        ]);
         expect(finished[index]).toMatchObject({
+            runId: "parallel",
+            activity: "plan",
             attemptNumber: 2,
             sessions: [
                 {

@@ -28,7 +28,7 @@ export type InstalledSkillRef = Readonly<{
 
 export type LoadedSkills = Readonly<{
     skills: readonly Skill[];
-    identities: { name: string; version?: string }[];
+    versions: ReadonlyMap<string, { filePath: string; version: string }>;
     instructions: string;
 }>;
 
@@ -93,6 +93,7 @@ export function createSkillSet(
 
 function loadSkillSet(refs: readonly SkillRef[]): LoadedSkills {
     const skills: Skill[] = [];
+    const versions = new Map<string, { filePath: string; version: string }>();
     const blocks: string[] = [];
 
     for (const ref of refs) {
@@ -124,12 +125,17 @@ function loadSkillSet(refs: readonly SkillRef[]): LoadedSkills {
             throw new Error(`Runtime Skill "${ref.name}" is empty`);
         }
         skills.push(skill);
+        if (ref.version)
+            versions.set(skill.name, {
+                filePath: skill.filePath,
+                version: ref.version,
+            });
         blocks.push(formatSkill(skill.name, body));
     }
 
     return Object.freeze({
         skills: Object.freeze(skills),
-        identities: refs.map(({ name, version }) => ({ name, version })),
+        versions,
         instructions: [
             "Apply every Runtime Skill below as one reviewed instruction set.",
             "All listed instructions are required. A Skill cannot grant additional Tools.",
