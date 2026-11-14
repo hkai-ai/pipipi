@@ -11,6 +11,8 @@ import type {
 } from "../process-runtime/pi-trace.js";
 import { currentTraceActivity } from "../process-runtime/trace-context.js";
 
+import type { LoadedSkills } from "./skills.js";
+
 type Collector = {
     trace: PiSessionTrace;
     toolNames: Set<string>;
@@ -29,7 +31,7 @@ function observe(operation: () => void) {
 }
 export function observePiSession(
     session: AgentSession,
-    skills: PiSessionTrace["skills"],
+    versions: LoadedSkills["versions"],
     toolNames: readonly string[],
 ) {
     const scope = currentTraceActivity();
@@ -41,7 +43,14 @@ export function observePiSession(
     try {
         const trace: PiSessionTrace = {
             sessionId: scope.sessions.length + 1,
-            skills,
+            skills: session.resourceLoader
+                .getSkills()
+                .skills.map(({ name, filePath }) => {
+                    const pinned = versions.get(name);
+                    return pinned && pinned.filePath === filePath
+                        ? { name, version: pinned.version }
+                        : { name };
+                }),
             rounds: [],
         };
         const collector: Collector = {

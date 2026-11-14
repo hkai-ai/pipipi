@@ -187,7 +187,7 @@ export class PiSessionSupport {
             sessionManager: SessionManager.inMemory(this.#cwd),
             ...toolSurface,
         });
-        observePiSession(session, loaded.identities, toolSurface.tools ?? []);
+        observePiSession(session, loaded.versions, toolSurface.tools ?? []);
         return session;
     }
 
