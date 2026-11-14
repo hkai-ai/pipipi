@@ -108,7 +108,7 @@ export function piRequestFailure(
     const cause = new Error(
         errorMessage ?? "The Agent did not produce a successful response",
     );
-    // Pi 1.4.0 的 formatProviderError 与 OpenAI 7.19.0 APIError.makeMessage 合同。
+    // Pi 1.5.2 的 formatProviderError 与 OpenAI 7.19.0 APIError.makeMessage 合同。
     // 仅 error 消息接受明确格式；任意正文中的裸数字不作为状态证据。
     const status = cause.message.match(
         /^(?:OpenAI API error \(([45]\d{2})\):|([45]\d{2}):)(?:\s|$)/u,

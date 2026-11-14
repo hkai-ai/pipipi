@@ -73,8 +73,8 @@ function toPiTool(tool: StepTool): ToolDefinition {
         name: tool.name,
         label: tool.name,
         description: tool.description,
-        // Zod's JSON Schema output is standard draft 2020-12, which TypeBox
-        // validates as-is; only the static type needs the cast.
+        // Zod 输出标准 JSON Schema，由 Pi 的 pi-schema 校验；
+        // TSchema 仅用于适配 SDK 的静态类型。
         parameters: tool.parameters as unknown as TSchema,
         executionMode: "sequential",
         execute: async (_toolCallId, input) => ({

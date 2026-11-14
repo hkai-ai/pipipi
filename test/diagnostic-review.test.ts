@@ -42,7 +42,7 @@ it("pins the Pi error formatting contract to the installed version", () => {
             "utf8",
         ),
     );
-    expect(metadata.version).toBe("1.4.0");
+    expect(metadata.version).toBe("1.5.2");
     const sdk = JSON.parse(
         readFileSync(
             new URL("../node_modules/openai/package.json", import.meta.url),

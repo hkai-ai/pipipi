@@ -72,7 +72,7 @@
         "accept:photo-poster-business": "node --env-file-if-exists=.env --import tsx examples/photo-poster-business-acceptance.ts"
     },
     "dependencies": {
-        "@earendil-works/pi-coding-agent": "1.4.0",
+        "@earendil-works/pi-coding-agent": "1.5.2",
         "@fal-ai/client": "^1.10.1",
         "ajv": "8.20.0",
         "ajv-formats": "3.0.1",
