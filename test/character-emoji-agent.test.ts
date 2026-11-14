@@ -186,7 +186,6 @@ function harness(
                     model: characterEmojiModel,
                     max_output_tokens: 8192,
                     input: [{ role: "user", content: prompts.join("\n") }],
-                    prompt_cache_key: "test-session",
                     prompt_cache_retention: "24h",
                 }),
             );

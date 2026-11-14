@@ -1,4 +1,4 @@
-/** 展开实际加载的 Skill、每轮工具权限、调用结果及业务校验。 */
+/** 展开实际加载的 Skill、每轮工具权限、费用来源及业务校验。 */
 import type {
     PiDecision,
     PiSessionTrace,
@@ -113,6 +113,11 @@ export function PiTrace({ session }: { session: PiSessionTrace }) {
                                 ) : (
                                     "供应商 token 用量未采集"
                                 )}
+                            </p>
+                            <p>
+                                {round.cost
+                                    ? `${round.cost.source === "provider" ? "供应商报告费用" : "目录估算费用"} · USD ${round.cost.totalUsd}`
+                                    : "费用未采集"}
                             </p>
                         </li>
                     ))}

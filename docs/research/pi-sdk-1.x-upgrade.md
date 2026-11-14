@@ -4,15 +4,15 @@
 
 ## 优先级判断
 
-最值得采用的是网关兼容配置、Tool 参数校验的适配与已有观测事件。本次只升级 SDK 和兼容说明，不启用新的业务功能；网关兼容配置、成本来源标识留作后续改进，分类模型可做独立实验。缓存预热、原生图片生成、codemode 和 MCP 不随依赖升级启用。
+最值得采用的是网关兼容配置、Tool 参数校验的适配与已有观测事件。升级后已接入表情包网关 cache key 原生关闭，以及轮次费用金额与来源的归档和控制台展示；分类模型可做独立实验。缓存预热、原生图片生成、codemode 和 MCP 不随依赖升级启用。
 
 | 功能 | 项目判断与接入位置 | 一手依据 |
 | --- | --- | --- |
-| `compat.promptCacheKeyMode`（1.5.1） | **可直接使用**。表情包网关当前在 `agent.pi.ts` 删除 `prompt_cache_key`，可在 `model.ts` 固定 `disabled`，让协议 Adapter 从源头不发送。它只管 cache key；`prompt_cache_retention`、`prompt_cache_options` 的既有过滤仍需保留。 | [1.5.1 发布](https://github.com/earendil-works/pi/releases/tag/v1.5.1)、[1.5.2 Responses 兼容字段](https://github.com/earendil-works/pi/blob/v1.5.2/packages/coding-agent/docs/models-configuration.md#openai-responses) |
+| `compat.promptCacheKeyMode`（1.5.1） | **已接入**。表情包网关在 `model.ts` 固定 `disabled`，让协议 Adapter 从源头不发送 `prompt_cache_key`。它只管 cache key；`prompt_cache_retention`、`prompt_cache_options` 的既有过滤仍需保留。 | [1.5.1 发布](https://github.com/earendil-works/pi/releases/tag/v1.5.1)、[1.5.2 Responses 兼容字段](https://github.com/earendil-works/pi/blob/v1.5.2/packages/coding-agent/docs/models-configuration.md#openai-responses) |
 | 空 Tool 历史与 assistant content 兼容（1.5.1） | **随 SDK 获得协议修复，按实际网关配置例外**。Chat Completions 关掉全部 Tool 后默认省略 `tools`，减少部分网关 400；旧代理需要时才设置 `requiresToolsWithToolHistory`。`requiresNonNullAssistantContent` 可处理只含 Tool 调用的 assistant 必须有空字符串的问题。表情包使用 Responses，不能把 Chat Completions 修复算成其直接收益。 | [1.5.1 发布](https://github.com/earendil-works/pi/releases/tag/v1.5.1)、[兼容字段](https://github.com/earendil-works/pi/blob/v1.5.2/packages/coding-agent/docs/models-configuration.md#openai-completions) |
 | Tool 参数改用 `pi-schema`（1.5.0） | **本次必须适配**。普通 JSON Schema 也参与类型转换；业务校验不能依赖旧 TypeBox 的错误文案或非 JSON Schema 扩展。检查 `composed`、Agent Conversations 与 `search_memes` 的准确参数和拒绝路径；内部 Tool 校验改变不等于公开输入 Schema 改变。 | [1.5.0 破坏性变更](https://github.com/earendil-works/pi/releases/tag/v1.5.0)、[Tool Schema 文档](https://github.com/earendil-works/pi/blob/v1.5.2/packages/coding-agent/docs/extensions.md#tool-parameter-schemas-and-typebox) |
 | `tool_execution_end.durationMs`（1.1.0） | **已经用上**。`src/agent-runtime/trace.ts` 按事件记录 Tool 耗时，无须再维护一套耗时协议。`agent_settled.aborted` 也可用于未来会话结束观测，但当前已有取消路径，不必重复引入。 | [1.1.0 发布](https://github.com/earendil-works/pi/releases/tag/v1.1.0) |
-| `Usage.cost.totalFromProvider` 与 OpenRouter 实际总费用修复（1.5.0） | **建议下一步做观测增强**。可区分供应商返回的费用与目录估算。当前 trace 只从原生事件采 token；表情包模型的零费率只是注册元数据，不能视为免费或真实账单。接入时只归档数值和来源，不归档原始响应，不改变产品计费。 | [1.5.0 发布](https://github.com/earendil-works/pi/releases/tag/v1.5.0) |
+| `Usage.cost.totalFromProvider` 与 OpenRouter 实际总费用修复（1.5.0） | **已接入**。trace 只归档费用金额和来源，控制台区分供应商报告与目录估算。表情包模型的零费率只是注册元数据，未收到供应商费用时不把零估算展示为免费；不归档原始响应，不改变产品计费。 | [1.5.0 发布](https://github.com/earendil-works/pi/releases/tag/v1.5.0) |
 | 按 thinking level 配采样参数（1.0.2） | **可实验，已有版本已支持**。适合比较构思与字段修正的稳定性，必须由 Registration 固定且先做样本评估。当前 low/none 已表达推理策略，升级不应顺带改 temperature 等生成行为。 | [1.0.2 发布](https://github.com/earendil-works/pi/releases/tag/v1.0.2)、[模型配置](https://github.com/earendil-works/pi/blob/v1.5.2/packages/coding-agent/docs/models-configuration.md#models) |
 | 文本及图片分类模型（1.0.1、1.1.0、1.4.0、1.5.1） | **适合独立实验**。可研究素材路由或预筛，但需窄 Capability、明确预算及标注集；分类不能代替模板事实核对或人工成图审批。当前 Agent 不获得 codemode，不能直接开放 `models.classify()`。 | [1.1.0 发布](https://github.com/earendil-works/pi/releases/tag/v1.1.0)、[1.4.0 发布](https://github.com/earendil-works/pi/releases/tag/v1.4.0)、[1.5.1 发布](https://github.com/earendil-works/pi/releases/tag/v1.5.1) |
 
@@ -43,6 +43,6 @@
 3. 新 schema 校验与 Tool 参数转换、取消和调用预算、最终正文提取、净化错误分类保持可验证。
 4. `npm run check`、`npm run typecheck`、`npm test`、`npm run build`。真实网关 smoke、付费生成及部署另行明确运行，不能由离线通过推断。
 
-本次四项检查均通过；完整测试为 148 个文件通过、12 个文件跳过，1666 个用例通过、100 个用例跳过。未调用真实模型、付费生图或生产部署。
+升级及功能接入的四项检查均通过；完整测试为 150 个文件通过、12 个文件跳过，1677 个用例通过、100 个用例跳过。新增回归在真实 Pi Responses Adapter 的出站过滤前核对 cache key，并验证费用来源、零值、无效值与归档回读。未调用真实模型、付费生图或生产部署。
 
 研究建议不自动成为项目契约；现行边界以 [项目级 Agent 与 Skill](../integrating-runtime-skills.md#项目级-agent-与-skill) 为准。

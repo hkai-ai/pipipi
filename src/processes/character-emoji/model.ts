@@ -26,6 +26,7 @@ export async function createCharacterEmojiModel(config: ModelGateway) {
                 reasoning: true,
                 thinkingLevelMap: { off: "none", low: "low" },
                 input: ["text"],
+                compat: { promptCacheKeyMode: "disabled" },
                 // 零值不作为供应商实际费用证据。
                 cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
                 contextWindow: 65536,

@@ -358,6 +358,10 @@ Registration 可在构造时固定 `outputMaxBytes`，默认 262,144 字节，�
 
 角色表情包 v2 的每格动作、位置、道具与可见反差由唯一 scene 字段拥有，图片编译只投影一次；准确文字与角色绑定独立保留。在同一次 Planning Activity 内由一个 Pi Agent 搜梗、构思及自检，搜索失败直接原创；不启动独立复核。JSON格式、可定位结构或配字错误共用一次修正机会，并共享 Registration 截止时间和调用预算；通过完整业务校验后进入 Rendering Activity。请求级观测只记录搜索结果、净化原因码、耗时与调用次数，Sink 失败不改变执行。v4 的可恢复连接错误和有限字段修正共享原模型预算；结果未知的生图绑定 runId，仅查询原图或已受理的 Job。精确合同见 [角色表情包](processes/common/character-emoji/README.md)。
 
+### Pi 轮次费用
+
+Pi Adapter 在 assistant 完成事件中读取 SDK 的 `usage.cost`，按轮次投影为 `cost: { totalUsd, source }`。`source=provider` 仅来自 `totalFromProvider=true`；否则非零金额标为 `estimate`。缺失、负数、非有限金额及零估算不归档；供应商明确报告的零费用保留。此处只覆盖 Pi 主模型轮次，不代表搜索、图片或整次 Process 的总账单，也不改变产品计费。费用与现有会话元数据共用 JSONL/PostgreSQL 的净化读写路径，不新增数据库列；旧记录仍可读取。控制台显示来源和 USD 金额，未采集时不补零。
+
 ### 共享模型网关
 
 Composition Root 通过单一配置解析入口选择文本 base URL 与 API key，优先采用完整 MODEL_GATEWAY 网关变量；部分配置直接失败，不与旧 OPENAI 凭证拼接。新变量都缺省时，依次兼容旧 TEXT_MODEL、CHARACTER_EMOJI、OPENAI 整对配置。内部统一传递 `gateway: ModelGateway` 对象，调用方不感知环境别名；解析结果注入普通 Pi Agent、表情包构思与 Responses 搜梗，不由各 Process 读不同的网关变量。API/Worker 预检使用同一选择规则；现有角色文件中的旧 PLANNER 字段只作可读取兼容，不再影响路由。

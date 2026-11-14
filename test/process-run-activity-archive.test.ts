@@ -96,6 +96,7 @@ describe("JSONL Process Run Activity Archive", () => {
                     outcome: "toolUse",
                     durationMs: 12,
                     usage: { input: 123, output: 9 },
+                    cost: { totalUsd: 0.0012, source: "provider" },
                 },
             ],
             validation: "passed",

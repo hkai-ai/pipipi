@@ -8,7 +8,7 @@
 
 Pi SDK 固定为 `@earendil-works/pi-coding-agent@1.5.2`，依赖树由 `package-lock.json` 锁定。共享 Session 为每次请求创建内存 SettingsManager，并与 ResourceLoader 共用，关闭缓存预热，不读取用户或项目 Pi settings。模板编译和角色表情包的专属配置同样关闭预热，继续保留各自的重试与压缩限制。升级 SDK 时必须验证空 Tool 集合、准确 Tool allow-list、配置隔离和不落盘行为；不能沿用新版 CLI 的默认权限或额外模型调用策略。
 
-1.5.x 的 Tool 参数由 `pi-schema` 按 JSON Schema 校验并可能进行类型转换，业务 Tool 仍须执行自身 Schema 和预算校验。OpenAI-compatible 会话关闭工具后默认省略 `tools`；角色表情包继续在修正阶段移除 `tools` 与 `tool_choice`。1.5.1 默认启用空闲缓存预热，本项目显式使用 `off`，避免会话外模型调用。1.0.0 以来的可用功能与暂缓项见 [Pi SDK 升级评估](research/pi-sdk-1.x-upgrade.md)。
+1.5.x 的 Tool 参数由 `pi-schema` 按 JSON Schema 校验并可能进行类型转换，业务 Tool 仍须执行自身 Schema 和预算校验。OpenAI-compatible 会话关闭工具后默认省略 `tools`；角色表情包继续在修正阶段移除 `tools` 与 `tool_choice`。1.5.1 默认启用空闲缓存预热，本项目显式使用 `off`，避免会话外模型调用。角色表情包模型通过 `compat.promptCacheKeyMode: "disabled"` 原生关闭 cache key；费用归档和展示规则见 [Pi 轮次费用](process-runtime-design.md#pi-轮次费用)。1.0.0 以来的可用功能与暂缓项见 [Pi SDK 升级评估](research/pi-sdk-1.x-upgrade.md)。
 
 | 角色 | 位置 | 调用方 | 拥有的事实 |
 | --- | --- | --- | --- |

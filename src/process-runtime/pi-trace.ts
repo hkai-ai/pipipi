@@ -111,6 +111,12 @@ const round = z.object({
         .optional(),
     durationMs: count.optional(),
     usage: usage.optional(),
+    cost: z
+        .object({
+            totalUsd: z.number().finite().nonnegative(),
+            source: z.enum(["provider", "estimate"]),
+        })
+        .optional(),
 });
 const session = z.object({
     sessionId: count.positive(),

@@ -494,7 +494,6 @@ export class PiCharacterEmojiAgent
                     throw new Error("模型请求格式无效");
                 // 专用网关只接收本流程使用的 Responses 字段。
                 const request = { ...payload } as Record<string, unknown>;
-                delete request.prompt_cache_key;
                 delete request.prompt_cache_retention;
                 delete request.prompt_cache_options;
                 return request;

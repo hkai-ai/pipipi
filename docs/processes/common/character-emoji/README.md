@@ -38,6 +38,8 @@ Agent 只收到卡片 ID、名称、短摘要与适用范围；来源链接和�
 
 ## 执行与模型
 
+专用 Responses 模型在服务端固定 `compat.promptCacheKeyMode: "disabled"`，由 Pi Adapter 原生省略 prompt cache key；请求过滤继续移除网关不支持的 retention/options。缓存预热继续关闭。配置不进入产品请求，也不改变构思、搜索与修正预算。
+
 流程使用专用 Pi Session，默认无 Tool，满足服务端搜索条件时仅暴露 `search_memes`。固定 Runtime Skill 分为公共 `character-emoji-planner@v18`、单图 `character-emoji-single@v4` 与漫画 `character-emoji-comic@v6`；每次仅加载公共和当前模式。模式由已校验的业务输入决定，调用方不能选择 Skill。
 
 `tools/build-character-emoji-skill.ts` 从 `scene-prompt.ts` 的公共、单图和漫画规则生成完整快照和摘要，所有快照纳入 production catalog、镜像与 LF 校验。修改后运行生成器，再用 `--check` 核对。当前规则基于移植的 Memebuy 业务合同精简，不宣称逐字对齐。失败样本保留在验收材料中，不逐个追加到通用规则。

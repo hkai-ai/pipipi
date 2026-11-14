@@ -160,6 +160,7 @@ function recordEvent(state: Collector, event: AgentSessionEvent) {
     if (event.type === "message_end" && event.message.role === "assistant") {
         round.outcome = event.message.stopReason;
         round.durationMs = Math.round(performance.now() - state.started);
+        recordCost(round, event.message.usage);
         for (const part of event.message.content) {
             if (part.type !== "toolCall" || round.calls.length >= 64) continue;
             const call = {
@@ -202,6 +203,20 @@ function number(value: unknown): number | undefined {
         value >= 0
         ? value
         : undefined;
+}
+
+// 只投影 SDK 标记的费用，不保存响应正文；零估算可能只是未配置费率。
+function recordCost(round: PiRoundTrace, usage: unknown) {
+    const cost = object(object(usage)?.cost);
+    const total = cost?.total;
+    if (typeof total !== "number" || !Number.isFinite(total) || total < 0)
+        return;
+    const reported = cost?.totalFromProvider === true;
+    if (!reported && total === 0) return;
+    round.cost = {
+        totalUsd: total,
+        source: reported ? "provider" : "estimate",
+    };
 }
 
 function beginRound(
