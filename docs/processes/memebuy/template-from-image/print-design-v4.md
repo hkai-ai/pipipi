@@ -16,6 +16,8 @@ v3 Process 交付运行语义 V4，二者分别版本化。编译器独立位于
 
 `template-from-source/v3` 继续调用原审核后 finalize，审批身份、成图和内容寻址上传不变；只把编译成员精确固定为 `template-from-image/v3`，不重新规划或生图。成员失败沿原 `DEPENDENCY_FAILURE_AFTER_COMMIT` 边界报告。内部观察、复核、模型与规则不会进入公开草稿或运行日志。
 
+Pipipi 控制台运行表和详情并列展示流程版本与实际交付的模板运行语义。成功时从输出的 `template.runtimeSemantics.version` 单独归档版本号；旧记录若保留输出正文则从正文读取，否则显示“未记录”。可按同次 runId 与 Memebuy 候选核对。
+
 ## 固定来源与运行边界
 
 `print-design-template-compiler@v1` 完整打包 Memebuy 方法正本及作者合同。来源修订、许可与逐文件摘要在 Skill 的 `source-manifest.json` 和 `SOURCE.md`。纯检查器从同一审查来源生成；不执行开发 Skill 的 Shell、网络、凭证、导入或生图脚本。Docker 成品包含固定快照，启动期验证准确摘要。

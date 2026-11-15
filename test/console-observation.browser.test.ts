@@ -518,6 +518,7 @@ browserDescribe("operator observation browser", () => {
                 runId: parent.runId,
                 process: parent.process,
                 version: "v3",
+                templateSemanticsVersion: 4,
                 status: "succeeded",
                 recordedAt: at(0),
             });
@@ -525,6 +526,17 @@ browserDescribe("operator observation browser", () => {
             expect(await page.getByText("当前步骤：独立复核模板").count()).toBe(
                 0,
             );
+            await page.getByText("模板运行语义 V4", { exact: true }).waitFor();
+            await page.goto(`${url}#/runs`);
+            const templateRow = page
+                .getByRole("row")
+                .filter({ hasText: parent.runId });
+            await templateRow
+                .getByText("模板运行语义 V4", { exact: true })
+                .waitFor();
+            await templateRow
+                .getByRole("link", { name: "流程版本 v3" })
+                .waitFor();
             expect(executions).toBe(0);
             expect(errors).toEqual([]);
             await context.close();

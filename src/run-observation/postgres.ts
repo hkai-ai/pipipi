@@ -40,15 +40,16 @@ export function createPostgresProcessRunRecordArchive(options: {
             await pool.query(
                 `insert into process_run_records
                    (run_id, recorded_at, process_id, process_version,
-                    status, error_code, content)
-                 values ($1, $2, $3, $4, $5, $6, $7)
+                    status, error_code, content, template_semantics_version)
+                 values ($1, $2, $3, $4, $5, $6, $7, $8)
                  on conflict (run_id) do update set
                    recorded_at = excluded.recorded_at,
                    process_id = excluded.process_id,
                    process_version = excluded.process_version,
                    status = excluded.status,
                    error_code = excluded.error_code,
-                   content = excluded.content`,
+                   content = excluded.content,
+                   template_semantics_version = excluded.template_semantics_version`,
                 [
                     safe.runId,
                     safe.recordedAt,
@@ -57,6 +58,7 @@ export function createPostgresProcessRunRecordArchive(options: {
                     safe.status,
                     safe.errorCode ?? null,
                     safe.content ? JSON.stringify(safe.content) : null,
+                    safe.templateSemanticsVersion ?? null,
                 ],
             );
         },
@@ -353,7 +355,7 @@ export async function pruneProcessRunObservation(options: {
 }
 
 const recordSelect = `select run_id, recorded_at, process_id, process_version,
-                             status, error_code, content
+                             status, error_code, content, template_semantics_version
                         from process_run_records`;
 
 type RecordRow = Readonly<{
@@ -364,6 +366,7 @@ type RecordRow = Readonly<{
     status: "succeeded" | "failed";
     error_code: string | null;
     content: unknown;
+    template_semantics_version: number | null;
 }>;
 
 type ActivityRow = Readonly<{
@@ -392,6 +395,9 @@ function toRecord(row: RecordRow): ProcessRunRecord {
         ...(row.process_version === null
             ? {}
             : { version: row.process_version }),
+        ...(row.template_semantics_version == null
+            ? {}
+            : { templateSemanticsVersion: row.template_semantics_version }),
         status: row.status,
         ...(row.error_code === null
             ? {}

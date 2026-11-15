@@ -7,6 +7,7 @@ export type ProcessRunRecord = {
     readonly runId: string;
     readonly process?: string;
     readonly version?: string;
+    readonly templateSemanticsVersion?: number;
     readonly status: "succeeded" | "failed";
     readonly errorCode?: ProcessErrorCode;
     readonly content?: {
@@ -110,12 +111,41 @@ function createInMemoryProcessRunRecordAdapter(
     };
 }
 
+/** 只读取模板解析实际输出中的运行语义版本，也用于展示保有正文的历史记录。 */
+export function templateSemanticsVersion(
+    process: string | undefined,
+    output: unknown,
+): number | undefined {
+    if (process !== "template-from-image" && process !== "template-from-source")
+        return undefined;
+    const template = objectField(output, "template");
+    const version = objectField(
+        objectField(template, "runtimeSemantics"),
+        "version",
+    );
+    return typeof version === "number" &&
+        Number.isSafeInteger(version) &&
+        version > 0
+        ? version
+        : undefined;
+}
+
+function objectField(value: unknown, name: string): unknown {
+    return value !== null && typeof value === "object"
+        ? (value as Record<string, unknown>)[name]
+        : undefined;
+}
+
 function createRecord(
     completion: CompletedProcessRun,
     contentPolicy: "omit" | "accepted-input-and-output",
     recordedAt: string,
 ): ProcessRunRecord {
     const { result } = completion;
+    const semantics =
+        result.status === "succeeded"
+            ? templateSemanticsVersion(result.process, result.output)
+            : undefined;
     return {
         schemaVersion: 1,
         recordedAt,
@@ -123,6 +153,9 @@ function createRecord(
         ...(result.process === undefined ? {} : { process: result.process }),
         ...(result.version === undefined ? {} : { version: result.version }),
         status: result.status,
+        ...(semantics === undefined
+            ? {}
+            : { templateSemanticsVersion: semantics }),
         ...(result.status === "failed" ? { errorCode: result.error.code } : {}),
         ...(contentPolicy === "accepted-input-and-output" &&
         completion.acceptedRequest

@@ -1,6 +1,9 @@
 import { expect, it } from "vitest";
 import type { ProcessRunLogRecord } from "../../src/process-runtime/index.js";
-import type { ProcessRunRecord } from "../../src/process-runtime/records.js";
+import {
+    createProcessRunRecords,
+    type ProcessRunRecord,
+} from "../../src/process-runtime/records.js";
 import type { ProcessRunActivityArchive } from "../../src/run-observation/activities.js";
 import type { ProcessRunRecordArchive } from "../../src/run-observation/records.js";
 import type { RunObservationStats } from "../../src/run-observation/stats.js";
@@ -51,6 +54,33 @@ export function processRunActivity(
 export function describeRunObservationContract(
     createBackend: () => Promise<ObservationBackend>,
 ): void {
+    it.each(["template-from-image", "template-from-source"])(
+        "archives the actual %s template version with business content omitted",
+        async (process) => {
+            const { archive } = await createBackend();
+            const records = createProcessRunRecords({
+                adapter: archive,
+                clock: () => "2026-08-11T10:00:00.000Z",
+            });
+            await records.record({
+                result: {
+                    runId: "template-version",
+                    process,
+                    version: "v3",
+                    status: "succeeded",
+                    output: { template: { runtimeSemantics: { version: 4 } } },
+                },
+            });
+            const record = await records.find("template-version");
+            expect(record).toMatchObject({
+                version: "v3",
+                templateSemanticsVersion: 4,
+            });
+            expect(record).not.toHaveProperty("content");
+            expect((await archive.list()).records).toContainEqual(record);
+        },
+    );
+
     it("lists an open top-level attempt before a result exists and removes it after finish", async () => {
         const { activities, settle } = await createBackend();
         const start = processRunActivity({ runId: "parent" });

@@ -1,6 +1,7 @@
 /** 运行记录筛选、分页与详情，使用可分享链接串联异常排查。 */
 import { useEffect, useState } from "preact/hooks";
 import { explainDiagnostic } from "../src/process-runtime/diagnostics.js";
+import { templateSemanticsVersion } from "../src/process-runtime/records.js";
 import {
     type ConsoleProcessDescription,
     findRun,
@@ -28,6 +29,23 @@ import { activityName, processName } from "./labels.js";
 import { useAsync } from "./resource.js";
 import { hrefFor } from "./routing.js";
 import { Timeline } from "./timeline.jsx";
+
+function TemplateVersion({ record }: { record: ProcessRunRecord }) {
+    if (
+        record.status !== "succeeded" ||
+        (record.process !== "template-from-image" &&
+            record.process !== "template-from-source")
+    )
+        return null;
+    const version =
+        record.templateSemanticsVersion ??
+        templateSemanticsVersion(record.process, record.content?.output);
+    return (
+        <span class="cell-meta">
+            模板运行语义 {version === undefined ? "未记录" : `V${version}`}
+        </span>
+    );
+}
 
 function OpenRuns({ back }: { back: string }) {
     const [tick, setTick] = useState(0);
@@ -350,6 +368,7 @@ export function RunsView({
                                                 process={record.process}
                                                 version={record.version}
                                             />
+                                            <TemplateVersion record={record} />
                                         </td>
                                         <td>
                                             <StatusLabel record={record} />
@@ -564,6 +583,7 @@ export function RunView({
                                     process={value.process}
                                     version={value.version}
                                 />
+                                <TemplateVersion record={value} />
                             </div>
                             <div>
                                 <span>记录时间</span>
