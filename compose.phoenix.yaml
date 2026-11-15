@@ -1,0 +1,20 @@
+name: pipipi-phoenix
+services:
+  phoenix:
+    # Phoenix 14.8.0，固定多架构镜像，供本地调试使用。
+    image: arizephoenix/phoenix@sha256:21d06ca8f3a690652389e6cd2c3f59e83bedfb16cf8881629e7df5965c7dd0e0
+    ports:
+      - "127.0.0.1:16006:6006"
+    environment:
+      PHOENIX_WORKING_DIR: /data
+    volumes:
+      - data:/data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:6006/healthz', timeout=2).close()"]
+      interval: 5s
+      timeout: 3s
+      start_period: 30s
+      retries: 5
+
+volumes:
+  data:

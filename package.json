@@ -11,6 +11,8 @@
         "dev:worker": "node --env-file-if-exists=.env --watch --import tsx src/bin/process-worker.ts",
         "dev:webhook-worker": "node --env-file-if-exists=.env --watch --import tsx src/bin/webhook-worker.ts",
         "dev:console": "vite --config console/vite.config.ts",
+        "dev:phoenix": "docker compose -f compose.phoenix.yaml up -d --wait && echo http://127.0.0.1:16006",
+        "stop:phoenix": "docker compose -f compose.phoenix.yaml stop",
         "dev:retention-cleaner": "node --env-file-if-exists=.env --watch --import tsx src/bin/retention-cleaner.ts",
         "dev:business-api": "node --env-file-if-exists=.env --watch --import tsx src/bin/crt-business-api.ts",
         "dev:availability": "node --env-file-if-exists=.env --watch --import tsx src/bin/availability-monitor.ts",

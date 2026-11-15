@@ -92,6 +92,7 @@ curl -X POST http://127.0.0.1:4300/execute \
 | `npm run dev:agent` | 单进程启动文本 Agent Conversations 联调 API | 无；进程退出后清空内存数据 |
 | `npm run dev:business-api` | 启动共享内部图片 Business API | 请求时调用图片供应商并写入对象存储 |
 | `npm run dev:console` | 启动 Vite 控制台 | 需要另行启动 API |
+| `npm run dev:phoenix` | 启动本机 [Phoenix trace 控制台](http://127.0.0.1:16006)，就绪后打印地址 | 需要 Docker Compose，首次缺少镜像时联网拉取。SQLite 保存在 Docker 数据卷中，`npm run stop:phoenix` 可停止服务并保留记录。新环境首次启动为空，可通过本机 `/v1/traces` 接收 OTLP/HTTP 数据 |
 | `npm run check` | 只读检查格式、lint 和 import 顺序 | 无 |
 | `npm run check:fix` | 应用 Biome 格式和安全修复 | 修改工作区 |
 | `npm run typecheck` | 检查服务端与控制台 TypeScript | 无 |
