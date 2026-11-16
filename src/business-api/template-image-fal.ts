@@ -2,6 +2,7 @@
 
 import { setTimeout } from "node:timers/promises";
 import { createFalClient } from "@fal-ai/client";
+import { recordUnknownCost } from "../process-runtime/cost.js";
 import type { ImageBackground } from "../processes/image-background.js";
 import { sourcePhotoSchema } from "../processes/photo-poster/capability.js";
 import { TemplateImagePreparationError } from "../processes/template-from-source/capability.js";
@@ -94,6 +95,8 @@ export function createTemplateImageRenderer(
             assertFalTemplateBackground(background);
             signal.throwIfAborted();
             const [width, height] = size.split("x").map(Number);
+            // FAL 队列提交与结果均无费用字段；派发即记为费用未知。
+            recordUnknownCost();
             try {
                 const response = await fetch(
                     `https://queue.fal.run/${endpoint}`,

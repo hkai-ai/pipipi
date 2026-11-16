@@ -1,4 +1,5 @@
 /** capability.ts 里 NewsImageRenderingCapability Port 的生产 HTTP 实现：POST /news-images */
+import { fetchBilled } from "../../process-runtime/cost.js";
 import {
     type NewsImageRenderingCapability,
     type NewsImageRenderingResult,
@@ -37,7 +38,7 @@ export class HttpNewsImageRenderingCapability
         options: { signal: AbortSignal; idempotencyKey: string },
     ): Promise<NewsImageRenderingResult> {
         try {
-            const response = await this.#fetch(this.#endpoint, {
+            const response = await fetchBilled(this.#fetch, this.#endpoint, {
                 method: "POST",
                 headers: {
                     "content-type": "application/json",

@@ -3,6 +3,7 @@ import type {
     AgentSession,
     AgentSessionEvent,
 } from "@earendil-works/pi-coding-agent";
+import { currentCostLedger } from "../process-runtime/cost.js";
 import { recordLocalField } from "../process-runtime/local-trace.js";
 import type {
     PiDecision,
@@ -34,6 +35,7 @@ export function observePiSession(
     versions: LoadedSkills["versions"],
     toolNames: readonly string[],
 ) {
+    observeCost(session);
     const scope = currentTraceActivity();
     if (!scope) return;
     if (scope.sessions.length >= 32) {
@@ -71,6 +73,26 @@ export function observePiSession(
     } catch {
         scope.collectionFailed = true;
     }
+}
+
+// 费用账本独立于轨迹采集：轮次超限或无活动范围时仍须累计，且复用同一份 cost 投影。
+function observeCost(session: AgentSession) {
+    const ledger = currentCostLedger();
+    if (!ledger) return;
+    observe(() => {
+        session.subscribe((event) => {
+            observe(() => {
+                if (
+                    event.type !== "message_end" ||
+                    event.message.role !== "assistant"
+                )
+                    return;
+                const cost = projectCost(event.message.usage);
+                if (cost) ledger.recordKnown(cost.totalUsd, cost.source);
+                else ledger.recordUnknown();
+            });
+        });
+    });
 }
 
 /** 仅由业务 Adapter 投影本模式允许观察的实际字段。 */
@@ -206,17 +228,21 @@ function number(value: unknown): number | undefined {
 }
 
 // 只投影 SDK 标记的费用，不保存响应正文；零估算可能只是未配置费率。
-function recordCost(round: PiRoundTrace, usage: unknown) {
+function projectCost(usage: unknown): PiRoundTrace["cost"] {
     const cost = object(object(usage)?.cost);
     const total = cost?.total;
     if (typeof total !== "number" || !Number.isFinite(total) || total < 0)
-        return;
+        return undefined;
     const reported = cost?.totalFromProvider === true;
-    if (!reported && total === 0) return;
-    round.cost = {
+    if (!reported && total === 0) return undefined;
+    return {
         totalUsd: total,
         source: reported ? "provider" : "estimate",
     };
+}
+function recordCost(round: PiRoundTrace, usage: unknown) {
+    const cost = projectCost(usage);
+    if (cost) round.cost = cost;
 }
 
 function beginRound(

@@ -1,4 +1,5 @@
 /** capability.ts 里 CrtRenderingCapability Port 的生产 HTTP 实现：POST /crt-images */
+import { fetchBilled } from "../../process-runtime/cost.js";
 import type { ImageBackground } from "../image-background.js";
 import {
     type CrtRenderingCapability,
@@ -39,7 +40,7 @@ export class HttpCrtRenderingCapability implements CrtRenderingCapability {
         options: { signal: AbortSignal; idempotencyKey: string },
     ): Promise<CrtRenderingResult> {
         try {
-            const response = await this.#fetch(this.#endpoint, {
+            const response = await fetchBilled(this.#fetch, this.#endpoint, {
                 method: "POST",
                 headers: {
                     "content-type": "application/json",

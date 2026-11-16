@@ -1,4 +1,5 @@
 /** 通过内部 Business API 生成照片风格成品。 */
+import { fetchBilled } from "../../process-runtime/cost.js";
 import {
     type PhotoPosterRenderInput,
     type PhotoPosterRenderingCapability,
@@ -23,7 +24,7 @@ export class HttpPhotoPosterRenderingCapability
     ) {
         // 请求发出后若失去响应，无法确认是否已扣费，保守阻止自动重试。
         try {
-            const response = await fetch(this.#endpoint, {
+            const response = await fetchBilled(fetch, this.#endpoint, {
                 method: "POST",
                 headers: {
                     "content-type": "application/json",

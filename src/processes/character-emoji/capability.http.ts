@@ -1,6 +1,8 @@
 /** 通过内部 Business API 调用多参考图表情包渲染。 */
+
 import { createHash } from "node:crypto";
 import { setTimeout as delay } from "node:timers/promises";
+import { fetchBilled } from "../../process-runtime/cost.js";
 import {
     type CharacterEmojiRenderingCapability,
     CharacterEmojiRenderingUnavailable,
@@ -61,7 +63,7 @@ export class HttpCharacterEmojiRenderingCapability
         let conflict = false;
         const started = Date.now();
         try {
-            const response = await fetch(this.#endpoint, {
+            const response = await fetchBilled(fetch, this.#endpoint, {
                 method: "POST",
                 headers: { ...headers, "content-type": "application/json" },
                 body: JSON.stringify(input),

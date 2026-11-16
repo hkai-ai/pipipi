@@ -5,6 +5,13 @@ export {
     type ProcessAttemptRunner,
 } from "./attempt.js";
 export {
+    type CostLedger,
+    createCostLedger,
+    currentCostLedger,
+    type RunCost,
+    withCostLedger,
+} from "./cost.js";
+export {
     combineProcessRunLogSinks,
     type ProcessRunActivity,
     type ProcessRunLogClock,

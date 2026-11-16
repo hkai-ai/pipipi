@@ -1,5 +1,9 @@
 /** 封装 OpenAI 图片生成、参考图内存读取与文件表单编辑，以及结果和用量解析。 */
 
+import {
+    recordGatewayResponseCost,
+    recordUnknownCost,
+} from "../process-runtime/cost.js";
 import { characterReferenceUrl } from "../processes/character-emoji/reference.js";
 import type { ImageBackground } from "../processes/image-background.js";
 
@@ -170,6 +174,8 @@ export class OpenAIImageGenerationClient {
                 },
             );
         } catch (error) {
+            // 已派发却没有响应，无法确认网关是否已计费。
+            recordUnknownCost();
             throw new OpenAIImageGenerationError(
                 "The GPT Image request did not reach a successful response",
                 { cause: error },
@@ -249,6 +255,7 @@ export class OpenAIImageGenerationClient {
                 signal,
             });
         } catch (error) {
+            recordUnknownCost();
             throw new OpenAIImageGenerationError(
                 "The GPT Image edit did not reach a successful response",
                 { cause: error },
@@ -336,6 +343,8 @@ async function readCharacterReferences(
 
 async function readGeneratedImage(response: Response): Promise<GeneratedImage> {
     const requestId = readRequestId(response.headers);
+    // LiteLLM 在响应头回报该次费用；缺失即未知，不按 token 估算。
+    recordGatewayResponseCost(response.headers);
     let body: unknown;
     try {
         body = await readJson(response);

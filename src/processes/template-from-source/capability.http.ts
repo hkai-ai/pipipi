@@ -1,4 +1,5 @@
 /** 调用内部换图生产服务，只恢复同一产物，禁止失联后自动重复付费。 */
+import { fetchBilled } from "../../process-runtime/cost.js";
 import {
     finalizedTemplateImageSchema,
     type ImageApproval,
@@ -26,7 +27,8 @@ export class HttpTemplateImagePreparation implements TemplateImagePreparation {
         timeoutMs: number,
     ) {
         try {
-            const response = await fetch(
+            const response = await fetchBilled(
+                fetch,
                 new URL(`/template-productions/${path}`, this.baseUrl),
                 {
                     method: "POST",

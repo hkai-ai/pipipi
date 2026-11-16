@@ -1,4 +1,5 @@
 /** 以超时和外部取消竞速执行单次 Process Attempt，产出 Run Record 并驱动 Attempt 日志 */
+import { createCostLedger, currentCostLedger, withCostLedger } from "./cost.js";
 import {
     createProcessRunAttemptLog,
     type ProcessRunLogClock,
@@ -48,6 +49,14 @@ export function createProcessAttemptRunner(
             if (!Number.isSafeInteger(attemptNumber) || attemptNumber < 1) {
                 throw new Error("Process Attempt number must be positive");
             }
+            // 每次 Attempt 独立记账；子流程结束后并入调用方账本。
+            const parentLedger = currentCostLedger();
+            const ledger = createCostLedger();
+            const withCost = (result: ProcessRunResult): ProcessRunResult => {
+                parentLedger?.absorb(ledger.snapshot());
+                const cost = ledger.summary();
+                return cost ? { ...result, cost } : result;
+            };
             const controller = new AbortController();
             const log = createProcessRunAttemptLog({
                 runId: attempt.runId,
@@ -87,16 +96,19 @@ export function createProcessAttemptRunner(
 
             try {
                 const completion = await Promise.race([
-                    attempt.registration.run(attempt.acceptedInput, {
-                        runId: attempt.runId,
-                        signal: controller.signal,
-                        runActivity: log.runActivity,
-                        ...(attempt.captureEvaluation
-                            ? {
-                                  captureEvaluation: attempt.captureEvaluation,
-                              }
-                            : {}),
-                    }),
+                    withCostLedger(ledger, () =>
+                        attempt.registration.run(attempt.acceptedInput, {
+                            runId: attempt.runId,
+                            signal: controller.signal,
+                            runActivity: log.runActivity,
+                            ...(attempt.captureEvaluation
+                                ? {
+                                      captureEvaluation:
+                                          attempt.captureEvaluation,
+                                  }
+                                : {}),
+                        }),
+                    ),
                     timeoutFailure,
                     cancellationFailure,
                 ]);
@@ -122,17 +134,21 @@ export function createProcessAttemptRunner(
                               errorCode: result.error.code,
                           },
                 );
-                return result;
+                return withCost(result);
             } catch (error) {
                 if (
                     externallyCancelled ||
                     error instanceof ProcessAttemptCancelledFailure
                 ) {
-                    const result = processFailure(
-                        attempt.runId,
-                        "INTERNAL_ERROR",
-                        "流程已取消",
-                        identity,
+                    // 取消时仍在途的调用可能事后计费，账本只是下限。
+                    ledger.recordUnknown();
+                    const result = withCost(
+                        processFailure(
+                            attempt.runId,
+                            "INTERNAL_ERROR",
+                            "流程已取消",
+                            identity,
+                        ),
                     );
                     log.finish({
                         outcome: "cancelled",
@@ -148,11 +164,14 @@ export function createProcessAttemptRunner(
                     controller.signal.aborted ||
                     error instanceof ProcessTimeoutFailure
                 ) {
-                    const result = processFailure(
-                        attempt.runId,
-                        "PROCESS_TIMEOUT",
-                        "流程超过执行时限",
-                        identity,
+                    ledger.recordUnknown();
+                    const result = withCost(
+                        processFailure(
+                            attempt.runId,
+                            "PROCESS_TIMEOUT",
+                            "流程超过执行时限",
+                            identity,
+                        ),
                     );
                     log.finish({
                         outcome: "timed_out",
@@ -164,11 +183,13 @@ export function createProcessAttemptRunner(
                     });
                     return result;
                 }
-                const result = processFailure(
-                    attempt.runId,
-                    "INTERNAL_ERROR",
-                    "流程执行发生异常，具体原因尚未确认",
-                    identity,
+                const result = withCost(
+                    processFailure(
+                        attempt.runId,
+                        "INTERNAL_ERROR",
+                        "流程执行发生异常，具体原因尚未确认",
+                        identity,
+                    ),
                 );
                 log.finish({
                     outcome: "failed",

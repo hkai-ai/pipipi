@@ -1,4 +1,5 @@
 /** capability.ts 里 PosterRenderingCapability Port 的生产 HTTP 实现：POST /posters */
+import { fetchBilled } from "../../process-runtime/cost.js";
 import {
     type PosterImage,
     type PosterRenderingCapability,
@@ -31,7 +32,7 @@ export class HttpPosterRenderingCapability
         options: { signal: AbortSignal; idempotencyKey: string },
     ): Promise<PosterImage> {
         try {
-            const response = await this.#fetch(this.#endpoint, {
+            const response = await fetchBilled(this.#fetch, this.#endpoint, {
                 method: "POST",
                 headers: {
                     "content-type": "application/json",

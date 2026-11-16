@@ -2,6 +2,7 @@
 
 import { createFalClient } from "@fal-ai/client";
 import { resolveImageEditModel } from "../image-edit-models.js";
+import { recordUnknownCost } from "../process-runtime/cost.js";
 import {
     detectRasterImage,
     type EditImageRequest,
@@ -70,16 +71,24 @@ export class FalImageGenerationClient {
         }
 
         this.#timeoutMs = timeoutMs;
-        if (options.subscribe) {
-            this.#subscribe = options.subscribe;
-            return;
-        }
-        const client = createFalClient({
-            credentials: apiKey,
-            retry: { maxRetries: 0 },
-        });
-        this.#subscribe = async (endpoint, request) =>
-            client.subscribe(endpoint, request);
+        // FAL 队列结果不带费用字段：每次提交都记为费用未知，不估算。
+        const client = options.subscribe
+            ? undefined
+            : createFalClient({
+                  credentials: apiKey,
+                  retry: { maxRetries: 0 },
+              });
+        const subscribe: FalSubscribe =
+            options.subscribe ??
+            (async (endpoint, request) =>
+                (client as NonNullable<typeof client>).subscribe(
+                    endpoint,
+                    request,
+                ));
+        this.#subscribe = (endpoint, request) => {
+            recordUnknownCost();
+            return subscribe(endpoint, request);
+        };
     }
 
     async generate(request: GenerateImageRequest): Promise<GeneratedImage> {

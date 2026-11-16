@@ -1,6 +1,10 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { createProcessingApplication } from "../src/api/application.js";
 import {
+    recordKnownCost,
+    recordUnknownCost,
+} from "../src/process-runtime/cost.js";
+import {
     createProcessExecutor,
     type ProcessRuntimeOptions,
 } from "../src/processes/catalog.js";
@@ -179,6 +183,94 @@ describe("business process execution", () => {
                 code: "PROCESS_NOT_FOUND",
                 message: "The requested process version is not registered",
             },
+        });
+    });
+
+    describe("run cost", () => {
+        const request = {
+            process: "sample-text",
+            version: "v1",
+            input: { content: "launch offer" },
+        };
+        async function costOf(process: () => Promise<{ content: string }>) {
+            const service = await startProcessingService({
+                registrations: [createSampleTextRegistration({ process })],
+            });
+            const response = await executeProcess(service.url, request);
+            return { status: response.status, body: await response.json() };
+        }
+
+        it("sums provider costs on success and reports a complete run", async () => {
+            const { body } = await costOf(async () => {
+                recordKnownCost(0.01, "provider");
+                recordKnownCost(0.0023, "provider");
+                return { content: "ok" };
+            });
+            expect(body.cost).toEqual({
+                currency: "USD",
+                amount: 0.0123,
+                source: "provider",
+                complete: true,
+            });
+        });
+
+        it("keeps the cost already incurred when the run fails", async () => {
+            const { status, body } = await costOf(async () => {
+                recordKnownCost(0.05, "provider");
+                throw new SampleTextUnavailable();
+            });
+            expect(status).toBe(502);
+            expect(body.status).toBe("failed");
+            expect(body.cost).toEqual({
+                currency: "USD",
+                amount: 0.05,
+                source: "provider",
+                complete: true,
+            });
+        });
+
+        it("marks mixed sources and an unknown call as a lower bound", async () => {
+            const { body } = await costOf(async () => {
+                recordKnownCost(0.25, "estimate");
+                recordKnownCost(0.5, "provider");
+                recordUnknownCost();
+                return { content: "ok" };
+            });
+            expect(body.cost).toEqual({
+                currency: "USD",
+                amount: 0.75,
+                source: "mixed",
+                complete: false,
+            });
+        });
+
+        it("counts an explicit provider zero but omits cost when nothing is known", async () => {
+            const free = await costOf(async () => {
+                recordKnownCost(0, "provider");
+                return { content: "ok" };
+            });
+            expect(free.body.cost).toEqual({
+                currency: "USD",
+                amount: 0,
+                source: "provider",
+                complete: true,
+            });
+            const unknown = await costOf(async () => {
+                recordUnknownCost();
+                return { content: "ok" };
+            });
+            expect("cost" in unknown.body).toBe(false);
+        });
+
+        it("rejects invalid input without a cost field", async () => {
+            const service = await startProcessingService({
+                registrations: [createSampleTextRegistration(unusedCapability)],
+            });
+            const response = await executeProcess(service.url, {
+                ...request,
+                input: { content: "  " },
+            });
+            expect("cost" in (await response.json())).toBe(false);
         });
     });
 

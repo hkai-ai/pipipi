@@ -272,6 +272,59 @@ async function setup(
         compile,
     };
 }
+it("新成图的网关费用头随 /execute 响应返回，恢复同一成图不再计费", async () => {
+    const png = await sharp({
+        create: {
+            width: 1024,
+            height: 1024,
+            channels: 3,
+            background: "#3278c8",
+        },
+    })
+        .png()
+        .toBuffer();
+    const transport = vi.fn(async () =>
+        Response.json(
+            { data: [{ b64_json: png.toString("base64") }] },
+            { headers: { "x-litellm-response-cost": "0.039" } },
+        ),
+    );
+    const editor = createTemplateImageEditor(
+        {
+            MODEL_GATEWAY_BASE_URL: "https://gateway.example/openai/v1",
+            MODEL_GATEWAY_API_KEY: "PRIVATE",
+        },
+        { fetch: transport },
+    );
+    const s = await setup(false, {}, 1, editor);
+    try {
+        const planned = await s.execute("template-image-plan", {
+            imageUrl: "https://example.com/source.png",
+            note: "按指定背景生成",
+        });
+        expect("cost" in planned.body).toBe(false);
+        const input = {
+            productionId: String(planned.body.output.productionId),
+            objectSha256: planned.body.output.strategySha256,
+            reviewerRef: "operator",
+            renderId: randomUUID(),
+        };
+        const first = await s.execute("template-image-render", input);
+        expect(first.body).toMatchObject({
+            cost: {
+                currency: "USD",
+                amount: 0.039,
+                source: "provider",
+                complete: true,
+            },
+        });
+        const again = await s.execute("template-image-render", input);
+        expect(transport).toHaveBeenCalledTimes(1);
+        expect("cost" in again.body).toBe(false);
+    } finally {
+        await s.app.close();
+    }
+});
 it.each([undefined, "opaque", "transparent"] as const)(
     "新成图经真实网关 Adapter 发 multipart，背景 %s，恢复不重复出站",
     async (background) => {

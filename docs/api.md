@@ -855,6 +855,29 @@ Webhook 是至少一次投递，不保证跨 Run 的全局顺序。网络错误�
 | `version` | string | 实际执行的版本 |
 | `status` | string | 成功时固定为 `succeeded` |
 | `output` | object | Process 对应的输出 |
+| `cost` | object | 可选。本次运行的费用，见下节 |
+
+## 运行费用（`cost`）
+
+`/execute` 的成功与失败响应，只要带 `runId`，都可能附带 `cost`：
+
+```json
+"cost": { "currency": "USD", "amount": 0.0123, "source": "provider", "complete": true }
+```
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| `currency` | string | 固定为 `USD` |
+| `amount` | number | 已知费用之和，`>= 0`；`complete` 为 `false` 时是下限 |
+| `source` | string | `provider`：全部来自供应商回报；`estimate`：全部是估算；`mixed`：两者都有 |
+| `complete` | boolean | 本次运行所有模型与图片调用的费用都已知为 `true`；有任何一次未知为 `false` |
+
+- 累计范围是一次 Process 运行内的全部模型调用与图片生成，含主流程、修正、复核和子流程（`template-from-source` 内部的 `template-from-image`）。失败、超时、取消的运行同样返回已发生的费用；超时与取消时在途调用可能事后计费，`complete` 固定为 `false`。
+- 供应商回报的 0 按 0 计入。没有任何一次调用的费用已知时整个 `cost` 省略，不以 `amount: 0` 冒充免费。
+- 费用未知的调用不估算：LiteLLM 网关图片请求缺少 `x-litellm-response-cost` 响应头、FAL 与 Magikaru 通道（响应不含费用字段）、已派发却没有响应的请求，以及后台仍在处理（HTTP `202`）的图片任务，都记为未知。
+- 恢复同一成图（已有回执或已保存结果）没有新的出站调用，不重复计费；首次派发的费用只出现在当时那次响应。
+- 被并发闸门拒绝（`429`、`503`）等没有 `runId` 的响应不带 `cost`。异步入口的 Run 结果暂不返回 `cost`。
+- 内部 Business API 在每个 JSON 响应头 `x-pipipi-cost-ledger` 回传本请求的账本快照，主服务据此并入运行账本；该头不面向产品调用方。
 
 ## 图片对象
 

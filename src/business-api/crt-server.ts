@@ -10,6 +10,13 @@ import {
 import { join } from "node:path";
 import sharp from "sharp";
 import {
+    businessApiCostHeader,
+    createCostLedger,
+    currentCostLedger,
+    encodeCostLedger,
+    withCostLedger,
+} from "../process-runtime/cost.js";
+import {
     characterEmojiImageSchema,
     characterEmojiRenderInputSchema,
 } from "../processes/character-emoji/capability.js";
@@ -224,16 +231,19 @@ export async function startCrtBusinessApi(
         | undefined;
 
     const server = createServer((request, response) => {
-        void route(request, response).catch(() => {
-            if (response.headersSent) {
-                response.destroy();
-                return;
-            }
-            writeJson(response, 500, {
-                error: {
-                    code: "INTERNAL_ERROR",
-                    message: "The local CRT Business API failed",
-                },
+        // 每个请求独立记账，writeJson 把账本放进响应头，调用方 Process 据此累计费用。
+        withCostLedger(createCostLedger(), () => {
+            void route(request, response).catch(() => {
+                if (response.headersSent) {
+                    response.destroy();
+                    return;
+                }
+                writeJson(response, 500, {
+                    error: {
+                        code: "INTERNAL_ERROR",
+                        message: "The local CRT Business API failed",
+                    },
+                });
             });
         });
     });
@@ -1738,9 +1748,13 @@ function writeJson(
     value: unknown,
 ): void {
     const body = JSON.stringify(value);
+    const ledger = currentCostLedger();
     response.writeHead(status, {
         "content-type": "application/json",
         "content-length": String(Buffer.byteLength(body)),
+        ...(ledger
+            ? { [businessApiCostHeader]: encodeCostLedger(ledger) }
+            : {}),
     });
     response.end(body);
 }

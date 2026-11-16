@@ -1,6 +1,10 @@
 /** 调用固定 DeepSeek Responses 联网搜梗，校验完成状态并保留来源。 */
 import { z } from "zod";
 import type { ModelGateway } from "../../model-gateway.js";
+import {
+    recordGatewayResponseCost,
+    recordUnknownCost,
+} from "../../process-runtime/cost.js";
 import { cancellationCode, EmojiFailure } from "./diagnostics.js";
 import { characterEmojiSearchModel } from "./model.js";
 import { readPlannerJson } from "./planner-output.js";
@@ -57,6 +61,7 @@ export class ResponsesMemeSearch implements MemeSearch {
     ): Promise<MemeResearch> {
         const started = Date.now();
         let httpStatus: number | undefined;
+        let dispatched = false;
         try {
             options.signal.throwIfAborted();
             if (!this.#config.apiKey?.trim() || !this.#config.baseUrl)
@@ -70,6 +75,8 @@ export class ResponsesMemeSearch implements MemeSearch {
             } catch {
                 throw new EmojiFailure("search", "configuration");
             }
+            // 联网搜索是一次计费的模型调用：读取网关回报的费用，无响应则未知。
+            dispatched = true;
             const response = await this.#fetch(endpoint, {
                 method: "POST",
                 headers: {
@@ -112,9 +119,11 @@ export class ResponsesMemeSearch implements MemeSearch {
                 signal: options.signal,
             });
             httpStatus = response.status;
+            recordGatewayResponseCost(response.headers);
             if (!response.ok) throw new EmojiFailure("search", "http_error");
             return extractResearch(await response.json());
         } catch (error) {
+            if (httpStatus === undefined && dispatched) recordUnknownCost();
             const code = options.signal.aborted
                 ? cancellationCode(options.signal)
                 : error instanceof EmojiFailure

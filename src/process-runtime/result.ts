@@ -1,4 +1,6 @@
 /** 定义 Process Run 的成功/失败结果类型（ProcessRunResult）与公开错误码 */
+import type { RunCost } from "./cost.js";
+
 /**
  * `DEPENDENCY_FAILURE` covers failures that occur before a Business Capability
  * commits its irreversible effect, so retrying costs nothing.
@@ -23,6 +25,7 @@ export type ProcessRunResult =
           version: string;
           status: "succeeded";
           output: unknown;
+          cost?: RunCost;
       }
     | {
           runId: string;
@@ -33,6 +36,7 @@ export type ProcessRunResult =
               code: ProcessErrorCode;
               message: string;
           };
+          cost?: RunCost;
       };
 
 export function processFailure(

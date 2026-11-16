@@ -5,6 +5,7 @@ import {
     imageEditModels,
     resolveImageEditModel,
 } from "../image-edit-models.js";
+import { recordUnknownCost } from "../process-runtime/cost.js";
 import { characterEmojiRenderInputSchema } from "../processes/character-emoji/capability.js";
 import {
     detectRasterImage,
@@ -166,6 +167,8 @@ export class MagikaruImageEditClient {
             ...(request.signal ? [request.signal] : []),
         ]);
         const headers = { authorization: `Bearer ${this.#apiKey}` };
+        // Job 快照不含费用字段；派发即记为费用未知。
+        recordUnknownCost();
         // POST 仅发送一次；提交未知时由本地 pending 记录阻止再次付费。
         const submitted = await this.#fetch(`${this.#baseUrl}/v1/jobs`, {
             method: "POST",
