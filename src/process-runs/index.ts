@@ -1,9 +1,11 @@
 /** 异步提交、owner 隔离、caller-scoped idempotency 和公共状态投影 */
 import { createHash, randomUUID } from "node:crypto";
 import { z } from "zod";
-import type {
-    ProcessErrorCode,
-    ProcessRegistry,
+import {
+    type ProcessErrorCode,
+    type ProcessRegistry,
+    type RunCost,
+    runCostFromSnapshot,
 } from "../process-runtime/index.js";
 import type { ProcessWorkQueue } from "./queue/index.js";
 import {
@@ -43,6 +45,8 @@ export type ProcessRunView =
           createdAt: string;
           startedAt: string;
           finishedAt: string;
+          /** 本次运行（含重试）的已知费用，口径同 /execute；无已知费用时省略。 */
+          cost?: RunCost;
           output: unknown;
       }>
     | Readonly<{
@@ -53,6 +57,8 @@ export type ProcessRunView =
           createdAt: string;
           startedAt: string;
           finishedAt: string;
+          /** 本次运行（含重试）的已知费用，口径同 /execute；无已知费用时省略。 */
+          cost?: RunCost;
           resultAvailability: "expired";
           resultExpiredAt: string;
       }>
@@ -64,6 +70,8 @@ export type ProcessRunView =
           createdAt: string;
           startedAt: string;
           finishedAt: string;
+          /** 本次运行（含重试）的已知费用，口径同 /execute；无已知费用时省略。 */
+          cost?: RunCost;
           error: Readonly<{
               code: ProcessErrorCode;
               message: string;
@@ -77,6 +85,8 @@ export type ProcessRunView =
           createdAt: string;
           startedAt: string;
           finishedAt: string;
+          /** 本次运行（含重试）的已知费用，口径同 /execute；无已知费用时省略。 */
+          cost?: RunCost;
           resultAvailability: "expired";
           resultExpiredAt: string;
       }>;
@@ -247,6 +257,8 @@ function backlogRejected(
 }
 
 function toProcessRunView(run: StoredProcessRun): ProcessRunView {
+    const cost = runCostFromSnapshot(run.costLedger);
+    const withCost = cost ? { cost } : {};
     const identity = {
         runId: run.runId,
         process: run.process,
@@ -265,6 +277,7 @@ function toProcessRunView(run: StoredProcessRun): ProcessRunView {
                       status: "succeeded",
                       startedAt: run.startedAt,
                       finishedAt: run.finishedAt,
+                      ...withCost,
                       output: structuredClone(run.output),
                   }
                 : {
@@ -272,6 +285,7 @@ function toProcessRunView(run: StoredProcessRun): ProcessRunView {
                       status: "succeeded",
                       startedAt: run.startedAt,
                       finishedAt: run.finishedAt,
+                      ...withCost,
                       resultAvailability: "expired",
                       resultExpiredAt: run.resultExpiredAt,
                   };
@@ -282,6 +296,7 @@ function toProcessRunView(run: StoredProcessRun): ProcessRunView {
                       status: "failed",
                       startedAt: run.startedAt,
                       finishedAt: run.finishedAt,
+                      ...withCost,
                       error: structuredClone(run.error),
                   }
                 : {
@@ -289,6 +304,7 @@ function toProcessRunView(run: StoredProcessRun): ProcessRunView {
                       status: "failed",
                       startedAt: run.startedAt,
                       finishedAt: run.finishedAt,
+                      ...withCost,
                       resultAvailability: "expired",
                       resultExpiredAt: run.resultExpiredAt,
                   };

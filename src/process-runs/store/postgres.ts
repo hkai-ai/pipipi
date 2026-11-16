@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import type { Pool, PoolClient, QueryResultRow } from "pg";
 import type {
     AcceptedProcessInput,
+    CostLedgerSnapshot,
     ProcessErrorCode,
 } from "../../process-runtime/index.js";
 import type {
@@ -295,6 +296,7 @@ export function createPostgresProcessRunStore(options: {
               started_at = COALESCE(started_at, $3),
               updated_at = $3,
               attempt_count = attempt_count + 1,
+              ${mergeCostSql(5)},
               revision = revision + 1
             WHERE run_id = $1
             RETURNING *
@@ -304,6 +306,15 @@ export function createPostgresProcessRunStore(options: {
                         request.claimToken,
                         request.claimedAt,
                         claimExpiresAt,
+                        // 声明过期的 Attempt 无从得知花费，记一次未知，使 complete 为 false。
+                        candidate.status === "running"
+                            ? ledgerParameter({
+                                  usd: 0,
+                                  provider: 0,
+                                  estimate: 0,
+                                  unknown: 1,
+                              })
+                            : null,
                     ],
                 );
                 const row = claimed.rows[0];
@@ -377,6 +388,7 @@ export function createPostgresProcessRunStore(options: {
               finished_at = $4,
               updated_at = $4,
               result_expires_at = $8,
+              ${mergeCostSql(9)},
               revision = revision + 1
             WHERE
               run_id = $1
@@ -393,6 +405,7 @@ export function createPostgresProcessRunStore(options: {
                         errorCode,
                         errorMessage,
                         resultExpiresAt,
+                        ledgerParameter(request.costLedger),
                     ],
                 );
                 const row = completed.rows[0];
@@ -544,6 +557,7 @@ export function createPostgresProcessRunStore(options: {
               claim_token = NULL,
               claim_expires_at = NULL,
               updated_at = $3,
+              ${mergeCostSql(4)},
               revision = revision + 1
             WHERE
               run_id = $1
@@ -551,7 +565,12 @@ export function createPostgresProcessRunStore(options: {
               AND claim_token = $2
             RETURNING attempt_count, process_id, process_version
           `,
-                    [request.runId, request.claimToken, request.scheduledAt],
+                    [
+                        request.runId,
+                        request.claimToken,
+                        request.scheduledAt,
+                        ledgerParameter(request.costLedger),
+                    ],
                 );
                 const row = retried.rows[0];
                 if (!row) return false;
@@ -632,6 +651,7 @@ export function createPostgresProcessRunStore(options: {
               claim_token = NULL,
               claim_expires_at = NULL,
               updated_at = $3,
+              ${mergeCostSql(4)},
               revision = revision + 1
             WHERE
               run_id = $1
@@ -639,7 +659,12 @@ export function createPostgresProcessRunStore(options: {
               AND claim_token = $2
             RETURNING attempt_count
           `,
-                    [request.runId, request.claimToken, request.releasedAt],
+                    [
+                        request.runId,
+                        request.claimToken,
+                        request.releasedAt,
+                        ledgerParameter(request.costLedger),
+                    ],
                 );
                 const row = released.rows[0];
                 if (!row) return false;
@@ -742,6 +767,19 @@ async function transaction<Result>(
     }
 }
 
+/** 把一次 Attempt 的账本快照加到 cost_ledger；参数为 jsonb，NULL 表示不变。 */
+const mergeCostSql = (parameter: number) => `cost_ledger = CASE
+              WHEN $${parameter}::jsonb IS NULL THEN cost_ledger
+              ELSE jsonb_build_object(
+                'usd', COALESCE((cost_ledger->>'usd')::numeric, 0) + ($${parameter}::jsonb->>'usd')::numeric,
+                'provider', COALESCE((cost_ledger->>'provider')::integer, 0) + ($${parameter}::jsonb->>'provider')::integer,
+                'estimate', COALESCE((cost_ledger->>'estimate')::integer, 0) + ($${parameter}::jsonb->>'estimate')::integer,
+                'unknown', COALESCE((cost_ledger->>'unknown')::integer, 0) + ($${parameter}::jsonb->>'unknown')::integer
+              )
+            END`;
+const ledgerParameter = (ledger: unknown) =>
+    ledger === undefined ? null : serializeJson(ledger);
+
 interface ProcessRunRow extends QueryResultRow {
     schema_version: number;
     run_id: string;
@@ -765,6 +803,7 @@ interface ProcessRunRow extends QueryResultRow {
     updated_at: Date;
     input_expired_at: Date | null;
     result_expired_at: Date | null;
+    cost_ledger: unknown;
 }
 
 function processRunFromRow(row: ProcessRunRow): StoredProcessRun {
@@ -790,6 +829,7 @@ function processRunFromRow(row: ProcessRunRow): StoredProcessRun {
         updatedAt: iso(row.updated_at),
         attemptCount: row.attempt_count,
         revision: safeInteger(row.revision, "Process Run revision"),
+        ...(isLedger(row.cost_ledger) ? { costLedger: row.cost_ledger } : {}),
     };
     switch (row.status) {
         case "queued": {
@@ -996,10 +1036,24 @@ const processErrorCodes = new Set<ProcessErrorCode>([
     "INTERNAL_ERROR",
     "INVALID_INPUT",
     "INVALID_OUTPUT",
+    "MASTER_BUDGET_EXHAUSTED",
+    "MASTER_NOT_ACCEPTED",
     "PROCESS_NOT_FOUND",
     "PROCESS_TIMEOUT",
 ]);
 
 function isProcessErrorCode(value: string | null): value is ProcessErrorCode {
     return value !== null && processErrorCodes.has(value as ProcessErrorCode);
+}
+
+function isLedger(value: unknown): value is CostLedgerSnapshot {
+    if (!value || typeof value !== "object") return false;
+    const ledger = value as Record<string, unknown>;
+    return (
+        typeof ledger.usd === "number" &&
+        Number.isFinite(ledger.usd) &&
+        ["provider", "estimate", "unknown"].every((key) =>
+            Number.isSafeInteger(ledger[key]),
+        )
+    );
 }

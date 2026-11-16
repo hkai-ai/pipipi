@@ -28,6 +28,14 @@ const advice: Record<string, { title: string; next: string }> = {
         title: "副作用已提交，交付失败",
         next: "先核对原请求及产物。可能已产生费用，不应直接重新生成或重放付费操作。",
     },
+    MASTER_NOT_ACCEPTED: {
+        title: "母版未通过校验",
+        next: "各档位均未得到通过对照校验的母版；查看尝试摘要中的失败项，核对原图与设计拆解后再决定是否重试，重试会再次产生费用。",
+    },
+    MASTER_BUDGET_EXHAUSTED: {
+        title: "母版预算已用尽",
+        next: "次数或金额上限已到、尚无通过的母版；调整调用方传入的预算前先核对已发生费用。",
+    },
     PROCESS_TIMEOUT: {
         title: "执行超时",
         next: "检查活动耗时与执行预算；先确认原任务的最终状态，再决定后续操作。",

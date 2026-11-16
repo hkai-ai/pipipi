@@ -59,6 +59,7 @@ COPY --chown=node:node .pi/skills/meme-template-json-compiler ./.pi/skills/meme-
 COPY --chown=node:node .pi/skills/template-image-preparer ./.pi/skills/template-image-preparer
 
 COPY --chown=node:node .pi/skills/print-design-template-compiler ./.pi/skills/print-design-template-compiler
+COPY --chown=node:node .pi/skills/template-master-method ./.pi/skills/template-master-method
 
 USER node
 # 在成品镜像内校验全部固定 Skill（含可选 Process），不访问外部服务。

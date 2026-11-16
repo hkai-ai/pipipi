@@ -337,6 +337,7 @@ Content-Type: application/json
 
 | 场景 | process | 用途 |
 | --- | --- | --- |
+| `memebuy` | `template-master` | 原图与解析结果生成印花母版（轻、中、重分档，逐次对照校验） |
 | `memebuy` | `template-from-image` | 从参考图编译可编辑模板草稿；对接 Memebuy 素材箱提取 Worker，保留 Pipipi 本地测试，尚未部署 |
 | `common` | `minimal-zine-poster` | 生成极简 Zine 海报 |
 | `common` | `photo-doodle-collage` | 生成摄影剪贴与互动黑线小人海报 |
@@ -578,6 +579,8 @@ Authorization: Bearer <same caller credential>
   }
 }
 ```
+
+终态 Run（成功、失败，含超时与取消形成的失败）在顶层可带 `cost`，形状与口径同 `/execute` 的[运行费用](#运行费用cost)：`{ currency: "USD", amount, source, complete }`。它累计该 Run 全部 Attempt（含被重试的失败 Attempt）的费用；没有任何已知费用时省略，不以 `amount: 0` 冒充免费。每个 Attempt 的账本只在其持有的 claim 上写入一次，重复投递、重放与恢复不会重复累计。Worker 崩溃或 claim 过期而丢失的 Attempt 无从得知花费，记为一次未知（`complete: false`）。`queued` 与 `running` 不带 `cost`；结果内容到期后 `cost` 仍保留。
 
 结果内容到期后仍保留真实终态和时间，但用以下字段替代 `output` 或 `error`：
 
@@ -876,7 +879,7 @@ Webhook 是至少一次投递，不保证跨 Run 的全局顺序。网络错误�
 - 供应商回报的 0 按 0 计入。没有任何一次调用的费用已知时整个 `cost` 省略，不以 `amount: 0` 冒充免费。
 - 费用未知的调用不估算：LiteLLM 网关图片请求缺少 `x-litellm-response-cost` 响应头、FAL 与 Magikaru 通道（响应不含费用字段）、已派发却没有响应的请求，以及后台仍在处理（HTTP `202`）的图片任务，都记为未知。
 - 恢复同一成图（已有回执或已保存结果）没有新的出站调用，不重复计费；首次派发的费用只出现在当时那次响应。
-- 被并发闸门拒绝（`429`、`503`）等没有 `runId` 的响应不带 `cost`。异步入口的 Run 结果暂不返回 `cost`。
+- 被并发闸门拒绝（`429`、`503`）等没有 `runId` 的响应不带 `cost`。异步入口 `/process-runs` 的终态 Run 在顶层返回同形状的 `cost`，见该节。
 - 内部 Business API 在每个 JSON 响应头 `x-pipipi-cost-ledger` 回传本请求的账本快照，主服务据此并入运行账本；该头不面向产品调用方。
 
 ## 图片对象
@@ -929,6 +932,8 @@ HTTP 层在执行前拒绝请求时，不返回 `runId`：
 | 500 | `INVALID_OUTPUT` | Process 输出不符合契约 |
 | 500 | `INTERNAL_ERROR` | 服务端发生内部错误 |
 | 502 | `AGENT_FAILURE` | Agent 未能完成任务 |
+| 502 | `MASTER_NOT_ACCEPTED` | 母版各档位均未通过对照校验；重试会再次产生费用，不得自动重试 |
+| 502 | `MASTER_BUDGET_EXHAUSTED` | 母版次数或已知费用预算用尽且尚无通过的图；不得自动重试 |
 | 502 | `DEPENDENCY_FAILURE` | Business Capability、图片服务或存储服务不可用；是否已经产生外部副作用取决于 Process，付费图片调用不得据此自动重试 |
 | 502 | `DEPENDENCY_FAILURE_AFTER_COMMIT` | 图片已生成并计费，但后处理、存储或引用解析失败导致无法交付；`composed-task` 中指付费步骤已成功而 Run 未能完成。重试会再次产生费用，不得自动重试 |
 | 503 | `SERVICE_BUSY` | 同步执行容量已满；按 `Retry-After` 重试 |
@@ -1228,6 +1233,16 @@ V4 模板包含 `targetInstances`、`inputBindings` 与 `designSpec`，不得包
 成功输出在 `template` 之外附带 `source`（加法，`template` 不变；旧部署不返回，调用方须视为可选）：`source.texts` 为复核后的原图逐字文字 `[{text, elementId}]`（最多 40 项，只含设计本身的文字，不含水印与署名）；`source.condition` 为原图状况 `{marks, carrier, sharpness, compressionArtifacts, notes}`。`marks` 最多 5 项 `{kind: watermark | signature | platform_logo, text?}`，无则空数组；`carrier` 取 `flat_artwork | garment_photo | product_photo | scene_photo`；`sharpness` 取 `clear | slightly_blurry | severely_blurry`；`notes` 最多 5 条。二者由独立复核后的候选确定性投影，模型判断不代替人工核对；像素清晰度（如 150dpi）不由模型判断。`template-from-source/v3` 因复用同一输出 Schema，其编译成员的 `source` 同样随成功回包透传。
 
 编译最长 480 秒，审核后上传与编译最长 570 秒；正常两次独立视觉请求，结构无法读取时最多补一次编译，其后仍须独立复核。复核只修当前字段并完整复验，不重写整份候选、追加生图或自动采用。错误沿图片编译合同；审核后成员失败仍为 `DEPENDENCY_FAILURE_AFTER_COMMIT`，重试复用同一图片，未知提交不自动重投。成功不代表人工视觉或印刷验收通过。部署、来源与验证见 [印花拆解候选](processes/memebuy/template-from-image/print-design-v4.md)。
+
+## 母版生成（template-master/v1）
+
+供 Memebuy 在原图解析之后调用，使用 `/process-runs`（最坏约 2020 秒，Registration 预算 2400 秒，不适合经 540 秒网关的同步请求）。
+
+输入：`{ imageUrl, template, condition, budget: { maxAttempts: 1..10, maxUsd: 0..20 } }`。`imageUrl` 为私有原图当次短期签名公网 HTTPS 地址；`template` 为 `template-from-image/v3` 回传的 v4 草稿，按 Pipipi 自己的 Schema 校验；`condition` 为其 `source.condition`。不接受步骤、Skill、模型字段。
+
+成功输出：`{ preparedImage, master }`。`preparedImage` 与 `template-from-source/v3` 同形状、同上传方式（`https://assets.memebuy.cn/gallery/template-images/<sha256>.png`）。`master` 含最终档 `tier`、`redrawn`（仅重档为 true）、按时间排列的 `attempts[{ tier, passed, failures[{ check, detail }] }]`（最多 `maxAttempts` 条）与最终 `checks`（`text` 含 `expected` / `read`、`palette`、`layout`、`printable`、`similarity` 重档为 null）。`failures[].check` 取 `text | palette | layout | printable | similarity | generation`。
+
+失败：`MASTER_NOT_ACCEPTED`（全部档位用尽）与 `MASTER_BUDGET_EXHAUSTED`（次数或已知费用用尽），HTTP 502，message 带各档尝试次数与最后失败项，不返回未通过的图；改图已付费后上传失败为 `DEPENDENCY_FAILURE_AFTER_COMMIT`。费用沿用 `cost`，未知费用不计入 `maxUsd`。分档、校验与阈值见 [模板母版](processes/memebuy/template-master/README.md)。
 
 ## 模板执行步骤
 

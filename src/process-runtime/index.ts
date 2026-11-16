@@ -6,9 +6,12 @@ export {
 } from "./attempt.js";
 export {
     type CostLedger,
+    type CostLedgerSnapshot,
     createCostLedger,
     currentCostLedger,
+    mergeCostSnapshots,
     type RunCost,
+    runCostFromSnapshot,
     withCostLedger,
 } from "./cost.js";
 export {

@@ -1,12 +1,14 @@
 /** 认领并执行单个 Process Run 的 Job，处理成功/失败/重试并落地终态观测记录 */
 import { randomUUID } from "node:crypto";
-import type {
-    AcceptedProcessInput,
-    ProcessAttemptRunner,
-    ProcessErrorCode,
-    ProcessRegistration,
-    ProcessRegistry,
-    ProcessRunResult,
+import {
+    type AcceptedProcessInput,
+    createCostLedger,
+    type ProcessAttemptRunner,
+    type ProcessErrorCode,
+    type ProcessRegistration,
+    type ProcessRegistry,
+    type ProcessRunResult,
+    withCostLedger,
 } from "../../process-runtime/index.js";
 import type { ProcessRunRecords } from "../../process-runtime/records.js";
 import {
@@ -93,14 +95,18 @@ export function createProcessWorker(options: {
                     id: claim.process,
                     version: claim.version,
                 });
+                // Attempt Runner 把本次账本并入当前账本；快照随终态或重试一次性写入 Store。
+                const ledger = createCostLedger();
                 const result: ProcessRunResult = registration
-                    ? await options.attemptRunner.run({
-                          runId: claim.runId,
-                          registration,
-                          acceptedInput: claim.acceptedInput,
-                          attemptNumber: claim.attemptNumber,
-                          signal: context?.signal,
-                      })
+                    ? await withCostLedger(ledger, () =>
+                          options.attemptRunner.run({
+                              runId: claim.runId,
+                              registration,
+                              acceptedInput: claim.acceptedInput,
+                              attemptNumber: claim.attemptNumber,
+                              signal: context?.signal,
+                          }),
+                      )
                     : {
                           runId: claim.runId,
                           process: claim.process,
@@ -112,11 +118,13 @@ export function createProcessWorker(options: {
                           },
                       };
 
+                const costLedger = ledger.snapshot();
                 if (context?.signal?.aborted) {
                     await options.store.releaseClaim({
                         runId: claim.runId,
                         claimToken: claim.claimToken,
                         releasedAt: clock(),
+                        costLedger,
                     });
                     logProcessWork(
                         options.logSink,
@@ -142,6 +150,7 @@ export function createProcessWorker(options: {
                         claimToken: claim.claimToken,
                         scheduledAt: clock(),
                         failure: result.error,
+                        costLedger,
                     });
                     const outcome: ProcessWorkResult = scheduled
                         ? {
@@ -166,6 +175,7 @@ export function createProcessWorker(options: {
                     runId: claim.runId,
                     claimToken: claim.claimToken,
                     completedAt: clock(),
+                    costLedger,
                     completion:
                         result.status === "succeeded"
                             ? { status: "succeeded", output: result.output }

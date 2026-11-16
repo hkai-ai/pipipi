@@ -1810,6 +1810,8 @@ function statusFor(result: ProcessRunResult): number {
         INTERNAL_ERROR: 500,
         INVALID_INPUT: 400,
         INVALID_OUTPUT: 500,
+        MASTER_BUDGET_EXHAUSTED: 502,
+        MASTER_NOT_ACCEPTED: 502,
         PROCESS_NOT_FOUND: 404,
         PROCESS_TIMEOUT: 504,
     };

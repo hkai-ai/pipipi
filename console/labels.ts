@@ -5,6 +5,7 @@ const names: Record<string, string> = {
     "template-image-render": "模板图片生成",
     "template-from-source": "成图转模板",
     "template-from-image": "图片转模板",
+    "template-master": "模板母版",
     "mono-color-photo-poster": "双色油墨海报",
     "travel-abstraction-photo-poster": "旅行抽象海报",
     "dopamine-photo-poster": "多巴胺海报",
@@ -55,6 +56,11 @@ const activities: Record<string, string> = {
     crt_rendering: "生成 CRT 图片",
     news_image_prompt_compilation: "编译新闻配图方案",
     news_image_rendering: "生成新闻配图",
+    master_source_loading: "读取母版原图",
+    master_light_rendering: "轻档加工母版",
+    master_generation: "生成母版",
+    master_verification: "校验母版",
+    master_upload: "上传母版",
     process_step: "执行子流程",
 };
 export function activityName(id: string): string {

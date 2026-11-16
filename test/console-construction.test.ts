@@ -191,6 +191,7 @@ describe("operator console construction", () => {
             "risograph-album-prompt",
             "tait-crt-interface-prompt",
             "template-image-preparer",
+            "template-master-method",
             "travel-abstraction-photo-poster-prompt",
             "woodcut-photo-poster-prompt",
         ]);

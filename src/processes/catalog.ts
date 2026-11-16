@@ -49,6 +49,7 @@ import {
     templateSourceV2Production,
     templateSourceV3Production,
 } from "./template-from-source/production.js";
+import { templateMasterProduction } from "./template-master/production.js";
 
 /**
  * The explicit production catalog: one entry per exact `(id, version)`, each
@@ -85,6 +86,7 @@ export const productionCatalog: readonly ProductionProcess[] = Object.freeze([
     templateSourceProduction,
     templateSourceV2Production,
     templateSourceV3Production,
+    templateMasterProduction,
     composedProduction,
 ]);
 

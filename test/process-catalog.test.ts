@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { describeProcessCatalog } from "../src/api/process-catalog.js";
 import { createProductionRuntime } from "../src/app/business-processes.js";
@@ -46,6 +47,20 @@ const validInputs: Readonly<Record<string, Record<string, unknown>>> = {
     },
     "template-from-image": {
         imageUrl: "https://assets.example.com/source.png",
+    },
+    "template-master": {
+        imageUrl: "https://assets.example.com/source.png",
+        template: JSON.parse(
+            readFileSync("test/fixtures/template-v4-candidate.json", "utf8"),
+        ).draft,
+        condition: {
+            marks: [],
+            carrier: "flat_artwork",
+            sharpness: "clear",
+            compressionArtifacts: false,
+            notes: [],
+        },
+        budget: { maxAttempts: 4, maxUsd: 1 },
     },
     "dopamine-photo-poster": {
         sourceImageUrl: "https://assets.example.com/source.png",
@@ -140,6 +155,7 @@ describe("Process catalog description", () => {
             "template-from-source/v3",
             "template-image-plan/v1",
             "template-image-render/v1",
+            "template-master/v1",
             "travel-abstraction-photo-poster/v1",
             "woodcut-photo-poster/v1",
         ]);

@@ -132,6 +132,8 @@ export function sanitizeProcessRunLogRecord(
         INTERNAL_ERROR: true,
         INVALID_INPUT: true,
         INVALID_OUTPUT: true,
+        MASTER_BUDGET_EXHAUSTED: true,
+        MASTER_NOT_ACCEPTED: true,
         PROCESS_NOT_FOUND: true,
         PROCESS_TIMEOUT: true,
     } satisfies Record<ProcessErrorCode, true>;

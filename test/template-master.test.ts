@@ -1,0 +1,580 @@
+/** 母版分档、色键、确定性校验、模型校验比较与重试升档状态机的单元测试，全部使用测试替身。 */
+import { readFileSync } from "node:fs";
+import sharp from "sharp";
+import { describe, expect, it, vi } from "vitest";
+import { draftSchema } from "../src/processes/template-from-image/design-spec/contract.js";
+import { MasterCapabilityError } from "../src/processes/template-master/capability.js";
+import {
+    checkPalette,
+    checkPrintable,
+    checkSimilarity,
+    parseColor,
+} from "../src/processes/template-master/checks.js";
+import {
+    masterInputSchema,
+    masterOutputSchema,
+} from "../src/processes/template-master/contract.js";
+import {
+    decodeRgba,
+    keyOutEdgeBackground,
+    renderLightMaster,
+} from "../src/processes/template-master/light.js";
+import { createTemplateMasterRegistration } from "../src/processes/template-master/registration.js";
+import type { SourceCondition } from "../src/processes/template-master/tier.js";
+import {
+    attemptPlan,
+    startingTier,
+} from "../src/processes/template-master/tier.js";
+import {
+    evaluateVerification,
+    type Verification,
+} from "../src/processes/template-master/verifier.js";
+
+const fixture = JSON.parse(
+    readFileSync(
+        new URL("./fixtures/template-v4-candidate.json", import.meta.url),
+        "utf8",
+    ),
+);
+const template = draftSchema.parse(fixture.draft);
+const spec = template.runtimeSemantics.designSpec;
+const condition: SourceCondition = {
+    marks: [],
+    carrier: "flat_artwork" as const,
+    sharpness: "clear" as const,
+    compressionArtifacts: false,
+    notes: [],
+};
+const imageUrl = "https://assets.example.com/source.png";
+const INK = { r: 0x20, g: 0x32, b: 0x4c };
+
+type Paint = (x: number, y: number) => [number, number, number, number];
+async function paint(width: number, height: number, fn: Paint) {
+    const data = Buffer.alloc(width * height * 4);
+    for (let y = 0; y < height; y++)
+        for (let x = 0; x < width; x++) {
+            const [r, g, b, a] = fn(x, y);
+            data.set([r, g, b, a], (y * width + x) * 4);
+        }
+    return sharp(data, { raw: { width, height, channels: 4 } })
+        .png()
+        .toBuffer();
+}
+const circle =
+    (
+        size: number,
+        radius: number,
+        background: [number, number, number, number],
+    ): Paint =>
+    (x, y) =>
+        Math.hypot(x - size / 2, y - size / 2) <= radius
+            ? [INK.r, INK.g, INK.b, 255]
+            : background;
+const white: [number, number, number, number] = [255, 255, 255, 255];
+const clear: [number, number, number, number] = [0, 0, 0, 0];
+const alphaAt = async (png: Buffer, x: number, y: number) => {
+    const image = await decodeRgba(png);
+    return image.data[(y * image.width + x) * 4 + 3] as number;
+};
+
+describe("合同", () => {
+    const input = {
+        imageUrl,
+        template,
+        condition,
+        budget: { maxAttempts: 4, maxUsd: 1.5 },
+    };
+    it("接受完整输入并拒绝额外字段与越界预算", () => {
+        expect(masterInputSchema.safeParse(input).success).toBe(true);
+        expect(
+            masterInputSchema.safeParse({ ...input, model: "x" }).success,
+        ).toBe(false);
+        expect(
+            masterInputSchema.safeParse({
+                ...input,
+                budget: { maxAttempts: 0, maxUsd: 1 },
+            }).success,
+        ).toBe(false);
+        expect(
+            masterInputSchema.safeParse({
+                ...input,
+                budget: { maxAttempts: 11, maxUsd: 1 },
+            }).success,
+        ).toBe(false);
+        expect(
+            masterInputSchema.safeParse({
+                ...input,
+                budget: { maxAttempts: 1, maxUsd: 21 },
+            }).success,
+        ).toBe(false);
+        expect(
+            masterInputSchema.safeParse({
+                ...input,
+                template: { ...template, extra: 1 },
+            }).success,
+        ).toBe(false);
+    });
+    it("输出 Schema 严格", () => {
+        const ok = {
+            preparedImage: {
+                url: `https://assets.memebuy.cn/gallery/template-images/${"a".repeat(64)}.png`,
+                sha256: "a".repeat(64),
+                width: 256,
+                height: 256,
+                contentType: "image/png",
+            },
+            master: {
+                tier: "heavy",
+                redrawn: true,
+                attempts: [{ tier: "heavy", passed: true, failures: [] }],
+                checks: {
+                    text: { passed: true, expected: [], read: [] },
+                    palette: { passed: true },
+                    layout: { passed: true },
+                    printable: { passed: true },
+                    similarity: null,
+                },
+            },
+        };
+        expect(masterOutputSchema.safeParse(ok).success).toBe(true);
+        expect(masterOutputSchema.safeParse({ ...ok, extra: 1 }).success).toBe(
+            false,
+        );
+    });
+});
+
+describe("分档判据", () => {
+    it("按载体、清晰度、标记与压缩痕迹推出起始档", () => {
+        expect(startingTier(condition)).toBe("light");
+        expect(
+            startingTier({ ...condition, marks: [{ kind: "watermark" }] }),
+        ).toBe("medium");
+        expect(
+            startingTier({ ...condition, sharpness: "slightly_blurry" }),
+        ).toBe("medium");
+        expect(startingTier({ ...condition, compressionArtifacts: true })).toBe(
+            "medium",
+        );
+        expect(startingTier({ ...condition, carrier: "garment_photo" })).toBe(
+            "heavy",
+        );
+        expect(startingTier({ ...condition, carrier: "scene_photo" })).toBe(
+            "heavy",
+        );
+        expect(
+            startingTier({ ...condition, sharpness: "severely_blurry" }),
+        ).toBe("heavy");
+    });
+    it("轻档只试一次，生成档各三次", () => {
+        expect(attemptPlan("light")).toEqual([
+            "light",
+            "medium",
+            "medium",
+            "medium",
+            "heavy",
+            "heavy",
+            "heavy",
+        ]);
+        expect(attemptPlan("medium")).toHaveLength(6);
+        expect(attemptPlan("heavy")).toEqual(["heavy", "heavy", "heavy"]);
+    });
+});
+
+describe("四边连通色键", () => {
+    it("去掉与边缘相连的底，保留被框线围住的同色区", async () => {
+        const size = 300;
+        const source = await paint(size, size, (x, y) => {
+            const d = Math.hypot(x - 150, y - 150);
+            if (d > 100 && d <= 120) return [INK.r, INK.g, INK.b, 255];
+            return white;
+        });
+        const keyed = await renderLightMaster(source, "standalone");
+        expect(await alphaAt(keyed, 2, 2)).toBe(0);
+        expect(await alphaAt(keyed, 150, 150)).toBe(255);
+        expect(await alphaAt(keyed, 150, 150 - 110)).toBe(255);
+    });
+    it("已有透明则保留，非单色底不处理，矩形贴片原样转 PNG", async () => {
+        const transparent = await paint(300, 300, circle(300, 90, clear));
+        const kept = await decodeRgba(
+            await renderLightMaster(transparent, "standalone"),
+        );
+        expect(kept.data[3]).toBe(0);
+        const gradient = await paint(300, 300, (x) => [x % 256, 120, 40, 255]);
+        const image = await decodeRgba(gradient);
+        expect(keyOutEdgeBackground(image).removed).toBe(0);
+        const patch = await renderLightMaster(
+            await paint(300, 300, circle(300, 90, white)),
+            "rect_patch",
+        );
+        expect(await alphaAt(patch, 2, 2)).toBe(255);
+    });
+});
+
+describe("可印校验", () => {
+    it("独立图形：居中且干净通过", async () => {
+        expect(
+            (
+                await checkPrintable(
+                    await paint(400, 400, circle(400, 120, clear)),
+                    "standalone",
+                )
+            ).passed,
+        ).toBe(true);
+    });
+    it("截断、整张矩形、缺透明通道、过小、光晕都不通过", async () => {
+        expect(
+            (
+                await checkPrintable(
+                    await paint(400, 400, circle(400, 260, clear)),
+                    "standalone",
+                )
+            ).passed,
+        ).toBe(false);
+        expect(
+            (
+                await checkPrintable(
+                    await paint(400, 400, () => [INK.r, INK.g, INK.b, 255]),
+                    "standalone",
+                )
+            ).passed,
+        ).toBe(false);
+        expect(
+            (
+                await checkPrintable(
+                    await sharp({
+                        create: {
+                            width: 400,
+                            height: 400,
+                            channels: 3,
+                            background: white,
+                        },
+                    })
+                        .png()
+                        .toBuffer(),
+                    "standalone",
+                )
+            ).passed,
+        ).toBe(false);
+        expect(
+            (
+                await checkPrintable(
+                    await paint(100, 100, circle(100, 20, clear)),
+                    "standalone",
+                )
+            ).passed,
+        ).toBe(false);
+        const halo = await paint(400, 400, (x, y) => {
+            const d = Math.hypot(x - 200, y - 200);
+            return d <= 60
+                ? [INK.r, INK.g, INK.b, 255]
+                : d <= 180
+                  ? [INK.r, INK.g, INK.b, 90]
+                  : clear;
+        });
+        const result = await checkPrintable(halo, "standalone");
+        expect(result.passed).toBe(false);
+        expect(result.detail).toContain("光晕");
+    });
+    it("矩形贴片与出血裁切须不透明", async () => {
+        const opaque = await paint(400, 400, circle(400, 120, white));
+        expect((await checkPrintable(opaque, "rect_patch")).passed).toBe(true);
+        expect((await checkPrintable(opaque, "bleed_crop")).passed).toBe(true);
+        expect(
+            (
+                await checkPrintable(
+                    await paint(400, 400, circle(400, 120, clear)),
+                    "rect_patch",
+                )
+            ).passed,
+        ).toBe(false);
+    });
+});
+
+describe("色板与相似度", () => {
+    it("解析十六进制与 rgb()，颜色名不解析", () => {
+        expect(parseColor("深藏青（#20324c）")).toEqual([0x20, 0x32, 0x4c]);
+        expect(parseColor("#fff")).toEqual([255, 255, 255]);
+        expect(parseColor("rgb(1, 2, 3)")).toEqual([1, 2, 3]);
+        expect(parseColor("深藏青")).toBeUndefined();
+    });
+    it("默认颜色出现在前景中才通过", async () => {
+        expect(
+            (
+                await checkPalette(
+                    await paint(400, 400, circle(400, 120, clear)),
+                    spec,
+                )
+            ).passed,
+        ).toBe(true);
+        const other = await paint(400, 400, (x, y) =>
+            Math.hypot(x - 200, y - 200) <= 120 ? [200, 30, 30, 255] : clear,
+        );
+        const result = await checkPalette(other, spec);
+        expect(result.passed).toBe(false);
+        expect(result.detail).toContain("headline_ink");
+    });
+    it("轻中档比相似度，重档不比", async () => {
+        const source = await paint(400, 400, circle(400, 120, white));
+        const keyed = await renderLightMaster(source, "standalone");
+        expect(
+            (await checkSimilarity(keyed, source, "light"))?.score,
+        ).toBeGreaterThanOrEqual(0.95);
+        const other = await paint(400, 400, (x) =>
+            x < 200 ? [0, 0, 0, 255] : [255, 255, 255, 255],
+        );
+        expect((await checkSimilarity(other, source, "medium"))?.passed).toBe(
+            false,
+        );
+        expect(await checkSimilarity(other, source, "heavy")).toBeNull();
+    });
+});
+
+describe("模型校验比较", () => {
+    const base: Verification = {
+        texts: [{ id: "headline", read: "look  good" }],
+        otherTexts: [],
+        layout: { passed: true, offenders: [] },
+        watermarkRemaining: false,
+    };
+    it("归一化只忽略空白与大小写", () => {
+        expect(evaluateVerification(spec, [], base).text.passed).toBe(true);
+        expect(
+            evaluateVerification(spec, [], {
+                ...base,
+                texts: [{ id: "headline", read: "LOOK GOD" }],
+            }).text.passed,
+        ).toBe(false);
+        expect(
+            evaluateVerification(spec, [], {
+                ...base,
+                texts: [{ id: "headline", read: "LOOK GOOD!" }],
+            }).text.passed,
+        ).toBe(false);
+    });
+    it("清单外文字、残留水印、版面偏离分别产生失败项且不回显读到的文字", () => {
+        const result = evaluateVerification(
+            spec,
+            [{ kind: "watermark", text: "WM" }],
+            {
+                ...base,
+                otherTexts: ["SECRET"],
+                watermarkRemaining: true,
+                layout: { passed: false, offenders: ["headline"] },
+            },
+        );
+        expect(result.failures.map((f) => f.check)).toEqual([
+            "text",
+            "text",
+            "layout",
+        ]);
+        expect(JSON.stringify(result.failures)).not.toContain("SECRET");
+        expect(result.text.read).toContain("SECRET");
+    });
+});
+
+describe("重试、升档与预算", () => {
+    const good = (size: string) => {
+        const side = Number(size.split("x")[0]);
+        return paint(side, side, circle(side, side * 0.29, white));
+    };
+    const okVerification: Verification = {
+        texts: [{ id: "headline", read: "LOOK GOOD" }],
+        otherTexts: [],
+        layout: { passed: true, offenders: [] },
+        watermarkRemaining: false,
+    };
+    async function run(options: {
+        cond?: typeof condition;
+        budget?: { maxAttempts: number; maxUsd: number };
+        edit?: (call: number, size: string) => Promise<Buffer>;
+        verify?: (call: number) => Verification;
+        spent?: () => number;
+    }) {
+        const source = await paint(400, 400, circle(400, 116, white));
+        let editCalls = 0;
+        let verifyCalls = 0;
+        const edit = vi.fn(async (request: { size: string }) => {
+            editCalls++;
+            return (options.edit ?? ((_, size) => good(size)))(
+                editCalls,
+                request.size,
+            );
+        });
+        const upload = vi.fn(async () => ({
+            url: `https://assets.memebuy.cn/gallery/template-images/${"b".repeat(64)}.png`,
+            sha256: "b".repeat(64),
+            width: 1024,
+            height: 1024,
+            contentType: "image/png" as const,
+        }));
+        const verify = vi.fn(async () => {
+            verifyCalls++;
+            return (options.verify ?? (() => okVerification))(verifyCalls);
+        });
+        const registration = createTemplateMasterRegistration({
+            capability: { edit, upload },
+            verifier: { verify },
+            loadSource: async () => source,
+            spentUsd: options.spent ?? (() => 0),
+        });
+        const accepted = registration.accept({
+            imageUrl,
+            template,
+            condition: options.cond ?? condition,
+            budget: options.budget ?? { maxAttempts: 10, maxUsd: 5 },
+        });
+        if (!accepted.accepted) throw new Error("input rejected");
+        const completion = await registration.run(accepted.acceptedInput, {
+            runId: "run-1",
+            signal: new AbortController().signal,
+        });
+        return { completion, edit, upload, verify };
+    }
+    const marked = {
+        ...condition,
+        marks: [{ kind: "watermark" as const, text: "WM" }],
+    };
+
+    it("轻档一次通过，不调改图模型", async () => {
+        const { completion, edit, upload } = await run({});
+        expect(completion.status).toBe("succeeded");
+        if (completion.status !== "succeeded") return;
+        const output = masterOutputSchema.parse(completion.output);
+        expect(output.master.tier).toBe("light");
+        expect(output.master.redrawn).toBe(false);
+        expect(output.master.attempts).toEqual([
+            { tier: "light", passed: true, failures: [] },
+        ]);
+        expect(output.master.checks.similarity?.passed).toBe(true);
+        expect(edit).not.toHaveBeenCalled();
+        expect(upload).toHaveBeenCalledOnce();
+    });
+    it("轻档校验失败直接升中档，中档首次失败带原因重试后通过", async () => {
+        const { completion, edit } = await run({
+            verify: (call) =>
+                call === 1
+                    ? {
+                          ...okVerification,
+                          texts: [{ id: "headline", read: "LOOK GOD" }],
+                      }
+                    : okVerification,
+        });
+        expect(completion.status).toBe("succeeded");
+        if (completion.status !== "succeeded") return;
+        const output = masterOutputSchema.parse(completion.output);
+        expect(output.master.tier).toBe("medium");
+        expect(
+            output.master.attempts.map((a) => `${a.tier}:${a.passed}`),
+        ).toEqual(["light:false", "medium:true"]);
+        expect(edit).toHaveBeenCalledOnce();
+    });
+    it("确定性校验不过时不付模型校验费，重试提示含上次失败原因", async () => {
+        const { completion, verify } = await run({
+            cond: marked,
+            edit: async (call, size) => {
+                if (call === 1)
+                    return paint(1024, 1024, (x) => [x % 256, 90, 90, 255]);
+                return good(size);
+            },
+        });
+        expect(completion.status).toBe("succeeded");
+        expect(verify).toHaveBeenCalledOnce();
+    });
+    it("中档三次用尽升重档，重档通过且相似度为 null", async () => {
+        const { completion } = await run({
+            cond: marked,
+            verify: (call) =>
+                call <= 3
+                    ? { ...okVerification, watermarkRemaining: true }
+                    : okVerification,
+        });
+        expect(completion.status).toBe("succeeded");
+        if (completion.status !== "succeeded") return;
+        const output = masterOutputSchema.parse(completion.output);
+        expect(output.master.tier).toBe("heavy");
+        expect(output.master.redrawn).toBe(true);
+        expect(output.master.checks.similarity).toBeNull();
+        expect(output.master.attempts).toHaveLength(4);
+    });
+    it("重档直接起步，三次用尽返回 MASTER_NOT_ACCEPTED", async () => {
+        const { completion, edit } = await run({
+            cond: { ...condition, carrier: "garment_photo" },
+            verify: () => ({ ...okVerification, otherTexts: ["x"] }),
+        });
+        expect(edit).toHaveBeenCalledTimes(3);
+        expect(completion).toMatchObject({
+            status: "failed",
+            error: { code: "MASTER_NOT_ACCEPTED" },
+        });
+    });
+    it("生成被拒计入次数并带 generation 失败项", async () => {
+        let calls = 0;
+        const { completion } = await run({
+            cond: { ...condition, carrier: "scene_photo" },
+            budget: { maxAttempts: 2, maxUsd: 5 },
+            edit: async (_, size) => {
+                if (++calls === 1) throw new MasterCapabilityError("rejected");
+                return good(size);
+            },
+        });
+        expect(completion.status).toBe("succeeded");
+        if (completion.status !== "succeeded") return;
+        expect(
+            masterOutputSchema.parse(completion.output).master.attempts[0]
+                ?.failures[0]?.check,
+        ).toBe("generation");
+    });
+    it("次数用尽返回 MASTER_BUDGET_EXHAUSTED，且不超过 maxAttempts", async () => {
+        const { completion, edit } = await run({
+            cond: marked,
+            budget: { maxAttempts: 2, maxUsd: 5 },
+            verify: () => ({ ...okVerification, watermarkRemaining: true }),
+        });
+        expect(edit).toHaveBeenCalledTimes(2);
+        expect(completion).toMatchObject({
+            status: "failed",
+            error: { code: "MASTER_BUDGET_EXHAUSTED" },
+        });
+    });
+    it("已知费用达到上限即停止，不再改图", async () => {
+        const { completion, edit } = await run({
+            cond: marked,
+            budget: { maxAttempts: 10, maxUsd: 0.5 },
+            spent: () => 0.5,
+        });
+        expect(edit).not.toHaveBeenCalled();
+        expect(completion).toMatchObject({
+            status: "failed",
+            error: { code: "MASTER_BUDGET_EXHAUSTED" },
+        });
+    });
+    it("通过后上传失败：已付费改图为 AFTER_COMMIT，轻档为 DEPENDENCY_FAILURE", async () => {
+        const source = await paint(400, 400, circle(400, 116, white));
+        const registration = createTemplateMasterRegistration({
+            capability: {
+                edit: async () => good("1024x1024"),
+                upload: async () => {
+                    throw new MasterCapabilityError("upload");
+                },
+            },
+            verifier: { verify: async () => okVerification },
+            loadSource: async () => source,
+            spentUsd: () => 0,
+        });
+        const accepted = registration.accept({
+            imageUrl,
+            template,
+            condition,
+            budget: { maxAttempts: 3, maxUsd: 5 },
+        });
+        if (!accepted.accepted) throw new Error("rejected");
+        const done = await registration.run(accepted.acceptedInput, {
+            runId: "r",
+            signal: new AbortController().signal,
+        });
+        expect(done).toMatchObject({
+            status: "failed",
+            error: { code: "DEPENDENCY_FAILURE" },
+        });
+    });
+});

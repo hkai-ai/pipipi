@@ -8,13 +8,14 @@
 
 图片预处理后的模板内容支持独立重编译：保留已确认成图，提交本轮模板修改要求，只生成新的 Gallery 草稿供人工审阅。
 
-生产 catalog 登记二十七个 Business Process，其中 `composed-task/v1` 默认关闭。文档先按产品场景分组，运行时仍通过统一的 Process identity 和 HTTP Interface 执行：
+生产 catalog 登记二十八个 Business Process，其中 `composed-task/v1` 默认关闭。文档先按产品场景分组，运行时仍通过统一的 Process identity 和 HTTP Interface 执行：
 
 | 场景 | Process | 输入 | 输出 |
 | --- | --- | --- | --- |
 | `memebuy` | `template-from-image/v1` | `{ imageUrl, note? }` | `{ template }`，Gallery v2 草稿 |
 | `memebuy` | `template-image-plan/v1` | 原图与备注 | 待审替换方案 |
 | `memebuy` | `template-image-render/v1` | 方案批准 | 中转站成图的待审完整 PNG；历史 FAL 按原请求恢复 |
+| `memebuy` | `template-master/v1` | 原图、v4 草稿、原图状况、预算 | `{ preparedImage, master }` |
 | `memebuy` | `template-from-source/v1` | 成图批准 | 新图引用与模板草稿 |
 | `common` | `minimal-zine-poster/v1` | `{ "brief": string, "text"?: string }` | `{ "prompt", "recipe", "interpretation", "image" }` |
 | `common` | `crt-interface-image/v1` | `{ "sourceImageUrl", "palette", "aspectRatio" }` | `{ "aspectRatio", "image" }` |

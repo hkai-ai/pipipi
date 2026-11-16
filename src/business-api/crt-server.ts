@@ -77,6 +77,10 @@ import { finalizeTravelPhoto } from "./photo-poster.js";
 import type { TemplateImageEditor } from "./template-image-editor.js";
 import type { TemplateImageRenderer } from "./template-image-fal.js";
 import { TemplateImageProduction } from "./template-image-production.js";
+import {
+    TemplateMasterError,
+    TemplateMasterService,
+} from "./template-master.js";
 
 type ImageEditClient = Readonly<{
     edit: (request: EditImageRequest) => Promise<GeneratedImage>;
@@ -179,6 +183,10 @@ export async function startCrtBusinessApi(
     const templateProduction = new TemplateImageProduction({
         directory: join(directory, "template-productions"),
         renderer: options.templateRenderer,
+        editor: options.templateEditor,
+        storage: options.templateStorage,
+    });
+    const templateMaster = new TemplateMasterService({
         editor: options.templateEditor,
         storage: options.templateStorage,
     });
@@ -312,6 +320,40 @@ export async function startCrtBusinessApi(
                             error instanceof TemplateImagePreparationError
                                 ? error.reason
                                 : "incomplete",
+                    },
+                });
+            }
+            return;
+        }
+        if (
+            request.method === "POST" &&
+            request.url?.startsWith("/template-master/")
+        ) {
+            const controller = new AbortController();
+            response.once("close", () => {
+                if (!response.writableEnded) controller.abort();
+            });
+            try {
+                const input = JSON.parse(
+                    (await readBody(request, 30_000_000)).toString("utf8"),
+                );
+                writeJson(
+                    response,
+                    200,
+                    await templateMaster.execute(
+                        request.url.slice("/template-master/".length),
+                        input,
+                        controller.signal,
+                    ),
+                );
+            } catch (error) {
+                writeJson(response, 503, {
+                    error: {
+                        code: "TEMPLATE_MASTER_INCOMPLETE",
+                        reason:
+                            error instanceof TemplateMasterError
+                                ? error.reason
+                                : "unknown",
                     },
                 });
             }

@@ -48,13 +48,14 @@ Pipipi 提供 Agent 运行环境（harness）和场景 skill。Process Registrat
 
 ## 当前能力
 
-生产 catalog 当前登记二十七个精确版本，其中 `composed-task/v1` 默认关闭：
+生产 catalog 当前登记二十八个精确版本，其中 `composed-task/v1` 默认关闭：
 
 | 场景 | Business Process | 输入 | 输出 | 实现选择 |
 | --- | --- | --- | --- | --- |
 | `memebuy` | `template-from-image/v1` | `{ imageUrl, note? }` | `{ template }` | 受控下载与真实视觉附件；无 Tool Agent 编译并验证 Gallery v2 草稿，不生图、不入库 |
 | `memebuy` | `template-image-plan/v1` | 原图与备注 | 待审替换方案 | 固定来源规则，无 Tool |
 | `memebuy` | `template-image-render/v1` | 方案批准 | 待审 PNG | 固定单次中转站编辑；历史 FAL 按原请求恢复 |
+| `memebuy` | `template-master/v1` | 原图、v4 草稿、原图状况与预算 | 母版 PNG 与校验报告 | 轻（色键）、中（修复）、重（重绘）分档，逐次确定性加模型对照校验 |
 | `memebuy` | `template-from-source/v1` | 成图批准 | 新图与 Gallery 草稿 | 不可变 OSS 与原编译器 |
 | `common` | `minimal-zine-poster/v1` | `{ brief: string, text?: string }` | `{ prompt, recipe, interpretation, image }` | 无 Tool Agent 编译固定 Runtime Skill；Poster Rendering Capability 复用内部图片服务生成并持久化图片 |
 | `common` | `crt-interface-image/v1` | `{ sourceImageUrl, palette, aspectRatio }` | `{ aspectRatio, image }` | 无 Tool Agent 编译固定 Runtime Skill；CRT Rendering Capability 用公网 HTTPS 参考图执行 FAL GPT Image 2 编辑、后处理并持久化 PNG |

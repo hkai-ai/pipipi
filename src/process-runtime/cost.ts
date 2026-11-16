@@ -74,6 +74,29 @@ export function createCostLedger(): CostLedger {
     };
 }
 
+/** 把账本快照投影为公开 cost；与 /execute 共用同一口径，无任何已知费用时返回 undefined。 */
+export function runCostFromSnapshot(
+    snapshot: CostLedgerSnapshot | undefined,
+): RunCost | undefined {
+    if (!snapshot) return undefined;
+    const ledger = createCostLedger();
+    ledger.absorb(snapshot);
+    return ledger.summary();
+}
+
+/** 多次 Attempt 的快照相加；任一方缺失按空处理。 */
+export function mergeCostSnapshots(
+    left: CostLedgerSnapshot | undefined,
+    right: CostLedgerSnapshot | undefined,
+): CostLedgerSnapshot | undefined {
+    if (!left) return right;
+    if (!right) return left;
+    const ledger = createCostLedger();
+    ledger.absorb(left);
+    ledger.absorb(right);
+    return ledger.snapshot();
+}
+
 const context = new AsyncLocalStorage<CostLedger>();
 
 export function currentCostLedger(): CostLedger | undefined {

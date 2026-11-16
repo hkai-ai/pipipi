@@ -1,6 +1,8 @@
 /** Process Run 权威状态转换 Interface */
+import { mergeCostSnapshots } from "../../process-runtime/cost.js";
 import type {
     AcceptedProcessInput,
+    CostLedgerSnapshot,
     ProcessErrorCode,
 } from "../../process-runtime/index.js";
 
@@ -23,6 +25,8 @@ type StoredProcessRunBase = Readonly<{
     updatedAt: string;
     attemptCount: number;
     revision: number;
+    /** 各次 Attempt 账本快照的累计；按 claim 一次性写入，重放与恢复不重复累计。 */
+    costLedger?: CostLedgerSnapshot;
 }>;
 
 export type StoredProcessRun =
@@ -108,17 +112,20 @@ export type ProcessRunStore = Readonly<{
         claimToken: string;
         completedAt: string;
         completion: ProcessRunAttemptCompletion;
+        costLedger?: CostLedgerSnapshot;
     }) => Promise<boolean>;
     scheduleRetry: (request: {
         runId: string;
         claimToken: string;
         scheduledAt: string;
         failure: ProcessRunFailure;
+        costLedger?: CostLedgerSnapshot;
     }) => Promise<boolean>;
     releaseClaim: (request: {
         runId: string;
         claimToken: string;
         releasedAt: string;
+        costLedger?: CostLedgerSnapshot;
     }) => Promise<boolean>;
 }>;
 
@@ -269,6 +276,7 @@ export function createInMemoryProcessRunStore(
                           updatedAt: request.completedAt,
                           output: clone(request.completion.output),
                           revision: run.revision + 1,
+                          ...ledgerOf(run, request.costLedger),
                       }
                     : {
                           ...withoutClaim(run),
@@ -277,6 +285,7 @@ export function createInMemoryProcessRunStore(
                           updatedAt: request.completedAt,
                           error: clone(request.completion.error),
                           revision: run.revision + 1,
+                          ...ledgerOf(run, request.costLedger),
                       };
             runs.set(run.runId, clone(terminal));
             return true;
@@ -296,6 +305,7 @@ export function createInMemoryProcessRunStore(
                 status: "queued",
                 updatedAt: request.scheduledAt,
                 revision: run.revision + 1,
+                ...ledgerOf(run, request.costLedger),
             };
             runs.set(run.runId, clone(queued));
             return true;
@@ -314,11 +324,20 @@ export function createInMemoryProcessRunStore(
                 status: "queued",
                 updatedAt: request.releasedAt,
                 revision: run.revision + 1,
+                ...ledgerOf(run, request.costLedger),
             };
             runs.set(run.runId, clone(released));
             return true;
         },
     });
+}
+
+function ledgerOf(
+    run: StoredProcessRun,
+    added: CostLedgerSnapshot | undefined,
+): { costLedger?: CostLedgerSnapshot } {
+    const merged = mergeCostSnapshots(run.costLedger, added);
+    return merged ? { costLedger: merged } : {};
 }
 
 function withoutClaim(

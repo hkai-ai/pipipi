@@ -135,7 +135,7 @@ const WORKER_OBSERVATION = {
     PROCESS_RUN_RECORD_CONTENT: "omit",
 } as const;
 
-it("完整生产目录按 570 秒编译预算检查 Worker 租约", async () => {
+it("完整生产目录按最长 2400 秒母版预算检查 Worker 租约", async () => {
     const environment = {
         CRT_BUSINESS_API_BASE_URL: "https://business.example",
         DATABASE_URL,
@@ -146,14 +146,14 @@ it("完整生产目录按 570 秒编译预算检查 Worker 租约", async () => 
     expect(() =>
         constructProcessWorkerService({
             ...environment,
-            PROCESS_RUN_CLAIM_LEASE_MS: "570000",
+            PROCESS_RUN_CLAIM_LEASE_MS: "2400000",
         }),
     ).toThrow(
         "PROCESS_RUN_CLAIM_LEASE_MS must exceed every Process time limit",
     );
     const service = constructProcessWorkerService({
         ...environment,
-        PROCESS_RUN_CLAIM_LEASE_MS: "600000",
+        PROCESS_RUN_CLAIM_LEASE_MS: "2430000",
     });
     await service.application.close();
 });

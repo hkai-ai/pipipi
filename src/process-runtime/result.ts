@@ -15,6 +15,8 @@ export type ProcessErrorCode =
     | "INTERNAL_ERROR"
     | "INVALID_INPUT"
     | "INVALID_OUTPUT"
+    | "MASTER_BUDGET_EXHAUSTED"
+    | "MASTER_NOT_ACCEPTED"
     | "PROCESS_NOT_FOUND"
     | "PROCESS_TIMEOUT";
 

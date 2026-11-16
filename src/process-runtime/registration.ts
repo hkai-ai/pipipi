@@ -34,7 +34,9 @@ export type ExpectedProcessErrorCode =
     | "INVALID_OUTPUT"
     | "AGENT_FAILURE"
     | "DEPENDENCY_FAILURE"
-    | "DEPENDENCY_FAILURE_AFTER_COMMIT";
+    | "DEPENDENCY_FAILURE_AFTER_COMMIT"
+    | "MASTER_BUDGET_EXHAUSTED"
+    | "MASTER_NOT_ACCEPTED";
 
 /**
  * Codes a Process may declare retryable. `DEPENDENCY_FAILURE_AFTER_COMMIT` is
