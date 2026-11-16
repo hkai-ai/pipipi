@@ -12,6 +12,7 @@ description: 从批准图片拆解印花结构与输入绑定，输出 Gallery �
 将原物与外形词留在 instance/originalObject/shapeFeatures 作为证据，defaults 写可执行的作者默认迁移；不得为通过检查伪造原始观察，执行描述不得混入原物外形。可替换默认答案不写入 technique、purpose、layout.role 或固定关系。描述可用 @元素id 与 {色:角色名} 引用。版面框为候选，必须人审叠图核对。
 每个文字元素都有 defaults.texts，随主体的名字/释义标 followsSubject；固定口号保持默认字。配色角色有默认颜色。所有开放槽的文字默认值必须与绑定目标的 defaults 一致；主体可以 text+image，文字与配色只用 text。promptTemplate 由服务端从 defaults 单向生成，模型不得维护第二份提示词。
 印花形态按已批准图片选一个：完整图形 standalone；场景/海报 rect_patch 且要有真实设计边框的 edge 元素；切开主体 bleed_crop。不能凭空声称审批图已有边框或已适合印刷；有缺陷如实标 needs_prep/not_for_apparel 并在观察中说明，运营可退回图片步骤重做。表达机制是推断，保留给人工确认。
+observation 另有必填 sourceCondition，记录原图自身状况，不属于设计：{marks,carrier,sharpness,compressionArtifacts,notes}。marks 只记非设计本身的附加标记，kind 取 watermark（水印）、signature（署名）、platform_logo（平台标识），可带逐字 text，无则空数组，最多 5 项；设计里的文字照旧逐字进 observation.texts，不进 marks，水印与署名文字也不进 texts。carrier 判画面载体：flat_artwork 平面设计稿、garment_photo 印在衣服上的实拍、product_photo 印在其他商品上的实拍、scene_photo 场景照片。sharpness 判原图画质：clear、slightly_blurry、severely_blurry；compressionArtifacts 为是否可见明显压缩块或振铃。notes 最多 5 条短说明，每条 1..200 字符，没有则空数组。只据附件如实判断，不据此改变 designSpec。
 首次输出 {observation,draft}，draft 只包含 key/title/description/inputSchema/runtimeSemantics/metadata(tags)。独立复核重新看同一批准图，只修有依据的字段并给出检查报告，不增加图片生成或自动采用。
 
 

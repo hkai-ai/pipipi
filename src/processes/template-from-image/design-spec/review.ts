@@ -56,7 +56,11 @@ export function reviewSchema(candidate: PrintDesignCandidate) {
                 "/observation/overview",
                 "/observation/texts",
                 "/observation/printRisks",
+                "/observation/sourceCondition",
             ].includes(path) ||
+            /^\/observation\/sourceCondition\/(marks|carrier|sharpness|compressionArtifacts|notes)$/u.test(
+                path,
+            ) ||
             /^\/draft\/runtimeSemantics\/designSpec\/whole\/composition\/relations\/\d+$/u.test(
                 path,
             ) ||

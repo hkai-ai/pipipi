@@ -481,3 +481,89 @@ it("结构修正准确指出缺失的文本展示方式与图片来源", () => {
         );
     }
 });
+it("成功输出回传复核后的 source：文字取 text+elementId，状况取 sourceCondition", async () => {
+    const deps = dependencies();
+    deps.agent.review.mockImplementation(async (request) => {
+        const result = review(request.candidate);
+        result.changes.push({
+            path: "/observation/sourceCondition",
+            valueJson: JSON.stringify({
+                marks: [{ kind: "watermark", text: "sample.com" }],
+                carrier: "garment_photo",
+                sharpness: "slightly_blurry",
+                compressionArtifacts: true,
+                notes: ["右下角有水印"],
+            }),
+        });
+        return result;
+    });
+    const result = await run(deps);
+    expect(result.status).toBe("succeeded");
+    if (result.status !== "succeeded") return;
+    const output = result.output as ReturnType<typeof compileResult>;
+    expect(output.source).toEqual({
+        texts: fixture().observation.texts.map(({ text, elementId }) => ({
+            text,
+            elementId,
+        })),
+        condition: {
+            marks: [{ kind: "watermark", text: "sample.com" }],
+            carrier: "garment_photo",
+            sharpness: "slightly_blurry",
+            compressionArtifacts: true,
+            notes: ["右下角有水印"],
+        },
+    });
+    expect(output.source.texts[0]).not.toHaveProperty("location");
+    expect(output).not.toHaveProperty("observation");
+});
+it("复核可逐叶修正 sourceCondition，但不能越出路径或写入非法取值", () => {
+    const value = fixture();
+    const report = review(value);
+    report.changes.push({
+        path: "/observation/sourceCondition/sharpness",
+        valueJson: JSON.stringify("severely_blurry"),
+    });
+    expect(
+        compileResult(applyReview(value, report), imageUrl, image).source
+            .condition.sharpness,
+    ).toBe("severely_blurry");
+    const bad = review(value);
+    bad.changes.push({
+        path: "/observation/sourceCondition/carrier",
+        valueJson: JSON.stringify("poster"),
+    });
+    expect(() => applyReview(value, bad)).toThrow(PrintDesignContractError);
+    const outside = review(value);
+    outside.changes.push({
+        path: "/observation/sourceCondition/marks/0/kind",
+        valueJson: JSON.stringify("watermark"),
+    });
+    expect(reviewSchema(value).safeParse(outside).success).toBe(false);
+});
+it("缺少 sourceCondition 进入修正预算而不是崩溃，修正后成功", async () => {
+    const broken = fixture();
+    Reflect.deleteProperty(broken.observation, "sourceCondition");
+    expect(() => readCandidate(broken)).toThrowError(
+        expect.objectContaining({
+            diagnostic: expect.objectContaining({
+                issues: [
+                    {
+                        path: "/observation/sourceCondition",
+                        code: "invalid_type",
+                    },
+                ],
+            }),
+        }),
+    );
+    const deps = dependencies();
+    deps.agent.compile
+        .mockResolvedValueOnce(broken)
+        .mockResolvedValueOnce(fixture());
+    const result = await run(deps);
+    expect(result.status).toBe("succeeded");
+    expect(deps.agent.compile).toHaveBeenCalledTimes(2);
+    expect(
+        deps.agent.compile.mock.calls[1][0].correction?.issues.join(),
+    ).toContain("observation.sourceCondition");
+});

@@ -8,7 +8,14 @@
                 "elementId": "headline"
             }
         ],
-        "printRisks": []
+        "printRisks": [],
+        "sourceCondition": {
+            "marks": [],
+            "carrier": "flat_artwork",
+            "sharpness": "clear",
+            "compressionArtifacts": false,
+            "notes": []
+        }
     },
     "draft": {
         "key": "print-fashion",

@@ -16,8 +16,8 @@ import {
 
 export const skillRef = Object.freeze({
     name: "print-design-template-compiler",
-    version: "v1",
-    sha256: "9dcdef9ab32d2c4bd690b73094d04dc51707786bf42511c85df2e42bc1e2ed9f",
+    version: "v2",
+    sha256: "275c9291efde5cf8d400710c4adb72002ee8e4d7a739545a1a440560d691d31a",
     path: ".pi/skills/print-design-template-compiler",
 });
 const bytes = readFileSync(
@@ -141,19 +141,40 @@ export const draftSchema = z.strictObject({
     }),
 });
 export type PrintDesignDraft = z.infer<typeof draftSchema>;
+// 原图自身状况（水印、载体、画质）；不属于设计，随复核后的候选原样回传。
+export const sourceConditionSchema = z.strictObject({
+    marks: z
+        .array(
+            z.strictObject({
+                kind: z.enum(["watermark", "signature", "platform_logo"]),
+                text: z.string().min(1).max(200).optional(),
+            }),
+        )
+        .max(5),
+    carrier: z.enum([
+        "flat_artwork",
+        "garment_photo",
+        "product_photo",
+        "scene_photo",
+    ]),
+    sharpness: z.enum(["clear", "slightly_blurry", "severely_blurry"]),
+    compressionArtifacts: z.boolean(),
+    notes: z.array(z.string().min(1).max(200)).max(5),
+});
 export const candidateSchema = z.strictObject({
     observation: z.strictObject({
         overview: z.string().trim().min(1).max(3000),
         texts: z
             .array(
                 z.strictObject({
-                    text: z.string().min(1),
+                    text: z.string().min(1).max(500),
                     location: z.string().min(1),
                     elementId: z.string().min(1),
                 }),
             )
             .max(40),
         printRisks: z.array(z.string().min(1)).max(20),
+        sourceCondition: sourceConditionSchema,
     }),
     draft: draftSchema,
 });
@@ -529,9 +550,29 @@ export function compileResult(
             ["最终作者 JSON 未通过固定 Schema"],
             schemaFindings(validateOutput.errors, "template"),
         );
-    return { template };
+    return {
+        template,
+        source: {
+            texts: candidate.observation.texts.map(({ text, elementId }) => ({
+                text,
+                elementId,
+            })),
+            condition: candidate.observation.sourceCondition,
+        },
+    };
 }
 export const printDesignOutputSchema = z.strictObject({
+    source: z.strictObject({
+        texts: z
+            .array(
+                z.strictObject({
+                    text: z.string().min(1).max(500),
+                    elementId: z.string().min(1),
+                }),
+            )
+            .max(40),
+        condition: sourceConditionSchema,
+    }),
     template: z
         .unknown()
         .refine((value) => {

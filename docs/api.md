@@ -1225,6 +1225,8 @@ V4 模板包含 `targetInstances`、`inputBindings` 与 `designSpec`，不得包
 
 输入为 1–12 个可选槽，主体支持文字及一张私有主体照片，其他槽只开放文字；准确文字、指定内容和配色分别绑定同名元素或配色角色。每个槽默认值须与被绑定的 designSpec.defaults 一致。不接受图片内容替换、reference_only 或请求指定运行配置。
 
+成功输出在 `template` 之外附带 `source`（加法，`template` 不变；旧部署不返回，调用方须视为可选）：`source.texts` 为复核后的原图逐字文字 `[{text, elementId}]`（最多 40 项，只含设计本身的文字，不含水印与署名）；`source.condition` 为原图状况 `{marks, carrier, sharpness, compressionArtifacts, notes}`。`marks` 最多 5 项 `{kind: watermark | signature | platform_logo, text?}`，无则空数组；`carrier` 取 `flat_artwork | garment_photo | product_photo | scene_photo`；`sharpness` 取 `clear | slightly_blurry | severely_blurry`；`notes` 最多 5 条。二者由独立复核后的候选确定性投影，模型判断不代替人工核对；像素清晰度（如 150dpi）不由模型判断。`template-from-source/v3` 因复用同一输出 Schema，其编译成员的 `source` 同样随成功回包透传。
+
 编译最长 480 秒，审核后上传与编译最长 570 秒；正常两次独立视觉请求，结构无法读取时最多补一次编译，其后仍须独立复核。复核只修当前字段并完整复验，不重写整份候选、追加生图或自动采用。错误沿图片编译合同；审核后成员失败仍为 `DEPENDENCY_FAILURE_AFTER_COMMIT`，重试复用同一图片，未知提交不自动重投。成功不代表人工视觉或印刷验收通过。部署、来源与验证见 [印花拆解候选](processes/memebuy/template-from-image/print-design-v4.md)。
 
 ## 模板执行步骤
