@@ -69,6 +69,10 @@ export class PiPrintDesignAgent implements PrintDesignAgent {
             ...options,
             thinkingLevel: "low",
             jsonMode: true,
+            // 180KB 的 Skill 正文放最前，使 compile、correction、review 及不同运行
+            // 共享同一请求前缀，命中供应商自动缓存。prompt_cache_key 暂不启用：
+            // 网关是否透传未验证，不认该参数会让全部请求失败。
+            skillFirst: true,
             sessionFactory: async (sessionOptions) => {
                 const result = await (
                     options.sessionFactory ?? createAgentSession

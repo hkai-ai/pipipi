@@ -2,6 +2,7 @@
 import { createHash } from "node:crypto";
 import { z } from "zod";
 import {
+    candidateIssues,
     type PrintDesignCandidate,
     PrintDesignContractError,
     readCandidate,
@@ -124,10 +125,76 @@ export function reviewSchema(candidate: PrintDesignCandidate) {
             .max(20),
     });
 }
+/** 被跳过的复核补丁：下标与固定规则码，不含路径文本或补丁值。 */
+export type SkippedPatch = Readonly<{ index: number; code: string }>;
+export type AppliedReview = Readonly<{
+    candidate: PrintDesignCandidate;
+    skipped: readonly SkippedPatch[];
+}>;
+const pointerParts = (path: string) =>
+    path
+        .slice(1)
+        .split("/")
+        .map((part) => part.replaceAll("~1", "/").replaceAll("~0", "~"));
+/** 把一条补丁写入克隆；路径不存在时返回 undefined。 */
+function patched(
+    base: unknown,
+    parts: readonly string[],
+    value: unknown,
+): unknown {
+    const next: unknown = structuredClone(base);
+    let parent: unknown = next;
+    for (const part of parts.slice(0, -1)) {
+        if (
+            !parent ||
+            typeof parent !== "object" ||
+            !Object.hasOwn(parent, part)
+        )
+            return undefined;
+        parent = Reflect.get(parent, part);
+    }
+    const key = parts.at(-1);
+    if (
+        !key ||
+        !parent ||
+        typeof parent !== "object" ||
+        !Object.hasOwn(parent, key)
+    )
+        return undefined;
+    Reflect.set(parent, key, value);
+    return next;
+}
+/**
+ * 合同可读时返回剩余问题数（含复核证据指向的已删除路径）；不可读返回 undefined。
+ * 数值越小越好，用来判断一条补丁是否让候选变差。
+ */
+function measure(
+    value: unknown,
+    evidence: readonly string[],
+): { candidate: PrintDesignCandidate; score: number } | undefined {
+    try {
+        const candidate = readCandidate(value);
+        const paths = new Set(candidatePaths(candidate));
+        return {
+            candidate,
+            score:
+                candidateIssues(candidate).length +
+                evidence.filter((path) => !paths.has(path)).length,
+        };
+    } catch (error) {
+        if (error instanceof PrintDesignContractError) return undefined;
+        throw error;
+    }
+}
+/**
+ * 合并复核补丁而不让它把合格候选改坏。复核明确阻断（issues 或未通过的检查）
+ * 仍直接失败；其余补丁先整体合并，整体不比原候选差则采用，否则逐条应用，
+ * 让候选合同更差或无法读取的补丁跳过并记入返回值。不增加模型调用。
+ */
 export function applyReview(
     candidate: PrintDesignCandidate,
     raw: unknown,
-): PrintDesignCandidate {
+): AppliedReview {
     if ((JSON.stringify(raw)?.length ?? Infinity) > 150000)
         throw new PrintDesignContractError(
             ["独立复核超出限制"],
@@ -187,85 +254,81 @@ export function applyReview(
             ],
         );
     }
-    const updated: unknown = structuredClone(candidate);
-    const seen: string[] = [];
+    const evidence = Object.values(review.checks).flatMap((check) =>
+        check.evidence.map((item) => item.path),
+    );
+    const skipped: SkippedPatch[] = [];
+    const decoded: {
+        index: number;
+        path: string;
+        parts: string[];
+        value: unknown;
+    }[] = [];
     for (const [index, change] of review.changes.entries()) {
         if (
-            seen.some(
-                (path) =>
+            decoded.some(
+                ({ path }) =>
                     change.path === path ||
                     change.path.startsWith(`${path}/`) ||
                     path.startsWith(`${change.path}/`),
             )
-        )
-            throw new PrintDesignContractError(
-                ["复核补丁路径冲突"],
-                [
-                    {
-                        path: ["review", "changes", index, "path"],
-                        code: "patch_overlap",
-                    },
-                ],
-            );
-        seen.push(change.path);
-        const parts = change.path
-            .slice(1)
-            .split("/")
-            .map((part) => part.replaceAll("~1", "/").replaceAll("~0", "~"));
-        let parent: unknown = updated;
-        for (const part of parts.slice(0, -1)) {
-            if (
-                !parent ||
-                typeof parent !== "object" ||
-                !Object.hasOwn(parent, part)
-            )
-                throw new PrintDesignContractError(
-                    ["复核补丁路径不存在"],
-                    [
-                        {
-                            path: ["review", "changes", index, "path"],
-                            code: "missing_reference",
-                        },
-                    ],
-                );
-            parent = Reflect.get(parent, part);
+        ) {
+            skipped.push({ index, code: "patch_overlap" });
+            continue;
         }
-        const key = parts.at(-1);
-        if (
-            !key ||
-            !parent ||
-            typeof parent !== "object" ||
-            !Object.hasOwn(parent, key)
-        )
-            throw new PrintDesignContractError(
-                ["复核补丁路径不存在"],
-                [
-                    {
-                        path: ["review", "changes", index, "path"],
-                        code: "missing_reference",
-                    },
-                ],
-            );
         let value: unknown;
         try {
             value = JSON.parse(change.valueJson);
         } catch {
-            throw new PrintDesignContractError(
-                ["复核补丁值不是 JSON"],
-                [
-                    {
-                        path: ["review", "changes", index, "valueJson"],
-                        code: "invalid_json",
-                    },
-                ],
-            );
+            skipped.push({ index, code: "invalid_json" });
+            continue;
         }
-        Reflect.set(parent, key, value);
+        const parts = pointerParts(change.path);
+        if (patched(candidate, parts, value) === undefined) {
+            skipped.push({ index, code: "missing_reference" });
+            continue;
+        }
+        decoded.push({ index, path: change.path, parts, value });
     }
-    const result = readCandidate(updated);
-    const finalPaths = new Set(candidatePaths(result));
-    for (const [name, check] of Object.entries(review.checks))
-        if (check.evidence.some((item) => !finalPaths.has(item.path)))
+    const base = measure(candidate, evidence);
+    if (!base)
+        throw new PrintDesignContractError(
+            ["复核的候选无法读取"],
+            [{ path: ["review"], code: "contract" }],
+        );
+    let current = base;
+    const apply = (state: unknown, item: (typeof decoded)[number]) =>
+        patched(state, item.parts, item.value);
+    const all = decoded.reduce<unknown>(
+        (state, item) => (state === undefined ? state : apply(state, item)),
+        current.candidate,
+    );
+    const whole = all === undefined ? undefined : measure(all, evidence);
+    if (whole && whole.score <= base.score) current = whole;
+    else {
+        let pending = decoded;
+        for (let pass = 0; pass < 2 && pending.length; pass++) {
+            const rejected: typeof decoded = [];
+            for (const item of pending) {
+                const next = apply(current.candidate, item);
+                const measured =
+                    next === undefined ? undefined : measure(next, evidence);
+                if (measured && measured.score <= current.score)
+                    current = measured;
+                else rejected.push(item);
+            }
+            if (rejected.length === pending.length) break;
+            pending = rejected;
+        }
+        for (const item of pending)
+            skipped.push({ index: item.index, code: "patch_rejected" });
+    }
+    const finalPaths = new Set(candidatePaths(current.candidate));
+    for (const [name, check] of Object.entries(review.checks)) {
+        const missing = check.evidence.findIndex(
+            (item) => !finalPaths.has(item.path),
+        );
+        if (missing >= 0)
             throw new PrintDesignContractError(
                 ["复核证据引用了已删除的字段"],
                 [
@@ -275,14 +338,16 @@ export function applyReview(
                             "checks",
                             name,
                             "evidence",
-                            check.evidence.findIndex(
-                                (item) => !finalPaths.has(item.path),
-                            ),
+                            missing,
                             "path",
                         ],
                         code: "missing_reference",
                     },
                 ],
             );
-    return result;
+    }
+    return {
+        candidate: current.candidate,
+        skipped: skipped.toSorted((a, b) => a.index - b.index),
+    };
 }

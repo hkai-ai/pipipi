@@ -8,6 +8,7 @@ import {
     failProcess,
     type ProcessRegistration,
 } from "../../../process-runtime/index.js";
+import { validationDiagnostics } from "../../../process-runtime/template-diagnostics.js";
 import { templateInputSchema } from "../contract.js";
 import { loadTemplateImage, type TemplateImageLoader } from "../image.js";
 import type { PrintDesignAgent } from "./agent.js";
@@ -18,7 +19,7 @@ import {
     printDesignOutputSchema,
     readCandidate,
 } from "./contract.js";
-import { applyReview } from "./review.js";
+import { applyReview, type SkippedPatch } from "./review.js";
 export function createPrintDesignRegistration(options: {
     agent: PrintDesignAgent;
     loadImage?: TemplateImageLoader;
@@ -124,17 +125,40 @@ export function createPrintDesignRegistration(options: {
                         }),
                     agentDiagnostic,
                 );
+                let skipped: readonly SkippedPatch[] = [];
                 return await context.runActivity(
                     "template_validation",
-                    async () =>
-                        compileResult(
-                            applyReview(accepted, review),
+                    async () => {
+                        const merged = applyReview(accepted, review);
+                        skipped = merged.skipped;
+                        return compileResult(
+                            merged.candidate,
                             input.imageUrl,
                             image,
-                        ),
+                        );
+                    },
                     (error) =>
                         error instanceof PrintDesignContractError
-                            ? error.diagnostic
+                            ? {
+                                  ...error.diagnostic,
+                                  issues: [
+                                      // 被跳过的补丁只记下标与规则码，排在前面避免被截断。
+                                      ...validationDiagnostics(
+                                          skipped
+                                              .slice(0, 4)
+                                              .map(({ index, code }) => ({
+                                                  path: [
+                                                      "review",
+                                                      "changes",
+                                                      index,
+                                                      "path",
+                                                  ],
+                                                  code,
+                                              })),
+                                      ),
+                                      ...error.diagnostic.issues,
+                                  ],
+                              }
                             : { stage: "execution", code: "internal_failure" },
                 );
             } catch (error) {

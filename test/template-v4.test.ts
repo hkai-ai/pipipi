@@ -303,7 +303,7 @@ it("复核补丁修改后完整重验，不补造通过结论，不改变原候�
         path: "/draft/title",
         valueJson: JSON.stringify("新标题"),
     });
-    expect(applyReview(value, report).draft.title).toBe("新标题");
+    expect(applyReview(value, report).candidate.draft.title).toBe("新标题");
     expect(value).toEqual(before);
     const bad = review(value);
     bad.reviewedCandidateSha256 = "f".repeat(64);
@@ -330,9 +330,12 @@ it("复核补丁修改后完整重验，不补造通过结论，不改变原候�
             ),
         },
     );
-    expect(() =>
-        compileResult(applyReview(value, wrong), imageUrl, image),
-    ).toThrow();
+    const rescued = applyReview(value, wrong);
+    expect(rescued.skipped.length).toBeGreaterThan(0);
+    expect(rescued.skipped.map(({ index }) => index)).toContain(1);
+    expect(
+        compileResult(rescued.candidate, imageUrl, image).template.status,
+    ).toBe("DRAFT");
     const schema = reviewSchema(value);
     expect(schema.safeParse(review(value)).success).toBe(true);
 });
@@ -376,8 +379,8 @@ it("复核可单独修正命中原物词的关系行并通过最终合同", () =
     const report = review(value);
     report.changes.push({ path: rowPath, valueJson: JSON.stringify(original) });
     expect(
-        compileResult(applyReview(value, report), imageUrl, image).template
-            .status,
+        compileResult(applyReview(value, report).candidate, imageUrl, image)
+            .template.status,
     ).toBe("DRAFT");
 });
 it("逐字对账区分引用错误与文字冲突，复核可只改出错的文字叶子", () => {
@@ -392,7 +395,7 @@ it("逐字对账区分引用错误与文字冲突，复核可只改出错的文�
         path: "/observation/texts/0/text",
         valueJson: JSON.stringify(original),
     });
-    expect(candidateIssues(applyReview(value, report))).toEqual([]);
+    expect(candidateIssues(applyReview(value, report).candidate)).toEqual([]);
     value.observation.texts[0].elementId = "unknown";
     expect(() => compileResult(value, imageUrl, image)).toThrowError(
         expect.objectContaining({
@@ -525,15 +528,18 @@ it("复核可逐叶修正 sourceCondition，但不能越出路径或写入非法
         valueJson: JSON.stringify("severely_blurry"),
     });
     expect(
-        compileResult(applyReview(value, report), imageUrl, image).source
-            .condition.sharpness,
+        compileResult(applyReview(value, report).candidate, imageUrl, image)
+            .source.condition.sharpness,
     ).toBe("severely_blurry");
     const bad = review(value);
     bad.changes.push({
         path: "/observation/sourceCondition/carrier",
         valueJson: JSON.stringify("poster"),
     });
-    expect(() => applyReview(value, bad)).toThrow(PrintDesignContractError);
+    expect(applyReview(value, bad)).toEqual({
+        candidate: value,
+        skipped: [{ index: 0, code: "patch_rejected" }],
+    });
     const outside = review(value);
     outside.changes.push({
         path: "/observation/sourceCondition/marks/0/kind",
@@ -566,4 +572,86 @@ it("缺少 sourceCondition 进入修正预算而不是崩溃，修正后成功",
     expect(
         deps.agent.compile.mock.calls[1][0].correction?.issues.join(),
     ).toContain("observation.sourceCondition");
+});
+
+it("复核补丁逐条把关：坏补丁跳过并只记下标与规则码，好补丁照常生效", () => {
+    const value = fixture();
+    const report = review(value);
+    report.changes.push(
+        { path: "/draft/title", valueJson: JSON.stringify("新标题") },
+        {
+            path: "/observation/sourceCondition/carrier",
+            valueJson: JSON.stringify("poster"),
+        },
+        { path: "/draft/description", valueJson: "{" },
+    );
+    const merged = applyReview(value, report);
+    expect(merged.candidate.draft.title).toBe("新标题");
+    expect(merged.skipped).toEqual([
+        { index: 1, code: "patch_rejected" },
+        { index: 2, code: "invalid_json" },
+    ]);
+    expect(
+        compileResult(merged.candidate, imageUrl, image).template.status,
+    ).toBe("DRAFT");
+});
+it("互相依赖的文字补丁整体通过，不被逐条检查拆散", () => {
+    const value = fixture();
+    const element = value.observation.texts[0].elementId;
+    const spec = value.draft.runtimeSemantics.designSpec;
+    const next = `${value.observation.texts[0].text}!`;
+    const slot = value.draft.inputSchema.slots.findIndex(
+        (item) => item.text?.defaultValue === spec.defaults.texts[element],
+    );
+    const report = review(value);
+    report.changes.push(
+        { path: "/observation/texts/0/text", valueJson: JSON.stringify(next) },
+        {
+            path: `/draft/runtimeSemantics/designSpec/defaults/texts/${element}`,
+            valueJson: JSON.stringify(next),
+        },
+    );
+    if (slot >= 0)
+        report.changes.push({
+            path: `/draft/inputSchema/slots/${slot}/text/defaultValue`,
+            valueJson: JSON.stringify(next),
+        });
+    const merged = applyReview(value, report);
+    expect(merged.skipped).toEqual([]);
+    expect(merged.candidate.observation.texts[0].text).toBe(next);
+});
+it("复核补丁全部不合格时等同未修补，流程仍成功且不增加模型调用", async () => {
+    const deps = dependencies();
+    deps.agent.review.mockImplementation(async (request) => {
+        const report = review(request.candidate);
+        report.changes.push({
+            path: "/observation/sourceCondition/carrier",
+            valueJson: JSON.stringify("poster"),
+        });
+        return report;
+    });
+    const result = await run(deps);
+    expect(result.status).toBe("succeeded");
+    expect(deps.agent.compile).toHaveBeenCalledOnce();
+    expect(deps.agent.review).toHaveBeenCalledOnce();
+});
+it("复核明确阻断时即使补丁无害仍失败", async () => {
+    const deps = dependencies();
+    deps.agent.review.mockImplementation(async (request) => {
+        const report = review(request.candidate);
+        report.changes.push({
+            path: "/draft/title",
+            valueJson: JSON.stringify("新标题"),
+        });
+        report.issues.push({
+            check: "imageFidelity",
+            path: "/observation/overview",
+            reason: "图片不能确认",
+        });
+        return report;
+    });
+    expect(await run(deps)).toMatchObject({
+        status: "failed",
+        error: { code: "AGENT_FAILURE" },
+    });
 });

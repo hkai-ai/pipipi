@@ -36,6 +36,17 @@ export type PiSessionOptions = Readonly<{
     thinkingLevel?: "off" | "minimal" | "low" | "medium" | "high";
     modelRuntime?: ModelRuntime;
     sessionFactory?: PiSessionFactory;
+    /**
+     * 把 Skill 正文放在系统提示最前，易变的任务指令随后。供应商按请求前缀
+     * 自动缓存，Skill 很大且各次调用的指令不同时，默认顺序会让前缀从第一行
+     * 起就不同而无法命中。缺省保持「指令、Skill」的历史顺序。
+     */
+    skillFirst?: boolean;
+    /**
+     * 固定 OpenAI `prompt_cache_key`（至多 64 字符），让同一 Skill 的调用被路由到同一缓存。
+     * Pi 默认用每个会话的随机 ID，等于每次换键；缺省不改载荷。
+     */
+    promptCacheKey?: string;
 }>;
 
 /** The Tool surface one request exposes; everything else stays disabled. */
@@ -62,6 +73,8 @@ export class PiSessionSupport {
     readonly #models: ModelRuntime | undefined;
     readonly #thinkingLevel: PiSessionOptions["thinkingLevel"];
     readonly #sessionFactory: PiSessionFactory;
+    readonly #skillFirst: boolean;
+    readonly #promptCacheKey: string | undefined;
     #modelsPromise: Promise<ModelRuntime> | undefined;
 
     constructor(options: PiSessionOptions) {
@@ -115,6 +128,13 @@ export class PiSessionSupport {
         this.#models = options.modelRuntime;
         this.#thinkingLevel = options.thinkingLevel;
         this.#sessionFactory = options.sessionFactory ?? createAgentSession;
+        this.#skillFirst = options.skillFirst ?? false;
+        if (
+            options.promptCacheKey !== undefined &&
+            !/^[A-Za-z0-9][A-Za-z0-9._:/-]{0,63}$/u.test(options.promptCacheKey)
+        )
+            throw new Error("Pi prompt cache key is invalid");
+        this.#promptCacheKey = options.promptCacheKey;
     }
 
     async ready(): Promise<void> {
@@ -152,11 +172,12 @@ export class PiSessionSupport {
             noPromptTemplates: true,
             noThemes: true,
             noContextFiles: true,
-            systemPrompt: [
-                ...this.#instructions,
-                loaded.instructions,
-                ...systemPromptSuffix,
-            ].join("\n\n"),
+            systemPrompt: (this.#skillFirst
+                ? [loaded.instructions, ...this.#instructions]
+                : [...this.#instructions, loaded.instructions]
+            )
+                .concat(systemPromptSuffix)
+                .join("\n\n"),
         });
         await resourceLoader.reload();
 
@@ -187,6 +208,16 @@ export class PiSessionSupport {
             sessionManager: SessionManager.inMemory(this.#cwd),
             ...toolSurface,
         });
+        const cacheKey = this.#promptCacheKey;
+        if (cacheKey) {
+            const previous = session.agent.onPayload;
+            session.agent.onPayload = async (payload, model) => {
+                const next = (await previous?.(payload, model)) ?? payload;
+                return next && typeof next === "object" && !Array.isArray(next)
+                    ? { ...next, prompt_cache_key: cacheKey }
+                    : next;
+            };
+        }
         observePiSession(session, loaded.versions, toolSurface.tools ?? []);
         return session;
     }
