@@ -1,0 +1,702 @@
+{
+    "observation": {
+        "overview": "纵向日系动画海报式画面。右侧是一位手持麦克风、朝左侧看的女性歌手半身侧面像，深蓝长发占据右上大面积，粉紫服装、浅色上衣和紫色耳饰形成柔和冷暖对比。左上是超大号高窄衬线标题“MACROSS”，其上、下及左侧分布多组日文和英文说明文字；左下另有问句、星形符号、职业说明与版权行。背景为暖白纸色，人物边缘及发丝带松动线稿，面部和衣物采用分块明暗与柔和高光。视觉顺序先看右侧人物面部，再看左上巨型标题，最后阅读左侧小字。整体属于完整海报场景，原图未见经过设计的独立贴片边框。",
+        "texts": [
+            {
+                "text": "超時空要塞マクロス",
+                "location": "左上主标题上方",
+                "elementId": "series_overline"
+            },
+            {
+                "text": "MACROSS",
+                "location": "左上大号主标题",
+                "elementId": "main_title"
+            },
+            {
+                "text": "愛・おぼえていますか",
+                "location": "主标题下方的粉色副标题",
+                "elementId": "subtitle"
+            },
+            {
+                "text": "「リン・ミンメイ」",
+                "location": "左上中部的日文姓名行",
+                "elementId": "subject_name_local"
+            },
+            {
+                "text": "LYNN MINMAY",
+                "location": "日文姓名行下方",
+                "elementId": "subject_name_latin"
+            },
+            {
+                "text": "DO YOU\nREMEMBER\nLOVE?",
+                "location": "左侧下半部三行问句",
+                "elementId": "fixed_slogan"
+            },
+            {
+                "text": "POP IDOL\nSONGSTRESS",
+                "location": "左下星形符号下方",
+                "elementId": "subject_descriptor"
+            },
+            {
+                "text": "©1984 BIGWEST",
+                "location": "左下最底部小字",
+                "elementId": "footer_credit"
+            }
+        ],
+        "printRisks": [
+            "画面属于满幅海报构成，原图没有透明外围，也没有可见的设计边框，直接印到服装上会形成一整块矩形。",
+            "人物身体与头发被右侧及底部画布边缘裁切，不能作为外轮廓完整的独立图形直接使用。",
+            "多组小字号文字在实际服装印制尺寸下可能难以辨认。",
+            "暖白背景与淡粉、浅灰细节在白色或浅色服装预览中可能缺少边界。",
+            "深蓝头发和近黑文字在深色服装上需要依靠不透明贴片底色维持可见性。",
+            "细发丝、浅色轮廓线和柔和明暗过渡需要印前检查，避免边缘发虚或细节丢失。",
+            "画面包含明确的第三方作品名称、角色姓名及版权文字，使用权与商品化授权需另行人工确认。",
+            "若制作矩形设计贴片，需要新增并人工核对经过设计的边框；该边框并非原图已有内容。"
+        ],
+        "sourceCondition": {
+            "marks": [],
+            "carrier": "flat_artwork",
+            "sharpness": "clear",
+            "compressionArtifacts": false,
+            "notes": [
+                "原图为不透明暖白底的纵向海报画面。",
+                "附件2的裁片外框不是原设计边界。",
+                "局部发丝和轮廓线具有刻意松动的绘画效果。",
+                "未见额外图库水印、平台标识或作者签名。"
+            ]
+        }
+    },
+    "draft": {
+        "key": "nocturne-soloist-poster",
+        "title": "夜曲独奏者海报",
+        "description": "高窄标题与侧面人物海报",
+        "metadata": {
+            "tags": [
+                "动画海报",
+                "侧面肖像",
+                "音乐人物",
+                "高窄标题",
+                "日英排版",
+                "柔和光影",
+                "设计贴片"
+            ]
+        },
+        "inputSchema": {
+            "version": 2,
+            "slots": [
+                {
+                    "id": "subject",
+                    "label": "主角",
+                    "required": false,
+                    "text": {
+                        "defaultValue": "年轻男性小提琴独奏者",
+                        "allowCustom": true,
+                        "presentation": "suggestions",
+                        "suggestions": [
+                            "年轻男性小提琴独奏者",
+                            "短发女性萨克斯演奏者",
+                            "长发男性吉他手",
+                            "戴礼帽的手风琴演奏者"
+                        ]
+                    },
+                    "image": {
+                        "sourceOptions": [
+                            "upload",
+                            "recent_upload",
+                            "asset_library"
+                        ],
+                        "maxCount": 1,
+                        "private": true
+                    },
+                    "resolutionStrategy": "image_over_text"
+                },
+                {
+                    "id": "series_overline",
+                    "label": "顶部小标题",
+                    "required": false,
+                    "text": {
+                        "defaultValue": "夜想弦楽奏者",
+                        "allowCustom": true,
+                        "presentation": "free_text"
+                    }
+                },
+                {
+                    "id": "main_title",
+                    "label": "英文主标题",
+                    "required": false,
+                    "text": {
+                        "defaultValue": "NOCTURNE",
+                        "allowCustom": true,
+                        "presentation": "free_text"
+                    }
+                },
+                {
+                    "id": "subtitle",
+                    "label": "彩色副标题",
+                    "required": false,
+                    "text": {
+                        "defaultValue": "夜を奏でていますか",
+                        "allowCustom": true,
+                        "presentation": "free_text"
+                    }
+                },
+                {
+                    "id": "subject_name_local",
+                    "label": "本地文姓名",
+                    "required": false,
+                    "text": {
+                        "defaultValue": "「カイ・レナード」",
+                        "allowCustom": true,
+                        "presentation": "free_text"
+                    }
+                },
+                {
+                    "id": "subject_name_latin",
+                    "label": "拉丁字母姓名",
+                    "required": false,
+                    "text": {
+                        "defaultValue": "KAI LEONARD",
+                        "allowCustom": true,
+                        "presentation": "free_text"
+                    }
+                },
+                {
+                    "id": "fixed_slogan",
+                    "label": "左侧问句",
+                    "required": false,
+                    "text": {
+                        "defaultValue": "DO YOU\nREMEMBER\nLOVE?",
+                        "allowCustom": true,
+                        "presentation": "free_text"
+                    }
+                },
+                {
+                    "id": "subject_descriptor",
+                    "label": "身份说明",
+                    "required": false,
+                    "text": {
+                        "defaultValue": "VIOLIN\nSOLOIST",
+                        "allowCustom": true,
+                        "presentation": "free_text"
+                    }
+                },
+                {
+                    "id": "footer_credit",
+                    "label": "底部署名",
+                    "required": false,
+                    "text": {
+                        "defaultValue": "©2026 NIGHT STAGE",
+                        "allowCustom": true,
+                        "presentation": "free_text"
+                    }
+                },
+                {
+                    "id": "ink_color",
+                    "label": "深色文字",
+                    "required": false,
+                    "text": {
+                        "defaultValue": "炭灰色",
+                        "allowCustom": true,
+                        "presentation": "suggestions",
+                        "suggestions": ["炭灰色", "深海军蓝", "深褐色"]
+                    }
+                },
+                {
+                    "id": "accent_color",
+                    "label": "点缀色",
+                    "required": false,
+                    "text": {
+                        "defaultValue": "灰粉色",
+                        "allowCustom": true,
+                        "presentation": "suggestions",
+                        "suggestions": ["灰粉色", "淡紫色", "低饱和珊瑚色"]
+                    }
+                },
+                {
+                    "id": "paper_color",
+                    "label": "贴片底色",
+                    "required": false,
+                    "text": {
+                        "defaultValue": "暖象牙白",
+                        "allowCustom": true,
+                        "presentation": "suggestions",
+                        "suggestions": ["暖象牙白", "浅灰米色", "淡粉米白"]
+                    }
+                }
+            ]
+        },
+        "runtimeSemantics": {
+            "version": 4,
+            "targetInstances": [
+                {
+                    "id": "lead_subject",
+                    "kind": "identity_subject",
+                    "role": "右侧主角",
+                    "region": "画面右侧的大幅侧面半身区域"
+                },
+                {
+                    "id": "series_overline",
+                    "kind": "content_element",
+                    "role": "顶部小标题",
+                    "region": "左上主标题上方"
+                },
+                {
+                    "id": "main_title",
+                    "kind": "content_element",
+                    "role": "高窄主标题",
+                    "region": "左上大面积标题区"
+                },
+                {
+                    "id": "subtitle",
+                    "kind": "content_element",
+                    "role": "彩色副标题",
+                    "region": "主标题下方"
+                },
+                {
+                    "id": "subject_name_local",
+                    "kind": "content_element",
+                    "role": "主角本地文姓名",
+                    "region": "左上中部姓名区"
+                },
+                {
+                    "id": "subject_name_latin",
+                    "kind": "content_element",
+                    "role": "主角拉丁字母姓名",
+                    "region": "本地文姓名下方"
+                },
+                {
+                    "id": "fixed_slogan",
+                    "kind": "content_element",
+                    "role": "固定问句",
+                    "region": "左侧下半部"
+                },
+                {
+                    "id": "subject_descriptor",
+                    "kind": "content_element",
+                    "role": "主角身份说明",
+                    "region": "左下装饰符号下方"
+                },
+                {
+                    "id": "footer_credit",
+                    "kind": "content_element",
+                    "role": "底部署名",
+                    "region": "左下最底部"
+                },
+                {
+                    "id": "ink_color",
+                    "kind": "content_element",
+                    "role": "深色文字与线条颜色",
+                    "region": "标题、说明文字与细线"
+                },
+                {
+                    "id": "accent_color",
+                    "kind": "content_element",
+                    "role": "彩色文字与装饰颜色",
+                    "region": "副标题、装饰符号及局部服装"
+                },
+                {
+                    "id": "paper_color",
+                    "kind": "content_element",
+                    "role": "不透明贴片底色",
+                    "region": "设计边框以内的完整海报区域"
+                }
+            ],
+            "inputBindings": {
+                "subject": {
+                    "operation": "replace_identity",
+                    "targetIds": ["lead_subject"],
+                    "bindingPolicy": "one_to_one",
+                    "renderingMode": "illustration_redraw",
+                    "allowedSourceGrouping": ["single_subject"],
+                    "groupToSinglePolicy": "reject",
+                    "clothingOwnership": "source"
+                },
+                "series_overline": {
+                    "operation": "replace_content",
+                    "targetIds": ["series_overline"],
+                    "valueKind": "exact_text",
+                    "distributionPolicy": "replace_as_unit"
+                },
+                "main_title": {
+                    "operation": "replace_content",
+                    "targetIds": ["main_title"],
+                    "valueKind": "exact_text",
+                    "distributionPolicy": "replace_as_unit"
+                },
+                "subtitle": {
+                    "operation": "replace_content",
+                    "targetIds": ["subtitle"],
+                    "valueKind": "exact_text",
+                    "distributionPolicy": "replace_as_unit"
+                },
+                "subject_name_local": {
+                    "operation": "replace_content",
+                    "targetIds": ["subject_name_local"],
+                    "valueKind": "exact_text",
+                    "distributionPolicy": "replace_as_unit"
+                },
+                "subject_name_latin": {
+                    "operation": "replace_content",
+                    "targetIds": ["subject_name_latin"],
+                    "valueKind": "exact_text",
+                    "distributionPolicy": "replace_as_unit"
+                },
+                "fixed_slogan": {
+                    "operation": "replace_content",
+                    "targetIds": ["fixed_slogan"],
+                    "valueKind": "exact_text",
+                    "distributionPolicy": "replace_as_unit"
+                },
+                "subject_descriptor": {
+                    "operation": "replace_content",
+                    "targetIds": ["subject_descriptor"],
+                    "valueKind": "exact_text",
+                    "distributionPolicy": "replace_as_unit"
+                },
+                "footer_credit": {
+                    "operation": "replace_content",
+                    "targetIds": ["footer_credit"],
+                    "valueKind": "exact_text",
+                    "distributionPolicy": "replace_as_unit"
+                },
+                "ink_color": {
+                    "operation": "replace_content",
+                    "targetIds": ["ink_color"],
+                    "valueKind": "color",
+                    "distributionPolicy": "replace_as_unit"
+                },
+                "accent_color": {
+                    "operation": "replace_content",
+                    "targetIds": ["accent_color"],
+                    "valueKind": "color",
+                    "distributionPolicy": "replace_as_unit"
+                },
+                "paper_color": {
+                    "operation": "replace_content",
+                    "targetIds": ["paper_color"],
+                    "valueKind": "color",
+                    "distributionPolicy": "replace_as_unit"
+                }
+            },
+            "designSpec": {
+                "tier": "same_design",
+                "whole": {
+                    "tone": "安静、怀旧而克制的舞台人物海报气质，带柔和情绪但不表现喧闹现场。",
+                    "technique": "半写实二维插画；轮廓线细而有轻微手绘摆动，局部保留游丝式辅助线；面部、头发与衣物用硬边色块结合少量柔和过渡塑造体积，亮部以窄而清楚的浅色形状表现。",
+                    "composition": {
+                        "canvas": "高而窄的纵向海报画幅。",
+                        "balance": "非对称平衡：右侧大幅人物重量与左上超大标题及左侧小字组相互平衡。",
+                        "types": ["海报式", "图文分栏", "尺度对比"],
+                        "layout": [
+                            {
+                                "id": "main_title",
+                                "role": "左上高窄主标题",
+                                "text": "主标题",
+                                "region": "左上",
+                                "bbox": [0.05, 0.04, 0.45, 0.2],
+                                "z": 4
+                            },
+                            {
+                                "id": "series_overline",
+                                "role": "顶部小标题",
+                                "text": "小标题",
+                                "region": "主标题上方",
+                                "bbox": [0.05, 0.02, 0.25, 0.03],
+                                "z": 5
+                            },
+                            {
+                                "id": "subtitle",
+                                "role": "彩色副标题",
+                                "text": "副标题",
+                                "region": "主标题下方",
+                                "bbox": [0.05, 0.22, 0.35, 0.04],
+                                "z": 5
+                            },
+                            {
+                                "id": "subject_name_local",
+                                "role": "本地文姓名",
+                                "text": "姓名",
+                                "region": "左上中部",
+                                "bbox": [0.05, 0.27, 0.32, 0.04],
+                                "z": 5
+                            },
+                            {
+                                "id": "subject_name_latin",
+                                "role": "拉丁字母姓名",
+                                "text": "姓名",
+                                "region": "本地文姓名下方",
+                                "bbox": [0.05, 0.31, 0.23, 0.03],
+                                "z": 5
+                            },
+                            {
+                                "id": "lead_subject",
+                                "role": "右侧主角",
+                                "content": "可替换主角",
+                                "region": "右侧并延伸至底部",
+                                "bbox": [0.25, 0.1, 0.75, 0.9],
+                                "z": 3
+                            },
+                            {
+                                "id": "fixed_slogan",
+                                "role": "左侧问句",
+                                "text": "三行短问句",
+                                "region": "左侧下半部",
+                                "bbox": [0.05, 0.73, 0.16, 0.09],
+                                "z": 5
+                            },
+                            {
+                                "id": "small_symbol",
+                                "role": "左下小型装饰符号",
+                                "shape": "单个实心五角星",
+                                "region": "身份说明上方",
+                                "bbox": [0.05, 0.86, 0.04, 0.03],
+                                "z": 5
+                            },
+                            {
+                                "id": "subject_descriptor",
+                                "role": "身份说明",
+                                "text": "两行身份说明",
+                                "region": "左下装饰符号下方",
+                                "bbox": [0.05, 0.89, 0.17, 0.06],
+                                "z": 5
+                            },
+                            {
+                                "id": "footer_credit",
+                                "role": "底部署名",
+                                "text": "单行小字",
+                                "region": "左下最底部",
+                                "bbox": [0.05, 0.96, 0.2, 0.02],
+                                "z": 5
+                            },
+                            {
+                                "id": "poster_edge",
+                                "role": "设计贴片边框",
+                                "shape": "窄双线圆角边框",
+                                "region": "包围不透明贴片",
+                                "bbox": [0.015, 0.01, 0.97, 0.98],
+                                "z": 7
+                            }
+                        ],
+                        "relations": [
+                            ["lead_subject", "位于", "右侧人物区"],
+                            ["lead_subject", "面向", "左侧文字区"],
+                            ["main_title", "位于", "左上标题区"],
+                            ["subtitle", "紧邻下方", "main_title"],
+                            ["subject_name_local", "位于下方", "subtitle"],
+                            [
+                                "subject_name_latin",
+                                "位于下方",
+                                "subject_name_local"
+                            ],
+                            ["fixed_slogan", "位于", "左侧下部信息区"],
+                            ["small_symbol", "位于上方", "subject_descriptor"],
+                            ["footer_credit", "位于下方", "subject_descriptor"],
+                            ["poster_edge", "包围", "全部版面元素"]
+                        ],
+                        "layers": "不透明纸色贴片为底层；右侧人物为主要图像层；文字和装饰位于其上；新增设计边框位于最前层。",
+                        "visualWeight": "右侧主角的头部与面部是第一焦点，左上高窄主标题是第二焦点，左侧小字保持从属。",
+                        "density": "内部疏朗，左侧保留大面积安静负空间，信息集中在左上和左下。"
+                    },
+                    "printForm": "rect_patch",
+                    "mechanism": "以大幅侧面人物和尺度悬殊的编辑排版共同建立唱片封套般的人物宣传海报感；替换题材时保持人物与标题之间的视觉对话。",
+                    "paletteSummary": "以暖浅底色承载深冷主色，灰粉色作为小面积柔和点缀；主角固有色保持自身辨识，不由全局配色强制覆盖。",
+                    "colorRoles": [
+                        {
+                            "id": "ink_color",
+                            "name": "深色文字",
+                            "usage": "用于主标题、姓名、小字、细线和边框的主要深色。",
+                            "appliesTo": [
+                                "series_overline",
+                                "main_title",
+                                "subject_name_local",
+                                "subject_name_latin",
+                                "fixed_slogan",
+                                "subject_descriptor",
+                                "footer_credit",
+                                "poster_edge"
+                            ],
+                            "belongsToTechnique": false
+                        },
+                        {
+                            "id": "accent_color",
+                            "name": "柔和点缀",
+                            "usage": "用于彩色副标题、左下装饰符号及少量局部色彩呼应。",
+                            "appliesTo": ["subtitle", "small_symbol"],
+                            "belongsToTechnique": false
+                        },
+                        {
+                            "id": "paper_color",
+                            "name": "贴片纸色",
+                            "usage": "作为设计边框以内完全不透明的海报贴片底色。",
+                            "appliesTo": ["poster_edge"],
+                            "belongsToTechnique": false
+                        }
+                    ],
+                    "prePress": {
+                        "softEdge": "人物和文字保持清楚的实心边缘；仅保留窄幅抗锯齿，不在贴片边框外生成雾状或半透明像素。",
+                        "paperColor": "暖象牙白"
+                    }
+                },
+                "elements": [
+                    {
+                        "id": "lead_subject",
+                        "purpose": "承担人物身份与情绪焦点，在右侧形成主要视觉重量，并以朝向连接左侧文字。",
+                        "instance": "一位手持麦克风、向左看的女性歌手半身侧面像。",
+                        "category": "subject",
+                        "originalObject": "女性流行歌手",
+                        "shapeFeatures": [
+                            "深蓝长发覆盖右上大面积",
+                            "面部为朝左的清晰侧面",
+                            "右手在胸前握持麦克风",
+                            "佩戴紫色长耳饰",
+                            "上臂有黑色三角形图案"
+                        ],
+                        "genericShape": "保持新主体自身可识别的标准外形，以侧面或近侧面半身姿态形成右侧大轮廓。",
+                        "inherentColorPolicy": "keep",
+                        "pose": "朝左侧观看，手臂在胸前形成稳定斜线，姿态安静而专注。"
+                    },
+                    {
+                        "id": "series_overline",
+                        "purpose": "提供主标题上方的小型系列信息。",
+                        "instance": "超時空要塞マクロス",
+                        "category": "text",
+                        "role": "主角相关的顶部小标题",
+                        "letterform": "小号日文黑体，正常字宽，较松字距，深色实心字，无描边。",
+                        "followsSubject": true
+                    },
+                    {
+                        "id": "main_title",
+                        "purpose": "以显著尺度和高窄比例建立海报识别点。",
+                        "instance": "MACROSS",
+                        "category": "text",
+                        "role": "主角相关的英文主标题",
+                        "letterform": "极高对比度的超高窄现代衬线大写字母，笔画修长，紧密排列，深色实心填充，无阴影。",
+                        "followsSubject": true
+                    },
+                    {
+                        "id": "subtitle",
+                        "purpose": "在主标题下方提供柔和色彩停顿和主题补充。",
+                        "instance": "愛・おぼえていますか",
+                        "category": "text",
+                        "role": "主角相关的彩色副标题",
+                        "letterform": "中小号日文圆润明朝字形，细至常规字重，灰粉色实心字，无描边。",
+                        "followsSubject": true
+                    },
+                    {
+                        "id": "subject_name_local",
+                        "purpose": "标识主角的本地文姓名。",
+                        "instance": "「リン・ミンメイ」",
+                        "category": "text",
+                        "role": "主角本地文姓名",
+                        "letterform": "中号日文黑体，常规字重，带完整引号，深色实心字。",
+                        "followsSubject": true
+                    },
+                    {
+                        "id": "subject_name_latin",
+                        "purpose": "以拉丁字母重复主角姓名并形成层级。",
+                        "instance": "LYNN MINMAY",
+                        "category": "text",
+                        "role": "主角拉丁字母姓名",
+                        "letterform": "小号几何无衬线全大写，较宽字距，深色实心字。",
+                        "followsSubject": true
+                    },
+                    {
+                        "id": "fixed_slogan",
+                        "purpose": "在左侧负空间中形成独立的情绪问句。",
+                        "instance": "DO YOU\nREMEMBER\nLOVE?",
+                        "category": "text",
+                        "role": "固定三行英文问句",
+                        "letterform": "小号几何无衬线全大写，三行左对齐，较松行距和字距，下方配一条短细线。"
+                    },
+                    {
+                        "id": "small_symbol",
+                        "purpose": "为左下信息组提供节奏停顿和点缀色呼应。",
+                        "instance": "粉色五角星",
+                        "description": "单个小型实心五角星，边缘清楚。",
+                        "position": "身份说明上方并与左侧文字起始线对齐。",
+                        "layer": "位于贴片底色之上，与左下文字同层。",
+                        "hasPropText": false,
+                        "category": "decoration"
+                    },
+                    {
+                        "id": "subject_descriptor",
+                        "purpose": "说明主角的职业或身份类型。",
+                        "instance": "POP IDOL\nSONGSTRESS",
+                        "category": "text",
+                        "role": "随主角变化的两行身份说明",
+                        "letterform": "小号几何无衬线全大写，两行左对齐，浅至常规字重，较松字距。",
+                        "followsSubject": true
+                    },
+                    {
+                        "id": "footer_credit",
+                        "purpose": "在左下底部形成细小的出版信息收尾。",
+                        "instance": "©1984 BIGWEST",
+                        "category": "text",
+                        "role": "可编辑的底部署名",
+                        "letterform": "极小号无衬线单行字，浅字重，左对齐，保持清楚但视觉重量最低。"
+                    },
+                    {
+                        "id": "poster_edge",
+                        "purpose": "把完整场景收成可印制的设计贴片，并使贴片边界与服装底色分离。",
+                        "category": "edge",
+                        "description": "新增一圈窄双线圆角边框，外线使用{色:深色文字}，内线与外线之间保留{色:贴片纸色}细间隔；边框为实心清楚的设计元素，贴片以外完全透明。"
+                    }
+                ],
+                "signatureFeatures": [
+                    "右侧大幅侧面人物与左侧文字区形成非对称平衡。",
+                    "左上主标题采用极高、极窄、高对比度的衬线大写字形。",
+                    "左侧信息以大标题、小姓名组、下部问句和底部说明形成明显尺度梯级。",
+                    "暖浅底色、深冷主色与灰粉点缀构成克制的冷暖关系。"
+                ],
+                "lockedInstances": [
+                    "固定问句保持三行左对齐，并在下方保留一条短细线。",
+                    "左下身份说明上方保留单个小型实心五角星。",
+                    "人物保持右侧大轮廓并朝向左侧文字区。"
+                ],
+                "bannedWords": [
+                    "MACROSS",
+                    "マクロス",
+                    "リン・ミンメイ",
+                    "LYNN MINMAY",
+                    "BIGWEST",
+                    "麦克风",
+                    "深蓝长发",
+                    "紫色长耳饰",
+                    "三角形纹身"
+                ],
+                "printFit": {
+                    "verdict": "needs_prep",
+                    "lightIsMood": false,
+                    "recommendedMethod": "制作不透明矩形设计贴片：新增并人工复核窄双线圆角边框，贴片外透明；检查全部小字的实际印制可读性，并确认第三方文字与角色形象的商品化授权。"
+                },
+                "defaults": {
+                    "subject": "年轻男性小提琴独奏者",
+                    "subjectName": "KAI LEONARD",
+                    "subjectShape": "保持人物自身可识别的标准外形，以近侧面半身姿态占据右侧大面积。",
+                    "subjectInherentColor": "保留人物照片或文字描述中的自然发色、肤色、服装和乐器固有色。",
+                    "pose": "面向左侧文字区，神情安静专注，一手在肩颈附近稳定乐器，另一手自然持弓并形成向下斜线。",
+                    "fun": "以安静的人物侧面和巨型编辑标题并置，形成唱片封套般的怀旧宣传感。",
+                    "texts": {
+                        "series_overline": "夜想弦楽奏者",
+                        "main_title": "NOCTURNE",
+                        "subtitle": "夜を奏でていますか",
+                        "subject_name_local": "「カイ・レナード」",
+                        "subject_name_latin": "KAI LEONARD",
+                        "fixed_slogan": "DO YOU\nREMEMBER\nLOVE?",
+                        "subject_descriptor": "VIOLIN\nSOLOIST",
+                        "footer_credit": "©2026 NIGHT STAGE"
+                    },
+                    "specifiedContent": {
+                        "small_symbol": "单个小型实心五角星"
+                    },
+                    "accentSources": {},
+                    "colors": {
+                        "ink_color": "炭灰色",
+                        "accent_color": "灰粉色",
+                        "paper_color": "暖象牙白"
+                    }
+                }
+            }
+        }
+    }
+}

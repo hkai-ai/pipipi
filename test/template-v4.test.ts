@@ -383,19 +383,18 @@ it("复核可单独修正命中原物词的关系行并通过最终合同", () =
             .template.status,
     ).toBe("DRAFT");
 });
-it("逐字对账区分引用错误与文字冲突，复核可只改出错的文字叶子", () => {
+it("原文观察与默认迁移文字可以不同，文字元素引用错误仍被拒绝", () => {
     const value = fixture();
     const original = value.observation.texts[0].text;
+    const element = value.observation.texts[0].elementId;
     value.observation.texts[0].text = `${original}!`;
-    expect(candidateIssues(value).join(" ")).toContain(
-        "observation.texts[0].text",
+    expect(candidateIssues(value)).toEqual([]);
+    expect(compileResult(value, imageUrl, image).source.texts[0].text).toBe(
+        `${original}!`,
     );
-    const report = review(value);
-    report.changes.push({
-        path: "/observation/texts/0/text",
-        valueJson: JSON.stringify(original),
-    });
-    expect(candidateIssues(applyReview(value, report).candidate)).toEqual([]);
+    expect(
+        value.draft.runtimeSemantics.designSpec.defaults.texts[element],
+    ).toBe(original);
     value.observation.texts[0].elementId = "unknown";
     expect(() => compileResult(value, imageUrl, image)).toThrowError(
         expect.objectContaining({
@@ -409,6 +408,118 @@ it("逐字对账区分引用错误与文字冲突，复核可只改出错的文�
             }),
         }),
     );
+});
+const fixtureFile = (name: string) =>
+    JSON.parse(
+        readFileSync(new URL(`./fixtures/${name}`, import.meta.url), "utf8"),
+    );
+it("#1092 重档真实候选：原文与迁移默认字不同仍通过，原文逐字回传", () => {
+    const value = readCandidate(
+        fixtureFile("template-v4-1092-heavy-candidate.json"),
+    );
+    expect(candidateIssues(value)).toEqual([]);
+    const result = compileResult(value, imageUrl, image);
+    const spec = value.draft.runtimeSemantics.designSpec;
+    expect(result.source.texts[1]).toEqual({
+        text: "MACROSS",
+        elementId: "main_title",
+    });
+    expect(spec.defaults.texts.main_title).toBe("NOCTURNE");
+    expect(result.template.promptTemplate).toContain("NOCTURNE");
+    expect(result.template.promptTemplate).not.toContain("MACROSS");
+});
+it("#1092 重档真实候选：槽默认值与迁移默认字不一致仍被拒绝", () => {
+    const value = readCandidate(
+        fixtureFile("template-v4-1092-heavy-candidate.json"),
+    );
+    const slot = value.draft.inputSchema.slots.find(
+        (item) => item.id === "main_title",
+    );
+    if (!slot) throw new Error("夹具缺少 main_title 槽");
+    slot.text.defaultValue = "MACROSS";
+    expect(() => compileResult(value, imageUrl, image)).toThrowError(
+        expect.objectContaining({
+            diagnostic: expect.objectContaining({
+                issues: expect.arrayContaining([
+                    {
+                        path: "/draft/inputSchema/slots/2/text/defaultValue",
+                        code: "value_mismatch",
+                    },
+                ]),
+            }),
+        }),
+    );
+});
+it("#1092 重档真实复核：复核明确拒绝 printForm 时仍然失败", () => {
+    const value = readCandidate(
+        fixtureFile("template-v4-1092-heavy-candidate.json"),
+    );
+    expect(() =>
+        applyReview(value, fixtureFile("template-v4-1092-heavy-review.json")),
+    ).toThrowError(
+        expect.objectContaining({
+            diagnostic: expect.objectContaining({
+                issues: expect.arrayContaining([
+                    {
+                        path: "/review/checks/printForm/passed",
+                        code: "check_failed",
+                    },
+                ]),
+            }),
+        }),
+    );
+});
+it("#1092 绑定里唯一合法的常量被写错时按合同改回，真正的取舍错误仍被拒绝", () => {
+    const base = fixtureFile("template-v4-1092-light-candidate.json");
+    const noisy = structuredClone(base);
+    const bindings = noisy.draft.runtimeSemantics.inputBindings;
+    bindings.subject.bindingPolicy = "many";
+    bindings.subject.groupToSinglePolicy = "merge";
+    bindings.subject.allowedSourceGrouping = ["group"];
+    bindings.main_slogan.distributionPolicy = "split";
+    bindings.main_slogan.valueKind = "text";
+    bindings.ink_color.valueKind = "colour";
+    const value = readCandidate(noisy);
+    const fixed = value.draft.runtimeSemantics.inputBindings;
+    expect(fixed.subject).toMatchObject({
+        bindingPolicy: "one_to_one",
+        groupToSinglePolicy: "reject",
+        allowedSourceGrouping: ["single_subject"],
+    });
+    expect(fixed.main_slogan).toMatchObject({
+        valueKind: "exact_text",
+        distributionPolicy: "replace_as_unit",
+    });
+    expect(fixed.ink_color).toMatchObject({ valueKind: "color" });
+    // 夹具自带的两条半透明用词由复核补丁修掉，改常量不得增减问题。
+    expect(candidateIssues(value)).toEqual(
+        candidateIssues(readCandidate(base)),
+    );
+    // 不推断：目标不存在、未知的衣着归属、类型与目标不符。
+    for (const mutate of [
+        (b: typeof base) => {
+            b.draft.runtimeSemantics.inputBindings.main_slogan.valueKind = "x";
+            b.draft.runtimeSemantics.inputBindings.main_slogan.targetIds = [
+                "missing",
+            ];
+        },
+        (b: typeof base) => {
+            b.draft.runtimeSemantics.inputBindings.subject.clothingOwnership =
+                "none";
+        },
+    ]) {
+        const broken = structuredClone(base);
+        mutate(broken);
+        expect(() => readCandidate(broken)).toThrowError(
+            PrintDesignContractError,
+        );
+    }
+    const wrongKind = structuredClone(base);
+    wrongKind.draft.runtimeSemantics.inputBindings.ink_color.valueKind =
+        "exact_text";
+    expect(() =>
+        compileResult(readCandidate(wrongKind), imageUrl, image),
+    ).toThrowError(PrintDesignContractError);
 });
 it.each(["binding", "default", "shapeLeak", "secondImage", "wrongVersion"])(
     "拒绝 %s 违规，不放松作者合同",

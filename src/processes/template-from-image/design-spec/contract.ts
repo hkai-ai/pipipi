@@ -237,7 +237,66 @@ export class PrintDesignContractError extends Error {
         } as const;
     }
 }
-export function readCandidate(raw: unknown): PrintDesignCandidate {
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+    Boolean(value) && typeof value === "object" && !Array.isArray(value);
+const valueKinds = new Set(["exact_text", "scene_description", "color"]);
+/**
+ * 绑定里只有一个合法取值的字段（策略、渲染模式、分发方式等）由合同唯一确定，
+ * 模型写成别的值不携带任何信息，按合同改回；valueKind 按目标类型推断。
+ * 推断不出（目标不存在或类型不符）时保持原值，仍由 Schema 报错，不放过真正的错误。
+ */
+export function normalizeBindings(raw: unknown): unknown {
+    const draft = isRecord(raw) ? raw.draft : undefined;
+    const semantics = isRecord(draft) ? draft.runtimeSemantics : undefined;
+    if (!isRecord(semantics) || !isRecord(semantics.inputBindings)) return raw;
+    const spec = isRecord(semantics.designSpec)
+        ? semantics.designSpec
+        : undefined;
+    const categories = new Map<string, string>();
+    for (const element of Array.isArray(spec?.elements) ? spec.elements : [])
+        if (isRecord(element) && typeof element.id === "string")
+            categories.set(element.id, String(element.category));
+    const whole = isRecord(spec?.whole) ? spec.whole : undefined;
+    const colors = new Set<string>();
+    for (const role of Array.isArray(whole?.colorRoles) ? whole.colorRoles : [])
+        if (isRecord(role) && typeof role.id === "string") colors.add(role.id);
+    const kindOf = (id: unknown) => {
+        if (typeof id !== "string") return undefined;
+        const category = categories.get(id);
+        if (category === "text") return "exact_text";
+        if (colors.has(id) && category === undefined) return "color";
+        return category === "subject" ||
+            category === "accent" ||
+            category === "decoration"
+            ? "scene_description"
+            : undefined;
+    };
+    const next = structuredClone(raw) as typeof raw & {
+        draft: { runtimeSemantics: { inputBindings: Record<string, unknown> } };
+    };
+    for (const binding of Object.values(
+        next.draft.runtimeSemantics.inputBindings,
+    )) {
+        if (!isRecord(binding)) continue;
+        if (binding.operation === "replace_identity") {
+            binding.bindingPolicy = "one_to_one";
+            binding.renderingMode = "illustration_redraw";
+            binding.groupToSinglePolicy = "reject";
+            if ("allowedSourceGrouping" in binding)
+                binding.allowedSourceGrouping = ["single_subject"];
+        } else if (binding.operation === "replace_content") {
+            binding.distributionPolicy = "replace_as_unit";
+            const kind = Array.isArray(binding.targetIds)
+                ? kindOf(binding.targetIds[0])
+                : undefined;
+            if (kind && !valueKinds.has(String(binding.valueKind)))
+                binding.valueKind = kind;
+        }
+    }
+    return next;
+}
+export function readCandidate(input: unknown): PrintDesignCandidate {
+    const raw = normalizeBindings(input);
     const result = candidateSchema.safeParse(raw);
     if (!result.success)
         throw new PrintDesignContractError(
@@ -496,15 +555,10 @@ export function candidateIssues(
                 path: ["observation", "texts", index, "elementId"],
                 code: "expected_text_element",
             });
-        } else if (spec.defaults.texts[text.elementId] !== text.text) {
-            issues.push(
-                `observation.texts[${index}].text 与 designSpec.defaults.texts[${JSON.stringify(text.elementId)}] 不匹配，请依批准图逐字核对，同步关联槽的默认值`,
-            );
-            findings.push({
-                path: ["observation", "texts", index, "text"],
-                code: "value_mismatch",
-            });
         }
+        // observation.texts 是原图原文，defaults.texts 是默认迁移文字，两者允许不同：
+        // 随主体迁移的标题、姓名在默认值里换成新题材，原文仍须逐字回传给调用方。
+        // 槽默认值与 defaults 的一致性由 draftIssues 的 value_mismatch 保证。
     }
     return issues;
 }

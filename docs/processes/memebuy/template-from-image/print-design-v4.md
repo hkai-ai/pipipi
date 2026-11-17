@@ -16,7 +16,7 @@ v3 Process 交付运行语义 V4，二者分别版本化。编译器独立位于
 
 系统提示由 Skill 正文在前、本次任务指令在后（`skillFirst`），compile、correction、review 及不同运行共享约 180KB 的相同前缀，以命中供应商自动前缀缓存。只有本流程开启，其他流程保持原顺序。会话层支持固定 `prompt_cache_key`（Pi 默认取每个会话的随机 ID，等于每次换键），但本流程暂不启用：网关是否透传该参数尚未验证，不认时会让全部请求失败。`cacheWarming` 保持 `off`：它会在空闲时发送付费刷新请求，不适合一次性请求会话。命中情况看运行日志活动 `sessions[].rounds[].calls[].usage.cacheRead`（来自响应 `cached_tokens`）；费用以网关 `x-litellm-response-cost` 为准，折扣已体现，账本无需改。检查包含图像保真、版面与文字、印花形态、输入绑定、默认迁移和来源隔离，不能替代人工视觉判断。模型观察副本采用 WebP，每张最多 112 KiB，超出时等比例缩小；透明图附白底与深底观察图，批准图本身与摘要不变。没有提供的像素统计不编造；版面 bbox 是待人审候选。
 
-作者校验包括完整 designSpec Schema、元素/配色引用、默认迁移、主体数量、模板编译器词表检查与输入接管关系。当前生成引擎只支持一张私有主体照片；其余内容、准确文字和配色仅开放文本，不交付内容图片或 reference_only 输入。每处准确文字保留原始观察和 defaults；主体相关的文字标 followsSubject。
+作者校验包括完整 designSpec Schema、元素/配色引用、默认迁移、主体数量、模板编译器词表检查与输入接管关系。当前生成引擎只支持一张私有主体照片；其余内容、准确文字和配色仅开放文本，不交付内容图片或 reference_only 输入。每处准确文字保留原始观察和 defaults；主体相关的文字标 followsSubject。`observation.texts` 逐字记录原图文字并原样作为 `source.texts` 回传，`defaults.texts` 是默认迁移文字，二者允许不同（#1092：迁移后的标题、姓名曾因要求逐值相等而全部校验失败）；`defaults.texts` 与对应槽的 `defaultValue` 仍须一致。输入绑定中只有唯一合法取值的字段（策略、渲染模式、分发方式）写错时服务端按合同改回，`valueKind` 按目标类型推断，推断不出仍按合同报错。rect_patch 的 edge 是模板新设计的边框，复核不得因原图没有该边框而拒绝，前提是观察如实写明边框为新增。
 
 `template-from-source/v3` 继续调用原审核后 finalize，审批身份、成图和内容寻址上传不变；只把编译成员精确固定为 `template-from-image/v3`，不重新规划或生图。成员失败沿原 `DEPENDENCY_FAILURE_AFTER_COMMIT` 边界报告。内部观察、复核、模型与规则不会进入公开草稿或运行日志。
 
