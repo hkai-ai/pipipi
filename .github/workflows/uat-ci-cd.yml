@@ -1,0 +1,172 @@
+name: UAT CI/CD
+
+on:
+  push:
+    branches:
+      - develop
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    name: Check and build
+    if: github.ref == 'refs/heads/develop'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Check formatting and lint
+        run: npm run check
+
+      - name: Type check
+        run: npm run typecheck
+
+      - name: Test
+        run: npm test
+
+      - name: Build
+        run: npm run build
+
+      - name: Build UAT image
+        run: docker build --pull --tag "pipipi:${GITHUB_SHA}" .
+
+      - name: Package UAT image
+        run: |
+          set -Eeuo pipefail
+          docker save "pipipi:${GITHUB_SHA}" | gzip > "pipipi-${GITHUB_SHA}.image.tar.gz"
+          cp compose.production.yaml "pipipi-${GITHUB_SHA}.compose.yaml"
+          cp ops/deploy-uat-release.sh "pipipi-${GITHUB_SHA}.deploy-uat.sh"
+
+      - name: Upload release
+        uses: actions/upload-artifact@v4
+        with:
+          name: pipipi-uat-${{ github.sha }}
+          path: |
+            pipipi-${{ github.sha }}.image.tar.gz
+            pipipi-${{ github.sha }}.compose.yaml
+            pipipi-${{ github.sha }}.deploy-uat.sh
+          if-no-files-found: error
+          retention-days: 7
+
+  deploy:
+    name: Deploy UAT
+    needs: ci
+    if: github.ref == 'refs/heads/develop' && needs.ci.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: uat
+    concurrency:
+      group: pipipi-uat-release
+      cancel-in-progress: false
+
+    steps:
+      - name: Download release
+        uses: actions/download-artifact@v4
+        with:
+          name: pipipi-uat-${{ github.sha }}
+
+      - name: Configure SSH
+        env:
+          SSH_KNOWN_HOSTS: ${{ secrets.UAT_SSH_KNOWN_HOSTS }}
+          SSH_PRIVATE_KEY: ${{ secrets.UAT_SSH_PRIVATE_KEY }}
+        run: |
+          set -Eeuo pipefail
+          install -d -m 700 ~/.ssh
+          test -n "$SSH_KNOWN_HOSTS"
+          test -n "$SSH_PRIVATE_KEY"
+          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/known_hosts
+          test -s ~/.ssh/known_hosts
+
+      - name: Verify console gateway precondition
+        env:
+          CONSOLE_PUBLIC_URL: ${{ vars.UAT_CONSOLE_PUBLIC_URL }}
+        run: |
+          set -Eeuo pipefail
+          if [ -z "${CONSOLE_PUBLIC_URL}" ]; then
+            echo "UAT console URL is unset; skipping the public gateway check"
+            exit 0
+          fi
+          node --input-type=module <<'NODE'
+          const url = new URL(process.env.CONSOLE_PUBLIC_URL ?? "");
+          if (
+            url.protocol !== "https:" || url.username || url.password ||
+            url.search || url.hash || url.pathname === "/"
+          ) throw new Error("UAT_CONSOLE_PUBLIC_URL must be a protected HTTPS path");
+          NODE
+          base="${CONSOLE_PUBLIC_URL%/}"
+          for suffix in "" "/processes" "/stats?hours=1"; do
+            status="$(curl --silent --output /dev/null --write-out '%{http_code}' \
+              --connect-timeout 10 --max-time 20 --proto '=https' \
+              "$base$suffix")"
+            [[ "$status" =~ ^(401|403)$ ]]
+          done
+
+      - name: Upload release to UAT server
+        env:
+          REMOTE_HOST: ${{ vars.UAT_REMOTE_HOST }}
+          REMOTE_USER: ${{ vars.UAT_REMOTE_USER }}
+        run: |
+          set -Eeuo pipefail
+          [[ "$REMOTE_HOST" =~ ^[A-Za-z0-9.-]+$ ]]
+          [[ "$REMOTE_USER" =~ ^[a-z][a-z0-9-]{0,31}$ ]]
+          scp -o BatchMode=yes -o StrictHostKeyChecking=yes \
+            "pipipi-${GITHUB_SHA}.image.tar.gz" \
+            "pipipi-${GITHUB_SHA}.compose.yaml" \
+            "$REMOTE_USER@$REMOTE_HOST:/tmp/"
+
+      - name: Configure template diagnostics for the API
+        env:
+          DIAGNOSTICS_TOKEN: ${{ secrets.UAT_TEMPLATE_DIAGNOSTICS_TOKEN }}
+          REMOTE_HOST: ${{ vars.UAT_REMOTE_HOST }}
+          REMOTE_USER: ${{ vars.UAT_REMOTE_USER }}
+          REMOTE_PATH: ${{ vars.UAT_REMOTE_PATH }}
+        run: |
+          set -Eeuo pipefail
+          if [ -z "${DIAGNOSTICS_TOKEN}" ]; then
+            echo "UAT template diagnostics token is unset; leaving the server file unchanged"
+            exit 0
+          fi
+          [[ "$DIAGNOSTICS_TOKEN" =~ ^[a-zA-Z0-9_+/=-]{32,512}$ ]]
+          [[ "$REMOTE_PATH" =~ ^/[a-zA-Z0-9_/-]+$ ]]
+          printf 'MEMEBUY_TEMPLATE_DIAGNOSTICS_TOKEN=%s\n' "$DIAGNOSTICS_TOKEN" |
+            ssh -o BatchMode=yes -o StrictHostKeyChecking=yes "$REMOTE_USER@$REMOTE_HOST" "
+              set -eu
+              cd '$REMOTE_PATH/shared'
+              umask 077
+              tmp=\$(mktemp .template-diagnostics.XXXXXXXX)
+              trap 'rm -f -- \"\$tmp\"' EXIT
+              cat > \"\$tmp\"
+              mv -f -- \"\$tmp\" template-diagnostics.env
+            "
+
+      - name: Activate UAT release
+        env:
+          REMOTE_HOST: ${{ vars.UAT_REMOTE_HOST }}
+          REMOTE_PATH: ${{ vars.UAT_REMOTE_PATH }}
+          REMOTE_USER: ${{ vars.UAT_REMOTE_USER }}
+        run: |
+          set -Eeuo pipefail
+          [[ "$REMOTE_PATH" =~ ^/[a-zA-Z0-9_/-]+$ ]]
+          ssh -o BatchMode=yes -o StrictHostKeyChecking=yes \
+            "$REMOTE_USER@$REMOTE_HOST" \
+            bash -s -- "$REMOTE_PATH" "$GITHUB_SHA" \
+              "/tmp/pipipi-${GITHUB_SHA}.image.tar.gz" \
+              "/tmp/pipipi-${GITHUB_SHA}.compose.yaml" \
+            < "pipipi-${GITHUB_SHA}.deploy-uat.sh"

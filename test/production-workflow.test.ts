@@ -59,6 +59,8 @@ describe("Production CI/CD workflow", () => {
         expect(plan).toContain("- async-acceptance");
         expect(plan).toContain("deployment: false");
         expect(plan).toContain("SSH_KNOWN_HOSTS");
+        expect(plan).toContain("github.ref == 'refs/heads/main'");
+        expect(deploy).toContain("github.ref == 'refs/heads/main'");
         expect(deploy).toContain(
             "needs.release-plan.outputs.route == 'routine'",
         );

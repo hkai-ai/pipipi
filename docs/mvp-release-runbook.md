@@ -120,6 +120,33 @@ workflow 的生产 Job仍使用 GitHub `production` Environment 记录部署并�
 
 Actions 私钥只用于连接服务器。服务器不需要读取 Git 仓库或访问镜像仓库，因为流水线直接上传 CI 生成的镜像归档和 Compose 文件。
 
+### UAT 同步发布
+
+`develop` 由 [UAT CI/CD](../.github/workflows/uat-ci-cd.yml) 发布到另一台服务器。生产 `main` 流水线只在 `refs/heads/main` 上部署，手动从其他分支触发也不会进入生产主机。两条流水线使用不同的 GitHub Environment、并发组和 SSH 变量，UAT 不读取 `REMOTE_HOST`、`SSH_PRIVATE_KEY` 或生产控制台地址。
+
+UAT 只部署同步形状：主 API 与内部 CRT Business API，复用 [`compose.production.yaml`](../compose.production.yaml)，`ASYNC_PROCESS_RUNS_ENABLED=false`。服务器上已有异步角色，或 `shared/.env` 把异步入口设为 `true` 时，[`ops/deploy-uat-release.sh`](../ops/deploy-uat-release.sh) 直接拒绝。部署前还要存在 `shared/uat-target`，内容只有一行 `uat`；没有这个标记的机器不会被该脚本更新。
+
+在 GitHub Environment `uat` 中配置，并把部署分支限制为 `develop`：
+
+| 种类 | 名称 | 内容 |
+| --- | --- | --- |
+| Secret | `UAT_SSH_PRIVATE_KEY` | 只授权 UAT 部署账户的私钥 |
+| Secret | `UAT_SSH_KNOWN_HOSTS` | 经独立渠道核对的 UAT 服务器 host key |
+| Secret | `UAT_TEMPLATE_DIAGNOSTICS_TOKEN` | 可选；设置后写入 API 的只读诊断凭证，缺省则不改服务器上的文件 |
+| Variable | `UAT_REMOTE_HOST` | UAT 服务器域名或 IP |
+| Variable | `UAT_REMOTE_USER` | 部署账户 |
+| Variable | `UAT_REMOTE_PATH` | 绝对目录，例如 `/opt/pipipi-uat` |
+| Variable | `UAT_CONSOLE_PUBLIC_URL` | 可选；设置后必须是已鉴权的 HTTPS 控制台路径，匿名访问返回 401 或 403 |
+
+服务器准备与生产同步形状相同：安装 Docker 与 Compose，建立 `shared/.env`、`pg-server.crt`、业务数据目录和运行记录目录。`.env` 保持 `ASYNC_PROCESS_RUNS_ENABLED=false`，数据库连接通过与生产相同的只读边界审计。公网防火墙不开放 `4300` 和 `4400`。控制台域名尚未接好时可以不设置 `UAT_CONSOLE_PUBLIC_URL`，首次发布会跳过公网检查。
+
+```bash
+sudo mkdir -p /opt/pipipi-uat/shared
+sudo chmod 700 /opt/pipipi-uat/shared
+printf 'uat\n' | sudo tee /opt/pipipi-uat/shared/uat-target >/dev/null
+sudo chmod 600 /opt/pipipi-uat/shared/uat-target
+```
+
 ### 服务器初始化
 
 以下命令会安装软件和创建系统目录，只能由有 sudo 权限的运维人员在目标服务器执行：

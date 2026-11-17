@@ -303,6 +303,7 @@ jobs:
     name: Select production release path
     if: >-
       always() &&
+      github.ref == 'refs/heads/main' &&
       github.event_name != 'pull_request' &&
       needs.ci.result == 'success' &&
       needs.async-acceptance.result == 'success' &&
@@ -379,7 +380,7 @@ jobs:
   deploy:
     name: Deploy production
     needs: release-plan
-    if: always() && needs.release-plan.result == 'success' && needs.release-plan.outputs.route == 'routine'
+    if: always() && github.ref == 'refs/heads/main' && needs.release-plan.result == 'success' && needs.release-plan.outputs.route == 'routine'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     environment: production

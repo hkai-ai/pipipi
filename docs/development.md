@@ -127,6 +127,7 @@ curl -X POST http://127.0.0.1:4300/execute \
 | 运维职责 | 文件 | 调用入口 |
 | --- | --- | --- |
 | 日常异步更新与失败回滚 | `update-async-release.sh` | `production-ci-cd.yml` |
+| UAT 同步发布 | `deploy-uat-release.sh` | `uat-ci-cd.yml`，仅 `develop` |
 | 初始化与前置检查 | `inspect-async-production-prerequisites.sh`、`inspect-production-database-boundary.sh`、`provision-async-production-environments.sh`、`finalize-async-production-environment-evidence.sh`、`validate-production-ssh-target.sh` | 异步前置检查、数据库边界检查与环境准备 Actions |
 | 首次部署与阶段晋级 | `deploy-async-internal.sh`、`promote-async-release.sh` | `async-internal-release.yml`、`async-promote-release.yml` |
 | 内部 smoke 与停流控制 | `verify-async-internal-release-evidence.sh`、`set-async-internal-smoke-lease.sh`、`set-async-internal-intake.sh`、`collect-async-internal-smoke-evidence.sh` | `async-internal-smoke.yml`；结果供晋级入口核验 |
