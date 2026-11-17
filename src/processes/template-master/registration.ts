@@ -5,6 +5,7 @@ import { currentCostLedger } from "../../process-runtime/cost.js";
 import {
     defineProcessRegistration,
     failProcess,
+    type ProcessRegistration,
 } from "../../process-runtime/index.js";
 import { templateImageSize } from "../template-from-image/image.js";
 import {
@@ -69,7 +70,7 @@ export function createTemplateMasterRegistration(options: {
     loadSource?: (url: string, signal: AbortSignal) => Promise<Buffer>;
     /** 已知费用累计；缺省读取本次运行的费用账本。 */
     spentUsd?: () => number;
-}) {
+}): ProcessRegistration {
     const spent =
         options.spentUsd ?? (() => currentCostLedger()?.snapshot().usd ?? 0);
     return defineProcessRegistration({
