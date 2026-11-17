@@ -40,3 +40,53 @@ describe("Gateway Caller Identity", () => {
         ).toThrow("ASYNC_GATEWAY_SHARED_SECRET must be at least 32 bytes");
     });
 });
+
+describe("API Key Caller Identity", () => {
+    it("does not await or propagate last-use observation failures", async () => {
+        const { createInMemoryCallerApiKeyStore } = await import(
+            "../src/caller-api-keys/memory.js"
+        );
+        const { createApiKeyCallerIdentityResolver } = await import(
+            "../src/api/identity.js"
+        );
+        const store = createInMemoryCallerApiKeyStore();
+        const issued = await store.issue({ callerId: "caller", label: "test" });
+        for (const recordUse of [
+            () => new Promise<void>(() => {}),
+            async () => {
+                throw new Error("private error");
+            },
+            () => {
+                throw new Error("private sync error");
+            },
+        ]) {
+            const resolver = createApiKeyCallerIdentityResolver({
+                ...store,
+                recordUse,
+            });
+            await expect(
+                resolver.resolve({ authorization: `Bearer ${issued.key}` }),
+            ).resolves.toEqual({ callerId: "caller", authMethod: "api_key" });
+        }
+    });
+    it("rejects malformed Pipipi Bearer credentials without trusting injected headers", async () => {
+        const { createInMemoryCallerApiKeyStore } = await import(
+            "../src/caller-api-keys/memory.js"
+        );
+        const { createCompositeCallerIdentityResolver } = await import(
+            "../src/api/identity.js"
+        );
+        const resolver = createCompositeCallerIdentityResolver({
+            store: createInMemoryCallerApiKeyStore(),
+            gateway: { resolve: async () => ({ callerId: "forged" }) },
+        });
+        for (const authorization of [
+            "Bearer ppk_invalid extra",
+            "Bearer ppk_invalid",
+            "Bearer PPK_invalid",
+        ])
+            await expect(
+                resolver.resolve({ authorization }),
+            ).resolves.toBeUndefined();
+    });
+});

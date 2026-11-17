@@ -371,3 +371,9 @@ Composition Root 通过单一配置解析入口选择文本 base URL 与 API key
 图片选择规则也由 `src/model-gateway.ts` 拥有：通用 OpenAI 图片覆盖 `OPENAI_IMAGE_*` 优先于共享 MODEL_GATEWAY 对，最后兼容旧 OPENAI 对。Flare 已启用时优先共享 MODEL_GATEWAY 对，其次旧 CHARACTER_EMOJI_IMAGE 对；旧 image key-only 保留各自默认地址，不从其他组取 base。任一被选中的共享组不完整即失败。渠道启用由独立开关决定，不从共享 key 的存在推断。关闭的 Flare 不校验无效旧主用配置，未设置开关时旧 base-only 仍拒绝。
 
 会话可附加由业务校验和工具执行处记录的事件。同轮按发生顺序展示，工具内的失败和兜底按调用编号归属。Worker 主动取消时，运行中的模型轮次记录取消来源；供应商尚未返回的用量保持缺失。
+
+## 调用方认证接缝
+
+`CallerIdentityResolver` 是同步、异步及 Agent Conversations 唯一身份入口。API Key Store 在 API 顶层按 DATABASE_URL 选择 PostgreSQL 或本地内存 Adapter，独立于异步开关；关闭资源时释放连接池。一个 callerId 可有多把 Key，轮换不改变运行、幂等和 Webhook 归属。密钥发放/吊销与审计原子提交，只保存 SHA-256 与非秘密展示前缀；使用时间按一分钟窗口 best-effort 更新，不阻塞认证。
+
+组合 Resolver 对 ppk_ Bearer 仅验证 Key，不向网关回落；其他或缺省 Authorization 在过渡开关开启时验证网关注入头。同步 open 不解析身份，audit 尝试且存储故障仍放行，required 认证存储故障返回 503；内部评测不变。已识别身份通过执行上下文进入 ProcessRunRecord 的 callerId/authMethod，内存、JSONL 和 PostgreSQL 保持一致，正文和公开响应不加入认证材料。精确公开行为以 [API 认证](api.md#调用方认证) 为准。

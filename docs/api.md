@@ -12,7 +12,23 @@
 
 Agent Conversations 当前支持可靠多轮文本、owner-scoped 图片资源、Registration 固定的受控 Business Process Tool，以及 owner 删除和 30 天闲置保留。production Composition Root 已装配 PostgreSQL、BullMQ、资源服务、请求级 Pi Session、Dispatcher、Worker、Reconciler 与 Cleaner；`AGENT_CONVERSATIONS_ENABLED=false` 是默认值，因此未启用的部署访问这些路由仍返回 404。当前阶段不提供图片上传、任意 URL 抓取、跨 Conversation 长期 Memory、SSE 或 Canvas Document。
 
-能力可调用不等于可以匿名公开。同步 `/execute` 的应用本身不校验调用方身份；Agent Conversations 必须由入口网关完成用户鉴权、剥离外部 identity header，再向应用注入可信 caller identity，且每次创建和追加都要求 caller-scoped `Idempotency-Key`。部署方必须先完成容量与费用评审并按 [Agent Conversations Runbook](agent-conversations-runbook.md) 开启；调用方不能在请求中放宽任何门禁。
+业务入口统一支持 Pipipi 发放的 Bearer API Key；`/execute` 按部署配置逐步收紧，异步与 Agent Conversations 始终要求调用方身份。Agent Conversations 每次创建和追加都要求 caller-scoped `Idempotency-Key`。部署方必须先完成容量与费用评审并按 [Agent Conversations Runbook](agent-conversations-runbook.md) 开启；调用方不能在请求中放宽任何门禁。
+
+## 调用方认证
+
+调用方后端通过 `Authorization: Bearer <ppk_...>` 向 `/execute`、`/process-runs` 及 Agent Conversations 提交同一把 API Key。向运维申请稳定的 `callerId` 和带用途标签的 Key；明文只在发放时显示一次，应保存在调用方的服务端 Secret 中。所有 Key 均可调用全部已发布流程。Key 不是用户登录凭证，不能放入浏览器、URL、业务输入或 `X-Request-Id`。
+
+一个 `callerId` 可持有多把 Key。轮换时先发新 Key，确认调用方切换后吊销旧 Key；运行查询、幂等键、Webhook 与排队上限仍按稳定的 `callerId` 隔离，新 Key 可继续读取旧 Key 创建的运行。过期或吊销立即影响后续认证；已受理执行不被取消。发放、盘点和吊销见[密钥管理步骤](mvp-release-runbook.md#调用方-api-key-管理与迁移)。
+
+| `EXECUTE_AUTH_MODE` | `/execute` 行为 |
+| --- | --- |
+| `open`（默认） | 不解析身份，保持放行与原观测行为，不写入 callerId/authMethod 归属 |
+| `audit` | 尝试认证，识别成功记录 caller；缺失、无效或存储暂不可用仍放行，记录 `execute_anonymous` 安全日志 |
+| `required` | 缺失、无效、已过期或已吊销返回 HTTP 401 `CALLER_UNAUTHORIZED`；认证存储异常返回 HTTP 503 `CALLER_AUTH_UNAVAILABLE` |
+
+错误形状统一为 `{"status":"failed","error":{"code":"CALLER_UNAUTHORIZED","message":"Caller identity could not be verified"}}`。匿名审计只记录事件、时间、`/execute`、可安全解析的公开 process/version 及安全 requestId；不含 input、Authorization 或 Key。同步 Run Record 在识别身份时保留 callerId/authMethod，HTTP 日志可按 api_key、gateway、anonymous 区分。`/internal/eval/execute` 保持原有开关与行为，不受三档配置影响。
+
+过渡期开关 `CALLER_AUTH_GATEWAY_FALLBACK=true`（默认）允许网关注入身份：无 Authorization 或非 `ppk_` 的旧网关 Bearer 可继续走原网关验证。带 `ppk_` 的凭证只验证 API Key；无效时不会回落网关。API Key 认证忽略客户端内部身份头。关闭回落后仅接受 API Key，部署必须提供 `DATABASE_URL`。公网调用方始终不得自行发送 `x-pipipi-caller-id` / `x-pipipi-gateway-token`；OpenResty 应原样透传 Authorization 并剥离外部内部头，过渡期只为已认证的旧调用方重新注入。
 
 ### 最短接入路径
 
@@ -22,11 +38,12 @@ Agent Conversations 当前支持可靠多轮文本、owner-scoped 图片资源�
 4. 保存 `runId` 和调用方生成的 `X-Request-Id`，用于排查失败。`X-Request-Id` 不提供幂等性。
 5. 图片 Process 会产生模型费用和外部写入。网络超时、`PROCESS_TIMEOUT`、`DEPENDENCY_FAILURE` 或 `DEPENDENCY_FAILURE_AFTER_COMMIT` 后不得自动重试。
 
-开发环境可以先使用以下最小请求；实际 Base URL 和网关凭证由部署方提供。该请求会产生模型与图片费用：
+开发环境可以先使用以下最小请求；实际 Base URL 和 API Key 由部署方提供。该请求会产生模型与图片费用：
 
 ```bash
 curl --request POST 'https://pi.ganjiuwanshi.com/execute' \
   --header 'content-type: application/json' \
+  --header 'authorization: Bearer <ppk_...>' \
   --header 'x-request-id: replace-with-your-trace-id' \
   --data '{
     "process": "minimal-zine-poster",
@@ -51,7 +68,7 @@ curl --request POST 'https://pi.ganjiuwanshi.com/execute' \
 }
 ```
 
-需要可靠接受、轮询和安全重放时，改用[异步执行](#异步执行)。异步入口默认关闭，并要求可信网关身份和稳定的 `Idempotency-Key`；调用方不能只根据仓库代码假定部署已经开放。
+需要可靠接受、轮询和安全重放时，改用[异步执行](#异步执行)。异步入口默认关闭，并要求已认证调用方和稳定的 `Idempotency-Key`；调用方不能只根据仓库代码假定部署已经开放。
 
 ## Agent Conversations（多轮文本与图片资源）
 
@@ -61,7 +78,7 @@ production Agent catalog 当前为空：原 `design-assistant/v1` 已下线，�
 
 路由仅在部署设置 `AGENT_CONVERSATIONS_ENABLED=true` 时挂载；默认返回 404。持久路径使用 PostgreSQL 权威 Store/Tool Ledger 与 BullMQ 最小 Job，并由 Dispatcher、Worker、Reconciler 和 Cleaner 处理至少一次调度。调用前应由部署方确认当前环境已开放。
 
-下列 HTTP 示例中的 `Authorization` 代表部署方发放的外部凭证。公网调用方不得自行发送 `X-Pipipi-Caller-Id` 或 `X-Pipipi-Gateway-Token`；入口网关必须剥离并重新注入这两个内部 header。
+下列 HTTP 示例中的 `Authorization` 代表部署方发放的外部凭证。公网调用方不得自行发送 `X-Pipipi-Caller-Id` 或 `X-Pipipi-Gateway-Token`；入口网关必须剥离外部传入的这两个内部 header，过渡期仅为已认证的旧调用方重新注入。
 
 创建 Conversation 必须包含第一轮 Turn：
 
@@ -288,7 +305,7 @@ Agent 先读取 [`https://pi.ganjiuwanshi.com/llms.txt`](https://pi.ganjiuwanshi
 | 业务入口 | `POST /execute`；部署启用后提供 `POST /agent-conversations`、`POST /agent-conversations/{id}/turns`、`GET/DELETE /agent-conversations/{id}` |
 | 内部评测入口 | `POST /internal/eval/execute`；当前生产已开启 |
 | Content-Type | `application/json` |
-| 鉴权 | `/execute` 由部署网关决定；Agent Conversations 必须由网关鉴权并向应用注入可信 caller identity |
+| 鉴权 | 统一使用 Bearer API Key；`/execute` 档位与网关兼容策略见[调用方认证](#调用方认证) |
 | 字符编码 | UTF-8 |
 | 请求体上限 | 当前应用上限为 262144 UTF-8 bytes；入口网关可以设置更小的限制 |
 | 执行时限 | 图片转模板上限 480 秒，建议客户端读取超时至少 500 秒；其他 Process 上限 240 秒，建议至少 260 秒。网关超时也需相应配置 |
@@ -521,12 +538,12 @@ Content-Type: application/json
 
 ```http
 POST /process-runs HTTP/1.1
-Authorization: Bearer <gateway credential>
+Authorization: Bearer <ppk_...>
 Idempotency-Key: <caller-scoped key>
 Content-Type: application/json
 ```
 
-可信网关先认证调用方，删除请求中的 `x-pipipi-caller-id` 与 `x-pipipi-gateway-token`，再注入稳定 caller subject 和服务端共享凭证。调用方不得直接构造这两个内部头。`Idempotency-Key` 必填、最长 512 UTF-8 bytes，并按已认证 caller 隔离；网络中断或响应丢失时，重试同一业务操作必须复用原 key。
+应用使用 API Key 解析稳定 callerId；过渡期也接受可信网关注入身份。网关原样透传 Authorization，并删除客户端的 `x-pipipi-caller-id` 与 `x-pipipi-gateway-token`。调用方不得直接构造这两个内部头。`Idempotency-Key` 必填、最长 512 UTF-8 bytes，并按已认证 caller 隔离；网络中断或响应丢失时，重试同一业务操作必须复用原 key。
 
 durable acceptance 成功返回 HTTP `202`、`Location: /process-runs/{runId}`、`Retry-After` 与不含业务结果的 Run：
 

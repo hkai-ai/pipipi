@@ -7,7 +7,36 @@
 
 只允许受控调用方通过私有入口或可信网关访问服务。入口必须终止 TLS、认证调用方，并阻止客户端绕过网关访问容器端口。浏览器通过现有后端或 BFF 调用；服务不启用 CORS。
 
-部署平台负责入口认证。应用继续根据服务端注册表决定可用的 Business Process、版本、Agent 和 Tool；调用方不能选择模型、Skill、Tool 或下游地址。
+Pipipi 负责调用方 API Key 认证，部署平台负责可信入口。应用继续根据服务端注册表决定可用的 Business Process、版本、Agent 和 Tool；调用方不能选择模型、Skill、Tool 或下游地址。
+
+## 调用方 API Key 管理与迁移
+
+先应用 `020_caller_api_keys.mjs`：新增密钥和无明文的操作审计表，并给 `process_run_records` 添加可空 `caller_id` / `auth_method`。正常发布沿用既有备份、审计、migration verify 和回滚流程，不执行 production migration down。同步形状也使用 `DATABASE_URL` 持久验证 Key，独立连接池随 API 关闭；无数据库本地开发仅使用进程内 Store。
+
+以下命令会写入当前容器配置的数据库，须在目标环境的受控运维终端执行。发放结果中的 `key` 只显示一次，直接存入调用方的服务端 Secret；不要写入工单、共享终端日志或业务输入。`keyPrefix` 是公开标识，不包含随机秘密部分。
+
+```bash
+docker exec pipipi node dist/bin/caller-api-keys.js issue \
+  --caller-id memebuy-uat --label 'UAT backend' --actor operator-id \
+  --expires-at 2027-01-01T00:00:00Z
+docker exec pipipi node dist/bin/caller-api-keys.js list --caller-id memebuy-uat
+docker exec pipipi node dist/bin/caller-api-keys.js revoke \
+  --key-id '<keyId>' --actor operator-id
+```
+
+本地等价入口为 `npm run caller-api-keys -- issue --caller-id memebuy-uat --label local`，同样要求 `DATABASE_URL`。省略 `list` 的 caller 过滤可盘点全部调用方；列表包含 active/revoked/expired、创建、过期、吊销和最后使用时间，不含明文或哈希。最后使用时间按一分钟窗口节流，best-effort 写入失败不影响已认证请求。发放和吊销审计可通过 Store 的 `audits(callerId?)` 查询；审计包含操作、时间、调用方、Key 标识、标签及可选 actor/note。
+
+轮换为同一 callerId 发新 Key，确认调用方已切换，再按旧 keyId 吊销。新 Key 可继续查询旧运行，重放旧 Idempotency-Key；不要为了轮换创建新的 callerId。吊销或过期仅拒绝后续认证，不中断已受理任务。
+
+迁移按以下顺序推进，不预设尚未批准的切换日期：
+
+1. 上线迁移和 API，保留 `EXECUTE_AUTH_MODE=open`、`CALLER_AUTH_GATEWAY_FALLBACK=true`。先检查 OpenResty 对业务路由原样透传 Authorization，删除外部 `x-pipipi-caller-id` / `x-pipipi-gateway-token`；仅为仍用旧网关凭证的已认证调用方注入内部头。旧网关的非 ppk_ Bearer 可继续透传，新 ppk_ Key 必须允许到达应用，不能被旧凭证白名单拦截。
+2. 为已知调用方分别发 Key，让 BFF 对同步、异步和 Agent 路由统一带 Bearer。用无费用的非法输入验证认证通过后返回业务 400/404，用错 Key 验证 required 入口返回 401；不打印凭证。
+3. 把 `/execute` 切为 `audit`，观察 `execute_anonymous` 以及完成/异步受理日志的 authMethod（api_key/gateway/anonymous）。认不出或认证数据库暂不可用仍放行；匿名日志只含安全标识，不含输入或头原文。
+4. 确认调用方完成切换、无匿名调用后，切为 `required`。缺失/无效 Key 返回 401 `CALLER_UNAUTHORIZED`，认证数据库故障返回 503；若切换误伤，恢复上一档配置排查，不重投未知付费请求。
+5. 网关调用归零后设 `CALLER_AUTH_GATEWAY_FALLBACK=false`；此时必须配置 `DATABASE_URL`，可移除 ASYNC/AGENT_GATEWAY_SHARED_SECRET，旧网关注入将被拒绝。开关和档位非法值拒绝启动；回落开启且相应异步/Agent 入口启用时，共享密钥仍须至少 32 bytes。
+
+控制台仍由 OpenResty Basic Auth 保护，API Key 不提供控制台登录或 caller 视图隔离。控制台的 `/execute` 调试也受同一档位约束，切 required 前需安排服务端调用凭证或受控网关身份；不要把管理 Key 或数据库凭证放进前端。`/internal/eval/execute` 的原有开关和行为保持不变。调整反代必须保留精确 location、既有控制台鉴权和同步超时，检查配置后平滑重载；失败恢复备份。
 
 ## 初始容量与超时
 

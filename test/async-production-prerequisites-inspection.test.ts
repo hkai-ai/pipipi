@@ -106,6 +106,21 @@ describe("Async production prerequisites inspection", () => {
         expect(result.stderr).toBe("");
     });
 
+    it("allows API authentication settings and API-Key-only mode without a gateway secret", async () => {
+        const fixture = await createFixture({
+            apiKeyOnly: true,
+            invalidSecrets: true,
+        });
+        const result = runInspection(fixture);
+        expect(result.status, result.stderr).toBe(0);
+        expect(JSON.parse(result.stdout)).toMatchObject({
+            gatewaySecretConfigured: true,
+            roles: {
+                api: { environmentIsolated: true, preflightPassed: true },
+            },
+        });
+    });
+
     it("reports missing role files without exposing another role", async () => {
         const fixture = await createFixture({ missingWorker: true });
 
@@ -293,6 +308,7 @@ describe("Async production prerequisites inspection", () => {
     async function createFixture(
         options: Readonly<{
             apiHasWebhookSecret?: boolean;
+            apiKeyOnly?: boolean;
             invalidSecrets?: boolean;
             mismatchedWorkerDatabase?: boolean;
             missingWorker?: boolean;
@@ -338,7 +354,7 @@ describe("Async production prerequisites inspection", () => {
             [".env", `DATABASE_URL=${databaseUrl}\n`],
             [
                 "async-api.env",
-                `BUSINESS_API_BASE_URL=http://127.0.0.1:4400\nDATABASE_URL=${databaseUrl}\nASYNC_GATEWAY_SHARED_SECRET=${gatewaySecret}\nPROCESS_RUN_ACCEPTED_INPUT_RETENTION_MS=86400000\nPROCESS_RUN_RESULT_RETENTION_MS=604800000\nPROCESS_RUN_METADATA_RETENTION_MS=2592000000\nASYNC_GLOBAL_BACKLOG_LIMIT=1000\nASYNC_CALLER_BACKLOG_LIMIT=100\nASYNC_BACKLOG_RETRY_AFTER_SECONDS=5\nPI_PALE_WATERCOLOR_SKILL_DIRECTORY=/app/.pi/skills/pale\nPI_RAW_HUMANISM_SKILL_DIRECTORY=/app/.pi/skills/raw\nPI_NARRATIVE_MONUMENT_SKILL_DIRECTORY=/app/.pi/skills/monument\n${apiExtra}`,
+                `EXECUTE_AUTH_MODE=audit\nCALLER_AUTH_GATEWAY_FALLBACK=${options.apiKeyOnly ? "false" : "true"}\nBUSINESS_API_BASE_URL=http://127.0.0.1:4400\nDATABASE_URL=${databaseUrl}\nASYNC_GATEWAY_SHARED_SECRET=${gatewaySecret}\nPROCESS_RUN_ACCEPTED_INPUT_RETENTION_MS=86400000\nPROCESS_RUN_RESULT_RETENTION_MS=604800000\nPROCESS_RUN_METADATA_RETENTION_MS=2592000000\nASYNC_GLOBAL_BACKLOG_LIMIT=1000\nASYNC_CALLER_BACKLOG_LIMIT=100\nASYNC_BACKLOG_RETRY_AFTER_SECONDS=5\nPI_PALE_WATERCOLOR_SKILL_DIRECTORY=/app/.pi/skills/pale\nPI_RAW_HUMANISM_SKILL_DIRECTORY=/app/.pi/skills/raw\nPI_NARRATIVE_MONUMENT_SKILL_DIRECTORY=/app/.pi/skills/monument\n${apiExtra}`,
             ],
             [
                 "process-dispatcher.env",

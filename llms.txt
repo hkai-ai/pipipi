@@ -9,7 +9,7 @@ Base URL: `https://pi.ganjiuwanshi.com`
 1. Read [the complete API contract](https://pi.ganjiuwanshi.com/docs/api.md).
 2. Select an exact `process` and `version` from its Process list.
 3. Use `POST /execute` only when the caller accepts synchronous, non-idempotent execution. Use `POST /process-runs` with a stable `Idempotency-Key` when the async interface is available and the operation may be retried. The production Agent catalog is currently empty, so the four `/agent-conversations` routes are not available; use them only after the deployment confirms a production Agent is registered and enabled.
-4. Treat `X-Request-Id` as tracing metadata, never as an idempotency key.
+4. Send the same server-issued `Authorization: Bearer <ppk_...>` API Key for `/execute`, `/process-runs`, and Agent Conversations. `/execute` defaults to `open` (no identity), supports `audit` (anonymous calls still allowed), and `required` (401 `CALLER_UNAUTHORIZED` for missing or invalid credentials). Never put a Key in input, URLs, logs, or `X-Request-Id`. Rotate keys under the same callerId to preserve run ownership and idempotency. Treat `X-Request-Id` as tracing metadata, never as an idempotency key.
 5. For paid image Processes, do not automatically retry an ambiguous synchronous timeout or dependency failure. Follow the retry table in the API contract.
 6. A call is complete only after the response matches the documented success or stable error shape. Never infer success from HTTP acceptance alone.
 7. For Agent Conversations, create and continue use separate stable `Idempotency-Key` values; follow `Retry-After` on busy or HTTP 429 responses. Never send internal caller or gateway identity headers yourself.

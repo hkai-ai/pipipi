@@ -99,7 +99,7 @@ production Agent catalog 当前为空：原 `design-assistant/v1` 已下线，�
 
 ## 运行与信任模型
 
-默认发布是受控、同步的 Node.js HTTP 服务；异步入口和 Agent Conversations 默认关闭。部署平台负责 TLS、私有入口、调用方认证、实例上限和 Secret 注入。生产形状、门禁与回滚由 [同步 Runbook](docs/mvp-release-runbook.md)、[异步 Runbook](docs/async-process-runs-runbook.md) 和 [Agent Conversations Runbook](docs/agent-conversations-runbook.md) 拥有。
+默认发布是受控、同步的 Node.js HTTP 服务；异步入口和 Agent Conversations 默认关闭。Pipipi 通过唯一 CallerIdentityResolver 校验自管 API Key，以稳定 callerId 隔离归属；一个 caller 可持有多把可轮换 Key，服务端只保存哈希和无秘密的展示前缀。同步入口默认 open 不认人，可经 audit 过渡到 required；网关注入兼容默认开启，可配置关闭。部署平台负责 TLS、私有入口、实例上限和 Secret 注入。生产形状、门禁与回滚由 [同步 Runbook](docs/mvp-release-runbook.md)、[异步 Runbook](docs/async-process-runs-runbook.md) 和 [Agent Conversations Runbook](docs/agent-conversations-runbook.md) 拥有。
 
 显式启用异步入口后，PostgreSQL 保存权威 Process Run，Redis/BullMQ 只负责调度。API、Dispatcher、Process Worker、Webhook Worker 和 Retention Cleaner 是独立角色。Queue 只承诺至少一次投递；Business Capability 使用稳定 `runId` 控制重复副作用。网关删除调用方伪造的身份头，并注入稳定 caller subject；查询、幂等和 Webhook 按 owner 隔离。
 

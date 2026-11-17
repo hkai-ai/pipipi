@@ -1,5 +1,7 @@
 # Business Process 场景目录
 
+全部场景共用 [API 调用方认证](../api.md#调用方认证)；Key 绑定稳定 callerId，不改变 Process 的精确身份。
+
 本目录先按产品场景路由，再进入具体 Business Process。产品归属只组织开发知识，不改变 Process ID、版本、HTTP Interface 或 production catalog。
 
 ## 场景入口

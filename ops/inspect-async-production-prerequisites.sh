@@ -125,7 +125,7 @@ role_key_allowed() {
     # application ignores them and provisioning no longer copies them.
     case "$role" in
         api)
-            allowed="MEMEBUY_TEMPLATE_DIAGNOSTICS_TOKEN BUSINESS_API_BASE_URL DATABASE_URL ASYNC_GATEWAY_SHARED_SECRET
+            allowed="EXECUTE_AUTH_MODE CALLER_AUTH_GATEWAY_FALLBACK MEMEBUY_TEMPLATE_DIAGNOSTICS_TOKEN BUSINESS_API_BASE_URL DATABASE_URL ASYNC_GATEWAY_SHARED_SECRET
                 OPENAI_API_KEY OPENAI_BASE_URL OPENAI_API_MODE PI_PROVIDER PI_MODEL TEMPLATE_MODEL
                 MODEL_GATEWAY_API_KEY MODEL_GATEWAY_BASE_URL TEXT_MODEL_API_KEY TEXT_MODEL_BASE_URL CHARACTER_EMOJI_API_KEY CHARACTER_EMOJI_BASE_URL CHARACTER_EMOJI_PLANNER_BASE_URL CHARACTER_EMOJI_PLANNER_API_KEY
                 PI_AGENT_DIR PI_SKILL_DIRECTORY PI_POSTER_SKILL_DIRECTORY PI_CRT_SKILL_DIRECTORY
@@ -258,6 +258,10 @@ secret_shape_valid() {
         --entrypoint node "$candidate_image_id" -e '
 const kind = process.env.SECRET_KIND;
 if (kind === "gateway") {
+    if (process.env.CALLER_AUTH_GATEWAY_FALLBACK === "false") {
+        if (!process.env.DATABASE_URL) process.exit(1);
+        process.exit(0);
+    }
     const value = process.env.ASYNC_GATEWAY_SHARED_SECRET ?? "";
     if (Buffer.byteLength(value, "utf8") < 32) process.exit(1);
 } else if (kind === "webhook") {

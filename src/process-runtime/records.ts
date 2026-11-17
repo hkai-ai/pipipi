@@ -1,7 +1,9 @@
-/** 定义 Process Run Record 及其存取接口，提供禁用与内存两种 Adapter */
+/** 定义含调用方归属的 Process Run Record 存取接口，提供禁用与内存 Adapter。 */
 import type { ProcessErrorCode, ProcessRunResult } from "./result.js";
 
 export type ProcessRunRecord = {
+    readonly callerId?: string;
+    readonly authMethod?: "api_key" | "gateway" | "anonymous";
     readonly schemaVersion: 1;
     readonly recordedAt: string;
     readonly runId: string;
@@ -17,6 +19,8 @@ export type ProcessRunRecord = {
 };
 
 export type CompletedProcessRun = {
+    readonly callerId?: string;
+    readonly authMethod?: "api_key" | "gateway" | "anonymous";
     readonly result: ProcessRunResult;
     readonly acceptedRequest?: {
         readonly input: unknown;
@@ -149,6 +153,8 @@ function createRecord(
     return {
         schemaVersion: 1,
         recordedAt,
+        ...(completion.callerId ? { callerId: completion.callerId } : {}),
+        ...(completion.authMethod ? { authMethod: completion.authMethod } : {}),
         runId: result.runId,
         ...(result.process === undefined ? {} : { process: result.process }),
         ...(result.version === undefined ? {} : { version: result.version }),

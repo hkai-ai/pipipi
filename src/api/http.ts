@@ -1,4 +1,4 @@
-/** Composition Root：按路由把执行、异步 Process Run、控制台 Run Record 查询分发给各协作者 */
+/** 按路由校验调用方身份并分发同步、异步、会话与控制台请求，输出安全观测。 */
 import type {
     IncomingMessage,
     RequestListener,
@@ -35,7 +35,7 @@ export type {
 } from "./console-contract.js";
 
 import { createConsoleAssets } from "./console-assets.js";
-import type { CallerIdentityResolver } from "./identity.js";
+import type { CallerIdentity, CallerIdentityResolver } from "./identity.js";
 import { createPublicDocumentation } from "./public-documents.js";
 import type { TemplateDiagnostics } from "./template-diagnostics.js";
 
@@ -55,6 +55,8 @@ const safeCallerRequestId = /^[A-Za-z0-9_.:-]+$/;
 const handlePublicDocumentation = createPublicDocumentation();
 
 export type ProcessingHttpOptions = {
+    callerIdentity?: CallerIdentityResolver;
+    executeAuthMode?: "open" | "audit" | "required";
     maxRequestBodyBytes?: number;
     maxConcurrentExecutions?: number;
     internalEvaluationEnabled?: boolean;
@@ -225,10 +227,22 @@ export type AsyncProcessRunLogRecord =
           requestId?: string;
       }>;
 
-export type ProcessingLogRecord =
+export type ProcessingLogRecord = {
+    callerId?: string;
+    authMethod?: "api_key" | "gateway" | "anonymous";
+} & (
+    | {
+          event: "execute_anonymous";
+          timestamp: string;
+          path: "/execute";
+          process?: string;
+          version?: string;
+          requestId?: string;
+      }
     | ProcessRunCompletedLogRecord
     | HttpRequestRejectedLogRecord
-    | AsyncProcessRunLogRecord;
+    | AsyncProcessRunLogRecord
+);
 
 export type ProcessingLogSink = (record: ProcessingLogRecord) => void;
 
@@ -240,6 +254,9 @@ type RequestLoggingContext = {
 };
 
 type RequestHandlingContext = {
+    callerIdentity?: CallerIdentityResolver;
+    executeAuthMode?: "open" | "audit" | "required";
+    caller?: CallerIdentity;
     executor: ProcessExecutor;
     maxRequestBodyBytes: number;
     admission: ExecutionAdmissionController;
@@ -299,6 +316,8 @@ export function createProcessingRequestListener(
         );
         const context: RequestHandlingContext = {
             executor,
+            callerIdentity: options.callerIdentity,
+            executeAuthMode: options.executeAuthMode,
             maxRequestBodyBytes,
             admission,
             internalEvaluationEnabled,
@@ -483,7 +502,39 @@ async function handleRequest(
         return;
     }
 
+    if (
+        !isInternalEvaluation &&
+        context.executeAuthMode !== "open" &&
+        context.executeAuthMode !== undefined
+    ) {
+        try {
+            context.caller = await context.callerIdentity?.resolve(
+                request.headers,
+            );
+        } catch {
+            if (context.executeAuthMode === "required") {
+                writeFailureJson(
+                    response,
+                    503,
+                    "CALLER_AUTH_UNAVAILABLE",
+                    "Caller authentication is temporarily unavailable",
+                );
+                return;
+            }
+        }
+        if (context.executeAuthMode === "required" && !context.caller) {
+            writeFailureJson(
+                response,
+                401,
+                "CALLER_UNAUTHORIZED",
+                "Caller identity could not be verified",
+            );
+            return;
+        }
+    }
+
     if (!isJsonMediaType(request.headers["content-type"])) {
+        if (!isInternalEvaluation) logAnonymousExecute(context);
         rejectRequest(response, unsupportedMediaTypeFailure, context.logging);
         return;
     }
@@ -493,9 +544,11 @@ async function handleRequest(
         context.maxRequestBodyBytes,
     );
     if (requestBody.kind === "too_large") {
+        if (!isInternalEvaluation) logAnonymousExecute(context);
         rejectRequest(response, requestTooLargeFailure, context.logging);
         return;
     }
+    if (!isInternalEvaluation) logAnonymousExecute(context, requestBody.value);
     if (
         isInternalEvaluation &&
         !isNewsImageEvaluationRequest(requestBody.value)
@@ -529,7 +582,11 @@ async function handleRequest(
                 request.headers["x-pipipi-template-steps"] === "1"
               ? await context.templateDiagnostics.execute(
                     requestBody.value,
-                    context.executor.execute,
+                    (input) =>
+                        context.executor.execute(
+                            input,
+                            callerObservation(context),
+                        ),
                 )
               : await executeBusinessRequest(
                     request,
@@ -539,6 +596,7 @@ async function handleRequest(
                 );
         emitLog(context.logging, {
             event: "process_run_completed",
+            ...(isInternalEvaluation ? undefined : callerObservation(context)),
             timestamp: context.logging.clock.timestamp(),
             runId: result.runId,
             process: result.process ?? "unknown",
@@ -560,6 +618,34 @@ async function handleRequest(
     }
 }
 
+function callerObservation(context: RequestHandlingContext) {
+    if ((context.executeAuthMode ?? "open") === "open") return undefined;
+    return context.caller ?? { authMethod: "anonymous" as const };
+}
+
+function logAnonymousExecute(
+    context: RequestHandlingContext,
+    value?: unknown,
+): void {
+    if (context.executeAuthMode !== "audit" || context.caller) return;
+    const identity =
+        value && typeof value === "object"
+            ? (value as Record<string, unknown>)
+            : {};
+    const safe = (field: unknown, pattern: RegExp) =>
+        typeof field === "string" && field.length <= 64 && pattern.test(field)
+            ? field
+            : undefined;
+    emitLog(context.logging, {
+        event: "execute_anonymous",
+        timestamp: context.logging.clock.timestamp(),
+        path: "/execute",
+        process: safe(identity.process, /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/),
+        version: safe(identity.version, /^v[0-9]+(?:\.[0-9]+){0,2}$/),
+        authMethod: "anonymous",
+    });
+}
+
 async function executeBusinessRequest(
     request: IncomingMessage,
     response: ServerResponse,
@@ -568,14 +654,14 @@ async function executeBusinessRequest(
 ) {
     const local = context.console?.localTrace;
     if (!local || !localConsoleRequest(request))
-        return context.executor.execute(input);
+        return context.executor.execute(input, callerObservation(context));
     const controller = new AbortController();
     const close = () => controller.abort();
     response.once("close", close);
     if (response.destroyed) close();
     try {
         return await local.request(controller.signal, () =>
-            context.executor.execute(input),
+            context.executor.execute(input, callerObservation(context)),
         );
     } finally {
         response.off("close", close);
@@ -1510,6 +1596,7 @@ async function submitProcessRun(
     const retryAfter = retryAfterSeconds(asyncOptions);
     emitLog(context.logging, {
         event: "process_run_submission_accepted",
+        ...caller,
         timestamp: context.logging.clock.timestamp(),
         runId: submission.runId,
         process: submission.process,
@@ -1575,6 +1662,7 @@ async function findProcessRun(
     }
     emitLog(logging, {
         event: "process_run_observed",
+        ...caller,
         timestamp: logging.clock.timestamp(),
         runId: run.runId,
         status: run.status,
@@ -1723,6 +1811,7 @@ function parseCallerRequestId(
     if (typeof value !== "string") return undefined;
     const candidate = value.trim();
     if (
+        candidate.includes("ppk_") ||
         candidate.length === 0 ||
         candidate.length > maxCallerRequestIdLength ||
         !safeCallerRequestId.test(candidate)

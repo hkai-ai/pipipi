@@ -91,7 +91,7 @@ describe("Production CI/CD workflow", () => {
             "node dist/bin/audit-production-database.js",
         );
         expect(manifest.scripts["test:acceptance:async"]).toBe(
-            "npm run test:integration:postgres && npm run test:integration:observation && npm run test:integration:async && npm run test:acceptance:console",
+            "npm run test:integration:postgres && npm run test:integration:caller-keys && npm run test:integration:observation && npm run test:integration:async && npm run test:acceptance:console",
         );
     });
 

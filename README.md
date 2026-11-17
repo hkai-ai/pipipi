@@ -141,7 +141,7 @@ curl http://127.0.0.1:4300/healthz
 
 ## 异步开发 Interface
 
-仓库已提供资源式的 `POST /process-runs` 和 `GET /process-runs/{runId}`。它要求网关验证身份、注入固定 caller 头与共享凭证，并要求每次提交携带 `Idempotency-Key`。成功提交返回 `202`、`Location`、`Retry-After` 和 queued Run；查询只向 owner 返回 queued、running、succeeded 或 failed。结果内容到期后，终态和完成时间仍在 metadata 保留期内可查，并返回 `resultAvailability: "expired"` 与 `resultExpiredAt`，不会把内容缺失伪装成空结果。
+仓库已提供资源式的 `POST /process-runs` 和 `GET /process-runs/{runId}`。它与同步入口共用 Pipipi 自管 Bearer API Key，并要求每次提交携带 `Idempotency-Key`。一个稳定 callerId 可持有多把 Key，轮换不改变归属；过渡期兼容可信网关注入。成功提交返回 `202`、`Location`、`Retry-After` 和 queued Run；查询只向 owner 返回 queued、running、succeeded 或 failed。结果内容到期后，终态和完成时间仍在 metadata 保留期内可查，并返回 `resultAvailability: "expired"` 与 `resultExpiredAt`，不会把内容缺失伪装成空结果。
 
 运维可通过服务端只读 marker 暂停新异步提交；此时 POST 返回 `503 ASYNC_INTAKE_CLOSED`，但既有 owner 查询和同步 `/execute` 保持可用。完整产品契约见 [`docs/api.md`](docs/api.md#异步执行)，操作步骤见[异步发布手册](docs/async-process-runs-runbook.md#真实网关-smoke-与安全回滚)。
 
@@ -160,7 +160,7 @@ curl http://127.0.0.1:4300/healthz
 
 ## 当前边界
 
-默认发布是受控、同步的服务；异步 Interface 已实现但默认关闭。部署平台必须提供 TLS、私有入口、调用方认证、Secret 注入和实例上限。开放异步流量前必须完成 migration、身份、容量、恢复、安全、观测和 staged rollout 门禁。
+默认发布是受控、同步的服务；异步 Interface 已实现但默认关闭。部署平台必须提供 TLS、私有入口、Secret 注入和实例上限。`EXECUTE_AUTH_MODE` 默认 `open`（不认人），经 `audit` 观察后切为 `required`；`CALLER_AUTH_GATEWAY_FALLBACK` 默认 `true`，迁移后设为 `false`。Key 由容器内 CLI 发放、列出与吊销，步骤见[调用方密钥管理](docs/mvp-release-runbook.md#调用方-api-key-管理与迁移)。开放异步流量前必须完成 migration、身份、容量、恢复、安全、观测和 staged rollout 门禁。
 
 图片 Process 隐藏模型、供应商和存储配置。真实图片与 OSS 验收默认关闭；生产发布仍需确认内部 Business API 隔离、来源 URL 策略、存储生命周期、证据关闭和上游 Skill 使用权。
 

@@ -50,12 +50,18 @@ docker compose -f compose.integration.yaml down
 发布人员还必须确认：
 
 - PostgreSQL 已完成备份与恢复验证；Redis 独立运行、只绑定 `127.0.0.1`、启用认证与 `noeviction`，并使用批准的持久化和高可用形状；
-- 网关删除外部同名身份头，再注入 `x-pipipi-caller-id` 与 `x-pipipi-gateway-token`；容器端口不能绕过网关访问；
+- 网关透传 Authorization 并删除外部身份头；过渡期只为已认证的旧调用方注入 `x-pipipi-caller-id` 与 `x-pipipi-gateway-token`；容器端口不能绕过网关访问；
 - `CONSOLE_DEVELOPMENT_GATEWAY_ENABLED` 必须在生产保持未设置或 `false`；Vite 开发 Gateway 固定测试身份且只允许 loopback upstream，不能承担生产调用方认证；
 - `WEBHOOK_SECRET_ENCRYPTION_KEY`、网关 Secret 和数据库/Redis 凭证通过 Secret 管理器注入，彼此最小授权；
 - Business Capability 已按 `runId` 支持幂等后，才能把 Registration 的最大 Attempt 从 1 提高；
 - 观测系统已经导入 [`ops/async-observability.json`](../ops/async-observability.json)，并能按 `runId`、`eventId` 和 `deliveryId` 检索单行 JSON 日志；
 - 已批准 accepted input、result、metadata 和 Delivery history 的期限与数据库容量预算。
+
+## 调用方认证迁移
+
+异步入口和 `/execute` 共用同一 Bearer API Key；发放、轮换、吊销与三档迁移见[调用方 API Key 管理](mvp-release-runbook.md#调用方-api-key-管理与迁移)。API 角色文件接受 `EXECUTE_AUTH_MODE` 与 `CALLER_AUTH_GATEWAY_FALLBACK`，首次生成从 shared 配置复制这两项到 API，不下发 Worker。关闭回落后不再要求 `ASYNC_GATEWAY_SHARED_SECRET`，仍必须保留 DATABASE_URL；同步基础形状也从顶层装配持久 Key Store。
+
+启用前先应用 `020_caller_api_keys.mjs` 并运行 `npm run test:integration:caller-keys`（仅隔离测试数据库；含 CLI 发放/吊销写入）。真实网关 smoke 的两份 Authorization 可使用不同 callerId 的 Pipipi Key。检查 OpenResty 允许 ppk_ Bearer 到达应用，原样透传 Authorization、剥离外部内部头；旧网关 Bearer 在默认回落期继续可用。控制台仍保持 Basic Auth，切 required 前按同步 Runbook 安排控制台调用过渡。
 
 ## 受控 internal 发布入口
 
@@ -88,7 +94,7 @@ Environment 只保存部署连接和非秘密 Queue identity，不保存应用�
 <REMOTE_PATH>/shared/retention-cleaner.env
 ```
 
-每份角色文件只包含[配置表](#配置与分阶段启用)中该角色拥有的值；Queue name/prefix 与 `ASYNC_RELEASE_STAGE` 由发布入口覆盖，不放在 Secret 文件里。API 文件必须包含 `ASYNC_GATEWAY_SHARED_SECRET`，Webhook 文件必须包含 `WEBHOOK_SECRET_ENCRYPTION_KEY`，需要 OpenAI 的 API 与 Process Worker 各自包含自己的 `OPENAI_API_KEY`。不要把 `.env` 复制成五份。
+每份角色文件只包含[配置表](#配置与分阶段启用)中该角色拥有的值；Queue name/prefix 与 `ASYNC_RELEASE_STAGE` 由发布入口覆盖，不放在 Secret 文件里。网关回落开启时 API 文件必须包含 `ASYNC_GATEWAY_SHARED_SECRET`，Webhook 文件必须包含 `WEBHOOK_SECRET_ENCRYPTION_KEY`，需要 OpenAI 的 API 与 Process Worker 各自包含自己的 `OPENAI_API_KEY`。不要把 `.env` 复制成五份。
 
 首次创建五份角色文件时，先手动运行受保护的 `.github/workflows/async-production-environment-provisioning.yml`，填写当前同步 revision、服务器已加载的候选 revision、`issue-<number>` 变更引用，并先选 `plan`。入口优先使用 `async-internal` Environment Secret 中非空的 `ASYNC_DATABASE_URL`、`ASYNC_REDIS_URL`；任一覆盖值为空时，改从服务器 `root:root 0600` 的 `shared/.env` 读取对应标准 `DATABASE_URL`、`REDIS_URL`。凭证不能放在 GitHub Environment Variable 中。Secret 覆盖值只通过标准输入发送给远端脚本；两种来源都不进入 SSH/SCP argv、日志或 artifact。入口要求两个同步容器正在运行、主 API 异步入口关闭、四个异步后台容器不存在，避免改写正在使用的角色配置。
 
@@ -238,7 +244,7 @@ docker compose \
 
 | 角色 | 必填环境变量 |
 | --- | --- |
-| `api` | `CRT_BUSINESS_API_BASE_URL`；`PI_PROVIDER=openai` 时还需 `OPENAI_API_KEY`；启用异步入口后还需 `DATABASE_URL`、`ASYNC_GATEWAY_SHARED_SECRET`、三个 `PROCESS_RUN_*_RETENTION_MS`、`ASYNC_RELEASE_STAGE`、`ASYNC_GLOBAL_BACKLOG_LIMIT`、`ASYNC_CALLER_BACKLOG_LIMIT`、`ASYNC_BACKLOG_RETRY_AFTER_SECONDS` |
+| `api` | `CRT_BUSINESS_API_BASE_URL`；`PI_PROVIDER=openai` 时还需 `OPENAI_API_KEY`；启用异步入口后还需 `DATABASE_URL`、回落开启时的 `ASYNC_GATEWAY_SHARED_SECRET`、三个 `PROCESS_RUN_*_RETENTION_MS`、`ASYNC_RELEASE_STAGE`、`ASYNC_GLOBAL_BACKLOG_LIMIT`、`ASYNC_CALLER_BACKLOG_LIMIT`、`ASYNC_BACKLOG_RETRY_AFTER_SECONDS` |
 | `process-dispatcher` | `DATABASE_URL`、`REDIS_URL` |
 | `process-worker` | `CRT_BUSINESS_API_BASE_URL`、`DATABASE_URL`、`REDIS_URL`、三个 `PROCESS_RUN_*_RETENTION_MS`、`PROCESS_RUN_RECORD_STORE`、`PROCESS_RUN_RECORD_CONTENT`；非生产文件存储还需 `PROCESS_RUN_RECORD_DIRECTORY`；生产固定为 `postgres` 与 `accepted-input-and-output`；`PI_PROVIDER=openai` 时还需 `OPENAI_API_KEY` |
 | `webhook-worker` | `DATABASE_URL`、`REDIS_URL`、`WEBHOOK_SECRET_ENCRYPTION_KEY` |
