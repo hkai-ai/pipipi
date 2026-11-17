@@ -244,25 +244,65 @@ if [ "$migrations_changed" = true ]; then
 
     # 连接串只经 --env-file 进入容器，由容器内 shell 读取环境变量，
     # 不出现在宿主机 docker 命令行、日志或证据中。应用 URL 带 uselibpqcompat（node-pg 专用，
-    # libpq 不认识），在容器内剔除；sslmode=verify-ca 与固定 CA 路径必须原样存在，否则拒绝。
+    # libpq 不认识），在容器内剔除；sslmode=verify-ca 与固定 CA 路径必须存在，否则拒绝。
+    # sslrootcert 可能被百分号编码（%2F），按解码后的值判断——应用侧也是按解码值校验。
+    # 失败时只向 stderr 输出固定类别 PG_ERROR=<CODE>，不回显 libpq 原文（可能含主机等连接信息）。
+    pg_container_script=""
+    IFS= read -r -d '' pg_container_script <<'PG_CONTAINER' || true
+# BEGIN pg container
+set -eu
+decoded="$(printf "%s" "$DATABASE_URL" | sed -e "s/%2[Ff]/\//g")"
+case "$decoded" in
+  *sslmode=verify-ca*) ;;
+  *) echo "PG_ERROR=URL_NOT_VERIFY_CA" >&2; exit 1;;
+esac
+case "$decoded" in
+  *sslrootcert=/etc/pipipi/pg-server.crt*) ;;
+  *) echo "PG_ERROR=URL_NOT_FIXED_CA" >&2; exit 1;;
+esac
+url="$(printf "%s" "$DATABASE_URL" | sed -e "s/uselibpqcompat=true&\{0,1\}//" -e "s/[?&]\$//")"
+err="$(mktemp)"
+classify() {
+  if grep -qi "version mismatch" "$err"; then code=VERSION_MISMATCH
+  elif grep -qi "password authentication\|pg_hba" "$err"; then code=AUTH_FAILED
+  elif grep -qi "permission denied" "$err"; then code=PERMISSION_DENIED
+  elif grep -qi "invalid URI\|invalid connection option\|invalid sslmode\|invalid integer" "$err"; then code=URL_PARAMETER_INVALID
+  elif grep -qi "certificate\|ssl\|tls" "$err"; then code=TLS_FAILED
+  elif grep -qi "translate host\|connection refused\|timeout\|could not connect\|unreachable" "$err"; then code=NETWORK_FAILED
+  else code=UNKNOWN; fi
+  rm -f "$err"
+  echo "PG_ERROR=$code" >&2
+  exit 1
+}
+case "$1" in
+  size) psql "$url" --no-psqlrc --tuples-only --no-align --command "SELECT pg_database_size(current_database())" 2>"$err" || classify;;
+  dump) pg_dump "$url" --format=custom 2>"$err" || classify;;
+  *) exit 1;;
+esac
+rm -f "$err"
+# END pg container
+PG_CONTAINER
     pg_run_url() {
         docker run --rm --network host --env-file "$dispatcher_env" \
             --volume "$PIPIPI_DATABASE_CA_FILE:/etc/pipipi/pg-server.crt:ro" \
-            --entrypoint sh "$pg_image" -c '
-set -eu
-case "$DATABASE_URL" in
-  *sslmode=verify-ca*sslrootcert=/etc/pipipi/pg-server.crt*|*sslrootcert=/etc/pipipi/pg-server.crt*sslmode=verify-ca*) ;;
-  *) echo "database URL does not use the fixed CA" >&2; exit 1;;
-esac
-url="$(printf "%s" "$DATABASE_URL" | sed -e "s/uselibpqcompat=true&\{0,1\}//" -e "s/[?&]\$//")"
-case "$1" in
-  size) exec psql "$url" --no-psqlrc --tuples-only --no-align --command "SELECT pg_database_size(current_database())";;
-  dump) exec pg_dump "$url" --format=custom;;
-esac
-exit 1' sh "$1"
+            --entrypoint sh "$pg_image" -c "$pg_container_script" sh "$1"
     }
+    # 只取容器给出的固定类别；没有类别说明 docker 本身失败（如镜像不可用）。
+    pg_failure() {
+        local code
+        code="$(grep -o 'PG_ERROR=[A-Z_]*' "$1" 2>/dev/null | tail -n 1 | sed 's/^PG_ERROR=//')" || true
+        rm -f -- "$1"
+        printf '%s' "${code:-DOCKER_FAILED}"
+    }
+    if ! docker pull --quiet "$pg_image" >/dev/null 2>&1 && ! docker image inspect "$pg_image" >/dev/null 2>&1; then
+        echo "Cannot pull $pg_image for the database backup; current deployment retained" >&2
+        exit 1
+    fi
+    pg_err="$(mktemp)"
 
-    db_bytes="$(pg_run_url size 2>/dev/null)" || { echo "Cannot read database size; current deployment retained" >&2; exit 1; }
+    db_bytes="$(pg_run_url size 2>"$pg_err")" ||
+        { echo "Cannot read database size ($(pg_failure "$pg_err")); current deployment retained" >&2; exit 1; }
+    rm -f -- "$pg_err"
     [[ "$db_bytes" =~ ^[0-9]+$ ]] || { echo "Invalid database size; current deployment retained" >&2; exit 1; }
     available_kib="$(df -Pk "$backup_dir" | awk 'NR == 2 {print $4}')"
     [[ "$available_kib" =~ ^[0-9]+$ ]] || exit 1
@@ -272,7 +312,10 @@ exit 1' sh "$1"
         exit 1
     fi
 
-    ( umask 077; pg_run_url dump 2>/dev/null > "$backup_dump" ) || { echo "pg_dump failed; current deployment retained" >&2; exit 1; }
+    pg_err="$(mktemp)"
+    ( umask 077; pg_run_url dump 2>"$pg_err" > "$backup_dump" ) ||
+        { echo "pg_dump failed ($(pg_failure "$pg_err")); current deployment retained" >&2; exit 1; }
+    rm -f -- "$pg_err"
     chmod 600 "$backup_dump"
     backup_listing="$(docker run --rm --network none --volume "$backup_dump:/backup.dump:ro" \
         --entrypoint pg_restore "$pg_image" --list /backup.dump 2>/dev/null)" ||
