@@ -464,9 +464,21 @@ Redis 数据丢失的标准动作：
 
 异步 Worker 保存图片服务提交后的失败时，数据库需要迁移 `015_process_run_error_code.mjs` 扩展 `process_runs_error_code_check`。发布前按本文的备份、恢复验证及迁移步骤执行。应用回滚时保留扩展后的约束，已有失败记录可保留原错误码。
 
-迁移文件变化时，从 Production CI/CD 的运行摘要取得准确候选 SHA 和 CI Run ID。当前阶段为 `internal` 时，直接进入本手册的[受控 internal 发布入口](#受控-internal-发布入口)，复用已验证的 artifact，提供已核验的备份或恢复点。线上为其他阶段时，需按该阶段审查迁移。常规发布在独占锁内仍会校验镜像摘要，防止预检后线上版本发生变化。
+迁移文件变化时，`production-ci-cd.yml` 同样自动部署，不再停下等人工：`release-plan` 比较线上镜像与候选镜像的迁移摘要，路由为 `migration` 时 `deploy` 照常运行（超时 60 分钟）。`ops/update-async-release.sh` 在独占锁内停流并等待已接受的 Run 排空后，依次执行：
 
-该路径只允许迁移文件摘要不变的候选，不代替首次启用、带备份审查的数据库迁移、灰度提升或真实付费验收。旧 commit 的 smoke、演练与 promotion 证据不能改写成新 commit 的成功证据；后续阶段或流量调整仍须重新收集准确候选的证据，并核对 promotion 状态。
+1. **自动备份**：用 `postgres:18-alpine`（可用 `PIPIPI_PG_DUMP_IMAGE` 覆盖）的 `pg_dump -Fc` 导出到 `shared/db-backups/pipipi-pg-<UTC 时间戳>.dump`，目录 `0700`、文件 `0600`。备份前先查库大小，要求该文件系统可用空间不少于 3 倍库大小加 1 GiB。连接串只经 `--env-file` 进入容器，并强制 `sslmode=verify-ca` 与固定 CA `/etc/pipipi/pg-server.crt`，不出现在宿主机命令行、日志或证据中。
+2. **备份验证**：`pg_restore --list` 必须可读且清单含 `process_runs`；记录 sha256 与字节数。
+3. **数据库边界审计**与 **`migrate-and-verify.js`**：与手动 internal 入口同一套严格校验（`verificationCount` 必须为 0）。
+4. **证据**：写入 `shared/db-backups/<备份 ID>.json`（commit、上一 revision、新旧迁移摘要、备份 sha256 与字节数、已应用迁移数、起止时间；不含连接串、密码、主机）。只保留最近 14 份 `pipipi-pg-*.dump` 及其证据。备份 ID 与已应用迁移数写入工作流运行摘要。
+5. 再安装新 Compose、切换六个角色并验证。
+
+迁移放在排空之后：停流期间没有新的业务写入，备份与迁移面对同一份静止数据，且备份总在迁移之前。
+
+失败语义：备份、验证、审计、迁移任一步失败，都不切换，旧版本继续服务，停流标记由本次创建者移除；备份阶段失败不留半成品，迁移未成功时备份保留。迁移已应用但切换或健康检查失败时，应用回滚到上一版本，**数据库不执行 migration down**，新增 schema 依赖向前兼容；脚本在 stderr 提示可用本次备份恢复。
+
+用备份恢复（仅在新 schema 无法被旧版本使用时）：先暂停写入并保留现场，用同一版本的 `pg_restore --clean --if-exists --no-owner --dbname <目标库> <备份文件>` 恢复到确认过的目标库，核对 sha256 与证据 JSON，再按本手册重新验证再放流量；恢复会丢弃备份之后的写入。
+
+[受控 internal 发布入口](#受控-internal-发布入口)（`async-internal-release.yml` / `ops/deploy-async-internal.sh`）保留，用于首次启用异步部署、需要提供外部核验的备份或恢复点，以及需要完整 internal smoke 的发布。两者都不代替灰度提升或真实付费验收。旧 commit 的 smoke、演练与 promotion 证据不能改写成新 commit 的成功证据；后续阶段或流量调整仍须重新收集准确候选的证据，并核对 promotion 状态。
 
 ### Run 或 Process Queue 持续增长
 

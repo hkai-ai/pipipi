@@ -360,16 +360,12 @@ jobs:
             stage="${BASH_REMATCH[1]}"
             active="${BASH_REMATCH[2]}"
             echo "route=migration" >> "$GITHUB_OUTPUT"
-            echo "::notice::候选已通过 CI，生产仍运行 $active。需要带备份审查的数据库迁移发布。"
+            echo "::notice::迁移有变化，部署时自动备份并迁移（生产当前运行 $active）。"
             {
-              echo "### 等待数据库迁移发布"
+              echo "### 数据库迁移将随部署自动执行"
               echo "生产版本：\`$active\`，阶段：\`$stage\`。"
               echo "候选 SHA：\`$GITHUB_SHA\`，候选 CI Run ID：\`$GITHUB_RUN_ID\`。"
-              if [[ "$stage" == internal ]]; then
-                echo "核对数据库备份或恢复点后，使用 [Async internal release]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/workflows/async-internal-release.yml) 发布此候选。"
-              else
-                echo "按当前阶段安排带备份审查的迁移发布，保留现有流量阶段。"
-              fi
+              echo "部署在停流并排空后自动执行 pg_dump 备份、数据库边界审计和迁移，再切换版本；任一步失败都保持当前版本。"
             } >> "$GITHUB_STEP_SUMMARY"
           else
             echo "Invalid production release plan" >&2
@@ -379,9 +375,9 @@ jobs:
   deploy:
     name: Deploy production
     needs: release-plan
-    if: always() && needs.release-plan.result == 'success' && needs.release-plan.outputs.route == 'routine'
+    if: always() && needs.release-plan.result == 'success' && (needs.release-plan.outputs.route == 'routine' || needs.release-plan.outputs.route == 'migration')
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 60
     environment: production
     concurrency:
       group: pipipi-production-release
@@ -462,7 +458,7 @@ jobs:
               "/tmp/pipipi-${GITHUB_SHA}.image.tar.gz" \
               "/tmp/pipipi-${GITHUB_SHA}.compose.yaml" \
               "/tmp/pipipi-${GITHUB_SHA}.update-async.sh" \
-              "/tmp/pipipi-${GITHUB_SHA}.compose.async.yaml" <<'REMOTE'
+              "/tmp/pipipi-${GITHUB_SHA}.compose.async.yaml" <<'REMOTE' | tee "$RUNNER_TEMP/activate-release.log"
           set -Eeuo pipefail
 
           app_root="$1"
@@ -686,3 +682,17 @@ jobs:
           rm -f "$image_archive" "$compose_source" "$previous_compose" "$async_compose_source" "$async_update_script"
           echo "Deployed revision $revision"
           REMOTE
+
+      - name: Summarize automatic database migration
+        if: always()
+        run: |
+          log="$RUNNER_TEMP/activate-release.log"
+          [ -f "$log" ] || exit 0
+          backup_id="$(sed -n 's/^PIPIPI_BACKUP_ID=\(pipipi-pg-[0-9TZ]*\)$/\1/p' "$log" | tail -n 1)"
+          applied="$(sed -n 's/^PIPIPI_MIGRATIONS_APPLIED=\([0-9]*\)$/\1/p' "$log" | tail -n 1)"
+          [ -n "$backup_id" ] || exit 0
+          {
+            echo "### 数据库迁移已自动执行"
+            echo "备份 ID：\`$backup_id\`（服务器 \`shared/db-backups/\`，保留最近 14 份）。"
+            echo "已应用迁移数：\`$applied\`。"
+          } >> "$GITHUB_STEP_SUMMARY"

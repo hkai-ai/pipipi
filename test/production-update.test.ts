@@ -3,8 +3,10 @@ import {
     chmod,
     mkdir,
     mkdtemp,
+    readdir,
     readFile,
     rm,
+    stat,
     writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -38,20 +40,15 @@ describe("生产日常更新", { timeout }, () => {
         },
     );
 
-    it.each([
-        "precheck",
-        "migration",
-        "partial",
-        "api_only",
-        "queue",
-        "lease",
-        "drain",
-    ])("%s 门禁失败不替换现有容器", async (failure) => {
-        const result = await run({ failure });
-        expect(result.status).not.toBe(0);
-        expect(result.state).toBe(previous);
-        expect(result.log).not.toContain(" up ");
-    });
+    it.each(["precheck", "partial", "api_only", "queue", "lease", "drain"])(
+        "%s 门禁失败不替换现有容器",
+        async (failure) => {
+            const result = await run({ failure });
+            expect(result.status).not.toBe(0);
+            expect(result.state).toBe(previous);
+            expect(result.log).not.toContain(" up ");
+        },
+    );
 
     it.each(["internal", "canary", "production"])(
         "迁移差异交给当前 %s 阶段的显式发布",
@@ -103,6 +100,114 @@ describe("生产日常更新", { timeout }, () => {
         expect(result.stderr).toContain("rollback failed");
     });
 
+    it.each(["internal", "canary", "production"])(
+        "迁移变化时在 %s 阶段排空后自动备份、迁移再切换",
+        async (stage) => {
+            const result = await run({ stage, failure: "migration" });
+            expect(result.status, result.stderr).toBe(0);
+            expect(result.state).toBe(candidate);
+            const order = [
+                "exec pipipi-process-dispatcher",
+                "pg_dump",
+                "--list",
+                "audit:production-database",
+                "migrate-and-verify",
+                " up ",
+            ].map((needle) => result.log.indexOf(needle));
+            expect(order.every((index) => index >= 0)).toBe(true);
+            expect([...order].sort((a, b) => a - b)).toEqual(order);
+            expect(result.stdout).toMatch(
+                /^PIPIPI_BACKUP_ID=pipipi-pg-\d{8}T\d{6}Z$/m,
+            );
+            expect(result.stdout).toContain("PIPIPI_MIGRATIONS_APPLIED=3");
+            expect(
+                result.backups.filter((n) => n.endsWith(".dump")),
+            ).toHaveLength(1);
+            expect(result.dumpMode).toBe(0o600);
+            expect(result.dirMode).toBe(0o700);
+            expect(result.evidence).toMatchObject({
+                commit: candidate,
+                previousRevision: previous,
+                appliedCount: 3,
+                backupBytes: 4,
+            });
+            expect(result.evidence.backupSha256).toMatch(/^[0-9a-f]{64}$/);
+            expect(JSON.stringify(result.evidence)).not.toMatch(
+                /postgres|password|@/,
+            );
+            expect(result.log).not.toContain("secret-password");
+            expect(result.marker).toBe(false);
+        },
+    );
+
+    it.each([
+        "size_fail",
+        "dump_fail",
+        "no_process_runs",
+        "audit_fail",
+        "audit_bad",
+    ])("迁移前置步骤 %s 失败：不迁移、不切换、旧版本继续服务", async (sub) => {
+        const result = await run({ failure: `migration:${sub}` });
+        expect(result.status).not.toBe(0);
+        expect(result.state).toBe(previous);
+        expect(result.log).not.toContain("migrate-and-verify");
+        expect(result.log).not.toContain(" up ");
+        expect(result.marker).toBe(false);
+        expect(result.backups.filter((n) => n.endsWith(".dump"))).toHaveLength(
+            0,
+        );
+    });
+
+    it("迁移执行失败：不切换，保留备份并提示恢复", async () => {
+        const result = await run({ failure: "migration:migrate_fail" });
+        expect(result.status).not.toBe(0);
+        expect(result.state).toBe(previous);
+        expect(result.log).not.toContain(" up ");
+        expect(result.backups.filter((n) => n.endsWith(".dump"))).toHaveLength(
+            1,
+        );
+        expect(result.stderr).toContain("not rolled back");
+        expect(result.marker).toBe(false);
+    });
+
+    it("迁移已应用但切换失败：回滚应用、保留备份与证据", async () => {
+        const result = await run({ failure: "migration:activate" });
+        expect(result.status).not.toBe(0);
+        expect(result.state).toBe(previous);
+        expect(result.compose).toBe("old compose\n");
+        expect(result.backups.filter((n) => n.endsWith(".json"))).toHaveLength(
+            1,
+        );
+        expect(result.stderr).toContain("not rolled back");
+        expect(result.marker).toBe(false);
+    });
+
+    it("只保留最新 14 份备份及证据", async () => {
+        const result = await run({ failure: "migration", seedBackups: 15 });
+        expect(result.status, result.stderr).toBe(0);
+        const dumps = result.backups.filter((n) => n.endsWith(".dump"));
+        expect(dumps).toHaveLength(14);
+        expect(result.backups.filter((n) => n.endsWith(".json"))).toHaveLength(
+            14,
+        );
+        expect(dumps).not.toContain("pipipi-pg-20200101T000000Z.dump");
+        expect(dumps).not.toContain("pipipi-pg-20200102T000000Z.dump");
+    });
+
+    it("备份脚本不把连接串放进宿主机命令行，且校验固定 CA 与 process_runs", async () => {
+        const script = await readFile("ops/update-async-release.sh", "utf8");
+        expect(script).not.toContain("Database migrations changed");
+        expect(script).toContain("postgres:18-alpine");
+        expect(script).toContain("--format=custom");
+        expect(script).toContain("pg_restore");
+        expect(script).toContain("process_runs");
+        expect(script).toContain("sslrootcert=/etc/pipipi/pg-server.crt");
+        expect(script).toContain("sslmode=verify-ca");
+        expect(script).toContain("3 + 1073741824");
+        expect(script).not.toMatch(/docker run[^\n]*DATABASE_URL/);
+        expect(script).not.toMatch(/--env\s+DATABASE_URL/);
+    });
+
     it("已有同步部署继续使用同步路径", async () => {
         const result = await run({ failure: "sync" });
         expect(result.status, result.stderr).toBe(0);
@@ -122,6 +227,7 @@ async function run(options: {
     stage?: string;
     failure?: string;
     planDigest?: string;
+    seedBackups?: number;
 }) {
     const root = await mkdtemp(path.join(tmpdir(), "pipipi-update-"));
     const shared = path.join(root, "shared");
@@ -141,6 +247,22 @@ async function run(options: {
             "compose.production.async.yaml",
         ]) {
             await writeFile(path.join(shared, name), "old compose\n");
+        }
+        await writeFile(
+            path.join(shared, "process-dispatcher.env"),
+            "DATABASE_URL=postgres://u:secret-password@db.internal/app?uselibpqcompat=true&sslmode=verify-ca&sslrootcert=/etc/pipipi/pg-server.crt\n",
+        );
+        for (let day = 1; day <= (options.seedBackups ?? 0); day++) {
+            const name = `pipipi-pg-202001${String(day).padStart(2, "0")}T000000Z`;
+            await mkdir(path.join(shared, "db-backups"), { recursive: true });
+            await writeFile(
+                path.join(shared, "db-backups", `${name}.dump`),
+                "x",
+            );
+            await writeFile(
+                path.join(shared, "db-backups", `${name}.json`),
+                "{}",
+            );
         }
         if (options.failure === "lease")
             await writeFile(
@@ -166,7 +288,8 @@ async function run(options: {
             await readFile(".github/workflows/production-ci-cd.yml", "utf8")
         ).replaceAll("\r\n", "\n");
         const body = workflow
-            .split("<<'REMOTE'\n")[1]
+            .split("<<'REMOTE'")[1]
+            ?.replace(/^[^\n]*\n/, "")
             ?.split("          REMOTE")[0];
         if (!body) throw new Error("缺少生产激活脚本");
         await writeFile(
@@ -242,6 +365,7 @@ async function run(options: {
                 path.join(shared, "compose.production.yaml"),
                 "utf8",
             ),
+            ...(await readBackups(shared)),
             marker: await readFile(
                 path.join(shared, "async-control/intake-disabled"),
             ).then(
@@ -252,6 +376,25 @@ async function run(options: {
     } finally {
         await rm(root, { recursive: true, force: true });
     }
+}
+
+async function readBackups(shared: string) {
+    const dir = path.join(shared, "db-backups");
+    const backups = await readdir(dir).catch(() => [] as string[]);
+    const dump = backups.find(
+        (name) => name.endsWith(".dump") && !name.includes("2020"),
+    );
+    const evidenceName = backups.find(
+        (name) => name.endsWith(".json") && !name.includes("2020"),
+    );
+    return {
+        backups: backups.sort(),
+        dirMode: backups.length ? (await stat(dir)).mode & 0o777 : 0,
+        dumpMode: dump ? (await stat(path.join(dir, dump))).mode & 0o777 : 0,
+        evidence: evidenceName
+            ? JSON.parse(await readFile(path.join(dir, evidenceName), "utf8"))
+            : {},
+    };
 }
 
 const fakeDocker = String.raw`#!/usr/bin/env bash
@@ -283,9 +426,34 @@ inspect)
 image) echo "sha256:$TEST_CANDIDATE";;
 load) cat >/dev/null;;
 run)
+    sub="${"$"}{TEST_FAILURE#migration:}"
+    if [[ "$*" == *--entrypoint\ sh\ postgres:* ]]; then
+        [[ "$*" == *secret-password* ]] && exit 9
+        case "${"$"}{@: -1}" in
+        size) if [ "$sub" = size_fail ]; then exit 1; fi; echo 1000;;
+        dump) if [ "$sub" = dump_fail ]; then exit 1; fi; printf 'DUMP';;
+        esac
+        exit 0
+    fi
+    if [[ "$*" == *pg_restore* ]]; then
+        echo '218; 1259 16385 TABLE public webhook_endpoints app'
+        if [ "$sub" != no_process_runs ]; then echo '219; 1259 16386 TABLE public process_runs app'; fi
+        exit 0
+    fi
+    if [[ "$*" == *audit:production-database* ]]; then
+        if [ "$sub" = audit_fail ]; then exit 1; fi
+        if [ "$sub" = audit_bad ]; then echo '{"event":"production_database_identity_verified","tlsVerified":false}'; exit 0; fi
+        echo '{"event":"production_database_identity_verified","databaseIdentitySha256":"'"$(printf 'a%.0s' {1..64})"'","tlsVerified":true,"dedicatedDatabaseVerified":true,"nonSuperuserVerified":true,"administrativePrivilegesAbsent":true,"otherDatabaseAccessAbsent":true,"roleMembershipAbsent":true,"roleSwitchingAbsent":true}'
+        exit 0
+    fi
+    if [[ "$*" == *migrate-and-verify* ]]; then
+        if [ "$sub" = migrate_fail ]; then exit 1; fi
+        echo '{"event":"database_migration_verified","verificationCount":0,"appliedCount":3}'
+        exit 0
+    fi
     if [[ "$*" == *check-deployment-environment* ]] && [ "$TEST_FAILURE" = precheck ]; then exit 1; fi
     if [[ "$*" == *readdirSync* ]]; then
-        if [ "$TEST_FAILURE" = bad_digest ]; then echo invalid; elif [ "$TEST_FAILURE" = migration ] && [[ "$*" == *"sha256:$TEST_CANDIDATE"* ]]; then printf '%064d\n' 1; else printf '%064d\n' 0; fi
+        if [ "$TEST_FAILURE" = bad_digest ]; then echo invalid; elif [[ "$TEST_FAILURE" == migration* ]] && [[ "$*" == *"sha256:$TEST_CANDIDATE"* ]]; then printf '%064d\n' 1; else printf '%064d\n' 0; fi
     fi;;
 exec) if [ "$TEST_FAILURE" = drain ]; then exit 1; fi; echo 0;;
 compose)
@@ -294,7 +462,7 @@ compose)
         printf '%s' "$PIPIPI_REVISION" > "$TEST_STATE"
         if [ "$TEST_FAILURE" = signal ] && [ "$PIPIPI_REVISION" = "$TEST_CANDIDATE" ]; then kill -TERM "$PPID"; fi
         if [ "$TEST_FAILURE" = rollback ]; then exit 1; fi
-        if [ "$TEST_FAILURE" = activate ] && [ "$PIPIPI_REVISION" = "$TEST_CANDIDATE" ]; then exit 1; fi
+        if [[ "$TEST_FAILURE" == *activate ]] && [ "$PIPIPI_REVISION" = "$TEST_CANDIDATE" ]; then exit 1; fi
     fi;;
 esac
 `;

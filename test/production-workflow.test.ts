@@ -62,7 +62,16 @@ describe("Production CI/CD workflow", () => {
         expect(deploy).toContain(
             "needs.release-plan.outputs.route == 'routine'",
         );
+        expect(deploy).toContain(
+            "needs.release-plan.outputs.route == 'migration'",
+        );
+        expect(deploy).toContain("timeout-minutes: 60");
         expect(plan).toContain("route=migration");
+        expect(plan).toContain("部署时自动备份并迁移");
+        expect(plan).not.toContain("async-internal-release.yml");
+        expect(activation).toContain("tee");
+        expect(deploy).toContain("PIPIPI_BACKUP_ID");
+        expect(deploy).toContain("PIPIPI_MIGRATIONS_APPLIED");
         expect(deploy).toContain("group: pipipi-production-release");
         expect(deploy).toContain("*configure-ssh");
         expect(deploy).toContain("flock -n 9");
