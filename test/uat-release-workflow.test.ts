@@ -17,6 +17,8 @@ describe("UAT CI/CD workflow", () => {
         expect(workflow).toContain("group: pipipi-uat-release");
         expect(workflow).toContain("github.ref == 'refs/heads/develop'");
         expect(workflow).toContain("secrets.UAT_SSH_PRIVATE_KEY");
+        expect(workflow).toContain("IdentityFile ~/.ssh/deploy_key");
+        expect(workflow).not.toContain("id_ed25519");
         expect(workflow).toContain("secrets.UAT_SSH_KNOWN_HOSTS");
         expect(workflow).toContain("vars.UAT_REMOTE_HOST");
         expect(workflow).toContain("vars.UAT_REMOTE_PATH");

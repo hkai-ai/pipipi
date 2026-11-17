@@ -88,11 +88,12 @@ jobs:
           install -d -m 700 ~/.ssh
           test -n "$SSH_KNOWN_HOSTS"
           test -n "$SSH_PRIVATE_KEY"
-          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
+          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/deploy_key
           printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
-          chmod 600 ~/.ssh/id_ed25519
-          chmod 600 ~/.ssh/known_hosts
+          printf '%s\n' 'Host *' '  IdentityFile ~/.ssh/deploy_key' '  IdentitiesOnly yes' > ~/.ssh/config
+          chmod 600 ~/.ssh/deploy_key ~/.ssh/known_hosts ~/.ssh/config
           test -s ~/.ssh/known_hosts
+          test -s ~/.ssh/deploy_key
 
       - name: Verify console gateway precondition
         env:
