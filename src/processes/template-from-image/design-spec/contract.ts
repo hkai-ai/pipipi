@@ -16,8 +16,8 @@ import {
 
 export const skillRef = Object.freeze({
     name: "print-design-template-compiler",
-    version: "v2",
-    sha256: "275c9291efde5cf8d400710c4adb72002ee8e4d7a739545a1a440560d691d31a",
+    version: "v3",
+    sha256: "f373a22b93be426661727ae382048b703db7e23136ca04a2bd8404652dedd45d",
     path: ".pi/skills/print-design-template-compiler",
 });
 const bytes = readFileSync(
@@ -163,22 +163,107 @@ export const sourceConditionSchema = z.strictObject({
 });
 export const candidateSchema = z.strictObject({
     observation: z.strictObject({
-        overview: z.string().trim().min(1).max(3000),
+        overview: z.string().trim().min(1).max(3000).optional(),
         texts: z
             .array(
                 z.strictObject({
                     text: z.string().min(1).max(500),
-                    location: z.string().min(1),
+                    location: z.string().min(1).optional(),
                     elementId: z.string().min(1),
                 }),
             )
             .max(40),
-        printRisks: z.array(z.string().min(1)).max(20),
+        printRisks: z.array(z.string().min(1)).max(20).optional(),
         sourceCondition: sourceConditionSchema,
     }),
     draft: draftSchema,
 });
 export type PrintDesignCandidate = z.infer<typeof candidateSchema>;
+
+// 供编译提示使用的精简 Schema：精确覆盖作者合同，省略会被服务端丢弃或纯展示默认值的冗余字段。
+const promptSlotTextBase = z.strictObject({
+    defaultValue: z.string().min(1).max(120),
+    allowCustom: z.literal(true),
+});
+export const compilePromptSchema = z.strictObject({
+    observation: z.strictObject({
+        texts: z
+            .array(
+                z.strictObject({
+                    text: z.string().min(1).max(500),
+                    elementId: z.string().min(1),
+                }),
+            )
+            .max(40),
+        sourceCondition: sourceConditionSchema,
+    }),
+    draft: z.strictObject({
+        key: z.string().regex(/^[a-z][a-z0-9-]{1,59}$/u),
+        title: z.string().trim().min(1).max(20),
+        description: z.string().trim().min(1).max(20),
+        metadata: z.strictObject({
+            tags: z.array(z.string().min(1).max(12)).min(5).max(8),
+        }),
+        inputSchema: z.strictObject({
+            version: z.literal(2),
+            slots: z
+                .array(
+                    z.strictObject({
+                        id: z.string().regex(/^[a-zA-Z][a-zA-Z0-9_-]{0,39}$/u),
+                        label: z.string().min(1).max(40),
+                        required: z.literal(false),
+                        text: z.discriminatedUnion("presentation", [
+                            promptSlotTextBase.extend({
+                                presentation: z.literal("free_text"),
+                            }),
+                            promptSlotTextBase.extend({
+                                presentation: z.literal("suggestions"),
+                                suggestions: z
+                                    .array(z.string().min(1).max(120))
+                                    .min(1)
+                                    .max(6),
+                            }),
+                        ]),
+                        image: z
+                            .strictObject({
+                                sourceOptions: z
+                                    .array(
+                                        z.enum([
+                                            "upload",
+                                            "recent_upload",
+                                            "asset_library",
+                                        ]),
+                                    )
+                                    .min(1),
+                                maxCount: z.literal(1),
+                                private: z.literal(true),
+                            })
+                            .optional(),
+                        resolutionStrategy: z
+                            .literal("image_over_text")
+                            .optional(),
+                    }),
+                )
+                .min(1)
+                .max(12),
+        }),
+        runtimeSemantics: z.strictObject({
+            version: z.literal(4),
+            targetInstances: z
+                .array(
+                    z.strictObject({
+                        id: z.string().regex(/^[a-z][a-z0-9_]{1,79}$/u),
+                        kind: z.enum(["identity_subject", "content_element"]),
+                        role: z.string().min(1).max(200),
+                        region: z.string().min(1).max(300),
+                    }),
+                )
+                .min(1),
+            inputBindings: z.record(z.string(), bindingSchema),
+            designSpec: designSpecSchema,
+        }),
+    }),
+});
 
 type Finding = { path: readonly PropertyKey[]; code: string };
 function schemaFindings(

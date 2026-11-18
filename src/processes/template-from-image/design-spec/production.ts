@@ -14,7 +14,7 @@ export const printDesignProduction = defineProductionProcess({
                 skills,
                 model:
                     environment.TEMPLATE_MODEL?.trim() ||
-                    (pi.provider === "openai" ? "gpt-5.4" : pi.model),
+                    (pi.provider === "openai" ? "gpt-6.1-terra" : pi.model),
             }),
         }),
 });

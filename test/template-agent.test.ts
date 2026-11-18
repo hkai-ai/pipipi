@@ -444,16 +444,13 @@ it("v3 模板使用低延迟思考且移除 SDK 自动补入的输出上限，�
     }
 });
 
-it("印花 v4 编译和复核均使用隔离无 Tool 会话，复核使用严格补丁 Schema", async () => {
+it("印花 v4 单轮编译与按需修正均使用隔离无 Tool 会话、精简 Schema 与去重 WebP 视图", async () => {
     const { readFileSync } = await import("node:fs");
     const { PiPrintDesignAgent } = await import(
         "../src/processes/template-from-image/design-spec/agent.js"
     );
     const { readCandidate, skillRef } = await import(
         "../src/processes/template-from-image/design-spec/contract.js"
-    );
-    const { candidateDigest } = await import(
-        "../src/processes/template-from-image/design-spec/review.js"
     );
     const value = readCandidate(
         JSON.parse(
@@ -466,16 +463,9 @@ it("印花 v4 编译和复核均使用隔离无 Tool 会话，复核使用严格
             ),
         ),
     );
-    const outputs = [
-        value,
-        {
-            reviewedCandidateSha256: candidateDigest(value),
-            changes: [],
-            checks: {},
-            issues: [],
-        },
-    ];
+    const outputs = [value, value];
     const payloads: unknown[] = [];
+    const seenImages: number[] = [];
     const dispose = vi.fn();
     const sessionFactory: NonNullable<
         PiStructuredAgentOptions["sessionFactory"]
@@ -492,19 +482,12 @@ it("印花 v4 编译和复核均使用隔离无 Tool 会话，复核使用严格
         const skillIndex = systemPrompt.indexOf("印花设计预处理与验收框架");
         expect(skillIndex).toBeGreaterThanOrEqual(0);
         expect(systemPrompt).toContain("运行语义 v4");
-        if (outputs.length === 2) {
-            expect(skillIndex).toBeLessThan(
-                systemPrompt.indexOf(
-                    "按固定印花拆解 Skill 观察批准图并输出候选。",
-                ),
-            );
-        }
-        if (outputs.length === 1) {
-            expect(systemPrompt).toContain("写入 observation.printRisks");
-            expect(skillIndex).toBeLessThan(
-                systemPrompt.indexOf("独立重新观察同一批准图"),
-            );
-        }
+        expect(systemPrompt).not.toContain("runtimeSemanticsV3");
+        expect(skillIndex).toBeLessThan(
+            systemPrompt.indexOf(
+                "按固定印花拆解 Skill 观察批准图并输出紧凑候选 JSON。",
+            ),
+        );
         const model = {
             id: "test-vision",
             api: "openai-completions",
@@ -523,12 +506,12 @@ it("印花 v4 编译和复核均使用隔离无 Tool 会话，复核使用严格
                     _text: string,
                     request: { images: { data: string; mimeType: string }[] },
                 ) => {
-                    expect(request.images.length).toBeGreaterThanOrEqual(3);
+                    seenImages.push(request.images.length);
                     for (const view of request.images) {
                         expect(view.mimeType).toBe("image/webp");
                         expect(
                             Buffer.from(view.data, "base64").length,
-                        ).toBeLessThanOrEqual(112 * 1024);
+                        ).toBeLessThanOrEqual(96 * 1024);
                     }
                     payloads.push(
                         await control.onPayload?.(
@@ -562,24 +545,29 @@ it("印花 v4 编译和复核均使用隔离无 Tool 会话，复核使用严格
             refreshOnCreate: false,
         }),
     });
-    const request = {
-        image: { ...image, hasTransparency: true },
-        signal: new AbortController().signal,
-    };
-    expect(await agent.compile(request)).toEqual(value);
-    await agent.review({ ...request, candidate: value, issues: [] });
-    expect(payloads[0]).toMatchObject({
-        prompt_cache_key: `print-design-template-compiler:${skillRef.version}`,
-        response_format: { type: "json_object" },
-    });
-    expect(payloads[1]).toMatchObject({
-        prompt_cache_key: `print-design-template-compiler:${skillRef.version}`,
-        response_format: {
-            type: "json_schema",
-            json_schema: { strict: true, name: "print_design_review" },
-        },
-    });
-    for (const payload of payloads)
+    expect(
+        await agent.compile({
+            image: { ...image, hasTransparency: true },
+            signal: new AbortController().signal,
+        }),
+    ).toEqual(value);
+    expect(
+        await agent.compile({
+            image: { ...image, hasTransparency: false },
+            correction: {
+                previous: value,
+                issues: ["/draft/title: too_small"],
+            },
+            signal: new AbortController().signal,
+        }),
+    ).toEqual(value);
+    expect(seenImages).toEqual([2, 1]);
+    for (const payload of payloads) {
+        expect(payload).toMatchObject({
+            prompt_cache_key: `print-design-template-compiler:${skillRef.version}`,
+            response_format: { type: "json_object" },
+        });
         expect(payload).not.toHaveProperty("max_completion_tokens");
+    }
     expect(dispose).toHaveBeenCalledTimes(2);
 });
