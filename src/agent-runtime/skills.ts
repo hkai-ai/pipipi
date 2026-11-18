@@ -150,3 +150,23 @@ function formatSkill(name: string, body: string): string {
         "\n",
     );
 }
+
+/** 根据已绑定 Skill 名称与版本生成不超过 64 字符的稳定缓存路由键。 */
+export function skillPromptCacheKey(refs: readonly SkillRef[]): string {
+    if (!Array.isArray(refs) || refs.length === 0) {
+        throw new Error("At least one Runtime Skill is required");
+    }
+    const raw = refs
+        .map((ref) => (ref.version ? `${ref.name}:${ref.version}` : ref.name))
+        .join("/");
+    if (raw.length <= 64 && /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,63}$/u.test(raw)) {
+        return raw;
+    }
+    const digest = createHash("sha256").update(raw).digest("hex").slice(0, 16);
+    const prefix = raw
+        .replace(/[^A-Za-z0-9._:/-]/gu, "-")
+        .replace(/^[^A-Za-z0-9]+/u, "")
+        .slice(0, 47)
+        .replace(/[^A-Za-z0-9]+$/u, "");
+    return prefix ? `${prefix}:${digest}` : `skill:${digest}`;
+}

@@ -150,6 +150,18 @@ it("真实 Agent 修正请求使用严格字段 Schema、原图和无 Tool 会�
                 tools: [],
                 customTools: [],
             });
+            const systemPrompt =
+                options.resourceLoader?.getSystemPrompt() ?? "";
+            const skillIndex = systemPrompt.indexOf(
+                '<runtime-skill name="template-image-preparer">',
+            );
+            const instructionIndex = prompts.length
+                ? systemPrompt.indexOf(
+                      "按固定来源规则分析真实图片并输出完整替换策略。",
+                  )
+                : systemPrompt.indexOf("依据固定来源规则和原图修正策略。");
+            expect(skillIndex).toBeGreaterThanOrEqual(0);
+            expect(skillIndex).toBeLessThan(instructionIndex);
             const control = {
                 onPayload: undefined as
                     | undefined
@@ -208,6 +220,7 @@ it("真实 Agent 修正请求使用严格字段 Schema、原图和无 Tool 会�
         ),
     ).toBe(true);
     expect(payloads[0]).toMatchObject({
+        prompt_cache_key: "template-image-preparer:v3",
         response_format: { type: "json_schema", json_schema: { strict: true } },
     });
     const payload = payloads[0] as {
@@ -227,6 +240,9 @@ it("真实 Agent 修正请求使用严格字段 Schema、原图和无 Tool 会�
         strategyCorrectionSchema(issues).safeParse({ changes }).success,
     ).toBe(true);
     await agent.plan(image, new AbortController().signal);
+    expect(payloads[1]).toMatchObject({
+        prompt_cache_key: "template-image-preparer:v3",
+    });
     const planPayload = payloads[1] as {
         response_format: {
             json_schema: { schema: { properties: Record<string, unknown> } };

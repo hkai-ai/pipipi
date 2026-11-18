@@ -77,9 +77,14 @@ async function agentFor(
                 customTools: [],
                 thinkingLevel: runtimeVersion === 3 ? "low" : "medium",
             });
-            expect(options.resourceLoader?.getSystemPrompt()).toContain(
-                "团队纪念照的专业图标",
+            const systemPrompt =
+                options.resourceLoader?.getSystemPrompt() ?? "";
+            const skillIndex = systemPrompt.indexOf("团队纪念照的专业图标");
+            const instructionIndex = systemPrompt.indexOf(
+                "按固定 Skill 完成图片模板任务。",
             );
+            expect(skillIndex).toBeGreaterThanOrEqual(0);
+            expect(skillIndex).toBeLessThan(instructionIndex);
             const model = {
                 id: "test-vision",
                 api,
@@ -248,6 +253,7 @@ describe("模板生成与独立视觉复核", () => {
         const responses = await agentFor([response], true, "openai-responses");
         await responses.agent.review(request);
         expect(responses.payloads[0]).toMatchObject({
+            prompt_cache_key: "meme-template-json-compiler:v1.13",
             text: { format: { type: "json_schema", strict: true } },
         });
         const unsupported = await agentFor(
@@ -482,16 +488,23 @@ it("印花 v4 编译和复核均使用隔离无 Tool 会话，复核使用严格
         });
         expect(options.settingsManager?.getRetryEnabled()).toBe(false);
         expect(options.settingsManager?.getCompactionEnabled()).toBe(false);
-        expect(options.resourceLoader?.getSystemPrompt()).toContain(
-            "印花设计预处理与验收框架",
-        );
-        expect(options.resourceLoader?.getSystemPrompt()).toContain(
-            "运行语义 v4",
-        );
-        if (outputs.length === 1)
-            expect(options.resourceLoader?.getSystemPrompt()).toContain(
-                "写入 observation.printRisks",
+        const systemPrompt = options.resourceLoader?.getSystemPrompt() ?? "";
+        const skillIndex = systemPrompt.indexOf("印花设计预处理与验收框架");
+        expect(skillIndex).toBeGreaterThanOrEqual(0);
+        expect(systemPrompt).toContain("运行语义 v4");
+        if (outputs.length === 2) {
+            expect(skillIndex).toBeLessThan(
+                systemPrompt.indexOf(
+                    "按固定印花拆解 Skill 观察批准图并输出候选。",
+                ),
             );
+        }
+        if (outputs.length === 1) {
+            expect(systemPrompt).toContain("写入 observation.printRisks");
+            expect(skillIndex).toBeLessThan(
+                systemPrompt.indexOf("独立重新观察同一批准图"),
+            );
+        }
         const model = {
             id: "test-vision",
             api: "openai-completions",
@@ -556,9 +569,11 @@ it("印花 v4 编译和复核均使用隔离无 Tool 会话，复核使用严格
     expect(await agent.compile(request)).toEqual(value);
     await agent.review({ ...request, candidate: value, issues: [] });
     expect(payloads[0]).toMatchObject({
+        prompt_cache_key: `print-design-template-compiler:${skillRef.version}`,
         response_format: { type: "json_object" },
     });
     expect(payloads[1]).toMatchObject({
+        prompt_cache_key: `print-design-template-compiler:${skillRef.version}`,
         response_format: {
             type: "json_schema",
             json_schema: { strict: true, name: "print_design_review" },

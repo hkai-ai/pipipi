@@ -15,6 +15,7 @@ import {
     parseOpenAIApiMode,
 } from "../src/agent-runtime/pi.js";
 import { PiSessionSupport } from "../src/agent-runtime/session.js";
+import { skillPromptCacheKey } from "../src/agent-runtime/skills.js";
 import {
     PiStructuredAgent,
     type PiStructuredAgentSessionFactory,
@@ -571,6 +572,17 @@ describe("Pi session system prompt order and cache key", () => {
                 await keyed.session.agent.onPayload?.(base, model as never),
             ).toEqual({ ...base, prompt_cache_key: "skill-name:v2" });
             expect(
+                await keyed.session.agent.onPayload?.(base, {
+                    api: "anthropic-messages",
+                } as never),
+            ).toEqual(base);
+            expect(
+                await keyed.session.agent.onPayload?.(base, {
+                    api: "openai-responses",
+                    compat: { promptCacheKeyMode: "disabled" },
+                } as never),
+            ).toEqual(base);
+            expect(
                 await plain.session.agent.onPayload?.(base, model as never),
             ).not.toHaveProperty("prompt_cache_key", "skill-name:v2");
         } finally {
@@ -585,5 +597,25 @@ describe("Pi session system prompt order and cache key", () => {
                     promptCacheKey: "x".repeat(65),
                 }),
         ).toThrow("prompt cache key");
+    });
+
+    it("derives deterministic <=64-char cache keys from bound Skill refs", () => {
+        expect(skillPromptCacheKey(createPosterSkillRefs())).toBe(
+            "minimal-zine-poster-prompt:v1",
+        );
+        const longKey = skillPromptCacheKey([
+            {
+                name: "alpha-skill-with-a-very-long-identifier",
+                path: "a",
+                version: "v10",
+            },
+            {
+                name: "beta-skill-with-another-long-identifier",
+                path: "b",
+                version: "v20",
+            },
+        ]);
+        expect(longKey.length).toBeLessThanOrEqual(64);
+        expect(longKey).toMatch(/^[A-Za-z0-9][A-Za-z0-9._:/-]{0,63}$/u);
     });
 });

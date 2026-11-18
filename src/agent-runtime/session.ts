@@ -209,11 +209,26 @@ export class PiSessionSupport {
             ...toolSurface,
         });
         const cacheKey = this.#promptCacheKey;
-        if (cacheKey) {
+        if (cacheKey && session.agent) {
             const previous = session.agent.onPayload;
             session.agent.onPayload = async (payload, model) => {
                 const next = (await previous?.(payload, model)) ?? payload;
-                return next && typeof next === "object" && !Array.isArray(next)
+                const active = model ?? session.model;
+                const openAI =
+                    active?.api === "openai-completions" ||
+                    active?.api === "openai-responses";
+                const disabled =
+                    active &&
+                    "compat" in active &&
+                    active.compat &&
+                    typeof active.compat === "object" &&
+                    "promptCacheKeyMode" in active.compat &&
+                    active.compat.promptCacheKeyMode === "disabled";
+                return openAI &&
+                    !disabled &&
+                    next &&
+                    typeof next === "object" &&
+                    !Array.isArray(next)
                     ? { ...next, prompt_cache_key: cacheKey }
                     : next;
             };
