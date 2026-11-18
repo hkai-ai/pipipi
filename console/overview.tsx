@@ -1,11 +1,20 @@
 /** 用量概览与异常分析复用统计快照，按相同窗口下钻记录。 */
-import { useEffect, useState } from "preact/hooks";
+import { Tooltip } from "@base-ui/react/tooltip";
+import {
+    Activity,
+    AlertCircle,
+    CheckCircle2,
+    Clock,
+    RefreshCw,
+} from "lucide-react";
+import { useEffect, useState } from "react";
 import { type ConsoleStats, type RunFilters, readStats } from "./api.js";
 import { explainError } from "./diagnostics.js";
 import { formatDuration, formatTime, Panel } from "./formatting.jsx";
 import { processName } from "./labels.js";
 import { useAsync } from "./resource.js";
 import { hrefFor } from "./routing.js";
+import { CheckboxField, SelectField } from "./ui.jsx";
 
 export function Overview({
     hours = 24,
@@ -27,56 +36,55 @@ export function Overview({
     const stats = result.value;
     return (
         <>
-            <div class="page-heading">
+            <div className="page-heading">
                 <div>
                     <h1>{exceptions ? "异常排查" : "运行概览"}</h1>
-                    <p class="hint">
+                    <p className="hint">
                         {exceptions
                             ? "按业务版本与错误码归类，沿记录追查失败阶段。"
                             : "观察业务调用、成功交付与需要关注的异常。"}
                     </p>
                 </div>
-                <div class="actions overview-controls">
-                    <label class="compact-label">
-                        统计窗口
-                        <select
-                            aria-label="统计窗口"
-                            value={hours}
-                            onChange={(event) => {
-                                location.hash = hrefFor({
-                                    view: exceptions
-                                        ? "exceptions"
-                                        : "overview",
-                                    hours: Number(event.currentTarget.value),
-                                });
-                            }}
-                        >
-                            <option value="1">最近 1 小时</option>
-                            <option value="24">最近 24 小时</option>
-                            <option value="168">最近 7 天</option>
-                            <option value="720">最近 30 天</option>
-                        </select>
-                    </label>
+                <div className="actions overview-controls">
+                    <SelectField
+                        label="统计窗口"
+                        labelClassName="compact-label"
+                        value={String(hours)}
+                        options={[
+                            { value: "1", label: "最近 1 小时" },
+                            { value: "24", label: "最近 24 小时" },
+                            { value: "168", label: "最近 7 天" },
+                            { value: "720", label: "最近 30 天" },
+                        ]}
+                        onChange={(next) => {
+                            location.hash = hrefFor({
+                                view: exceptions ? "exceptions" : "overview",
+                                hours: Number(next),
+                            });
+                        }}
+                    />
                     <button
                         type="button"
+                        className="btn-with-icon"
                         disabled={result.loading}
                         onClick={() => setTick((value) => value + 1)}
                     >
-                        刷新
+                        <RefreshCw
+                            size={14}
+                            strokeWidth={1.75}
+                            aria-hidden="true"
+                        />
+                        <span>刷新</span>
                     </button>
                 </div>
             </div>
-            <div class="data-note">
-                <label class="check">
-                    <input
-                        type="checkbox"
-                        checked={refresh}
-                        onChange={(event) =>
-                            setRefresh(event.currentTarget.checked)
-                        }
-                    />
-                    每 30 秒刷新
-                </label>
+            <div className="data-note">
+                <CheckboxField
+                    className="check"
+                    checked={refresh}
+                    onCheckedChange={setRefresh}
+                    label="每 30 秒刷新"
+                />
                 <span>
                     {result.loading
                         ? "正在读取统计…"
@@ -86,13 +94,13 @@ export function Overview({
                 </span>
             </div>
             {result.error ? (
-                <div class="notice" role="alert">
+                <div className="notice" role="alert">
                     {result.error} 当前无法判断调用量与异常情况。
                 </div>
             ) : null}
             {stats ? (
                 <>
-                    <p class="hint window-note">
+                    <p className="hint window-note">
                         {formatTime(stats.since)} 至{" "}
                         {stats.until ? formatTime(stats.until) : "本次查询"}
                         。仅统计已归档终态；不代表活跃用户数或正在执行的任务。
@@ -102,32 +110,61 @@ export function Overview({
                     ) : (
                         <>
                             <Metrics stats={stats} />
-                            <div class="overview-grid">
+                            <div className="overview-grid">
                                 <Panel title="调用趋势">
                                     <DailyChart stats={stats} />
                                 </Panel>
                                 <Panel title="最近成功">
-                                    <p class="latest-success">
-                                        {stats.latestSucceededAt
-                                            ? formatTime(
-                                                  stats.latestSucceededAt,
-                                              )
-                                            : stats.totals.succeeded
-                                              ? "当前接口未提供时间"
-                                              : "此窗口内暂无成功记录"}
+                                    <p className="latest-success">
+                                        <span
+                                            className="live-dot"
+                                            aria-hidden="true"
+                                        />
+                                        <span>
+                                            {stats.latestSucceededAt
+                                                ? formatTime(
+                                                      stats.latestSucceededAt,
+                                                  )
+                                                : stats.totals.succeeded
+                                                  ? "当前接口未提供时间"
+                                                  : "此窗口内暂无成功记录"}
+                                        </span>
                                     </p>
-                                    <p class="hint">
+                                    <p className="hint">
                                         调用方与用户身份尚未采集；不能据执行次数推算人数。
                                     </p>
                                     <hr />
-                                    <p>
-                                        API 当前进程并发{" "}
-                                        <strong>
+                                    <div className="concurrency-header">
+                                        <span>API 当前进程并发</span>
+                                        <strong className="numeric">
                                             {stats.concurrency.active} /{" "}
                                             {stats.concurrency.limit}
                                         </strong>
-                                    </p>
-                                    <p class="hint">
+                                    </div>
+                                    <div
+                                        className="rate-bar concurrency-bar"
+                                        aria-hidden="true"
+                                    >
+                                        <span
+                                            className="rate-bar-fill rate-good"
+                                            style={{
+                                                width: `${
+                                                    stats.concurrency.limit > 0
+                                                        ? Math.min(
+                                                              100,
+                                                              (stats.concurrency
+                                                                  .active /
+                                                                  stats
+                                                                      .concurrency
+                                                                      .limit) *
+                                                                  100,
+                                                          )
+                                                        : 0
+                                                }%`,
+                                            }}
+                                        />
+                                    </div>
+                                    <p className="hint">
                                         不含其他实例及异步 Worker。
                                     </p>
                                 </Panel>
@@ -135,18 +172,18 @@ export function Overview({
                             <FailureGroups stats={stats} compact />
                             <Panel title="业务用量">
                                 {stats.byProcess.length ? (
-                                    <div class="table-scroll">
+                                    <div className="table-scroll">
                                         <table>
                                             <thead>
                                                 <tr>
                                                     <th>业务 / 版本</th>
-                                                    <th class="numeric">
+                                                    <th className="numeric">
                                                         执行
                                                     </th>
-                                                    <th class="numeric">
+                                                    <th className="numeric">
                                                         成功率
                                                     </th>
-                                                    <th class="numeric">
+                                                    <th className="numeric">
                                                         失败
                                                     </th>
                                                     <th>记录</th>
@@ -168,7 +205,7 @@ export function Overview({
                                                                             entry.process,
                                                                         )}
                                                                     </strong>
-                                                                    <span class="cell-meta">
+                                                                    <span className="cell-meta">
                                                                         {
                                                                             entry.process
                                                                         }{" "}
@@ -178,15 +215,46 @@ export function Overview({
                                                                         }
                                                                     </span>
                                                                 </td>
-                                                                <td class="numeric">
+                                                                <td className="numeric">
                                                                     {total}
                                                                 </td>
-                                                                <td class="numeric">
-                                                                    {total
-                                                                        ? `${((entry.succeeded / total) * 100).toFixed(1)}%`
-                                                                        : "—"}
+                                                                <td className="numeric">
+                                                                    {total ? (
+                                                                        <div className="rate-cell">
+                                                                            <span className="rate-bar">
+                                                                                <span
+                                                                                    className={`rate-bar-fill ${
+                                                                                        entry.succeeded /
+                                                                                            total >=
+                                                                                        0.9
+                                                                                            ? "rate-good"
+                                                                                            : entry.succeeded /
+                                                                                                    total >=
+                                                                                                0.5
+                                                                                              ? "rate-warn"
+                                                                                              : "rate-bad"
+                                                                                    }`}
+                                                                                    style={{
+                                                                                        width: `${((entry.succeeded / total) * 100).toFixed(1)}%`,
+                                                                                    }}
+                                                                                />
+                                                                            </span>
+                                                                            <span>
+                                                                                {(
+                                                                                    (entry.succeeded /
+                                                                                        total) *
+                                                                                    100
+                                                                                ).toFixed(
+                                                                                    1,
+                                                                                )}
+                                                                                %
+                                                                            </span>
+                                                                        </div>
+                                                                    ) : (
+                                                                        "—"
+                                                                    )}
                                                                 </td>
-                                                                <td class="numeric">
+                                                                <td className="numeric">
                                                                     {entry.failed ? (
                                                                         <a
                                                                             href={recordsHref(
@@ -231,7 +299,7 @@ export function Overview({
                                         </table>
                                     </div>
                                 ) : (
-                                    <p class="empty">
+                                    <p className="empty">
                                         此窗口内没有业务记录。可扩大统计窗口查看。
                                     </p>
                                 )}
@@ -240,7 +308,7 @@ export function Overview({
                     )}
                     <Panel title="最近失败">
                         {stats.recentFailures.length ? (
-                            <div class="table-scroll">
+                            <div className="table-scroll">
                                 <table>
                                     <thead>
                                         <tr>
@@ -260,7 +328,7 @@ export function Overview({
                                                 </td>
                                                 <td>
                                                     {processName(entry.process)}
-                                                    <span class="cell-meta">
+                                                    <span className="cell-meta">
                                                         {entry.process} /{" "}
                                                         {entry.version}
                                                     </span>
@@ -271,7 +339,7 @@ export function Overview({
                                                             entry.errorCode,
                                                         ).title
                                                     }
-                                                    <span class="cell-meta">
+                                                    <span className="cell-meta">
                                                         {entry.errorCode}
                                                     </span>
                                                 </td>
@@ -297,9 +365,11 @@ export function Overview({
                                 </table>
                             </div>
                         ) : (
-                            <p class="empty">此窗口内没有已归档的失败记录。</p>
+                            <p className="empty">
+                                此窗口内没有已归档的失败记录。
+                            </p>
                         )}
-                        <p class="hint">
+                        <p className="hint">
                             最多展示最近 10 条；上方异常聚合覆盖完整查询窗口。
                         </p>
                     </Panel>
@@ -311,32 +381,68 @@ export function Overview({
 
 function Metrics({ stats }: { stats: ConsoleStats }) {
     const total = stats.totals.succeeded + stats.totals.failed;
+    const rate = total ? (stats.totals.succeeded / total) * 100 : undefined;
     return (
-        <div class="metrics">
-            <a class="metric" href={recordsHref(stats)}>
-                <span>执行次数</span>
+        <div className="metrics">
+            <a className="metric" href={recordsHref(stats)}>
+                <div className="metric-head">
+                    <span>执行次数</span>
+                    <Activity size={15} strokeWidth={1.75} aria-hidden="true" />
+                </div>
                 <strong>{total}</strong>
                 <small>已归档结果</small>
             </a>
             <a
-                class="metric"
+                className="metric"
                 href={recordsHref(stats, { status: "succeeded" })}
             >
-                <span>成功率</span>
+                <div className="metric-head">
+                    <span>成功率</span>
+                    <CheckCircle2
+                        size={15}
+                        strokeWidth={1.75}
+                        className="metric-icon-ok"
+                        aria-hidden="true"
+                    />
+                </div>
                 <strong>
-                    {total
-                        ? `${((stats.totals.succeeded / total) * 100).toFixed(1)}%`
-                        : "—"}
+                    {rate !== undefined ? `${rate.toFixed(1)}%` : "—"}
                 </strong>
+                {rate !== undefined ? (
+                    <div className="metric-bar" aria-hidden="true">
+                        <span
+                            className={`rate-bar-fill ${rate >= 90 ? "rate-good" : rate >= 50 ? "rate-warn" : "rate-bad"}`}
+                            style={{ width: `${rate.toFixed(1)}%` }}
+                        />
+                    </div>
+                ) : null}
                 <small>{stats.totals.succeeded} 次成功</small>
             </a>
-            <a class="metric" href={recordsHref(stats, { status: "failed" })}>
-                <span>失败次数</span>
+            <a
+                className="metric"
+                href={recordsHref(stats, { status: "failed" })}
+            >
+                <div className="metric-head">
+                    <span>失败次数</span>
+                    <AlertCircle
+                        size={15}
+                        strokeWidth={1.75}
+                        className={
+                            stats.totals.failed > 0
+                                ? "metric-icon-bad"
+                                : undefined
+                        }
+                        aria-hidden="true"
+                    />
+                </div>
                 <strong>{stats.totals.failed}</strong>
                 <small>查看对应记录</small>
             </a>
-            <div class="metric">
-                <span>Attempt 耗时 P95</span>
+            <div className="metric">
+                <div className="metric-head">
+                    <span>Attempt 耗时 P95</span>
+                    <Clock size={15} strokeWidth={1.75} aria-hidden="true" />
+                </div>
                 <strong>{formatDuration(stats.attemptDurationMs.p95)}</strong>
                 <small>
                     {stats.attemptDurationMs.samples} 次采样；非端到端耗时
@@ -357,19 +463,19 @@ function FailureGroups({
     return (
         <Panel title={compact ? "需要关注" : "异常聚合"}>
             {!groups ? (
-                <p class="notice">
+                <p className="notice">
                     当前服务尚未提供异常聚合，请通过最近失败与运行记录排查。
                 </p>
             ) : !groups.length ? (
-                <p class="empty">此窗口内没有已归档的失败记录。</p>
+                <p className="empty">此窗口内没有已归档的失败记录。</p>
             ) : (
-                <div class="table-scroll">
+                <div className="table-scroll">
                     <table>
                         <thead>
                             <tr>
                                 <th>业务 / 版本</th>
                                 <th>错误与排查方向</th>
-                                <th class="numeric">次数</th>
+                                <th className="numeric">次数</th>
                                 <th>最近发生</th>
                                 <th>操作</th>
                             </tr>
@@ -386,25 +492,25 @@ function FailureGroups({
                                                 <strong>
                                                     {processName(group.process)}
                                                 </strong>
-                                                <span class="cell-meta">
+                                                <span className="cell-meta">
                                                     {group.process} /{" "}
                                                     {group.version}
                                                 </span>
                                             </td>
                                             <td>
-                                                <span class="status-failed">
+                                                <span className="status-failed">
                                                     {error.title}
                                                 </span>
-                                                <code class="cell-meta">
+                                                <code className="cell-meta code-pill">
                                                     {group.errorCode}
                                                 </code>
                                                 {!compact ? (
-                                                    <p class="hint diagnosis">
+                                                    <p className="hint diagnosis">
                                                         {error.next}
                                                     </p>
                                                 ) : null}
                                             </td>
-                                            <td class="numeric">
+                                            <td className="numeric">
                                                 {group.count}
                                             </td>
                                             <td>
@@ -485,59 +591,119 @@ function DailyChart({ stats }: { stats: ConsoleStats }) {
             },
         );
     }
-    const max = Math.max(1, ...days.map((day) => day.succeeded + day.failed));
+    const peak = Math.max(1, ...days.map((day) => day.succeeded + day.failed));
+    const hasData = stats.byDay.length > 0;
+    const ticks = hasData ? [peak, Math.round(peak / 2), 0] : [0];
     return (
         <>
-            <section
-                class="chart"
-                aria-label="UTC 每日执行次数，点击查看当天记录"
-            >
-                {days.map((day) => (
-                    <a
-                        class="chart-column"
-                        key={day.day}
-                        aria-label={`${day.day} UTC，成功 ${day.succeeded} 次，失败 ${day.failed} 次`}
-                        title={`${day.day} UTC：成功 ${day.succeeded}，失败 ${day.failed}`}
-                        href={recordsHref(stats, {
-                            since:
-                                day.day === stats.since.slice(0, 10)
-                                    ? stats.since
-                                    : `${day.day}T00:00:00.000Z`,
-                            until:
-                                stats.until &&
-                                day.day === stats.until.slice(0, 10)
-                                    ? stats.until
-                                    : new Date(
-                                          Date.parse(`${day.day}T00:00:00Z`) +
-                                              86_400_000,
-                                      ).toISOString(),
-                        })}
-                    >
-                        <span class="chart-track">
-                            <span
-                                class="bar-failed"
-                                style={{
-                                    height: `${(day.failed / max) * 100}%`,
-                                }}
-                            />
-                            <span
-                                class="bar-success"
-                                style={{
-                                    height: `${(day.succeeded / max) * 100}%`,
-                                }}
-                            />
-                        </span>
-                        <span class="chart-date">{day.day.slice(5)}</span>
-                    </a>
-                ))}
-            </section>
-            <div class="chart-legend">
+            <div className="chart-shell">
+                <div className="chart-yaxis" aria-hidden="true">
+                    {ticks.map((tick) => (
+                        <span key={tick}>{tick}</span>
+                    ))}
+                </div>
+                <section
+                    className="chart"
+                    aria-label="UTC 每日执行次数，点击查看当天记录"
+                >
+                    <div className="chart-grid" aria-hidden="true">
+                        <span />
+                        <span />
+                        <span />
+                    </div>
+                    {days.map((day) => {
+                        const total = day.succeeded + day.failed;
+                        return (
+                            <Tooltip.Root key={day.day}>
+                                <Tooltip.Trigger
+                                    delay={0}
+                                    closeDelay={50}
+                                    render={
+                                        <a
+                                            className="chart-column"
+                                            aria-label={`${day.day} UTC，成功 ${day.succeeded} 次，失败 ${day.failed} 次`}
+                                            href={recordsHref(stats, {
+                                                since:
+                                                    day.day ===
+                                                    stats.since.slice(0, 10)
+                                                        ? stats.since
+                                                        : `${day.day}T00:00:00.000Z`,
+                                                until:
+                                                    stats.until &&
+                                                    day.day ===
+                                                        stats.until.slice(0, 10)
+                                                        ? stats.until
+                                                        : new Date(
+                                                              Date.parse(
+                                                                  `${day.day}T00:00:00Z`,
+                                                              ) + 86_400_000,
+                                                          ).toISOString(),
+                                            })}
+                                        />
+                                    }
+                                >
+                                    <span className="chart-track">
+                                        {day.failed > 0 ? (
+                                            <span
+                                                className="bar-failed"
+                                                style={{
+                                                    height: `${(day.failed / peak) * 100}%`,
+                                                }}
+                                            />
+                                        ) : null}
+                                        {day.succeeded > 0 ? (
+                                            <span
+                                                className="bar-success"
+                                                style={{
+                                                    height: `${(day.succeeded / peak) * 100}%`,
+                                                }}
+                                            />
+                                        ) : null}
+                                    </span>
+                                    <span className="chart-date">
+                                        {day.day.slice(5)}
+                                    </span>
+                                </Tooltip.Trigger>
+                                <Tooltip.Portal>
+                                    <Tooltip.Positioner
+                                        className="chart-tooltip-positioner"
+                                        side="top"
+                                        sideOffset={8}
+                                    >
+                                        <Tooltip.Popup className="chart-tooltip">
+                                            <strong className="mono">
+                                                {day.day} UTC
+                                            </strong>
+                                            <div className="chart-tooltip-row">
+                                                <span>总执行</span>
+                                                <span className="numeric">
+                                                    {total}
+                                                </span>
+                                            </div>
+                                            <div className="chart-tooltip-row">
+                                                <span>成功</span>
+                                                <span className="numeric status-ok-text">
+                                                    {day.succeeded}
+                                                </span>
+                                            </div>
+                                            <div className="chart-tooltip-row">
+                                                <span>失败</span>
+                                                <span className="numeric status-bad-text">
+                                                    {day.failed}
+                                                </span>
+                                            </div>
+                                        </Tooltip.Popup>
+                                    </Tooltip.Positioner>
+                                </Tooltip.Portal>
+                            </Tooltip.Root>
+                        );
+                    })}
+                </section>
+            </div>
+            <div className="chart-legend">
                 <span>成功</span>
                 <span>失败</span>
-                <span>
-                    每日次数，峰值 {max === 1 && !stats.byDay.length ? 0 : max}
-                    ；UTC 日界
-                </span>
+                <span>每日次数，峰值 {hasData ? peak : 0}；UTC 日界</span>
             </div>
         </>
     );

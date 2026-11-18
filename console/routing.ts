@@ -1,5 +1,5 @@
 /** 保存可分享的筛选窗口与详情返回位置，兼容已有 hash 链接。 */
-import { useEffect, useState } from "preact/hooks";
+import { useEffect, useState } from "react";
 import type { RunFilters } from "./api.js";
 
 export type Route =

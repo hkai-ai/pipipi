@@ -1,4 +1,4 @@
-import type { ComponentChildren } from "preact";
+import type { ReactNode } from "react";
 import type { ProcessRunRecord } from "./api.js";
 import { ErrorHint } from "./error-hint.jsx";
 
@@ -11,7 +11,12 @@ export const billedFailureCode = "DEPENDENCY_FAILURE_AFTER_COMMIT";
 
 export function StatusLabel({ record }: { record: ProcessRunRecord }) {
     if (record.status === "succeeded") {
-        return <span class="status-succeeded">成功</span>;
+        return (
+            <span className="status-succeeded">
+                <span className="status-dot" aria-hidden="true" />
+                成功
+            </span>
+        );
     }
     return <ErrorHint code={record.errorCode} />;
 }
@@ -66,7 +71,7 @@ export function Thumbnail({ image }: { image: ImageReference }) {
             title={image.label}
         >
             <img
-                class="thumb"
+                className="thumb"
                 loading="lazy"
                 src={image.url}
                 alt={image.label}
@@ -88,11 +93,11 @@ export function Panel({
     children,
 }: {
     title: string;
-    action?: ComponentChildren;
-    children: ComponentChildren;
+    action?: ReactNode;
+    children: ReactNode;
 }) {
     return (
-        <section class="panel">
+        <section className="panel">
             <h2>
                 {title} {action}
             </h2>

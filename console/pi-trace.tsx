@@ -4,6 +4,7 @@ import type {
     PiSessionTrace,
 } from "../src/process-runtime/pi-trace.js";
 import { formatDuration } from "./formatting.jsx";
+import { CollapsibleSection } from "./ui.jsx";
 
 const outcomes = {
     stop: "完成回复",
@@ -27,8 +28,10 @@ const decisions = {
 
 export function PiTrace({ session }: { session: PiSessionTrace }) {
     return (
-        <details class="technical-details">
-            <summary>Pi 会话 {session.sessionId}</summary>
+        <CollapsibleSection
+            className="technical-details"
+            title={`Pi 会话 ${session.sessionId}`}
+        >
             <p>本次加载的 Runtime Skill</p>
             <ul>
                 {session.skills.map((skill) => (
@@ -132,15 +135,17 @@ export function PiTrace({ session }: { session: PiSessionTrace }) {
                       ? "最终业务校验失败"
                       : "最终业务校验未采集"}
             </p>
-        </details>
+        </CollapsibleSection>
     );
 }
 
 function DecisionList({ entries }: { entries?: PiDecision[] }) {
     return entries?.length ? (
         <ol>
-            {entries.map((decision, index) => (
-                <li key={index}>
+            {entries.map((decision) => (
+                <li
+                    key={`${decision.kind}-${decision.call ?? ""}-${decision.reason ?? ""}-${decision.httpStatus ?? ""}`}
+                >
                     {decisions[decision.kind]}
                     {decision.call ? ` · 调用 ${decision.call}` : ""}
                     {decision.material

@@ -1,5 +1,5 @@
 /** 管理页面请求的加载、失败与过期响应，切换查询时不展示旧数据。 */
-import { useEffect, useState } from "preact/hooks";
+import { useEffect, useRef, useState } from "react";
 
 export function useAsync<Result>(
     load: () => Promise<Result>,
@@ -7,6 +7,9 @@ export function useAsync<Result>(
     refresh = 0,
 ) {
     const key = JSON.stringify(dependencies);
+    const requestKey = `${key}:${refresh}`;
+    const loadRef = useRef(load);
+    loadRef.current = load;
     const [state, setState] = useState<{
         key: string;
         value?: Result;
@@ -15,13 +18,14 @@ export function useAsync<Result>(
         updatedAt?: string;
     }>({ key, loading: true });
     useEffect(() => {
+        void requestKey;
         let current = true;
         setState((previous) =>
             previous.key === key && previous.value !== undefined
                 ? { ...previous, loading: true }
                 : { key, loading: true },
         );
-        load().then(
+        loadRef.current().then(
             (value) =>
                 current &&
                 setState({
@@ -41,6 +45,6 @@ export function useAsync<Result>(
         return () => {
             current = false;
         };
-    }, [key, refresh]);
+    }, [key, requestKey]);
     return state.key === key ? state : { key, loading: true };
 }

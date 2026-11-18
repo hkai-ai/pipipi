@@ -1,7 +1,6 @@
 /** 展示调用方认证态势，并提供密钥盘点、一次性发放、吊销与审计。 */
-import type { ComponentChildren, TargetedSubmitEvent } from "preact";
-import { Fragment } from "preact";
-import { useEffect, useState } from "preact/hooks";
+import { AlertDialog } from "@base-ui/react/alert-dialog";
+import { type FormEvent, type ReactNode, useEffect, useState } from "react";
 import type {
     ConsoleCallerKeys,
     ConsoleIssuedKey,
@@ -46,7 +45,7 @@ export function CallerKeysView({ callerId }: { callerId?: string }) {
         return () => window.removeEventListener("pagehide", clearIssued);
     }, []);
 
-    async function issue(event: TargetedSubmitEvent<HTMLFormElement>) {
+    async function issue(event: FormEvent<HTMLFormElement>) {
         event.preventDefault();
         if (busy || issued) return;
         const form = event.currentTarget;
@@ -82,10 +81,7 @@ export function CallerKeysView({ callerId }: { callerId?: string }) {
         }
     }
 
-    async function revoke(
-        event: TargetedSubmitEvent<HTMLFormElement>,
-        keyId: string,
-    ) {
+    async function revoke(event: FormEvent<HTMLFormElement>, keyId: string) {
         event.preventDefault();
         if (busy) return;
         const data = new FormData(event.currentTarget);
@@ -124,27 +120,27 @@ export function CallerKeysView({ callerId }: { callerId?: string }) {
     const auth = result.value?.auth;
     return (
         <>
-            <header class="page-heading">
+            <header className="page-heading">
                 <h1>调用方密钥</h1>
             </header>
 
             {issued ? (
                 <section
-                    class="panel issued-key"
+                    className="panel issued-key"
                     aria-labelledby="issued-key-title"
                 >
                     <h2 id="issued-key-title">请保存一次性密钥</h2>
                     <p>服务端仅存不可逆哈希。刷新或关闭后无法再次查看明文。</p>
                     {issued.persistent ? null : (
-                        <p class="cost-warning">
+                        <p className="cost-warning">
                             当前为本地内存模式，服务重启后密钥会清空。
                         </p>
                     )}
-                    <code class="secret-value">{issued.key}</code>
-                    <div class="actions">
+                    <code className="secret-value">{issued.key}</code>
+                    <div className="actions">
                         <button
                             type="button"
-                            class="primary"
+                            className="primary"
                             onClick={() => void copyKey(issued.key)}
                         >
                             复制密钥
@@ -163,7 +159,7 @@ export function CallerKeysView({ callerId }: { callerId?: string }) {
             <Panel title="当前认证态势">
                 {auth ? (
                     <>
-                        <dl class="detail-facts key-auth">
+                        <dl className="detail-facts key-auth">
                             <div>
                                 <dt>同步 /execute 认证档位</dt>
                                 <dd>{auth.executeAuthMode}</dd>
@@ -186,13 +182,13 @@ export function CallerKeysView({ callerId }: { callerId?: string }) {
                             </div>
                         </dl>
                         {auth.persistent ? null : (
-                            <p class="notice">
+                            <p className="notice">
                                 服务重启后密钥和审计记录会清空。
                             </p>
                         )}
                     </>
                 ) : (
-                    <p class="hint">
+                    <p className="hint">
                         {result.error
                             ? "认证态势读取失败。"
                             : "正在读取认证态势…"}
@@ -202,10 +198,10 @@ export function CallerKeysView({ callerId }: { callerId?: string }) {
 
             <Panel title="发放新密钥">
                 <form
-                    autocomplete="off"
+                    autoComplete="off"
                     onSubmit={(event) => void issue(event)}
                 >
-                    <div class="toolbar">
+                    <div className="toolbar">
                         <label>
                             调用方 ID
                             <input
@@ -237,22 +233,22 @@ export function CallerKeysView({ callerId }: { callerId?: string }) {
                         备注
                         <input name="note" maxLength={512} />
                     </label>
-                    <div class="actions">
+                    <div className="actions">
                         <button
                             type="submit"
-                            class="primary"
+                            className="primary"
                             disabled={busy || Boolean(issued)}
                         >
                             发放密钥
                         </button>
-                        <span class="hint">
+                        <span className="hint">
                             {issued
                                 ? "请先保存并关闭上方一次性密钥提示，再发放下一把密钥。"
                                 : "过期时间留空表示永不过期。"}
                         </span>
                     </div>
                     {issueError ? (
-                        <p role="alert" class="error">
+                        <p role="alert" className="error">
                             {issueError}
                         </p>
                     ) : null}
@@ -261,7 +257,7 @@ export function CallerKeysView({ callerId }: { callerId?: string }) {
 
             <Panel title="密钥列表">
                 <form
-                    class="toolbar"
+                    className="toolbar"
                     onSubmit={(event) => {
                         event.preventDefault();
                         const filter = String(
@@ -294,17 +290,17 @@ export function CallerKeysView({ callerId }: { callerId?: string }) {
                     </button>
                 </form>
                 {result.error ? (
-                    <p role="alert" class="error">
+                    <p role="alert" className="error">
                         {result.error}
                     </p>
                 ) : null}
                 {result.loading ? (
-                    <p class="hint" role="status">
+                    <p className="hint" role="status">
                         正在读取密钥和审计记录…
                     </p>
                 ) : null}
                 {revokeError ? (
-                    <p role="alert" class="error">
+                    <p role="alert" className="error">
                         {revokeError}
                     </p>
                 ) : null}
@@ -355,26 +351,29 @@ function KeysTable({
     disabled: boolean;
     onSelect: (keyId?: string) => void;
     onRevoke: (
-        event: TargetedSubmitEvent<HTMLFormElement>,
+        event: FormEvent<HTMLFormElement>,
         keyId: string,
     ) => Promise<void>;
 }) {
-    if (!keys.length) return <p class="empty">没有匹配的密钥。</p>;
+    if (!keys.length) return <p className="empty">没有匹配的密钥。</p>;
+    const confirmingKey = keys.find(
+        (key) => key.status === "active" && key.keyId === confirming,
+    );
     return (
-        <Table title="密钥列表" columns={keyColumns}>
-            {keys.map((key) => {
-                const active = key.status === "active";
-                const expanded = active && confirming === key.keyId;
-                return (
-                    <Fragment key={key.keyId}>
-                        <tr>
+        <>
+            <Table title="密钥列表" columns={keyColumns}>
+                {keys.map((key) => {
+                    const active = key.status === "active";
+                    const expanded = active && confirming === key.keyId;
+                    return (
+                        <tr key={key.keyId}>
                             <td>{key.callerId}</td>
                             <td>
-                                <code class="mono">{key.keyPrefix}</code>
+                                <code className="mono">{key.keyPrefix}</code>
                             </td>
                             <td>{key.label}</td>
                             <td>
-                                <span class={`chip key-${key.status}`}>
+                                <span className={`chip key-${key.status}`}>
                                     {statusLabels[key.status]}
                                 </span>
                             </td>
@@ -386,7 +385,7 @@ function KeysTable({
                                 {active ? (
                                     <button
                                         type="button"
-                                        class="key-revoke"
+                                        className="key-revoke"
                                         disabled={disabled}
                                         aria-expanded={expanded}
                                         onClick={() => onSelect(key.keyId)}
@@ -396,39 +395,53 @@ function KeysTable({
                                 ) : null}
                             </td>
                         </tr>
-                        {expanded ? (
-                            <tr>
-                                <td colSpan={keyColumns.length}>
-                                    <RevokeForm
-                                        disabled={disabled}
-                                        onSubmit={(event) =>
-                                            void onRevoke(event, key.keyId)
-                                        }
-                                        onCancel={() => onSelect()}
-                                    />
-                                </td>
-                            </tr>
+                    );
+                })}
+            </Table>
+            <AlertDialog.Root
+                open={Boolean(confirmingKey)}
+                onOpenChange={(open) => {
+                    if (!open && !disabled) onSelect();
+                }}
+            >
+                <AlertDialog.Portal>
+                    <AlertDialog.Backdrop className="ui-dialog-backdrop" />
+                    <AlertDialog.Popup className="ui-dialog-popup">
+                        <AlertDialog.Title className="ui-dialog-title">
+                            吊销密钥
+                        </AlertDialog.Title>
+                        <AlertDialog.Description className="cost-warning">
+                            确认后，密钥{" "}
+                            <code className="mono">
+                                {confirmingKey?.keyPrefix}
+                            </code>{" "}
+                            将立即失去认证权限。
+                        </AlertDialog.Description>
+                        {confirmingKey ? (
+                            <RevokeForm
+                                disabled={disabled}
+                                onSubmit={(event) =>
+                                    void onRevoke(event, confirmingKey.keyId)
+                                }
+                            />
                         ) : null}
-                    </Fragment>
-                );
-            })}
-        </Table>
+                    </AlertDialog.Popup>
+                </AlertDialog.Portal>
+            </AlertDialog.Root>
+        </>
     );
 }
 
 function RevokeForm({
     disabled,
     onSubmit,
-    onCancel,
 }: {
     disabled: boolean;
-    onSubmit: (event: TargetedSubmitEvent<HTMLFormElement>) => void;
-    onCancel: () => void;
+    onSubmit: (event: FormEvent<HTMLFormElement>) => void;
 }) {
     return (
-        <form autocomplete="off" onSubmit={onSubmit}>
-            <p class="cost-warning">确认后，该密钥将立即失去认证权限。</p>
-            <div class="toolbar">
+        <form autoComplete="off" onSubmit={onSubmit}>
+            <div className="ui-dialog-fields">
                 <label>
                     吊销操作人
                     <input name="actor" maxLength={512} />
@@ -437,11 +450,20 @@ function RevokeForm({
                     吊销原因
                     <input name="note" maxLength={512} />
                 </label>
-                <button type="submit" class="key-revoke" disabled={disabled}>
-                    确认吊销
-                </button>
-                <button type="button" disabled={disabled} onClick={onCancel}>
+            </div>
+            <div className="ui-dialog-actions">
+                <AlertDialog.Close
+                    className="ui-dialog-cancel"
+                    disabled={disabled}
+                >
                     取消
+                </AlertDialog.Close>
+                <button
+                    type="submit"
+                    className="key-revoke"
+                    disabled={disabled}
+                >
+                    确认吊销
                 </button>
             </div>
         </form>
@@ -449,10 +471,10 @@ function RevokeForm({
 }
 
 function AuditTable({ audits }: Pick<ConsoleCallerKeys, "audits">) {
-    if (!audits.length) return <p class="empty">没有匹配的审计记录。</p>;
+    if (!audits.length) return <p className="empty">没有匹配的审计记录。</p>;
     return (
         <>
-            <p class="hint">最近 100 条，最新操作在前。</p>
+            <p className="hint">最近 100 条，最新操作在前。</p>
             <Table
                 title="操作审计"
                 columns={[
@@ -472,7 +494,7 @@ function AuditTable({ audits }: Pick<ConsoleCallerKeys, "audits">) {
                         <td>{entry.operation === "issue" ? "发放" : "吊销"}</td>
                         <td>{entry.callerId}</td>
                         <td>
-                            <code class="mono">{entry.keyPrefix}</code>
+                            <code className="mono">{entry.keyPrefix}</code>
                         </td>
                         <td>{entry.label}</td>
                         <td>{entry.actor ?? "—"}</td>
@@ -492,11 +514,11 @@ function Table({
 }: {
     title: string;
     columns: readonly string[];
-    children: ComponentChildren;
+    children: ReactNode;
 }) {
     return (
-        <div class="table-scroll">
-            <table class="key-table" aria-label={title}>
+        <div className="table-scroll">
+            <table className="key-table" aria-label={title}>
                 <thead>
                     <tr>
                         {columns.map((column) => (

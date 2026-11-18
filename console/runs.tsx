@@ -1,5 +1,5 @@
 /** 运行记录筛选、分页与详情，使用可分享链接串联异常排查。 */
-import { useEffect, useState } from "preact/hooks";
+import { useEffect, useState } from "react";
 import { explainDiagnostic } from "../src/process-runtime/diagnostics.js";
 import { templateSemanticsVersion } from "../src/process-runtime/records.js";
 import {
@@ -29,6 +29,7 @@ import { activityName, processName } from "./labels.js";
 import { useAsync } from "./resource.js";
 import { hrefFor } from "./routing.js";
 import { Timeline } from "./timeline.jsx";
+import { CollapsibleSection, SelectField } from "./ui.jsx";
 
 function TemplateVersion({ record }: { record: ProcessRunRecord }) {
     if (
@@ -41,7 +42,7 @@ function TemplateVersion({ record }: { record: ProcessRunRecord }) {
         record.templateSemanticsVersion ??
         templateSemanticsVersion(record.process, record.content?.output);
     return (
-        <span class="cell-meta">
+        <span className="cell-meta">
             模板运行语义 {version === undefined ? "未记录" : `V${version}`}
         </span>
     );
@@ -54,10 +55,10 @@ function OpenRuns({ back }: { back: string }) {
         if (result.loading) return;
         const timer = window.setTimeout(() => setTick((n) => n + 1), 3000);
         return () => window.clearTimeout(timer);
-    }, [result.loading, tick]);
+    }, [result.loading]);
     return (
         <Panel title="最近启动的任务">
-            <p class="hint">
+            <p className="hint">
                 显示近一小时已开始且尚未记录结束的最近 100 条执行，每 3 秒刷新。
             </p>
             {result.error ? (
@@ -69,7 +70,7 @@ function OpenRuns({ back }: { back: string }) {
                             {formatTime(run.startedAt)} ·{" "}
                             {processName(run.process)} / {run.version} ·{" "}
                             <a
-                                class="run-link"
+                                className="run-link"
                                 href={hrefFor({
                                     view: "run",
                                     runId: run.runId,
@@ -82,7 +83,9 @@ function OpenRuns({ back }: { back: string }) {
                     ))}
                 </ul>
             ) : (
-                <p class="hint">{result.value ? "暂无执行记录" : "读取中…"}</p>
+                <p className="hint">
+                    {result.value ? "暂无执行记录" : "读取中…"}
+                </p>
             )}
         </Panel>
     );
@@ -127,7 +130,7 @@ export function RunsView({
                   ]
                 : incoming,
         );
-    }, [page.value]);
+    }, [page.value, before]);
     const listLink = hrefFor({ view: "runs", filters });
     const names = [...new Set(processes.map((entry) => entry.process))];
     if (draft.process && !names.includes(draft.process))
@@ -149,10 +152,10 @@ export function RunsView({
     };
     return (
         <>
-            <div class="page-heading">
+            <div className="page-heading">
                 <div>
                     <h1>运行记录</h1>
-                    <p class="hint">按运行 ID 查看执行步骤与已归档结果。</p>
+                    <p className="hint">按运行 ID 查看执行步骤与已归档结果。</p>
                 </div>
                 <button
                     type="button"
@@ -168,7 +171,7 @@ export function RunsView({
             <OpenRuns back={listLink} />
             <Panel title="检索与筛选">
                 <form
-                    class="lookup"
+                    className="lookup"
                     onSubmit={(event) => {
                         event.preventDefault();
                         if (runId.trim())
@@ -219,65 +222,57 @@ export function RunsView({
                         });
                     }}
                 >
-                    <div class="filter-grid">
-                        <label>
-                            业务
-                            <select
-                                aria-label="业务"
-                                value={draft.process}
-                                onChange={(event) =>
-                                    setDraft({
-                                        ...draft,
-                                        process: event.currentTarget.value,
-                                        version: "",
-                                    })
-                                }
-                            >
-                                <option value="">全部业务</option>
-                                {names.map((name) => (
-                                    <option key={name} value={name}>
-                                        {processName(name)} · {name}
-                                    </option>
-                                ))}
-                            </select>
-                        </label>
-                        <label>
-                            流程版本
-                            <select
-                                aria-label="流程版本"
-                                value={draft.version}
-                                onChange={(event) =>
-                                    setDraft({
-                                        ...draft,
-                                        version: event.currentTarget.value,
-                                    })
-                                }
-                            >
-                                <option value="">全部版本</option>
-                                {versions.map((version) => (
-                                    <option key={version} value={version}>
-                                        {version}
-                                    </option>
-                                ))}
-                            </select>
-                        </label>
-                        <label>
-                            状态
-                            <select
-                                aria-label="状态"
-                                value={draft.status}
-                                onChange={(event) =>
-                                    setDraft({
-                                        ...draft,
-                                        status: event.currentTarget.value,
-                                    })
-                                }
-                            >
-                                <option value="">全部状态</option>
-                                <option value="succeeded">成功</option>
-                                <option value="failed">失败</option>
-                            </select>
-                        </label>
+                    <div className="filter-grid">
+                        <SelectField
+                            label="业务"
+                            value={draft.process}
+                            options={[
+                                { value: "", label: "全部业务" },
+                                ...names.map((name) => ({
+                                    value: name,
+                                    label: `${processName(name)} · ${name}`,
+                                })),
+                            ]}
+                            onChange={(next) =>
+                                setDraft({
+                                    ...draft,
+                                    process: next,
+                                    version: "",
+                                })
+                            }
+                        />
+                        <SelectField
+                            label="流程版本"
+                            value={draft.version}
+                            options={[
+                                { value: "", label: "全部版本" },
+                                ...versions.map((version) => ({
+                                    value: version,
+                                    label: version,
+                                })),
+                            ]}
+                            onChange={(next) =>
+                                setDraft({
+                                    ...draft,
+                                    version: next,
+                                })
+                            }
+                        />
+                        <SelectField
+                            label="状态"
+                            value={draft.status}
+                            options={[
+                                { value: "", label: "全部状态" },
+                                { value: "succeeded", label: "成功" },
+                                { value: "failed", label: "失败" },
+                            ]}
+                            onChange={(next) =>
+                                setDraft({
+                                    ...draft,
+                                    status: next,
+                                })
+                            }
+                        />
                         <label>
                             错误码
                             <input
@@ -322,12 +317,12 @@ export function RunsView({
                         </label>
                     </div>
                     {error ? (
-                        <p role="alert" class="error">
+                        <p role="alert" className="error">
                             {error}
                         </p>
                     ) : null}
-                    <div class="actions">
-                        <button type="submit" class="primary">
+                    <div className="actions">
+                        <button type="submit" className="primary">
                             应用筛选
                         </button>
                         <a href={hrefFor({ view: "runs" })}>清除筛选</a>
@@ -340,13 +335,13 @@ export function RunsView({
             </Panel>
             <Panel title="执行结果">
                 {page.error ? (
-                    <p role="alert" class="error">
+                    <p role="alert" className="error">
                         {page.error}
                     </p>
                 ) : null}
                 {records.length ? (
-                    <div class="table-scroll">
-                        <table class="runs-table">
+                    <div className="table-scroll">
+                        <table className="runs-table">
                             <thead>
                                 <tr>
                                     <th>记录时间</th>
@@ -376,7 +371,7 @@ export function RunsView({
                                         <td>
                                             {imagesOf(record.content?.output)
                                                 .length ? (
-                                                <span class="thumb-row">
+                                                <span className="thumb-row">
                                                     {imagesOf(
                                                         record.content?.output,
                                                     ).map((image) => (
@@ -395,7 +390,7 @@ export function RunsView({
                                         </td>
                                         <td>
                                             <a
-                                                class="run-link"
+                                                className="run-link"
                                                 href={hrefFor({
                                                     view: "run",
                                                     runId: record.runId,
@@ -411,11 +406,11 @@ export function RunsView({
                         </table>
                     </div>
                 ) : !page.loading && !page.error ? (
-                    <p class="empty">
+                    <p className="empty">
                         没有匹配记录。可清除筛选或扩大时间范围；记录也可能已超出保留期。
                     </p>
                 ) : null}
-                <div class="list-footer">
+                <div className="list-footer">
                     <span aria-live="polite">
                         {page.loading
                             ? "读取中…"
@@ -447,7 +442,7 @@ function TemplateCompilationTimeline({
     const timeline = useAsync(() => findTimeline(runId), [runId], tick);
     return (
         <Panel title="模板编译子运行">
-            <p class="hint run-link">{runId}</p>
+            <p className="hint run-link">{runId}</p>
             {timeline.error ? (
                 <p role="alert">{timeline.error}</p>
             ) : (
@@ -481,7 +476,7 @@ export function RunView({
         if (!follow || record.loading || timeline.loading) return;
         const timer = window.setTimeout(() => setTick((n) => n + 1), 3000);
         return () => window.clearTimeout(timer);
-    }, [follow, record.loading, timeline.loading, runId, tick]);
+    }, [follow, record.loading, timeline.loading]);
     const registration = catalog.value?.processes.find(
         (entry) =>
             entry.process === value?.process &&
@@ -492,13 +487,13 @@ export function RunView({
         !value && (timeline.value?.queue || timeline.value?.activities.length);
     return (
         <>
-            <a class="back-link" href={back}>
+            <a className="back-link" href={back}>
                 返回查询页面
             </a>
-            <div class="page-heading">
+            <div className="page-heading">
                 <div>
                     <h1>运行详情</h1>
-                    <p class="hint run-link">{runId}</p>
+                    <p className="hint run-link">{runId}</p>
                 </div>
                 <button
                     type="button"
@@ -510,13 +505,13 @@ export function RunView({
             </div>
             {record.loading ? <p aria-live="polite">读取中…</p> : null}
             {record.error && !timeline.loading && !partialTimeline ? (
-                <p class="notice" role="alert">
+                <p className="notice" role="alert">
                     {record.error} 记录也可能不存在或已过保留期。
                 </p>
             ) : null}
             {timeline.value?.queue && (
                 <Panel title="异步任务">
-                    <div class="detail-facts">
+                    <div className="detail-facts">
                         <div>
                             <span>队列状态</span>
                             <strong>
@@ -576,7 +571,7 @@ export function RunView({
                         title={processName(value.process)}
                         action={<StatusLabel record={value} />}
                     >
-                        <div class="detail-facts">
+                        <div className="detail-facts">
                             <div>
                                 <span>业务流程</span>
                                 <ProcessVersion
@@ -596,7 +591,7 @@ export function RunView({
                                 </strong>
                             </div>
                         </div>
-                        <div class="actions">
+                        <div className="actions">
                             <CopyButton
                                 text={value.runId}
                                 label="复制运行 ID"
@@ -606,12 +601,12 @@ export function RunView({
                                 label="复制排障摘要"
                             />
                         </div>
-                        <p class="hint">
+                        <p className="hint">
                             排障摘要仅包含运行标识、状态、错误码与活动元数据，不含输入输出正文。
                         </p>
                     </Panel>
                     {value.status === "failed" ? (
-                        <section class="failure-notice">
+                        <section className="failure-notice">
                             <h2>
                                 {
                                     explainRunFailure(
@@ -647,8 +642,7 @@ export function RunView({
                                     }
                                 </p>
                             ) : null}
-                            <details>
-                                <summary>技术标识</summary>
+                            <CollapsibleSection title="技术标识">
                                 <p>
                                     错误码：
                                     <code>{value.errorCode ?? "未记录"}</code>
@@ -659,7 +653,7 @@ export function RunView({
                                         {details.failedActivity ?? "未记录"}
                                     </code>
                                 </p>
-                            </details>
+                            </CollapsibleSection>
                             <a
                                 href={hrefFor({
                                     view: "runs",
@@ -677,7 +671,7 @@ export function RunView({
                     ) : null}
                     <Panel title="执行过程">
                         {timeline.error ? (
-                            <p role="alert" class="error">
+                            <p role="alert" className="error">
                                 {timeline.error}
                             </p>
                         ) : (
@@ -687,14 +681,14 @@ export function RunView({
                             />
                         )}
                         {catalog.error ? (
-                            <p class="hint">
+                            <p className="hint">
                                 服务目录读取失败，暂不对照声明的活动顺序。
                             </p>
                         ) : null}
                     </Panel>
                     <Panel title="输入与产出">
                         {imagesOf(value.content?.output).length ? (
-                            <div class="result-images">
+                            <div className="result-images">
                                 {imagesOf(value.content?.output).map(
                                     (image) => (
                                         <Thumbnail
@@ -707,8 +701,7 @@ export function RunView({
                         ) : null}
                         {value.content ? (
                             <>
-                                <details>
-                                    <summary>查看输入 JSON</summary>
+                                <CollapsibleSection title="查看输入 JSON">
                                     <pre>
                                         {JSON.stringify(
                                             value.content.input,
@@ -716,10 +709,9 @@ export function RunView({
                                             2,
                                         )}
                                     </pre>
-                                </details>
+                                </CollapsibleSection>
                                 {value.content.output !== undefined ? (
-                                    <details>
-                                        <summary>查看输出 JSON</summary>
+                                    <CollapsibleSection title="查看输出 JSON">
                                         <pre>
                                             {JSON.stringify(
                                                 value.content.output,
@@ -727,13 +719,13 @@ export function RunView({
                                                 2,
                                             )}
                                         </pre>
-                                    </details>
+                                    </CollapsibleSection>
                                 ) : (
-                                    <p class="hint">此记录没有产出正文。</p>
+                                    <p className="hint">此记录没有产出正文。</p>
                                 )}
                             </>
                         ) : (
-                            <p class="hint">该记录未保存业务内容。</p>
+                            <p className="hint">该记录未保存业务内容。</p>
                         )}
                     </Panel>
                 </>
@@ -750,10 +742,10 @@ function ProcessVersion({
     version?: string;
 }) {
     if (!process || !version)
-        return <span class="cell-meta">流程版本未记录</span>;
+        return <span className="cell-meta">流程版本未记录</span>;
     return (
         <a
-            class="cell-meta process-version"
+            className="cell-meta process-version"
             href={hrefFor({ view: "processes", process, version })}
             title={`${process} / ${version}：业务流程版本，点击查看当前流程定义与相关技能`}
         >
@@ -765,7 +757,7 @@ function ProcessVersion({
 function CopyButton({ text, label }: { text: string; label: string }) {
     const [state, setState] = useState<"idle" | "copied" | "failed">("idle");
     return (
-        <span class="copy-action">
+        <span className="copy-action">
             <button
                 type="button"
                 onClick={async () => {
@@ -779,7 +771,7 @@ function CopyButton({ text, label }: { text: string; label: string }) {
             >
                 {label}
             </button>
-            <span class="hint" aria-live="polite">
+            <span className="hint" aria-live="polite">
                 {state === "copied" ? "已复制" : ""}
             </span>
             {state === "failed" ? (

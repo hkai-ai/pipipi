@@ -117,7 +117,7 @@ browserDescribe("operator observation browser", () => {
             await row
                 .getByRole("button", { name: "吊销", exact: true })
                 .click();
-            await row.getByText("有效", { exact: true }).waitFor();
+            await page.getByRole("alertdialog").waitFor();
             await page.getByLabel("吊销操作人").fill("operator");
             await page.getByLabel("吊销原因").fill("已轮换");
             await page.getByRole("button", { name: "确认吊销" }).click();
@@ -261,7 +261,7 @@ browserDescribe("operator observation browser", () => {
             page.on("pageerror", (error) => errors.push(error.message));
             await page.goto(url);
             await page.getByRole("heading", { name: "运行概览" }).waitFor();
-            await page.getByText("56", { exact: true }).waitFor();
+            await page.getByText("56", { exact: true }).first().waitFor();
             await page.getByText("54", { exact: true }).first().waitFor();
             const output = path.resolve("artifacts/agent-diagnostics/console");
             await mkdir(output, { recursive: true });
@@ -280,8 +280,10 @@ browserDescribe("operator observation browser", () => {
             await group.getByRole("link", { name: "排查记录" }).click();
             await page.getByText("已加载 50 条").waitFor();
             expect(
-                await page.getByLabel("流程版本", { exact: true }).inputValue(),
-            ).toBe("v3");
+                await page
+                    .getByRole("combobox", { name: "流程版本", exact: true })
+                    .innerText(),
+            ).toContain("v3");
             expect(
                 await page.getByText("failure-v2", { exact: true }).count(),
             ).toBe(0);
@@ -305,12 +307,14 @@ browserDescribe("operator observation browser", () => {
             await page
                 .getByText("流程版本定义一次业务调用", { exact: false })
                 .waitFor();
-            await page.locator("details[open]").waitFor();
-            expect(await page.locator("details[open]").count()).toBe(1);
-            expect(await page.locator("details[open]").innerText()).toContain(
-                "流程版本 v3",
-            );
-            const detail = page.locator("details[open]");
+            await page.locator(".ui-collapsible[data-open]").waitFor();
+            expect(
+                await page.locator(".ui-collapsible[data-open]").count(),
+            ).toBe(1);
+            expect(
+                await page.locator(".ui-collapsible[data-open]").innerText(),
+            ).toContain("流程版本 v3");
+            const detail = page.locator(".ui-collapsible[data-open]");
             expect(await detail.innerText()).toContain(
                 "当前声明的 Runtime Skill",
             );
@@ -337,7 +341,9 @@ browserDescribe("operator observation browser", () => {
                     .replace("#/runs", "#/processes"),
             );
             await page.getByText("当前服务未注册", { exact: false }).waitFor();
-            expect(await page.locator("details[open]").count()).toBe(0);
+            expect(
+                await page.locator(".ui-collapsible[data-open]").count(),
+            ).toBe(0);
             await page.goto(filteredUrl);
             await page.getByText("已加载 50 条").waitFor();
             await page.evaluate(() => window.scrollTo(0, 700));
@@ -365,7 +371,9 @@ browserDescribe("operator observation browser", () => {
             await page
                 .getByText("失败步骤：业务处理步骤", { exact: true })
                 .waitFor();
-            expect(await page.locator("details[open]").count()).toBe(0);
+            expect(
+                await page.locator(".ui-collapsible[data-open]").count(),
+            ).toBe(0);
             await page.screenshot({
                 path: path.join(output, "run-detail.png"),
                 fullPage: true,
@@ -448,19 +456,26 @@ browserDescribe("operator observation browser", () => {
             await page.reload();
             await page.getByText("已加载 50 条").waitFor();
             expect(
-                await page.getByLabel("流程版本", { exact: true }).inputValue(),
-            ).toBe("v3");
+                await page
+                    .getByRole("combobox", { name: "流程版本", exact: true })
+                    .innerText(),
+            ).toContain("v3");
             await page.getByRole("link", { name: "清除筛选" }).click();
             await page.getByText("failure-v2", { exact: true }).waitFor();
             await page.goto(`${url}#/submit`);
             await page
-                .getByLabel("Business Process")
-                .selectOption("character-emoji/v3");
-            expect(await page.getByLabel("Business Process").inputValue()).toBe(
-                "character-emoji/v3",
-            );
+                .getByRole("combobox", { name: "Business Process" })
+                .click();
+            await page
+                .getByRole("option", { name: "character-emoji / v3" })
+                .click();
+            expect(
+                await page
+                    .getByRole("combobox", { name: "Business Process" })
+                    .innerText(),
+            ).toContain("character-emoji / v3");
             await page.goto(`${url}#/overview?hours=168`);
-            await page.getByText("56", { exact: true }).waitFor();
+            await page.getByText("56", { exact: true }).first().waitFor();
             await page.setViewportSize({ width: 390, height: 844 });
             await page.screenshot({
                 path: path.join(output, "overview-mobile.png"),
@@ -499,7 +514,7 @@ browserDescribe("operator observation browser", () => {
                 fullPage: false,
             });
             await page.goto(`${url}#/overview`);
-            await page.getByText("56", { exact: true }).waitFor();
+            await page.getByText("56", { exact: true }).first().waitFor();
             await page.route("**/ops/stats?*", (route) =>
                 route.fulfill({ status: 503, body: "unavailable" }),
             );

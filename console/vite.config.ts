@@ -32,7 +32,7 @@ export default defineConfig(({ command, mode }) => {
         },
         esbuild: {
             jsx: "automatic",
-            jsxImportSource: "preact",
+            jsxImportSource: "react",
         },
         server: {
             // `npm run dev:console` talks to a locally running API.
