@@ -4,6 +4,10 @@ import { promisify } from "node:util";
 import { runner } from "node-pg-migrate";
 import { Pool } from "pg";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import type {
+    ConsoleCallerKeys,
+    ConsoleIssuedKey,
+} from "../src/api/console-contract.js";
 import { constructProcessingService } from "../src/app/api.js";
 import { createPostgresCallerApiKeyStore } from "../src/caller-api-keys/postgres.js";
 import { createPostgresProcessRunRecordArchive } from "../src/run-observation/postgres.js";
@@ -40,7 +44,7 @@ postgresDescribe("PostgreSQL caller keys and CLI", () => {
     callerApiKeyContract((clock) =>
         createPostgresCallerApiKeyStore({ pool, clock }),
     );
-    it("runs the real CLI against a synchronous production composition and persists caller observation", async () => {
+    it("shares persistent keys between the CLI, Console and synchronous authentication", async () => {
         const cli = async (...args: string[]) =>
             JSON.parse(
                 (
@@ -67,17 +71,19 @@ postgresDescribe("PostgreSQL caller keys and CLI", () => {
             DATABASE_URL: databaseUrl,
             CRT_BUSINESS_API_BASE_URL: "http://127.0.0.1:4400",
             PROCESS_RUN_RECORD_STORE: "postgres",
+            CONSOLE_ENABLED: "true",
+            CONSOLE_BASE_PATH: "/ops-secret",
             EXECUTE_AUTH_MODE: "required",
             CALLER_AUTH_GATEWAY_FALLBACK: "false",
             ASYNC_PROCESS_RUNS_ENABLED: "false",
         });
         const { url } = await service.application.listen();
-        const call = () =>
+        const call = (key: string) =>
             fetch(`${url}/execute`, {
                 method: "POST",
                 headers: {
                     "content-type": "application/json",
-                    authorization: `Bearer ${issued.key}`,
+                    authorization: `Bearer ${key}`,
                 },
                 body: JSON.stringify({
                     process: "not-registered",
@@ -86,7 +92,7 @@ postgresDescribe("PostgreSQL caller keys and CLI", () => {
                 }),
             });
         try {
-            const response = await call();
+            const response = await call(issued.key);
             expect(response.status).toBe(404);
             const result = await response.json();
             await new Promise((resolve) => setTimeout(resolve, 50));
@@ -103,12 +109,59 @@ postgresDescribe("PostgreSQL caller keys and CLI", () => {
                 }),
             ]);
             expect(JSON.stringify(list)).not.toContain(issued.key);
+            const endpoint = `${url}/ops-secret/caller-keys`;
+            const consolePost = (path: string, body: object) =>
+                fetch(endpoint + path, {
+                    method: "POST",
+                    headers: {
+                        "content-type": "application/json",
+                        "x-pipipi-console-action": "1",
+                    },
+                    body: JSON.stringify(body),
+                });
+            const consoleIssue = await consolePost("", {
+                callerId: "cli-prod",
+                label: "Console rotation",
+            });
+            expect(consoleIssue.status).toBe(201);
+            const next = (await consoleIssue.json()) as ConsoleIssuedKey;
+            expect(next.persistent).toBe(true);
+            expect((await call(next.key)).status).toBe(404);
             expect(
-                await cli("revoke", "--key-id", issued.metadata.keyId),
-            ).toEqual({ revoked: true });
-            const denied = await call();
+                (await consolePost(`/${issued.metadata.keyId}/revoke`, {}))
+                    .status,
+            ).toBe(200);
+            const denied = await call(issued.key);
             expect(denied.status).toBe(401);
             expect(await denied.text()).not.toContain(issued.key);
+            expect(
+                await cli("revoke", "--key-id", next.metadata.keyId),
+            ).toEqual({ revoked: true });
+            expect((await call(next.key)).status).toBe(401);
+
+            const inventory = await fetch(`${endpoint}?callerId=cli-prod`);
+            expect(inventory.status).toBe(200);
+            const text = await inventory.text();
+            expect(text).not.toContain(issued.key);
+            expect(text).not.toContain(next.key);
+            const verified = JSON.parse(text) as ConsoleCallerKeys;
+            expect(verified.auth).toEqual({
+                persistent: true,
+                executeAuthMode: "required",
+                gatewayFallbackEnabled: false,
+            });
+            expect(verified.keys.map((key) => key.status)).toEqual([
+                "revoked",
+                "revoked",
+            ]);
+            expect(
+                verified.audits.map((audit) => [audit.operation, audit.keyId]),
+            ).toEqual([
+                ["revoke", next.metadata.keyId],
+                ["revoke", issued.metadata.keyId],
+                ["issue", next.metadata.keyId],
+                ["issue", issued.metadata.keyId],
+            ]);
         } finally {
             await service.application.close();
         }

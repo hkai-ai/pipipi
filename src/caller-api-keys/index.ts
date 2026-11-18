@@ -35,6 +35,8 @@ export type IssueKey = Readonly<{
     actor?: string;
     note?: string;
 }>;
+export class InvalidKeyInput extends Error {}
+
 export type CallerApiKeyStore = Readonly<{
     issue: (
         input: IssueKey,
@@ -51,7 +53,8 @@ export type CallerApiKeyStore = Readonly<{
         audit?: { actor?: string; note?: string },
     ) => Promise<boolean>;
     recordUse: (keyId: string) => Promise<void>;
-    audits: (callerId?: string) => Promise<readonly KeyAudit[]>;
+    /** With a limit, return the most recent entries first. */
+    audits: (callerId?: string, limit?: number) => Promise<readonly KeyAudit[]>;
 }>;
 export type StoredKey = CallerApiKey & Readonly<{ hash: string }>;
 export type KeyRepository = Readonly<{
@@ -64,7 +67,8 @@ export type KeyRepository = Readonly<{
         audit: { actor?: string; note?: string },
     ) => Promise<boolean>;
     use: (keyId: string, timestamp: string, before: string) => Promise<void>;
-    audits: (callerId?: string) => Promise<readonly KeyAudit[]>;
+    /** With a limit, return the most recent entries first. */
+    audits: (callerId?: string, limit?: number) => Promise<readonly KeyAudit[]>;
 }>;
 export function hashCallerApiKey(key: string): string {
     return createHash("sha256").update(key).digest("hex");
@@ -89,7 +93,7 @@ export function createCallerApiKeyStore(
                 (!Number.isFinite(Date.parse(input.expiresAt)) ||
                     Date.parse(input.expiresAt) <= now.getTime())
             )
-                throw new Error("Expiry must be a future timestamp");
+                throw new InvalidKeyInput("Expiry must be a future timestamp");
             const keyId = randomUUID();
             const keyPrefix = `${callerApiKeyPrefix}${keyId.slice(0, 8)}`;
             const key = `${keyPrefix}_${randomBytes(32).toString("base64url")}`;
@@ -172,9 +176,10 @@ export function createCallerApiKeyStore(
                 /* 使用观测失败不改变认证结果。 */
             }
         },
-        audits: async (callerId) =>
+        audits: async (callerId, limit) =>
             repository.audits(
                 callerId === undefined ? undefined : normalizeText(callerId),
+                limit,
             ),
     };
     return store;
@@ -183,7 +188,9 @@ export function createCallerApiKeyStore(
 function normalizeText(value: string): string {
     const normalized = value.trim();
     if (!normalized || Buffer.byteLength(normalized, "utf8") > 512)
-        throw new Error("Key metadata must be nonempty and at most 512 bytes");
+        throw new InvalidKeyInput(
+            "Key metadata must be nonempty and at most 512 bytes",
+        );
     return normalized;
 }
 

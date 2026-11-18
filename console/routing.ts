@@ -6,6 +6,7 @@ export type Route =
     | Readonly<{ view: "overview" | "exceptions"; hours?: number }>
     | Readonly<{ view: "runs"; filters?: RunFilters }>
     | Readonly<{ view: "live"; runId?: string }>
+    | Readonly<{ view: "caller-keys"; callerId?: string }>
     | Readonly<{ view: "run"; runId: string; back?: string }>
     | Readonly<{ view: "skills" | "submit" }>
     | Readonly<{ view: "processes"; process?: string; version?: string }>
@@ -16,6 +17,12 @@ export function parseRoute(hash: string): Route {
         const [path, search = ""] = hash.replace(/^#\/?/, "").split("?");
         const [head, ...rest] = path.split("/");
         const params = new URLSearchParams(search);
+        if (head === "caller-keys" && rest.length === 0) {
+            const callerId = params.get("callerId");
+            return callerId === null
+                ? { view: "caller-keys" }
+                : { view: "caller-keys", callerId };
+        }
         if (head === "live")
             return {
                 view: "live",
@@ -89,6 +96,10 @@ export function hrefFor(route: Route): string {
             if (route.process) query.set("process", route.process);
             if (route.version) query.set("version", route.version);
             return `#/processes${query.size ? `?${query}` : ""}`;
+        case "caller-keys":
+            if (route.callerId !== undefined)
+                query.set("callerId", route.callerId);
+            return `#/caller-keys${query.size ? `?${query}` : ""}`;
         case "live":
             return route.runId
                 ? `#/live/${encodeURIComponent(route.runId)}`

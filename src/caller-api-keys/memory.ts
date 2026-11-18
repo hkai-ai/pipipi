@@ -45,12 +45,16 @@ export function createInMemoryCallerApiKeyStore(
                 if (key && (!key.lastUsedAt || key.lastUsedAt <= before))
                     keys.set(keyId, { ...key, lastUsedAt: timestamp });
             },
-            audits: async (callerId) =>
-                structuredClone(
-                    audits.filter(
-                        (audit) => !callerId || audit.callerId === callerId,
-                    ),
-                ),
+            audits: async (callerId, limit) => {
+                const matching = audits.filter(
+                    (audit) => !callerId || audit.callerId === callerId,
+                );
+                return structuredClone(
+                    limit === undefined
+                        ? matching
+                        : matching.reverse().slice(0, limit),
+                );
+            },
         },
         options.clock,
     );

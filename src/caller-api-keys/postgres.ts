@@ -71,10 +71,11 @@ export function createPostgresCallerApiKeyStore(options: {
                     [keyId, timestamp, before],
                 );
             },
-            audits: async (callerId) => {
+            audits: async (callerId, limit) => {
+                const order = limit === undefined ? "ASC" : "DESC";
                 const { rows } = await pool.query(
-                    "SELECT entry FROM caller_api_key_audits WHERE ($1::text IS NULL OR entry->>'callerId'=$1) ORDER BY id",
-                    [callerId ?? null],
+                    `SELECT entry FROM caller_api_key_audits WHERE ($1::text IS NULL OR entry->>'callerId'=$1) ORDER BY id ${order} LIMIT $2`,
+                    [callerId ?? null, limit ?? null],
                 );
                 return rows.map((row) => row.entry as KeyAudit);
             },

@@ -1,6 +1,7 @@
 /** 装配运维后台导航、共享目录与按职责拆分的页面。 */
 import { render } from "preact";
 import { listProcesses } from "./api.js";
+import { CallerKeysView } from "./caller-keys.jsx";
 import { LiveView } from "./live.jsx";
 import { Overview } from "./overview.jsx";
 import { useAsync } from "./resource.js";
@@ -13,6 +14,7 @@ const mainLinks: readonly { route: Route; label: string }[] = [
     { route: { view: "overview" }, label: "运行概览" },
     { route: { view: "runs" }, label: "运行记录" },
     { route: { view: "exceptions" }, label: "异常排查" },
+    { route: { view: "caller-keys" }, label: "调用方密钥" },
 ];
 const toolLinks: readonly { route: Route; label: string }[] = [
     { route: { view: "processes" }, label: "业务流程" },
@@ -105,6 +107,9 @@ function Console() {
                                 filters={route.filters}
                             />
                         </>
+                    ) : null}
+                    {route.view === "caller-keys" ? (
+                        <CallerKeysView callerId={route.callerId} />
                     ) : null}
                     {local && route.view === "live" ? (
                         <LiveView

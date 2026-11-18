@@ -1,3 +1,4 @@
+/** 定义运维控制台的布局、主题和各页面交互样式。 */
 :root {
     color-scheme: light dark;
     --surface: #ffffff;
@@ -942,4 +943,39 @@ pre {
 }
 .technical-details {
     margin-top: 8px;
+}
+
+.key-auth {
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+}
+.key-auth dd {
+    margin: 2px 0 0;
+    font-weight: 600;
+}
+.issued-key {
+    border-left: 4px solid var(--warn);
+}
+.secret-value {
+    display: block;
+    padding: 12px;
+    margin-bottom: 12px;
+    background: var(--ground);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    overflow-wrap: anywhere;
+    user-select: all;
+}
+.key-table td {
+    overflow-wrap: anywhere;
+    min-width: 72px;
+}
+.key-active {
+    color: var(--ok);
+}
+.key-expired {
+    color: var(--warn);
+}
+.key-revoked,
+.key-revoke {
+    color: var(--bad);
 }

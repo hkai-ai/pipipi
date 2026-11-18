@@ -1,5 +1,10 @@
+/** 通过控制台部署路径读取数据并提交调用方密钥管理请求。 */
 import type {
+    ConsoleCallerKeys,
+    ConsoleIssuedKey,
+    ConsoleIssueKey,
     ConsoleProcessDescription,
+    ConsoleRevokeKey,
     ConsoleSkillDescription,
     ConsoleStats,
     ProcessRunLogRecord,
@@ -28,14 +33,44 @@ export type RunTimeline = Readonly<{
  * Requests resolve against the document's `<base>`, which the server sets to
  * the deployed console path. Nothing here hard-codes `/console`.
  */
-async function readJson<Result>(path: string): Promise<Result> {
-    const response = await fetch(new URL(path, document.baseURI), {
-        headers: { accept: "application/json" },
-    });
-    if (!response.ok) {
-        throw new Error(`请求失败：HTTP ${response.status}`);
+async function readJson<Result>(path: string, body?: object): Promise<Result> {
+    const headers = new Headers({ accept: "application/json" });
+    const options: RequestInit = { headers };
+    if (body !== undefined) {
+        headers.set("content-type", "application/json");
+        headers.set("x-pipipi-console-action", "1");
+        options.method = "POST";
+        options.body = JSON.stringify(body);
+        options.redirect = "error";
     }
+    const response = await fetch(new URL(path, document.baseURI), options);
+    if (!response.ok) throw new HttpError(response.status);
     return (await response.json()) as Result;
+}
+
+export class HttpError extends Error {
+    constructor(readonly status: number) {
+        super(`请求失败（HTTP ${status}）`);
+    }
+}
+
+export function listCallerKeys(callerId?: string) {
+    const query = new URLSearchParams();
+    if (callerId !== undefined) query.set("callerId", callerId);
+    return readJson<ConsoleCallerKeys>(
+        `caller-keys${query.size ? `?${query}` : ""}`,
+    );
+}
+
+export function issueCallerKey(input: ConsoleIssueKey) {
+    return readJson<ConsoleIssuedKey>("caller-keys", input);
+}
+
+export function revokeCallerKey(keyId: string, input: ConsoleRevokeKey) {
+    return readJson<{ revoked: true }>(
+        `caller-keys/${encodeURIComponent(keyId)}/revoke`,
+        input,
+    );
 }
 
 export function listOpenRuns() {

@@ -4,10 +4,15 @@ import type {
     RequestListener,
     ServerResponse,
 } from "node:http";
+import { z } from "zod";
 import type {
     AgentConversationSubmission,
     AgentConversations,
 } from "../agent-conversations/index.js";
+import {
+    type CallerApiKeyStore,
+    InvalidKeyInput,
+} from "../caller-api-keys/index.js";
 import type {
     AsyncProcessRuns,
     ProcessRunSubmission,
@@ -22,6 +27,9 @@ import type {
 import type { ProcessRunRecord } from "../process-runtime/records.js";
 import type { ProcessRunActivityArchive } from "../run-observation/activities.js";
 import type {
+    ConsoleCallerAuth,
+    ConsoleCallerKeys,
+    ConsoleIssuedKey,
     ConsoleProcessDescription,
     ConsoleSkillDescription,
     ConsoleStatsSummary,
@@ -80,6 +88,9 @@ export type ConsoleRecordPage = Readonly<{
     nextBefore?: string;
 }>;
 
+export type ConsoleCallerKeysOptions = ConsoleCallerAuth &
+    Readonly<{ store: CallerApiKeyStore }>;
+
 /**
  * Serves the operator console and the Run Records behind it. This is an
  * operations Interface, not part of the product contract: it is mounted only
@@ -87,6 +98,7 @@ export type ConsoleRecordPage = Readonly<{
  */
 export type ConsoleHttpOptions = Readonly<{
     basePath: string;
+    callerKeys?: ConsoleCallerKeysOptions;
     revision?: string;
     /** Directory holding the built console: `index.html` plus `assets/`. */
     assetDirectory: string;
@@ -126,12 +138,17 @@ export type ConsoleHttpOptions = Readonly<{
     }>;
 }>;
 
-function localConsoleRequest(request: IncomingMessage) {
-    const address = request.socket.remoteAddress;
+function isLoopback(address: string | undefined): boolean {
     return (
-        (address === "127.0.0.1" ||
-            address === "::1" ||
-            address === "::ffff:127.0.0.1") &&
+        address === "127.0.0.1" ||
+        address === "::1" ||
+        address === "::ffff:127.0.0.1"
+    );
+}
+
+function localConsoleRequest(request: IncomingMessage) {
+    return (
+        isLoopback(request.socket.remoteAddress) &&
         /^(?:127\.0\.0\.1|localhost|\[::1\])(?::\d+)?$/.test(
             request.headers.host ?? "",
         ) &&
@@ -399,12 +416,15 @@ async function handleRequest(
 
     if (await handlePublicDocumentation(request, response)) return;
 
-    if (context.console && request.method === "GET") {
+    if (
+        context.console &&
+        (request.method === "GET" || request.method === "POST")
+    ) {
         const handled = await handleConsole(
             request,
             response,
             context.console,
-            context.admission,
+            context,
         );
         if (handled) return;
     }
@@ -1092,24 +1112,201 @@ function evaluationResponse(
     };
 }
 
-/**
- * Handles the console document and its Run Record reads. Returns `false` when
- * the request is not addressed to the console, so unrelated paths keep falling
- * through to the business routes.
- */
+// 防止把已发放的凭证误填到会持久保存的元数据中。
+const consoleKeyText = z
+    .string()
+    .refine(
+        (value) =>
+            !value.includes("\0") &&
+            !/ppk_[0-9a-f]{8}_[A-Za-z0-9_-]{43}/.test(value),
+    );
+const revokeKeySchema = z.strictObject({
+    actor: consoleKeyText.optional(),
+    note: consoleKeyText.optional(),
+});
+const issueKeySchema = revokeKeySchema.extend({
+    callerId: consoleKeyText,
+    label: consoleKeyText,
+    expiresAt: z.iso.datetime({ offset: true }).optional(),
+});
+
+async function handleCallerKeys(
+    request: IncomingMessage,
+    response: ServerResponse,
+    { store, ...auth }: ConsoleCallerKeysOptions,
+    query: URLSearchParams,
+    encodedKeyId: string | undefined,
+    context: RequestHandlingContext,
+): Promise<void> {
+    response.setHeader("cache-control", "no-store");
+    try {
+        if (request.method === "GET") {
+            const filter = consoleKeyText
+                .optional()
+                .safeParse(query.get("callerId") ?? undefined);
+            if (!filter.success || query.getAll("callerId").length > 1)
+                throw new InvalidKeyInput("Invalid caller filter");
+            const callerId = filter.data;
+            const [keys, audits] = await Promise.all([
+                store.list(callerId),
+                store.audits(callerId, 100),
+            ]);
+            const expiry = new Map(
+                keys.map((key) => [key.keyId, key.expiresAt]),
+            );
+            const result: ConsoleCallerKeys = {
+                auth,
+                keys: [...keys].sort((first, second) =>
+                    second.createdAt.localeCompare(first.createdAt),
+                ),
+                audits: audits.map((entry) => ({
+                    ...entry,
+                    expiresAt: entry.expiresAt ?? expiry.get(entry.keyId),
+                })),
+            };
+            writeJson(response, 200, result);
+            return;
+        }
+
+        if (
+            request.headersDistinct["content-type"]?.length !== 1 ||
+            !isJsonMediaType(request.headers["content-type"])
+        ) {
+            rejectRequest(
+                response,
+                unsupportedMediaTypeFailure,
+                context.logging,
+            );
+            return;
+        }
+        if (!isConsoleAction(request)) {
+            writeFailureJson(
+                response,
+                403,
+                "FORBIDDEN",
+                "Console action is forbidden",
+            );
+            return;
+        }
+        const body = await readRequestBody(
+            request,
+            context.maxRequestBodyBytes,
+        );
+        if (body.kind === "too_large") {
+            rejectRequest(response, requestTooLargeFailure, context.logging);
+            return;
+        }
+        if (encodedKeyId === undefined) {
+            const input = issueKeySchema.safeParse(body.value);
+            if (!input.success)
+                throw new InvalidKeyInput("Invalid issue request");
+            const result: ConsoleIssuedKey = {
+                ...(await store.issue(input.data)),
+                persistent: auth.persistent,
+            };
+            writeJson(response, 201, result);
+            return;
+        }
+
+        const keyId = decodeKeyId(encodedKeyId);
+        const audit = revokeKeySchema.safeParse(body.value);
+        if (!audit.success) throw new InvalidKeyInput("Invalid revoke request");
+        if (!keyId || !(await store.revoke(keyId, audit.data))) {
+            writeFailureJson(
+                response,
+                404,
+                "KEY_NOT_FOUND",
+                "Key is missing or already revoked",
+            );
+            return;
+        }
+        writeJson(response, 200, { revoked: true });
+    } catch (error) {
+        if (!(error instanceof InvalidKeyInput)) throw error;
+        writeFailureJson(
+            response,
+            400,
+            "INVALID_INPUT",
+            "Invalid caller key input",
+        );
+    }
+}
+
+function decodeKeyId(value: string): string | undefined {
+    try {
+        const keyId = decodeURIComponent(value);
+        return z.uuidv4().safeParse(keyId).success ? keyId : undefined;
+    } catch {
+        return undefined;
+    }
+}
+
+function isConsoleAction(request: IncomingMessage): boolean {
+    const site = request.headers["sec-fetch-site"];
+    if (
+        request.headers["x-pipipi-console-action"] !== "1" ||
+        (site !== undefined && site !== "same-origin" && site !== "none")
+    )
+        return false;
+
+    const origin = request.headers.origin;
+    if (origin === undefined) return true;
+    try {
+        const url = new URL(origin);
+        if (
+            (url.protocol !== "https:" && url.protocol !== "http:") ||
+            url.origin !== origin ||
+            request.headersDistinct.host?.length !== 1
+        )
+            return false;
+
+        const forwardedHost = request.headersDistinct["x-forwarded-host"];
+        if (forwardedHost && isLoopback(request.socket.remoteAddress)) {
+            return (
+                forwardedHost.length === 1 &&
+                !url.host.includes(",") &&
+                url.host === forwardedHost[0]
+            );
+        }
+        return url.host === request.headers.host;
+    } catch {
+        return false;
+    }
+}
+
+/** 分发运维控制台请求，并为其他入口保留原有路由。 */
 async function handleConsole(
     request: IncomingMessage,
     response: ServerResponse,
     options: ConsoleHttpOptions,
-    admission: ExecutionAdmissionController,
+    context: RequestHandlingContext,
 ): Promise<boolean> {
     const url = new URL(request.url ?? "/", "http://console.invalid");
     const path = url.pathname;
     const base = options.basePath;
     if (path !== base && !path.startsWith(`${base}/`)) return false;
-    if (options.revision) {
-        response.setHeader("x-pipipi-revision", options.revision);
+    if (options.callerKeys && path === request.url?.split("?", 1)[0]) {
+        const keysPath = `${base}/caller-keys`;
+        const revoke = path.startsWith(`${keysPath}/`)
+            ? /^([^/]+)\/revoke$/.exec(path.slice(keysPath.length + 1))
+            : null;
+        if (path === keysPath || (request.method === "POST" && revoke)) {
+            if (options.revision)
+                response.setHeader("x-pipipi-revision", options.revision);
+            await handleCallerKeys(
+                request,
+                response,
+                options.callerKeys,
+                url.searchParams,
+                revoke?.[1],
+                context,
+            );
+            return true;
+        }
     }
+    if (request.method !== "GET") return false;
+    if (options.revision)
+        response.setHeader("x-pipipi-revision", options.revision);
 
     if (path === base || path === `${base}/`) {
         await assetsFor(options).writeDocument(
@@ -1171,7 +1368,7 @@ async function handleConsole(
             ...(await options.stats.summarise({ since, until })),
             until,
             generatedAt: until,
-            concurrency: admission.occupancy(),
+            concurrency: context.admission.occupancy(),
         });
         return true;
     }

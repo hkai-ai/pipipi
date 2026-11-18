@@ -47,6 +47,8 @@ Memebuy 场景保留 `template-from-image/v1,v2` 并新增 `template-from-image/
 
 运维控制台的「运行记录」在首次执行活动写入后列出父 runId。点击可跟踪批准图编译和独立复核，结束后同一链接展示结果。
 
+运维人员可在受 OpenResty Basic Auth 保护的「调用方密钥」页面查看认证态势、盘点和发放密钥、立即吊销旧密钥并查看审计记录。发放时仅显示一次明文。[调用方 API Key 管理与迁移](docs/mvp-release-runbook.md#调用方-api-key-管理与迁移)
+
 本地开发启用 `CONSOLE_LOCAL_TRACE=true` 和 `NODE_ENV=development` 后，可在控制台「本地实时调试」选择正在执行的同步请求，展开允许查看的模型与工具字段。启动方式见[运维控制台](docs/mvp-release-runbook.md#运维控制台)。
 
 每次 Process Attempt 都输出不含业务内容的结构化活动日志。可选 Run Record 保存终态与活动归档，但只用于观测，不决定业务状态。运维控制台提供用量概览、精确版本记录筛选、异常聚合与失败活动排查，开发工具可查看每个已启用流程版本当前声明的 Runtime Skill，也可提交异步任务；Vite + Preact 页面随 API 发布，Worker 角色保持独立。它没有应用内鉴权，生产访问控制由部署平台负责。详细语义见 [Process Runtime 设计](docs/process-runtime-design.md)。

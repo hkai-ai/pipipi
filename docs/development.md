@@ -82,7 +82,7 @@ curl -X POST http://127.0.0.1:4300/execute \
 
 设置 `INTERNAL_EVAL_ENABLED=true` 后，可调用 `POST /internal/eval/execute`；生产当前已开启。该调用会访问文本模型、图片供应商和对象存储，产生费用和外部写入。该入口保持现有行为，不使用 `/execute` 三档认证；入口访问控制仍由部署网关负责。完整请求、响应和错误契约见[内部新闻图片评测接口](api.md#内部新闻图片评测)。
 
-`EXECUTE_AUTH_MODE` 默认 `open`，可选 `audit`、`required`；`CALLER_AUTH_GATEWAY_FALLBACK` 默认 `true`。required 或关闭回落要求 DATABASE_URL。契约见 [API 认证](api.md#调用方认证)，CLI 与切换步骤见[同步 Runbook](mvp-release-runbook.md#调用方-api-key-管理与迁移)。内存与 PostgreSQL 共用 `test/support/caller-api-key-contract.ts`，隔离数据库运行 `npm run test:integration:caller-keys`；默认 npm test 不连接数据库。
+`EXECUTE_AUTH_MODE` 默认 `open`，可选 `audit`、`required`；`CALLER_AUTH_GATEWAY_FALLBACK` 默认 `true`。required 或关闭回落要求 DATABASE_URL。契约见 [API 认证](api.md#调用方认证)，控制台、CLI 与切换步骤见[同步 Runbook](mvp-release-runbook.md#调用方-api-key-管理与迁移)。内存与 PostgreSQL 共用 `test/support/caller-api-key-contract.ts`，隔离数据库运行 `npm run test:integration:caller-keys`；默认 npm test 不连接数据库。
 
 ## 常用命令
 

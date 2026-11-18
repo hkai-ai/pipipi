@@ -121,6 +121,23 @@ export function callerApiKeyContract(
                 note: "rotated",
             });
         });
+        it("bounds recent audits after filtering and returns the newest entries first", async () => {
+            const store = create(() => new Date("2026-11-17T00:00:00Z"));
+            const first = await store.issue({
+                callerId: "target",
+                label: "first",
+            });
+            await store.issue({ callerId: "target", label: "second" });
+            await store.revoke(first.metadata.keyId);
+            await store.issue({ callerId: "other", label: "other" });
+            const entries = await store.audits("target", 2);
+            expect(
+                entries.map(({ operation, label }) => [operation, label]),
+            ).toEqual([
+                ["revoke", "first"],
+                ["issue", "second"],
+            ]);
+        });
         it("validates normalized UTF-8 metadata and rejects blank identity filters", async () => {
             const store = create(() => new Date("2026-11-17T00:00:00Z"));
             const boundary = `${"界".repeat(170)}ab`;

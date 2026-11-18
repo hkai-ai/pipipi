@@ -5,6 +5,7 @@ import path from "node:path";
 import { chromium } from "playwright-core";
 import { describe, expect, it } from "vitest";
 import { createProcessingRequestListener } from "../src/api/http.js";
+import { createInMemoryCallerApiKeyStore } from "../src/caller-api-keys/memory.js";
 import {
     createJsonlProcessRunActivityArchive,
     createJsonlProcessRunRecordArchive,
@@ -17,6 +18,129 @@ const browserDescribe =
         ? describe
         : describe.skip;
 browserDescribe("operator observation browser", () => {
+    it("manages caller keys through a protected custom Console base path", async () => {
+        const listener = createProcessingRequestListener(
+            {
+                execute: async () => {
+                    throw new Error("Unexpected execution");
+                },
+            },
+            {
+                console: {
+                    basePath: "/ops-secret",
+                    assetDirectory: path.resolve("dist/console"),
+                    records: {
+                        list: async () => ({ records: [] }),
+                        find: async () => undefined,
+                    },
+                    callerKeys: {
+                        store: createInMemoryCallerApiKeyStore(),
+                        persistent: false,
+                        executeAuthMode: "audit",
+                        gatewayFallbackEnabled: true,
+                    },
+                },
+            },
+        );
+        const credentials = { username: "operator", password: "console-test" };
+        const basic = Buffer.from(
+            `${credentials.username}:${credentials.password}`,
+        ).toString("base64");
+        const server = createServer((request, response) => {
+            if (request.headers.authorization !== `Basic ${basic}`) {
+                response.writeHead(401, {
+                    "www-authenticate": 'Basic realm="console-test"',
+                });
+                response.end();
+                return;
+            }
+            listener(request, response);
+        });
+        const browser = await chromium.launch({
+            executablePath: await chromeExecutable(),
+            headless: true,
+        });
+        try {
+            await new Promise<void>((resolve) =>
+                server.listen(0, "127.0.0.1", resolve),
+            );
+            const address = server.address();
+            if (!address || typeof address === "string")
+                throw new Error("Missing address");
+            const url = `http://127.0.0.1:${address.port}/ops-secret/`;
+            expect((await fetch(`${url}caller-keys`)).status).toBe(401);
+            const context = await browser.newContext({
+                httpCredentials: credentials,
+            });
+            const page = await context.newPage();
+            await page.goto(url);
+            await page.getByRole("link", { name: "调用方密钥" }).click();
+            await page.getByRole("heading", { name: "调用方密钥" }).waitFor();
+            await page.getByText("audit", { exact: true }).waitFor();
+            await page.getByText("本地内存开发模式").waitFor();
+            await page
+                .getByLabel("调用方 ID", { exact: true })
+                .fill("memebuy-uat");
+            await page
+                .getByLabel("用途标签", { exact: true })
+                .fill("UAT backend");
+            await page.getByRole("button", { name: "发放密钥" }).click();
+            const secret = page.locator(".secret-value");
+            await secret.waitFor();
+            expect(await secret.textContent()).toMatch(
+                /^ppk_[0-9a-f]{8}_[A-Za-z0-9_-]{43}$/,
+            );
+            const key = await secret.innerText();
+            const keysTable = page.getByRole("table", { name: "密钥列表" });
+            const audits = page.getByRole("table", { name: "操作审计" });
+            const row = keysTable
+                .getByRole("row")
+                .filter({ hasText: "memebuy-uat" });
+            await row.getByText("有效", { exact: true }).waitFor();
+            await audits.getByText("发放", { exact: true }).waitFor();
+            await page.setViewportSize({ width: 390, height: 844 });
+            expect(
+                await page.evaluate(
+                    () => document.documentElement.scrollWidth <= innerWidth,
+                ),
+            ).toBe(true);
+            await page
+                .getByRole("button", { name: "我已保存，关闭提示" })
+                .click();
+            await secret.waitFor({ state: "detached" });
+
+            await page.getByLabel("按调用方 ID 筛选").fill("memebuy-uat");
+            await page
+                .getByRole("button", { name: "筛选", exact: true })
+                .click();
+            await page.waitForURL("**/#/caller-keys?callerId=memebuy-uat");
+            await row
+                .getByRole("button", { name: "吊销", exact: true })
+                .click();
+            await row.getByText("有效", { exact: true }).waitFor();
+            await page.getByLabel("吊销操作人").fill("operator");
+            await page.getByLabel("吊销原因").fill("已轮换");
+            await page.getByRole("button", { name: "确认吊销" }).click();
+            await row.getByText("已吊销", { exact: true }).waitFor();
+            await audits.getByText("已轮换", { exact: true }).waitFor();
+            await page.reload();
+            await row.getByText("已吊销", { exact: true }).waitFor();
+            expect(await page.locator("body").innerText()).not.toContain(key);
+            expect(await page.getByLabel("按调用方 ID 筛选").inputValue()).toBe(
+                "memebuy-uat",
+            );
+            await context.close();
+        } finally {
+            await browser.close();
+            if (server.listening)
+                await new Promise<void>((resolve, reject) =>
+                    server.close((error) =>
+                        error ? reject(error) : resolve(),
+                    ),
+                );
+        }
+    }, 30_000);
+
     it("drills from full-window failures to exact versions, returns to filters and handles unavailable data", async () => {
         const directory = await mkdtemp(
             path.join(tmpdir(), "pipipi-console-observation-"),

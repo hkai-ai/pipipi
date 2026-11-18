@@ -1,4 +1,4 @@
-/** API 配置翻译、校验、Adapter 选择和完整生产组装 */
+/** 校验 API 配置并组装生产服务、调用方认证与运维控制台。 */
 
 import { fileURLToPath } from "node:url";
 import { Pool } from "pg";
@@ -8,6 +8,7 @@ import {
 } from "../api/application.js";
 import { createFileControlledAsyncIntake } from "../api/async-intake.js";
 import {
+    type ConsoleCallerKeysOptions,
     defaultHttpMaxRequestBodyBytes,
     defaultMaxConcurrentExecutions,
     type ProcessingHttpOptions,
@@ -129,7 +130,12 @@ export function constructProcessingService(
         runtime.registry,
         agentIdentity,
     );
-    const consoleOptions = constructConsole(environment, archive, runtime);
+    const consoleOptions = constructConsole(environment, archive, runtime, {
+        store: keys,
+        persistent: Boolean(keyPool),
+        executeAuthMode: auth.mode,
+        gatewayFallbackEnabled: auth.isGatewayFallbackEnabled,
+    });
 
     return {
         application: createProcessingApplication({
@@ -199,6 +205,7 @@ function constructConsole(
     environment: StartupEnvironment,
     archive: ConstructedProcessRunObservation | undefined,
     runtime: ProcessRuntime,
+    callerKeys: ConsoleCallerKeysOptions,
 ): NonNullable<ProcessingHttpOptions["console"]> | undefined {
     if (!parseFeatureFlag(environment.CONSOLE_ENABLED, "CONSOLE_ENABLED")) {
         return undefined;
@@ -214,6 +221,7 @@ function constructConsole(
     const revision = parseRevision(environment.PIPIPI_REVISION);
     return Object.freeze({
         ...(local ? { localTrace: createLocalTrace() } : {}),
+        callerKeys,
         basePath: parseConsoleBasePath(environment.CONSOLE_BASE_PATH),
         ...(revision ? { revision } : {}),
         assetDirectory: consoleAssetDirectory(environment),

@@ -1,3 +1,4 @@
+/** 验证运维控制台的页面路由、筛选和共享链接。 */
 import { describe, expect, it } from "vitest";
 import { hrefFor, parseRoute } from "./routing.js";
 
@@ -34,6 +35,15 @@ describe("console navigation", () => {
             back: hrefFor(route),
         } as const;
         expect(parseRoute(hrefFor(detail))).toEqual(detail);
+    });
+    it("round-trips the caller keys page and its exact caller filter", () => {
+        expect(parseRoute("#/caller-keys")).toEqual({ view: "caller-keys" });
+        const filtered = {
+            view: "caller-keys",
+            callerId: "UAT / 跨区&例",
+        } as const;
+        expect(parseRoute(hrefFor(filtered))).toEqual(filtered);
+        expect(hrefFor({ view: "caller-keys" })).toBe("#/caller-keys");
     });
     it("preserves old stats links and defaults to overview", () => {
         expect(parseRoute("#/stats")).toEqual({ view: "overview", hours: 24 });

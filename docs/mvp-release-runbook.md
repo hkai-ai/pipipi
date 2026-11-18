@@ -13,7 +13,11 @@ Pipipi 负责调用方 API Key 认证，部署平台负责可信入口。应用�
 
 先应用 `020_caller_api_keys.mjs`：新增密钥和无明文的操作审计表，并给 `process_run_records` 添加可空 `caller_id` / `auth_method`。正常发布沿用既有备份、审计、migration verify 和回滚流程，不执行 production migration down。同步形状也使用 `DATABASE_URL` 持久验证 Key，独立连接池随 API 关闭；无数据库本地开发仅使用进程内 Store。
 
-以下命令会写入当前容器配置的数据库，须在目标环境的受控运维终端执行。发放结果中的 `key` 只显示一次，直接存入调用方的服务端 Secret；不要写入工单、共享终端日志或业务输入。`keyPrefix` 是公开标识，不包含随机秘密部分。
+通过 OpenResty Basic Auth 登录「运行管理 → 调用方密钥」，查看同步认证档位、网关注入兼容状态、存储模式、密钥清单和最近 100 条审计记录。可以按 `callerId` 筛选并刷新。发放时填写调用方 ID 和用途标签，按需填写操作人、备注与未来过期时间。操作人由操作者填写，审计记录以表单值为准。内存开发模式允许操作，重启会清空密钥与审计。
+
+发放成功后，把页面一次性显示的完整密钥保存到调用方的服务端 Secret，再关闭提示。刷新或关闭页面后无法找回明文。不要把密钥写入工单、共享终端日志或业务输入。`keyPrefix` 可用于盘点，只有完整密钥可用于认证。发放结果不明确时，先查看列表和审计，再决定是否发放新密钥。
+
+容器 CLI 也可以进行相同的密钥操作。以下命令会写入当前容器配置的数据库，须在目标环境的受控运维终端执行。CLI 发放的 `key` 同样只显示一次。
 
 ```bash
 docker exec pipipi node dist/bin/caller-api-keys.js issue \
@@ -24,9 +28,9 @@ docker exec pipipi node dist/bin/caller-api-keys.js revoke \
   --key-id '<keyId>' --actor operator-id
 ```
 
-本地等价入口为 `npm run caller-api-keys -- issue --caller-id memebuy-uat --label local`，同样要求 `DATABASE_URL`。省略 `list` 的 caller 过滤可盘点全部调用方；列表包含 active/revoked/expired、创建、过期、吊销和最后使用时间，不含明文或哈希。最后使用时间按一分钟窗口节流，best-effort 写入失败不影响已认证请求。发放和吊销审计可通过 Store 的 `audits(callerId?)` 查询；审计包含操作、时间、调用方、Key 标识、标签及可选 actor/note。
+本地等价入口为 `npm run caller-api-keys -- issue --caller-id memebuy-uat --label local`，同样要求 `DATABASE_URL`。省略 `list` 的 caller 过滤可盘点全部调用方；列表包含 active/revoked/expired、创建、过期、吊销和最后使用时间，不含明文或哈希。最后使用时间按一分钟窗口节流，best-effort 写入失败不影响已认证请求。发放和吊销审计记录包含操作、时间、调用方、Key 标识、标签及可选的操作人和备注。
 
-轮换为同一 callerId 发新 Key，确认调用方已切换，再按旧 keyId 吊销。新 Key 可继续查询旧运行，重放旧 Idempotency-Key；不要为了轮换创建新的 callerId。吊销或过期仅拒绝后续认证，不中断已受理任务。
+轮换时为同一 callerId 发新 Key，确认调用方已切换，再在列表中按旧 Key 的展示前缀定位，点击「吊销」并在行内确认。CLI 通过旧 keyId 吊销。新 Key 可继续查询旧运行，重放旧 Idempotency-Key；不要为了轮换创建新的 callerId。吊销或过期仅拒绝后续认证，不中断已受理任务。
 
 迁移按以下顺序推进，不预设尚未批准的切换日期：
 
@@ -368,6 +372,9 @@ Schema 由部署脚本在激活新容器前执行 `npm run db:migrate` 应用，
 | --- | --- |
 | `GET {base}` | 控制台页面。带不带尾斜杠都可以 |
 | `GET {base}/assets/<file>` | 构建产物。文件名带内容哈希，因此按不可变缓存返回 |
+| `GET {base}/caller-keys?callerId=` | 查看认证档位、网关兼容和存储模式，以及按创建时间倒序的密钥和最近 100 条操作审计。省略 `callerId` 时盘点全部调用方 |
+| `POST {base}/caller-keys` | 发放新 Key。成功返回 `201`、一次性明文、元数据和持久化标志 |
+| `POST {base}/caller-keys/{keyId}/revoke` | 立即吊销 Key。成功返回 `200`，不存在或已吊销返回 `404 KEY_NOT_FOUND` |
 | `GET {base}/runs?limit=&before=&process=&version=&status=&errorCode=&since=&until=` | 按记录时间倒序读取 Run Record；组合筛选 Process、精确版本、状态、错误码和时间范围。`since` 为闭区间、`until` 为开区间；`before` 是服务端返回的不透明稳定游标 |
 | `GET {base}/runs/{runId}` | 读取单条 Run Record |
 | `GET {base}/runs/{runId}/activities` | 读取该 Run 的 Attempt 与活动时间线，按 Attempt 序号和 sequence 排序 |
@@ -376,7 +383,9 @@ Schema 由部署脚本在激活新容器前执行 `npm run db:migrate` 应用，
 | `GET {base}/skills/{name}@{version}/cover` | 读取该 Skill 快照目录内的封面图。无封面、身份不精确或格式不合法时返回 `404`；响应带 ETag，按 `no-cache` 重验证 |
 | `GET {base}/stats?hours=` | 窗口内的执行计数、按 Process 汇总、UTC 每日吞吐与错误码分布、按业务版本与错误码聚合的全部失败及最近发生时间、最近成功时间、最近十条失败、Attempt 耗时分位数，以及当前 API 进程并发占用。`hours` 为 1–720，缺省 24 |
 
-页面是 Vite + Preact 构建的单页应用，主导航为概览、运行记录、异常排查；Process 目录、Skill 目录和提交任务归入开发工具。页面由 `npm run build` 构建到 `dist/console`，随镜像发布，由 API 同源提供。Worker 部署形状不因控制台迭代改变。
+页面是 Vite + Preact 构建的单页应用，主导航包含概览、运行记录、异常排查与调用方密钥；Process 目录、Skill 目录和提交任务归入开发工具。页面由 `npm run build` 构建到 `dist/console`，随镜像发布，由 API 同源提供。Worker 部署形状不因控制台迭代改变。
+
+密钥接口沿用当前控制台路径的 Basic Auth，响应均使用 `Cache-Control: no-store`。写入要求 `Content-Type: application/json`、合规的请求体大小以及 `X-Pipipi-Console-Action: 1`。浏览器提供 `Sec-Fetch-Site` 时仅接受 `same-origin` 或 `none`，提供 `Origin` 时，其 host（含非默认端口）必须与请求的 `Host` 一致。若回环反代设置了 `X-Forwarded-Host`，则以其中单个有效的 host 为准。反代应覆盖客户端传入的 `X-Forwarded-Host`，使用浏览器请求的 Host（含非默认端口）。应用不开放 CORS。列表和审计只返回密钥元数据。
 
 概览默认查询最近 24 小时，可切换 1 小时、7 天或 30 天，支持手动刷新与可选的 30 秒自动刷新。统计响应的 `since`（含）与 `until`（不含）界定同一窗口，`generatedAt` 标记窗口截止时间。JSONL 与 PostgreSQL 的计数、活动耗时和最近失败均按该窗口读取；这不保证多个查询之间的数据库事务快照。`failures` 按 Process、version、errorCode 聚合完整窗口，并提供 count 与 latestAt；`latestSucceededAt` 在窗口内无成功记录时省略。兼容旧 Adapter 时这些新增字段可缺省，页面明确显示未提供，不用最近十条失败代替完整聚合。
 
@@ -392,7 +401,7 @@ Schema 由部署脚本在激活新容器前执行 `npm run db:migrate` 应用，
 
 在「开发工具 → 业务流程」展开具体版本，即可查看当前发布为该版本声明的 Runtime Skill。目录独立于运行归档，尚无执行记录的版本也会列出。核对历史运行的实际加载情况，应查看该次运行的会话记录。
 
-Skill 目录来自生产 Composition Root 构建 Process 时使用的同一组 Skill 绑定，因此它只会列出本次发布真正装载、且被启用 Process 精确绑定的版本；被 `enabled` 关闭的 Process 不会贡献 Skill。目录只读：安装、更新或移除 Skill 仍是代码评审与发布动作，控制台不提供任何写入。封面按目录约定读取——在 Skill 快照目录放置 `cover.png`、`cover.jpg`、`cover.jpeg`、`cover.webp` 或 `cover.gif`（按此顺序取第一个非空、不超过 10 MiB 的文件）即可，不需要改 `SKILL.md`，也不影响其 SHA-256 完整性校验。封面在启动时定位、首次请求时读入并常驻内存。
+Skill 目录来自生产 Composition Root 构建 Process 时使用的同一组 Skill 绑定，因此它只会列出本次发布真正装载、且被启用 Process 精确绑定的版本；被 `enabled` 关闭的 Process 不会贡献 Skill。目录只读：安装、更新或移除 Skill 仍是代码评审与发布动作，Skill 目录不提供写入。封面按目录约定读取——在 Skill 快照目录放置 `cover.png`、`cover.jpg`、`cover.jpeg`、`cover.webp` 或 `cover.gif`（按此顺序取第一个非空、不超过 10 MiB 的文件）即可，不需要改 `SKILL.md`，也不影响其 SHA-256 完整性校验。封面在启动时定位、首次请求时读入并常驻内存。
 
 构建工具与框架是 devDependencies，生产镜像用 `--omit=dev` 安装运行时依赖，因此它们不进入运行时容器，只有构建产物进入。
 
@@ -421,6 +430,7 @@ OpenResty 上为控制台加 Basic Auth 的等价配置：
 location /console {
     auth_basic "pipipi console";
     auth_basic_user_file /etc/nginx/conf.d/console.htpasswd;
+    proxy_set_header Host $http_host;
     proxy_pass http://<服务器内网IP>:4300;
 }
 ```
@@ -431,7 +441,7 @@ location /console {
 
 1. 变更前确认活动容器 revision、实际生效的虚拟主机与配置来源，备份本次要修改的配置和认证文件。修改前再次核对配置摘要；存在并发变更时停止并重新核对，避免覆盖平台更新。
 2. 为 `CONSOLE_BASE_PATH` 及其子路由配置鉴权，保留已有精确 location 的鉴权、caller 身份头、反代目标和超时。通过 `openresty -t` 或对应网关的配置检查后 reload；检查失败时保留原配置，不激活候选。
-3. 分别从网关本机 HTTPS 与公网访问控制台页面、`{base}/processes` 和 `{base}/stats?hours=1`。使用 Basic Auth 时，匿名请求必须返回带 `WWW-Authenticate: Basic` 的 `401`；其他认证方式必须按部署策略拒绝匿名访问，不能把上游错误当成鉴权成功。认证请求必须返回 `200`，并分别核对控制台 HTML、非空 Process catalog JSON 和统计 JSON；响应的 `x-pipipi-revision` 必须与活动应用 revision 一致。
+3. 分别从网关本机 HTTPS 与公网访问控制台页面、`{base}/processes`、`{base}/stats?hours=1` 和 `{base}/caller-keys`。使用 Basic Auth 时，匿名请求必须返回带 `WWW-Authenticate: Basic` 的 `401`；其他认证方式必须按部署策略拒绝匿名访问，不能把上游错误当成鉴权成功。认证请求必须返回 `200`，并分别核对控制台 HTML、非空 Process catalog JSON、统计 JSON 和密钥接口的认证态势；响应的 `x-pipipi-revision` 必须与活动应用 revision 一致。
 4. 使用 PostgreSQL 观测时，在活动 API 容器内执行 `node dist/bin/audit-production-database.js`，确认 TLS、专用数据库和最小权限边界。异步部署同时核对 Process Worker revision、readiness、PostgreSQL 观测和完整输入输出记录配置。备份平台应提供同一数据库的真实备份与恢复记录：备份不超过 24 小时，恢复验证不超过 90 天，剩余保留期不少于 30 天。
 5. 保存 revision、配置摘要、检查时间、状态码、备份引用和验收结论，保留 90 天；不保存凭证、响应正文、完整网关配置或原始数据库错误。鉴权、响应契约或版本检查失败时恢复本次变更前的配置及认证文件，重新检查并 reload；回滚后仍失败则关闭控制台公网入口，由运维人员排查。
 

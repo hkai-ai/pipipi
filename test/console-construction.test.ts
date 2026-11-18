@@ -212,6 +212,42 @@ describe("operator console construction", () => {
         expect((await cover.arrayBuffer()).byteLength).toBeGreaterThan(0);
     });
 
+    it("exposes the configured caller authentication mode and local key storage", async () => {
+        const directory = await mkdtemp(join(tmpdir(), "pipipi-console-"));
+        const url = await startService({
+            CRT_BUSINESS_API_BASE_URL: "http://127.0.0.1:4400",
+            PROCESS_RUN_RECORD_DIRECTORY: directory,
+            CONSOLE_ENABLED: "true",
+            CONSOLE_BASE_PATH: "/ops-secret",
+            EXECUTE_AUTH_MODE: "audit",
+        });
+        const endpoint = `${url}/ops-secret/caller-keys`;
+        const response = await fetch(endpoint);
+        expect(response.status).toBe(200);
+        expect(await response.json()).toEqual({
+            auth: {
+                persistent: false,
+                executeAuthMode: "audit",
+                gatewayFallbackEnabled: true,
+            },
+            keys: [],
+            audits: [],
+        });
+        const issued = await fetch(endpoint, {
+            method: "POST",
+            headers: {
+                "content-type": "application/json",
+                "x-pipipi-console-action": "1",
+            },
+            body: JSON.stringify({
+                callerId: "local",
+                label: "Local integration",
+            }),
+        });
+        expect(issued.status).toBe(201);
+        expect(await issued.json()).toMatchObject({ persistent: false });
+    });
+
     it("keeps recording off and the console unmounted by default", async () => {
         const url = await startService({});
 
