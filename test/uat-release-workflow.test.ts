@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 
 describe("UAT CI/CD workflow", () => {
-    it("deploys only the develop sync shape to the UAT environment", async () => {
+    it("deploys the existing develop deployment shape to the UAT environment", async () => {
         const [workflow, script, production] = (
             await Promise.all([
                 readFile(".github/workflows/uat-ci-cd.yml", "utf8"),
@@ -27,16 +27,21 @@ describe("UAT CI/CD workflow", () => {
         expect(workflow).toContain("ops/deploy-uat-release.sh");
         expect(workflow).not.toContain("vars.REMOTE_HOST");
         expect(workflow).not.toContain("secrets.SSH_PRIVATE_KEY");
-        expect(workflow).not.toContain("compose.production.async.yaml");
+        expect(workflow).toContain("compose.production.async.yaml");
         expect(workflow).not.toContain("pipipi-production-release");
         expect(workflow).not.toContain("StrictHostKeyChecking=no");
 
         expect(script).toContain("uat-target");
-        expect(script).toContain("UAT deploy refuses async role");
+        expect(script.indexOf("grep -Fxq uat")).toBeLessThan(
+            script.indexOf('bash "$async_update"'),
+        );
+        expect(script).toContain(
+            'bash "$async_update" "$app_root" "$revision"',
+        );
         expect(script).toContain("ASYNC_PROCESS_RUNS_ENABLED=false");
         expect(script).toContain("--project-name pipipi");
         expect(script).toContain("audit:production-database");
-        expect(script).not.toContain("update-async-release.sh");
+        expect(workflow).toContain("ops/update-async-release.sh");
         expect(script).not.toContain("pm2 ");
 
         expect(production).toContain("github.ref == 'refs/heads/main'");

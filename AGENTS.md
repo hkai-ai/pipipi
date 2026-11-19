@@ -44,7 +44,7 @@
 
 - 镜像构建必须以非 root 身份、禁网运行完整 production catalog 的 Runtime Skill 校验（含可选 Process）；新增 Skill 时同步维护 `Dockerfile` 和 `.dockerignore`。
 - 修改同步 Process 执行预算或重建网关反代时，按 [`docs/mvp-release-runbook.md`](docs/mvp-release-runbook.md) 核对网关超时余量，并保留精确 location 的鉴权与身份头。
-- 标准单服务器发布入口是 `.github/workflows/production-ci-cd.yml`（构建 `pipipi:<commit>` 镜像并通过 `compose.production.yaml` 重建主 API 与内部 CRT Business API）；`develop` 是主力开发与 UAT 分支，只走 `.github/workflows/uat-ci-cd.yml` 发布到独立 UAT 服务器的同步形状（不读取生产 `REMOTE_HOST`），UAT 验证通过后再合并到 `main` 发布生产。异步部署由 `ops/update-async-release.sh` 在锁内更新六个角色，迁移变化时停流排空并自动 `pg_dump` 备份（`shared/db-backups`，留 14 份）后迁移，不做 migration down，也不得借普通发布退回同步或重置灰度阶段。
+- 标准单服务器发布入口是 `.github/workflows/production-ci-cd.yml`（构建 `pipipi:<commit>` 镜像并通过 `compose.production.yaml` 重建主 API 与内部 CRT Business API）；`develop` 是主力开发与 UAT 分支，只走 `.github/workflows/uat-ci-cd.yml` 在独立 UAT 服务器保留当前同步或异步形状（不读取生产 `REMOTE_HOST`），UAT 验证通过后再合并到 `main` 发布生产。异步部署由 `ops/update-async-release.sh` 在锁内更新六个角色，迁移变化时停流排空并自动 `pg_dump` 备份（`shared/db-backups`，留 14 份）后迁移，不做 migration down，也不得借普通发布退回同步或重置灰度阶段。
 - 两个容器使用 host 网络（主 API `0.0.0.0:4300`，内部 CRT API `127.0.0.1:4400`），防火墙不得向公网开放应用端口；基础 Compose 保持 `ASYNC_PROCESS_RUNS_ENABLED=false`。
 - 服务器环境变量保存在 `REMOTE_PATH/shared/.env`，不得写入日志、镜像或仓库；部署必须校验 image tag、`com.pipipi.revision`、`/healthz` 和 `/readyz`，任一失败即回滚。
 

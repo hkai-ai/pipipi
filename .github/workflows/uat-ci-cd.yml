@@ -49,6 +49,8 @@ jobs:
           set -Eeuo pipefail
           docker save "pipipi:${GITHUB_SHA}" | gzip > "pipipi-${GITHUB_SHA}.image.tar.gz"
           cp compose.production.yaml "pipipi-${GITHUB_SHA}.compose.yaml"
+          cp compose.production.async.yaml "pipipi-${GITHUB_SHA}.compose.async.yaml"
+          cp ops/update-async-release.sh "pipipi-${GITHUB_SHA}.update-async.sh"
           cp ops/deploy-uat-release.sh "pipipi-${GITHUB_SHA}.deploy-uat.sh"
 
       - name: Upload release
@@ -58,6 +60,8 @@ jobs:
           path: |
             pipipi-${{ github.sha }}.image.tar.gz
             pipipi-${{ github.sha }}.compose.yaml
+            pipipi-${{ github.sha }}.compose.async.yaml
+            pipipi-${{ github.sha }}.update-async.sh
             pipipi-${{ github.sha }}.deploy-uat.sh
           if-no-files-found: error
           retention-days: 7
@@ -130,6 +134,8 @@ jobs:
           scp -o BatchMode=yes -o StrictHostKeyChecking=yes \
             "pipipi-${GITHUB_SHA}.image.tar.gz" \
             "pipipi-${GITHUB_SHA}.compose.yaml" \
+            "pipipi-${GITHUB_SHA}.compose.async.yaml" \
+            "pipipi-${GITHUB_SHA}.update-async.sh" \
             "$REMOTE_USER@$REMOTE_HOST:/tmp/"
 
       - name: Configure template diagnostics for the API
@@ -170,4 +176,6 @@ jobs:
             bash -s -- "$REMOTE_PATH" "$GITHUB_SHA" \
               "/tmp/pipipi-${GITHUB_SHA}.image.tar.gz" \
               "/tmp/pipipi-${GITHUB_SHA}.compose.yaml" \
+              "/tmp/pipipi-${GITHUB_SHA}.compose.async.yaml" \
+              "/tmp/pipipi-${GITHUB_SHA}.update-async.sh" \
             < "pipipi-${GITHUB_SHA}.deploy-uat.sh"

@@ -1,16 +1,18 @@
 #!/usr/bin/env bash
-# 把同步 API 与内部图片服务发布到独立 UAT 服务器。不读取生产主机，也不部署异步角色。
+# 在独立 UAT 服务器的发布锁内更新当前同步或异步部署。
 set -Eeuo pipefail
 
 app_root="$1"
 revision="$2"
 image_archive="$3"
 compose_source="$4"
+async_source="$5"
+async_update="$6"
 
 [[ "$app_root" =~ ^/[a-zA-Z0-9_/-]+$ ]]
 [[ "$revision" =~ ^[0-9a-f]{40}$ ]]
 
-trap 'rm -f -- "$image_archive" "$compose_source"' EXIT
+trap 'rm -f -- "$image_archive" "$compose_source" "$async_source" "$async_update"' EXIT
 
 image="pipipi:$revision"
 shared_env="$app_root/shared/.env"
@@ -38,16 +40,14 @@ if [ ! -f "$marker" ] || ! grep -Fxq uat "$marker"; then
     exit 1
 fi
 
-for async_container in \
-    pipipi-process-dispatcher \
-    pipipi-process-worker \
-    pipipi-webhook-worker \
-    pipipi-retention-cleaner; do
-    if docker inspect "$async_container" >/dev/null 2>&1; then
-        echo "UAT deploy refuses async role $async_container" >&2
-        exit 1
-    fi
-done
+export PIPIPI_TEMPLATE_DIAGNOSTICS_ENV_FILE="$app_root/shared/template-diagnostics.env"
+# 异步目录或运行角色任一存在时，必须由六角色更新入口验证完整形状。
+if [ -e "$app_root/shared/compose.production.async.yaml" ] ||
+    docker ps -a --format '{{.Names}}' | grep -Ex 'pipipi-(process-dispatcher|process-worker|webhook-worker|retention-cleaner)' >/dev/null ||
+    docker inspect pipipi --format '{{range .Config.Env}}{{println .}}{{end}}' 2>/dev/null | grep -Fx 'ASYNC_PROCESS_RUNS_ENABLED=true' >/dev/null; then
+    bash "$async_update" "$app_root" "$revision" "$image_archive" "$compose_source" "$async_source"
+    exit 0
+fi
 
 if [ ! -f "$shared_env" ]; then
     echo "Missing UAT environment file: $shared_env" >&2
