@@ -23,6 +23,8 @@ describe("UAT CI/CD workflow", () => {
         expect(workflow).toContain("split -b 8M");
         expect(workflow).toContain("xargs -0 -n 1 -P 4");
         expect(workflow).toContain("sha256sum");
+        expect(workflow).toContain("postgres:18-alpine");
+        expect(workflow).toContain("docker image inspect");
         expect(workflow).not.toContain("id_ed25519");
         expect(workflow).toContain("secrets.UAT_SSH_KNOWN_HOSTS");
         expect(workflow).toContain("vars.UAT_REMOTE_HOST");

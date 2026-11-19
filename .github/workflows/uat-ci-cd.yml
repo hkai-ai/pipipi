@@ -163,16 +163,7 @@ jobs:
             sleep 3
           done
 
-          # 将镜像包切为 8MB 分片，4 路并发流式上传并逐片校验 SHA-256，支持断线重试且实时输出进度
-          chunk_dir="$(mktemp -d)"
-          trap 'rm -rf "$chunk_dir"' EXIT
-          split -b 8M -d -a 3 "$image_archive" "$chunk_dir/chunk-"
-          total_chunks="$(find "$chunk_dir" -maxdepth 1 -name 'chunk-*' | wc -l | tr -d ' ')"
-          echo "Split image into ${total_chunks} chunks (8MB each)"
-
-          existing_manifest="$(ssh -o BatchMode=yes -o StrictHostKeyChecking=yes "$remote_target" \
-            "mkdir -p '$remote_chunks' && cd '$remote_chunks' && sha256sum chunk-* 2>/dev/null || true")"
-
+          # 将大体积镜像包切为 8MB 分片，4 路并发流式上传并逐片校验 SHA-256，支持断线重试且实时输出进度
           upload_chunk() {
             set -Eeuo pipefail
             local chunk_path="$1"
@@ -205,24 +196,73 @@ jobs:
             return 1
           }
           export -f upload_chunk
-          export remote_target remote_chunks existing_manifest
 
-          find "$chunk_dir" -maxdepth 1 -name 'chunk-*' -print0 \
-            | sort -z \
-            | xargs -0 -n 1 -P 4 bash -c 'upload_chunk "$1"' _
+          upload_archive_chunked() {
+            local local_archive="$1"
+            local remote_out="$2"
+            local chunks_dir="$3"
+            local archive_sha archive_bytes chunk_dir total_chunks
+            archive_sha="$(sha256sum "$local_archive" | awk '{print $1}')"
+            archive_bytes="$(stat -c%s "$local_archive")"
+            echo "Uploading ${local_archive} (${archive_bytes} bytes, sha256=${archive_sha})"
 
-          echo "All ${total_chunks} chunks uploaded; assembling and verifying sha256 on UAT server..."
-          ssh -o BatchMode=yes -o StrictHostKeyChecking=yes "$remote_target" "
-            set -eu
-            out='/tmp/pipipi-${GITHUB_SHA}.image.tar.gz'
-            tmp=\"\$out.part\"
-            cat '$remote_chunks'/chunk-* > \"\$tmp\"
-            actual=\"\$(sha256sum \"\$tmp\" | awk '{print \$1}')\"
-            test \"\$actual\" = '$expected_sha'
-            mv -f \"\$tmp\" \"\$out\"
-            rm -rf '$remote_chunks'
-          "
-          echo "Verified remote image sha256=${expected_sha}"
+            chunk_dir="$(mktemp -d)"
+            split -b 8M -d -a 3 "$local_archive" "$chunk_dir/chunk-"
+            total_chunks="$(find "$chunk_dir" -maxdepth 1 -name 'chunk-*' | wc -l | tr -d ' ')"
+            echo "Split ${local_archive} into ${total_chunks} chunks (8MB each)"
+
+            existing_manifest="$(ssh -o BatchMode=yes -o StrictHostKeyChecking=yes "$remote_target" \
+              "mkdir -p '$chunks_dir' && cd '$chunks_dir' && sha256sum chunk-* 2>/dev/null || true")"
+            remote_chunks="$chunks_dir"
+            export remote_target remote_chunks existing_manifest
+
+            find "$chunk_dir" -maxdepth 1 -name 'chunk-*' -print0 \
+              | sort -z \
+              | xargs -0 -n 1 -P 4 bash -c 'upload_chunk "$1"' _
+            rm -rf "$chunk_dir"
+
+            echo "All ${total_chunks} chunks uploaded; assembling and verifying sha256 on UAT server..."
+            ssh -o BatchMode=yes -o StrictHostKeyChecking=yes "$remote_target" "
+              set -eu
+              out='$remote_out'
+              tmp=\"\$out.part\"
+              cat '$chunks_dir'/chunk-* > \"\$tmp\"
+              actual=\"\$(sha256sum \"\$tmp\" | awk '{print \$1}')\"
+              test \"\$actual\" = '$archive_sha'
+              mv -f \"\$tmp\" \"\$out\"
+              rm -rf '$chunks_dir'
+            "
+            echo "Verified remote ${remote_out} sha256=${archive_sha}"
+          }
+
+          upload_archive_chunked \
+            "$image_archive" \
+            "/tmp/pipipi-${GITHUB_SHA}.image.tar.gz" \
+            "$remote_chunks"
+
+          # 异步迁移前置备份需要 postgres:18-alpine；国内服务器可能无法直连 Docker Hub，缺失时由 CI 侧拉取并同步。
+          pg_backup_image="postgres:18-alpine"
+          if ssh -o BatchMode=yes -o StrictHostKeyChecking=yes "$remote_target" \
+            "docker image inspect '$pg_backup_image' >/dev/null 2>&1"; then
+            echo "Backup image ${pg_backup_image} is already present on UAT server"
+          else
+            echo "Backup image ${pg_backup_image} missing on UAT server; pulling on runner and syncing..."
+            docker pull --quiet "$pg_backup_image"
+            pg_archive="postgres-18-alpine.image.tar.gz"
+            docker save "$pg_backup_image" | gzip > "$pg_archive"
+            upload_archive_chunked \
+              "$pg_archive" \
+              "/tmp/pipipi-pg-18-alpine.image.tar.gz" \
+              "/tmp/pipipi-pg-18-alpine.chunks"
+            rm -f "$pg_archive"
+            ssh -o BatchMode=yes -o StrictHostKeyChecking=yes "$remote_target" "
+              set -eu
+              trap 'rm -f /tmp/pipipi-pg-18-alpine.image.tar.gz' EXIT
+              gzip -dc /tmp/pipipi-pg-18-alpine.image.tar.gz | docker load >/dev/null
+              docker image inspect '$pg_backup_image' >/dev/null
+            "
+            echo "Loaded backup image ${pg_backup_image} on UAT server"
+          fi
 
       - name: Configure template diagnostics for the API
         env:

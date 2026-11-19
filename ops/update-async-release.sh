@@ -294,7 +294,7 @@ PG_CONTAINER
         rm -f -- "$1"
         printf '%s' "${code:-DOCKER_FAILED}"
     }
-    if ! docker pull --quiet "$pg_image" >/dev/null 2>&1 && ! docker image inspect "$pg_image" >/dev/null 2>&1; then
+    if ! docker image inspect "$pg_image" >/dev/null 2>&1 && ! docker pull --quiet "$pg_image" >/dev/null 2>&1; then
         echo "Cannot pull $pg_image for the database backup; current deployment retained" >&2
         exit 1
     fi
