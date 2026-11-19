@@ -21,6 +21,13 @@ cp .env.example .env
 
 Pi 依赖按准确版本升级并同步锁文件。Session 配置边界见 [项目级 Agent 与 Skill](integrating-runtime-skills.md#项目级-agent-与-skill)；[`test/agent-runtime.test.ts`](../test/agent-runtime.test.ts) 用真实 SDK 离线创建 Session，验证本地配置隔离、Tool 白名单与不落盘行为。默认测试不调用真实模型。
 
+### 分支与发布流转
+
+仓库长期维护 `develop` 与 `main` 两个分支：
+
+- `develop`：主力开发分支，对应 UAT 环境。日常开发与功能改动先合入 `develop`，由 [UAT CI/CD](../.github/workflows/uat-ci-cd.yml) 自动构建并部署到 UAT 服务器验证；
+- `main`：生产分支，对应生产环境。仅在 `develop` 于 UAT 验证通过后，再将 `develop` 合并到 `main`，触发 [Production CI/CD](../.github/workflows/production-ci-cd.yml) 发布生产。
+
 ## 本地开发
 
 只联调 Agent Conversations HTTP 契约时运行单进程文本服务：

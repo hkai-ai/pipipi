@@ -155,7 +155,7 @@ Actions 私钥只用于连接服务器。服务器不需要读取 Git 仓库或�
 
 ### UAT 同步发布
 
-`develop` 由 [UAT CI/CD](../.github/workflows/uat-ci-cd.yml) 发布到另一台服务器。生产 `main` 流水线只在 `refs/heads/main` 上部署，手动从其他分支触发也不会进入生产主机。两条流水线使用不同的 GitHub Environment、并发组和 SSH 变量，UAT 不读取 `REMOTE_HOST`、`SSH_PRIVATE_KEY` 或生产控制台地址。
+仓库采用 `develop` → `main` 双分支发布流转：`develop` 作为主力开发分支并对应 UAT 环境，所有改动先合入 `develop` 并由 [UAT CI/CD](../.github/workflows/uat-ci-cd.yml) 发布到独立 UAT 服务器验证；确认无误后再从 `develop` 合并到 `main`，由 [Production CI/CD](../.github/workflows/production-ci-cd.yml) 发布生产。生产 `main` 流水线只在 `refs/heads/main` 上部署，手动从其他分支触发也不会进入生产主机。两条流水线使用不同的 GitHub Environment、并发组和 SSH 变量，UAT 不读取 `REMOTE_HOST`、`SSH_PRIVATE_KEY` 或生产控制台地址。
 
 UAT 只部署同步形状：主 API 与内部 CRT Business API，复用 [`compose.production.yaml`](../compose.production.yaml)，`ASYNC_PROCESS_RUNS_ENABLED=false`。服务器上已有异步角色，或 `shared/.env` 把异步入口设为 `true` 时，[`ops/deploy-uat-release.sh`](../ops/deploy-uat-release.sh) 直接拒绝。部署前还要存在 `shared/uat-target`，内容只有一行 `uat`；没有这个标记的机器不会被该脚本更新。
 
