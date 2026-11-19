@@ -76,6 +76,13 @@ describe("Production CI/CD workflow", () => {
         expect(deploy).toContain("PIPIPI_MIGRATIONS_APPLIED");
         expect(deploy).toContain("group: pipipi-production-release");
         expect(deploy).toContain("*configure-ssh");
+        expect(plan).toContain("IPQoS none");
+        expect(plan).toContain("ServerAliveInterval 15");
+        expect(deploy).toContain("split -b 8M");
+        expect(deploy).toContain("xargs -0 -n 1 -P 4");
+        expect(deploy).toContain("sha256sum");
+        expect(deploy).toContain("postgres:18-alpine");
+        expect(deploy).toContain("docker image inspect");
         expect(deploy).toContain("flock -n 9");
         expect(deploy).toContain("async-control/smoke-lease");
         expect(gateway).toContain("CONSOLE_PUBLIC_URL");
