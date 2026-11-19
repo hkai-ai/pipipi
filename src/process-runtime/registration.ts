@@ -1,6 +1,10 @@
 /** 定义 Process Registration：校验输入输出 Schema、快照化 JSON、声明可用活动与重试策略，产出可执行的 Registration */
 import type { z } from "zod";
 import type { InstalledSkillRef } from "../agent-runtime/skills.js";
+import {
+    formatZodValidationDetails,
+    type InputValidationDetail,
+} from "./input-validation.js";
 import type { ProcessRunActivity } from "./logging.js";
 
 const inputMaxBytes = 262_144;
@@ -97,7 +101,10 @@ export type AcceptedProcessInput = Readonly<{
 }>;
 
 export type ProcessRegistrationAcceptance =
-    | Readonly<{ accepted: false }>
+    | Readonly<{
+          accepted: false;
+          details?: readonly InputValidationDetail[];
+      }>
     | Readonly<{
           accepted: true;
           acceptedInput: AcceptedProcessInput;
@@ -194,32 +201,29 @@ export function defineProcessRegistration<
 
     const accept = (input: unknown): ProcessRegistrationAcceptance => {
         const acceptedInput = inputSchema.safeParse(input);
-        if (!acceptedInput.success) return Object.freeze({ accepted: false });
+        if (!acceptedInput.success) {
+            return Object.freeze({
+                accepted: false,
+                details: formatZodValidationDetails(acceptedInput.error, input),
+            });
+        }
 
-        const inputSnapshot = createJsonSnapshot(
-            acceptedInput.data,
-            inputMaxBytes,
-        );
-        if (!inputSnapshot.success) {
-            return Object.freeze({ accepted: false });
-        }
-        const snapshot = createJsonSnapshot(
-            {
-                schemaVersion: 1,
-                process: identity.id,
-                version: identity.version,
-                input: inputSnapshot.value,
-            },
-            acceptedMaxBytes,
-        );
-        if (!snapshot.success) {
-            return Object.freeze({ accepted: false });
-        }
-        const acceptedSnapshot = parseAcceptedProcessInput(
-            snapshot.value,
+        const acceptedSnapshot = buildAcceptedProcessInput(
             identity,
+            acceptedInput.data,
         );
-        if (!acceptedSnapshot) return Object.freeze({ accepted: false });
+        if (!acceptedSnapshot) {
+            return Object.freeze({
+                accepted: false,
+                details: Object.freeze([
+                    Object.freeze({
+                        path: "/",
+                        keyword: "maxSize",
+                        message: "input is not JSON-safe or exceeds size limit",
+                    }),
+                ]),
+            });
+        }
 
         return Object.freeze({
             accepted: true,
@@ -497,6 +501,25 @@ function isJsonValue(
     } finally {
         seen.delete(value);
     }
+}
+
+export function buildAcceptedProcessInput(
+    identity: ProcessIdentity,
+    input: unknown,
+): AcceptedProcessInput | undefined {
+    const inputSnapshot = createJsonSnapshot(input, inputMaxBytes);
+    if (!inputSnapshot.success) return undefined;
+    const snapshot = createJsonSnapshot(
+        {
+            schemaVersion: 1,
+            process: identity.id,
+            version: identity.version,
+            input: inputSnapshot.value,
+        },
+        acceptedMaxBytes,
+    );
+    if (!snapshot.success) return undefined;
+    return parseAcceptedProcessInput(snapshot.value, identity);
 }
 
 function parseAcceptedProcessInput(

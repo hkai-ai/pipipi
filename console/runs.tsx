@@ -363,10 +363,30 @@ export function RunsView({
                                                 process={record.process}
                                                 version={record.version}
                                             />
+                                            {record.callerId ? (
+                                                <span className="cell-meta mono">
+                                                    caller: {record.callerId}
+                                                </span>
+                                            ) : null}
                                             <TemplateVersion record={record} />
                                         </td>
                                         <td>
                                             <StatusLabel record={record} />
+                                            {record.failureDetail?.details
+                                                ?.length ? (
+                                                <span className="cell-meta mono">
+                                                    {
+                                                        record.failureDetail
+                                                            .details[0]?.path
+                                                    }{" "}
+                                                    (
+                                                    {
+                                                        record.failureDetail
+                                                            .details[0]?.message
+                                                    }
+                                                    )
+                                                </span>
+                                            ) : null}
                                         </td>
                                         <td>
                                             {imagesOf(record.content?.output)
@@ -485,6 +505,21 @@ export function RunView({
     const details = describeTimeline(timeline.value);
     const partialTimeline =
         !value && (timeline.value?.queue || timeline.value?.activities.length);
+    const contentSourceRunId =
+        value?.content?.input &&
+        typeof value.content.input === "object" &&
+        !Array.isArray(value.content.input) &&
+        typeof (value.content.input as Record<string, unknown>).sourceRunId ===
+            "string"
+            ? ((value.content.input as Record<string, unknown>)
+                  .sourceRunId as string)
+            : undefined;
+    const sourceRunId =
+        value?.sourceRunId ??
+        timeline.value?.queue?.sourceRunId ??
+        contentSourceRunId;
+    const callerId = value?.callerId ?? timeline.value?.queue?.callerId;
+    const selfBack = hrefFor({ view: "run", runId, back });
     return (
         <>
             <a className="back-link" href={back}>
@@ -549,6 +584,29 @@ export function RunView({
                                 </strong>
                             </div>
                         )}
+                        {timeline.value.queue.callerId && (
+                            <div>
+                                <span>调用方</span>
+                                <strong className="mono">
+                                    {timeline.value.queue.callerId}
+                                </strong>
+                            </div>
+                        )}
+                        {timeline.value.queue.sourceRunId && (
+                            <div>
+                                <span>上游解析运行（sourceRunId）</span>
+                                <a
+                                    className="run-link"
+                                    href={hrefFor({
+                                        view: "run",
+                                        runId: timeline.value.queue.sourceRunId,
+                                        back: selfBack,
+                                    })}
+                                >
+                                    {timeline.value.queue.sourceRunId}
+                                </a>
+                            </div>
+                        )}
                     </div>
                 </Panel>
             )}
@@ -590,6 +648,27 @@ export function RunView({
                                     {formatDuration(details.durationMs)}
                                 </strong>
                             </div>
+                            {callerId ? (
+                                <div>
+                                    <span>调用方</span>
+                                    <strong className="mono">{callerId}</strong>
+                                </div>
+                            ) : null}
+                            {sourceRunId ? (
+                                <div>
+                                    <span>上游解析运行（sourceRunId）</span>
+                                    <a
+                                        className="run-link"
+                                        href={hrefFor({
+                                            view: "run",
+                                            runId: sourceRunId,
+                                            back: selfBack,
+                                        })}
+                                    >
+                                        {sourceRunId}
+                                    </a>
+                                </div>
+                            ) : null}
                         </div>
                         <div className="actions">
                             <CopyButton
@@ -641,6 +720,90 @@ export function RunView({
                                             .stage
                                     }
                                 </p>
+                            ) : null}
+                            {value.failureDetail ? (
+                                <div className="rejection-detail">
+                                    <div className="detail-facts">
+                                        {value.failureDetail.httpStatus ? (
+                                            <div>
+                                                <span>HTTP 状态 / 入口</span>
+                                                <strong className="mono">
+                                                    {
+                                                        value.failureDetail
+                                                            .httpStatus
+                                                    }
+                                                    {value.failureDetail
+                                                        .endpoint
+                                                        ? ` · POST ${value.failureDetail.endpoint}`
+                                                        : ""}
+                                                </strong>
+                                            </div>
+                                        ) : null}
+                                        {value.failureDetail.idempotencyKey ? (
+                                            <div>
+                                                <span>Idempotency-Key</span>
+                                                <strong className="mono">
+                                                    {
+                                                        value.failureDetail
+                                                            .idempotencyKey
+                                                    }
+                                                </strong>
+                                            </div>
+                                        ) : null}
+                                        {value.failureDetail.traceId ? (
+                                            <div>
+                                                <span>Trace ID</span>
+                                                <strong className="mono">
+                                                    {
+                                                        value.failureDetail
+                                                            .traceId
+                                                    }
+                                                </strong>
+                                            </div>
+                                        ) : null}
+                                    </div>
+                                    {value.failureDetail.message ? (
+                                        <p className="mono">
+                                            {value.failureDetail.message}
+                                        </p>
+                                    ) : null}
+                                    {value.failureDetail.details?.length ? (
+                                        <div className="table-scroll">
+                                            <table>
+                                                <thead>
+                                                    <tr>
+                                                        <th>字段路径</th>
+                                                        <th>校验规则</th>
+                                                        <th>失败说明</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    {value.failureDetail.details.map(
+                                                        (item) => (
+                                                            <tr
+                                                                key={`${item.path}\0${item.keyword}\0${item.message}`}
+                                                            >
+                                                                <td className="mono">
+                                                                    {item.path}
+                                                                </td>
+                                                                <td className="mono">
+                                                                    {
+                                                                        item.keyword
+                                                                    }
+                                                                </td>
+                                                                <td>
+                                                                    {
+                                                                        item.message
+                                                                    }
+                                                                </td>
+                                                            </tr>
+                                                        ),
+                                                    )}
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    ) : null}
+                                </div>
                             ) : null}
                             <CollapsibleSection title="技术标识">
                                 <p>

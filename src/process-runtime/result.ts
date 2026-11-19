@@ -1,5 +1,14 @@
 /** 定义 Process Run 的成功/失败结果类型（ProcessRunResult）与公开错误码 */
 import type { RunCost } from "./cost.js";
+import type { InputValidationDetail } from "./input-validation.js";
+
+export type SourceRunErrorCode =
+    | "SOURCE_RUN_NOT_FOUND"
+    | "SOURCE_RUN_FORBIDDEN"
+    | "SOURCE_RUN_INVALID_PROCESS"
+    | "SOURCE_RUN_NOT_READY"
+    | "SOURCE_RUN_EXPIRED"
+    | "SOURCE_RUN_MISSING_CONDITION";
 
 /**
  * `DEPENDENCY_FAILURE` covers failures that occur before a Business Capability
@@ -18,7 +27,8 @@ export type ProcessErrorCode =
     | "MASTER_BUDGET_EXHAUSTED"
     | "MASTER_NOT_ACCEPTED"
     | "PROCESS_NOT_FOUND"
-    | "PROCESS_TIMEOUT";
+    | "PROCESS_TIMEOUT"
+    | SourceRunErrorCode;
 
 export type ProcessRunResult =
     | {
@@ -37,6 +47,7 @@ export type ProcessRunResult =
           error: {
               code: ProcessErrorCode;
               message: string;
+              details?: readonly InputValidationDetail[];
           };
           cost?: RunCost;
       };
@@ -46,11 +57,16 @@ export function processFailure(
     code: ProcessErrorCode,
     message: string,
     identity: { process?: string; version?: string } = {},
+    details?: readonly InputValidationDetail[],
 ): ProcessRunResult {
     return {
         runId,
         ...identity,
         status: "failed",
-        error: { code, message },
+        error: {
+            code,
+            message,
+            ...(details && details.length > 0 ? { details } : {}),
+        },
     };
 }

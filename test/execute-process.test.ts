@@ -114,7 +114,15 @@ describe("business process execution", () => {
             status: "failed",
             error: {
                 code: "INVALID_INPUT",
-                message: "The process input is invalid",
+                message:
+                    "sample-text/v1 input validation failed: /content must be at least 1 characters",
+                details: [
+                    {
+                        path: "/content",
+                        keyword: "minLength",
+                        message: "must be at least 1 characters",
+                    },
+                ],
             },
         });
     });
@@ -132,7 +140,15 @@ describe("business process execution", () => {
             status: "failed",
             error: {
                 code: "INVALID_INPUT",
-                message: "The process input is invalid",
+                message:
+                    "Request input validation failed: / must be a valid JSON object",
+                details: [
+                    {
+                        path: "/",
+                        keyword: "type",
+                        message: "must be a valid JSON object",
+                    },
+                ],
             },
         });
     });
@@ -157,7 +173,15 @@ describe("business process execution", () => {
             status: "failed",
             error: {
                 code: "INVALID_INPUT",
-                message: "The process input is invalid",
+                message:
+                    "sample-text/v1 input validation failed: /steps is not an allowed property",
+                details: [
+                    {
+                        path: "/steps",
+                        keyword: "additionalProperties",
+                        message: "is not an allowed property",
+                    },
+                ],
             },
         });
     });

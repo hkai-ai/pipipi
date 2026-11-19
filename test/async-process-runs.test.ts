@@ -137,6 +137,7 @@ describe("Async Process Runs", () => {
 
         expect(record).toHaveBeenCalledOnce();
         expect(record).toHaveBeenCalledWith({
+            callerId: "caller-a",
             result: {
                 runId: RUN_IDS[0],
                 process: "test-processing",

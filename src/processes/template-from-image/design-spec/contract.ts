@@ -62,7 +62,7 @@ const slotText = z.looseObject({
     defaultValue: z.string().min(1).max(120),
     allowCustom: z.literal(true),
 });
-const textModes = z.discriminatedUnion("presentation", [
+export const textModes = z.discriminatedUnion("presentation", [
     slotText.extend({ presentation: z.literal("free_text") }),
     slotText.extend({
         presentation: z.literal("suggestions"),
@@ -70,7 +70,7 @@ const textModes = z.discriminatedUnion("presentation", [
     }),
 ]);
 const targetIds = z.array(z.string()).min(1);
-const bindingSchema = z.discriminatedUnion("operation", [
+export const bindingSchema = z.discriminatedUnion("operation", [
     z.strictObject({
         operation: z.literal("replace_identity"),
         targetIds,

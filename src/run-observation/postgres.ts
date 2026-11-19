@@ -1,11 +1,14 @@
 /** 同一组 Interface 的 PostgreSQL Adapter */
 import type { Pool } from "pg";
-import type {
-    ProcessErrorCode,
-    ProcessRunLogRecord,
+import {
+    type ProcessRunLogRecord,
+    sanitizeFailureDetail,
 } from "../process-runtime/index.js";
 import { sanitizeProcessRunLogRecord } from "../process-runtime/log-record.js";
-import type { ProcessRunRecord } from "../process-runtime/records.js";
+import type {
+    ProcessRunRecord,
+    ProcessRunRecordErrorCode,
+} from "../process-runtime/records.js";
 import { openRunLimit, type ProcessRunActivityArchive } from "./activities.js";
 import {
     encodeProcessRunRecordCursor,
@@ -40,8 +43,9 @@ export function createPostgresProcessRunRecordArchive(options: {
             await pool.query(
                 `insert into process_run_records
                    (run_id, recorded_at, process_id, process_version,
-                    status, error_code, content, template_semantics_version, caller_id, auth_method)
-                 values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+                    status, error_code, content, template_semantics_version,
+                    caller_id, auth_method, source_run_id, failure_detail)
+                 values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
                  on conflict (run_id) do update set
                    recorded_at = excluded.recorded_at,
                    process_id = excluded.process_id,
@@ -50,7 +54,10 @@ export function createPostgresProcessRunRecordArchive(options: {
                    error_code = excluded.error_code,
                    content = excluded.content,
                    template_semantics_version = excluded.template_semantics_version,
-                   caller_id = excluded.caller_id, auth_method = excluded.auth_method`,
+                   caller_id = excluded.caller_id,
+                   auth_method = excluded.auth_method,
+                   source_run_id = excluded.source_run_id,
+                   failure_detail = excluded.failure_detail`,
                 [
                     safe.runId,
                     safe.recordedAt,
@@ -62,6 +69,10 @@ export function createPostgresProcessRunRecordArchive(options: {
                     safe.templateSemanticsVersion ?? null,
                     safe.callerId ?? null,
                     safe.authMethod ?? null,
+                    safe.sourceRunId ?? null,
+                    safe.failureDetail
+                        ? JSON.stringify(safe.failureDetail)
+                        : null,
                 ],
             );
         },
@@ -264,7 +275,7 @@ export function createPostgresRunObservationStats(options: {
                     `select run_id, recorded_at,
                             coalesce(process_id, 'unknown') as process_id,
                             coalesce(process_version, 'unknown') as process_version,
-                            error_code
+                            error_code, caller_id, failure_detail
                        from process_run_records
                       where recorded_at >= $1
                         and ($2::timestamptz is null or recorded_at < $2)
@@ -324,6 +335,8 @@ type RecentFailureRow = Readonly<{
     process_id: string;
     process_version: string;
     error_code: string;
+    caller_id: string | null;
+    failure_detail: unknown;
 }>;
 
 type DurationRow = Readonly<{
@@ -358,7 +371,8 @@ export async function pruneProcessRunObservation(options: {
 }
 
 const recordSelect = `select run_id, recorded_at, process_id, process_version,
-                             status, error_code, content, template_semantics_version, caller_id, auth_method
+                             status, error_code, content, template_semantics_version,
+                             caller_id, auth_method, source_run_id, failure_detail
                         from process_run_records`;
 
 type RecordRow = Readonly<{
@@ -372,6 +386,8 @@ type RecordRow = Readonly<{
     error_code: string | null;
     content: unknown;
     template_semantics_version: number | null;
+    source_run_id: string | null;
+    failure_detail: unknown;
 }>;
 
 type ActivityRow = Readonly<{
@@ -392,6 +408,7 @@ type ActivityRow = Readonly<{
 }>;
 
 function toRecord(row: RecordRow): ProcessRunRecord {
+    const failureDetail = sanitizeFailureDetail(row.failure_detail);
     return {
         schemaVersion: 1,
         recordedAt: row.recorded_at.toISOString(),
@@ -405,10 +422,14 @@ function toRecord(row: RecordRow): ProcessRunRecord {
         ...(row.template_semantics_version == null
             ? {}
             : { templateSemanticsVersion: row.template_semantics_version }),
+        ...(row.source_run_id == null
+            ? {}
+            : { sourceRunId: row.source_run_id }),
         status: row.status,
         ...(row.error_code === null
             ? {}
-            : { errorCode: row.error_code as ProcessErrorCode }),
+            : { errorCode: row.error_code as ProcessRunRecordErrorCode }),
+        ...(failureDetail === undefined ? {} : { failureDetail }),
         ...(row.content === null
             ? {}
             : { content: row.content as ProcessRunRecord["content"] }),
@@ -436,11 +457,14 @@ function toActivity(row: ActivityRow): ProcessRunLogRecord | undefined {
 }
 
 function toRecentFailure(row: RecentFailureRow) {
+    const failureDetail = sanitizeFailureDetail(row.failure_detail);
     return Object.freeze({
         runId: row.run_id,
         recordedAt: row.recorded_at.toISOString(),
         process: row.process_id,
         version: row.process_version,
         errorCode: row.error_code,
+        ...(row.caller_id == null ? {} : { callerId: row.caller_id }),
+        ...(failureDetail === undefined ? {} : { failureDetail }),
     });
 }

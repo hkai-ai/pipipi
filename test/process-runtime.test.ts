@@ -346,7 +346,9 @@ describe("Process Runtime", () => {
             },
         });
 
-        expect(process.accept({ at: "2026-08-09T00:00:00.000Z" })).toEqual({
+        expect(
+            process.accept({ at: "2026-08-09T00:00:00.000Z" }),
+        ).toMatchObject({
             accepted: false,
         });
         expect(executionCalls).toBe(0);
@@ -396,7 +398,7 @@ describe("Process Runtime", () => {
             },
         });
 
-        expect(process.accept({ value: "界".repeat(262_144) })).toEqual({
+        expect(process.accept({ value: "界".repeat(262_144) })).toMatchObject({
             accepted: false,
         });
         expect(executionCalls).toBe(0);
@@ -775,7 +777,26 @@ describe("Process Runtime", () => {
             error: { code: "INVALID_INPUT" },
         });
         expect(executionCalls).toBe(0);
-        expect(completions).toEqual([{ result }, { result: envelopeResult }]);
+        expect(completions).toMatchObject([
+            {
+                result,
+                failureDetail: {
+                    httpStatus: 400,
+                    endpoint: "/execute",
+                    details: [expect.objectContaining({ path: "/value" })],
+                },
+            },
+            {
+                result: envelopeResult,
+                failureDetail: {
+                    httpStatus: 400,
+                    endpoint: "/execute",
+                    details: [expect.objectContaining({ path: "/steps" })],
+                },
+            },
+        ]);
+        expect(completions[0]).not.toHaveProperty("acceptedRequest");
+        expect(completions[1]).not.toHaveProperty("acceptedRequest");
     });
 
     it("maps an expected Process Definition failure without losing accepted input", async () => {

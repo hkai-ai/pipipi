@@ -15,6 +15,18 @@ export {
     withCostLedger,
 } from "./cost.js";
 export {
+    extractRequestIdentity,
+    formatValidationErrorMessage,
+    formatZodValidationDetails,
+    type InputValidationDetail,
+    type ProcessRunFailureDetail,
+    sanitizeDiagnosticText,
+    sanitizeFailureDetail,
+    sanitizeIdempotencyKeyForObservation,
+    sanitizeValidationDetails,
+    stripUrlQueryString,
+} from "./input-validation.js";
+export {
     combineProcessRunLogSinks,
     type ProcessRunActivity,
     type ProcessRunLogClock,
@@ -43,6 +55,7 @@ export {
 export type {
     ProcessErrorCode,
     ProcessRunResult,
+    SourceRunErrorCode,
 } from "./result.js";
 export {
     createProcessRunner,

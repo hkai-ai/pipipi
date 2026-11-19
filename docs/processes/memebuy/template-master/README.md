@@ -2,6 +2,13 @@
 
 由原图与第 2 块解析结果自动出母版（印花版）。母版即模板封面、生成参考图与产出该有的样子。接口字段见 [API 文档](../../../api.md#母版生成template-masterv1)。
 
+## 输入模式与上游产物解析
+
+支持两种互斥输入模式（`z.union`）：
+
+- **`sourceRunId` 模式（推荐）**：仅提交 `{ imageUrl, sourceRunId, budget }`。受理阶段在入队前按当前 `callerId` 校验上游运行归属、流程类型（`template-from-image`）、终态（`succeeded`）、未过期及输出含合法 v4 `template` 与 `source.condition`，解析完成后写入不可变 `acceptedInput` 快照并保留 `sourceRunId` 供控制台一键回溯；校验失败返回 HTTP 400（`SOURCE_RUN_*`），零计费且不占用 `Idempotency-Key`。
+- **兼容直传模式**：提交 `{ imageUrl, template, condition, budget }`。`template` 与 `template.metadata` 允许并忽略未知扩展字段，`title`（1–80 字）、`description`（`string | null` / 可选，0–300 字）与 `metadata.tags`（可选、不限条数与单标签长度）对齐上游 `template-from-image/v3` 输出；仍强制校验 `imageUrl`、`condition`、`budget`、`template.key`、`template.inputSchema`（`version: 2`）与 `template.runtimeSemantics`（`version: 4`）。
+
 ## 分档
 
 起始档由 `condition` 推出，像素清晰度不参与：
@@ -36,4 +43,4 @@ Registration 预算 2400 秒：轻档 1 次校验加中、重档各 3 次（改�
 
 ## 部署
 
-先发布新增 `018` 迁移（process_runs 错误码约束），再发布 API、Worker 与 Business API；Business API 新增 `/template-master/edit`、`/template-master/upload`，复用已配置的图片编辑与模板公读存储。Skill `template-master-method@v1` 由 `tools/build-template-master-skill.ts` 生成，`--check` 核验快照与绑定。
+先发布新增 `018`（process_runs 错误码约束）与 `021`（process_run_records `source_run_id` / `failure_detail` 观测列）迁移，再发布 API、Worker 与 Business API；Business API 新增 `/template-master/edit`、`/template-master/upload`，复用已配置的图片编辑与模板公读存储。Skill `template-master-method@v1` 由 `tools/build-template-master-skill.ts` 生成，`--check` 核验快照与绑定。

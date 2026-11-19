@@ -353,7 +353,7 @@ describe("Startup Construction", () => {
                 goal: "Refine",
                 skills: ["anything"],
             }),
-        ).toEqual({ accepted: false });
+        ).toMatchObject({ accepted: false });
         expect(on.registry.list()).toHaveLength(30);
     });
 

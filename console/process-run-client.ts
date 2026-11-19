@@ -887,6 +887,12 @@ const terminalErrorCodes = new Set<string>([
     "MASTER_NOT_ACCEPTED",
     "PROCESS_NOT_FOUND",
     "PROCESS_TIMEOUT",
+    "SOURCE_RUN_EXPIRED",
+    "SOURCE_RUN_FORBIDDEN",
+    "SOURCE_RUN_INVALID_PROCESS",
+    "SOURCE_RUN_MISSING_CONDITION",
+    "SOURCE_RUN_NOT_FOUND",
+    "SOURCE_RUN_NOT_READY",
 ]);
 
 const submissionErrorStatuses = new Map<string, number>([
@@ -902,6 +908,12 @@ const submissionErrorStatuses = new Map<string, number>([
     ["PROCESS_NOT_FOUND", 404],
     ["REQUEST_TOO_LARGE", 413],
     ["SERVICE_BUSY", 503],
+    ["SOURCE_RUN_EXPIRED", 400],
+    ["SOURCE_RUN_FORBIDDEN", 400],
+    ["SOURCE_RUN_INVALID_PROCESS", 400],
+    ["SOURCE_RUN_MISSING_CONDITION", 400],
+    ["SOURCE_RUN_NOT_FOUND", 400],
+    ["SOURCE_RUN_NOT_READY", 400],
     ["UNSUPPORTED_MEDIA_TYPE", 415],
 ]);
 

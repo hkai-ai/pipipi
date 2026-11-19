@@ -95,7 +95,8 @@ describe("Process Run Records", () => {
         const result = (await response.json()) as ProcessRunResult;
 
         expect(response.status).toBe(400);
-        expect(await records.find(result.runId)).toEqual({
+        const stored = await records.find(result.runId);
+        expect(stored).toMatchObject({
             schemaVersion: 1,
             recordedAt: "2026-08-08T01:00:00.000Z",
             runId: result.runId,
@@ -103,7 +104,18 @@ describe("Process Run Records", () => {
             version: "v1",
             status: "failed",
             errorCode: "INVALID_INPUT",
+            failureDetail: {
+                httpStatus: 400,
+                endpoint: "/execute",
+                details: [
+                    {
+                        path: "/content",
+                        keyword: "minLength",
+                    },
+                ],
+            },
         });
+        expect(stored).not.toHaveProperty("content");
     });
 
     it("bounds memory and returns defensive record copies", async () => {

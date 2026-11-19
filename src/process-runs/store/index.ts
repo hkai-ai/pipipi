@@ -85,6 +85,7 @@ export type ProcessRunAcceptance =
 
 export type ClaimedProcessRun = Readonly<{
     runId: string;
+    ownerId?: string;
     process: string;
     version: string;
     acceptedInput: AcceptedProcessInput;
@@ -102,6 +103,8 @@ export type ProcessRunStore = Readonly<{
         runId: string,
         ownerId: string,
     ) => Promise<StoredProcessRun | undefined>;
+    /** 仅限服务端内部按 runId 校验上游运行归属与产物（不得直接暴露给外部 GET 路由）。 */
+    findById?: (runId: string) => Promise<StoredProcessRun | undefined>;
     claim: (request: {
         runId: string;
         claimToken: string;
@@ -220,6 +223,11 @@ export function createInMemoryProcessRunStore(
             return run?.ownerId === ownerId ? clone(run) : undefined;
         },
 
+        findById: async (runId) => {
+            const run = runs.get(runId);
+            return run ? clone(run) : undefined;
+        },
+
         claim: async (request) => {
             const run = runs.get(request.runId);
             if (
@@ -250,6 +258,7 @@ export function createInMemoryProcessRunStore(
             runs.set(run.runId, clone(claimed));
             return clone({
                 runId: claimed.runId,
+                ownerId: claimed.ownerId,
                 process: claimed.process,
                 version: claimed.version,
                 acceptedInput: claimed.acceptedInput,

@@ -313,8 +313,8 @@ export function Overview({
                                     <thead>
                                         <tr>
                                             <th>记录时间</th>
-                                            <th>业务</th>
-                                            <th>失败摘要</th>
+                                            <th>业务 / 调用方</th>
+                                            <th>失败摘要与字段定位</th>
                                             <th>详情</th>
                                         </tr>
                                     </thead>
@@ -332,6 +332,12 @@ export function Overview({
                                                         {entry.process} /{" "}
                                                         {entry.version}
                                                     </span>
+                                                    {entry.callerId ? (
+                                                        <span className="cell-meta mono">
+                                                            caller:{" "}
+                                                            {entry.callerId}
+                                                        </span>
+                                                    ) : null}
                                                 </td>
                                                 <td>
                                                     {
@@ -339,9 +345,29 @@ export function Overview({
                                                             entry.errorCode,
                                                         ).title
                                                     }
-                                                    <span className="cell-meta">
+                                                    <span className="cell-meta mono">
+                                                        {entry.failureDetail
+                                                            ?.httpStatus
+                                                            ? `HTTP ${entry.failureDetail.httpStatus} · `
+                                                            : ""}
                                                         {entry.errorCode}
+                                                        {entry.failureDetail
+                                                            ?.idempotencyKey
+                                                            ? ` · key: ${entry.failureDetail.idempotencyKey}`
+                                                            : ""}
                                                     </span>
+                                                    {entry.failureDetail
+                                                        ?.details?.length ? (
+                                                        <span className="cell-meta mono">
+                                                            {entry.failureDetail.details
+                                                                .slice(0, 2)
+                                                                .map(
+                                                                    (d) =>
+                                                                        `${d.path} (${d.message})`,
+                                                                )
+                                                                .join("；")}
+                                                        </span>
+                                                    ) : null}
                                                 </td>
                                                 <td>
                                                     <a

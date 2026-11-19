@@ -539,7 +539,9 @@ describe("composed-task/v1", () => {
             { goal: "x", tools: ["run_text"] },
             { goal: "x", skills: ["anything"] },
         ]) {
-            expect(registration.accept(input)).toEqual({ accepted: false });
+            expect(registration.accept(input)).toMatchObject({
+                accepted: false,
+            });
         }
         expect(registration.timeoutMs).toBe(5_000);
         expect(registration.retryPolicy.maximumAttempts).toBe(1);

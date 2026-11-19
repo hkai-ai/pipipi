@@ -7,6 +7,8 @@ export type RunQueueState = Readonly<{
     createdAt: string;
     startedAt?: string;
     finishedAt?: string;
+    callerId?: string;
+    sourceRunId?: string;
 }>;
 
 export function postgresQueueState(pool: Pool) {
@@ -19,8 +21,13 @@ export function postgresQueueState(pool: Pool) {
             created_at: Date;
             started_at: Date | null;
             finished_at: Date | null;
+            caller_id: string | null;
+            source_run_id: string | null;
         }>(
-            `select status, created_at, started_at, finished_at from process_runs where run_id = $1`,
+            `select status, created_at, started_at, finished_at, caller_id,
+                    accepted_input->'input'->>'sourceRunId' as source_run_id
+               from process_runs
+              where run_id = $1`,
             [runId],
         );
         const row = rows[0];
@@ -34,6 +41,8 @@ export function postgresQueueState(pool: Pool) {
             ...(row.finished_at && {
                 finishedAt: row.finished_at.toISOString(),
             }),
+            ...(row.caller_id && { callerId: row.caller_id }),
+            ...(row.source_run_id && { sourceRunId: row.source_run_id }),
         };
     };
 }

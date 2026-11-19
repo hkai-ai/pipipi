@@ -232,6 +232,20 @@ export function createPostgresProcessRunStore(options: {
             return row ? processRunFromRow(row) : undefined;
         },
 
+        findById: async (runId) => {
+            if (!isUuid(runId)) return undefined;
+            const result = await options.pool.query<ProcessRunRow>(
+                `
+          SELECT *
+          FROM process_runs
+          WHERE run_id = $1
+        `,
+                [runId],
+            );
+            const row = result.rows[0];
+            return row ? processRunFromRow(row) : undefined;
+        },
+
         claim: async (request) => {
             if (!isUuid(request.runId) || !isUuid(request.claimToken)) {
                 return undefined;
@@ -927,6 +941,7 @@ function claimedProcessRunFromRow(row: ProcessRunRow): ClaimedProcessRun {
     }
     return {
         runId: run.runId,
+        ownerId: run.ownerId,
         process: run.process,
         version: run.version,
         acceptedInput: structuredClone(run.acceptedInput),

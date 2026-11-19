@@ -923,10 +923,19 @@ Process 执行失败时，响应包含 `runId`：
   "status": "failed",
   "error": {
     "code": "INVALID_INPUT",
-    "message": "The process input is invalid"
+    "message": "news-image-pale-watercolor/v1 input validation failed: /title is required",
+    "details": [
+      {
+        "path": "/title",
+        "keyword": "required",
+        "message": "is required"
+      }
+    ]
   }
 }
 ```
+
+`/process-runs` 与 `/execute` 在 HTTP `400` 入参或上游引用校验失败时，统一返回结构化 `error.code`、`error.message` 与字段级 `error.details`（每项含 JSON Pointer `path`、校验规则 `keyword` 与不含用户输入原值的 `message`）。校验在任务入队和模型调用前拦截，零费用且不占用 `Idempotency-Key`（修正参数后可用同一 `Idempotency-Key` 重新提交）。响应、日志与控制台记录严禁回显或保存 `Authorization` 凭证以及 URL 签名查询参数。
 
 HTTP 层在执行前拒绝请求时，不返回 `runId`：
 
@@ -942,7 +951,8 @@ HTTP 层在执行前拒绝请求时，不返回 `runId`：
 
 | HTTP 状态 | error.code | 说明 |
 | ---: | --- | --- |
-| 400 | `INVALID_INPUT` | JSON 结构或 Process 输入无效 |
+| 400 | `INVALID_INPUT` | JSON 结构或 Process 输入无效；`error.details` 列出字段级失败路径 |
+| 400 | `SOURCE_RUN_NOT_FOUND`、`SOURCE_RUN_FORBIDDEN`、`SOURCE_RUN_INVALID_PROCESS`、`SOURCE_RUN_NOT_READY`、`SOURCE_RUN_EXPIRED`、`SOURCE_RUN_MISSING_CONDITION` | `template-master/v1` 引用的 `sourceRunId` 不存在、不属于当前 `callerId`、非 `template-from-image` 流程、尚未 `succeeded`、产物已过期或缺少合法 v4 `template`/`source.condition` |
 | 404 | `PROCESS_NOT_FOUND` | Process 或版本不存在 |
 | 413 | `REQUEST_TOO_LARGE` | 请求体超过服务端限制 |
 | 415 | `UNSUPPORTED_MEDIA_TYPE` | `Content-Type` 不是 JSON |
@@ -1255,7 +1265,10 @@ V4 模板包含 `targetInstances`、`inputBindings` 与 `designSpec`，不得包
 
 供 Memebuy 在原图解析之后调用，使用 `/process-runs`（最坏约 2020 秒，Registration 预算 2400 秒，不适合经 540 秒网关的同步请求）。
 
-输入：`{ imageUrl, template, condition, budget: { maxAttempts: 1..10, maxUsd: 0..20 } }`。`imageUrl` 为私有原图当次短期签名公网 HTTPS 地址；`template` 为 `template-from-image/v3` 回传的 v4 草稿，按 Pipipi 自己的 Schema 校验；`condition` 为其 `source.condition`。不接受步骤、Skill、模型字段。
+输入支持两种二选一模式（同时提供或均缺失返回 `400 INVALID_INPUT`），均不接受步骤、Skill、模型字段：
+
+- **模式 A（推荐，`sourceRunId` 直读）**：`{ imageUrl, sourceRunId, budget: { maxAttempts: 1..10, maxUsd: 0..20 } }`。服务端在受理阶段按当前 `callerId` 读取同一调用方已成功的 `template-from-image` 运行产物（`output.template` 与 `output.source.condition`）。若上游运行不存在、不属于当前 `callerId`、非 `template-from-image` 流程、未到 `succeeded`、产物已过期或缺少合法 v4 `template`/`source.condition`，在入队前返回 `400` 及对应 `SOURCE_RUN_*` 错误码，零费用且不占用 `Idempotency-Key`。
+- **模式 B（兼容直传）**：`{ imageUrl, template, condition, budget: { maxAttempts: 1..10, maxUsd: 0..20 } }`。`imageUrl` 为私有原图当次短期签名公网 HTTPS 地址；`template` 兼容原样透传的 `template-from-image/v3` 完整产物与业务扩展键（`template` 与 `template.metadata` 允许并忽略未知字段，`title` 为 1–80 字，`description` 允许 `string | null` 或省略且至多 300 字，`metadata` 与 `metadata.tags` 可选且不限条数与单标签长度），保留 `key`、`inputSchema`（`version: 2`）与 `runtimeSemantics`（`version: 4`）核心校验；`condition` 为其 `source.condition`。
 
 成功输出：`{ preparedImage, master }`。`preparedImage` 与 `template-from-source/v3` 同形状、同上传方式（`https://assets.memebuy.cn/gallery/template-images/<sha256>.png`）。`master` 含最终档 `tier`、`redrawn`（仅重档为 true）、按时间排列的 `attempts[{ tier, passed, failures[{ check, detail }] }]`（最多 `maxAttempts` 条）与最终 `checks`（`text` 含 `expected` / `read`、`palette`、`layout`、`printable`、`similarity` 重档为 null）。`failures[].check` 取 `text | palette | layout | printable | similarity | generation`。
 

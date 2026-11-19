@@ -20,6 +20,38 @@ const advice: Record<string, { title: string; next: string }> = {
         title: "输入未通过校验",
         next: "对照当前版本的输入 Schema 检查字段类型与必填项。",
     },
+    SOURCE_RUN_NOT_FOUND: {
+        title: "上游解析运行不存在",
+        next: "核对 sourceRunId 是否正确，或确认该运行属于当前环境且尚未被清理。",
+    },
+    SOURCE_RUN_FORBIDDEN: {
+        title: "无权引用该上游运行",
+        next: "sourceRunId 必须归属于当前请求相同的 callerId；核对调用方 API Key 归属。",
+    },
+    SOURCE_RUN_INVALID_PROCESS: {
+        title: "上游运行流程不匹配",
+        next: "sourceRunId 必须指向 template-from-image 运行，不能引用其他流程的 runId。",
+    },
+    SOURCE_RUN_NOT_READY: {
+        title: "上游解析运行尚未成功",
+        next: "等待对应 template-from-image 运行进入 succeeded 状态后再提交母版生成。",
+    },
+    SOURCE_RUN_EXPIRED: {
+        title: "上游解析产物已过期",
+        next: "该 sourceRunId 的输出已超出保留期；请重新解析原图或改用直传模式提交。",
+    },
+    SOURCE_RUN_MISSING_CONDITION: {
+        title: "上游运行缺少母版所需产物",
+        next: "上游输出缺少合法的 v4 template 或 source.condition；需使用 template-from-image/v3 产物。",
+    },
+    IDEMPOTENCY_KEY_REQUIRED: {
+        title: "缺少 Idempotency-Key",
+        next: "异步提交必须提供 caller-scoped Idempotency-Key 请求头。",
+    },
+    INVALID_IDEMPOTENCY_KEY: {
+        title: "Idempotency-Key 无效",
+        next: "Idempotency-Key 必须为非空字符串且不超过 512 字节。",
+    },
     DEPENDENCY_FAILURE: {
         title: "外部依赖失败",
         next: "定位失败活动，核对对应依赖的可用性与请求结果；重新提交前确认原请求是否已受理。",
@@ -135,15 +167,35 @@ export function diagnosticSummary(
     return [
         `运行 ID: ${record.runId}`,
         `业务: ${record.process ?? "未知"}/${record.version ?? "未知"}`,
+        ...(record.callerId ? [`调用方: ${record.callerId}`] : []),
+        ...(record.sourceRunId ? [`上游运行: ${record.sourceRunId}`] : []),
         `状态: ${record.status}`,
         `记录时间: ${record.recordedAt}`,
         `错误码: ${record.errorCode ?? "无"}`,
+        ...(record.failureDetail?.httpStatus
+            ? [
+                  `HTTP 状态: ${record.failureDetail.httpStatus}${record.failureDetail.endpoint ? ` (${record.failureDetail.endpoint})` : ""}`,
+              ]
+            : []),
+        ...(record.failureDetail?.idempotencyKey
+            ? [`幂等键: ${record.failureDetail.idempotencyKey}`]
+            : []),
+        ...(record.failureDetail?.traceId
+            ? [`Trace ID: ${record.failureDetail.traceId}`]
+            : []),
         `最后 Attempt: ${detail.attempt || "无记录"}`,
         ...(failure
             ? [
                   `失败活动: ${detail.failedActivity ?? "无可用证据"}`,
                   `失败原因: ${failure.title}`,
                   `下一步: ${failure.next}`,
+                  ...(record.failureDetail?.message
+                      ? [`错误说明: ${record.failureDetail.message}`]
+                      : []),
+                  ...(record.failureDetail?.details ?? []).map(
+                      (item) =>
+                          `字段校验: ${item.path} [${item.keyword}] ${item.message}`,
+                  ),
                   ...(isFallbackDiagnostic(record.errorCode, detail.diagnostic)
                       ? ["细分原因: 未记录，仅有默认内部诊断"]
                       : detail.diagnostic

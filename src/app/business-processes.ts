@@ -17,6 +17,7 @@ import {
     buildProductionRegistrations,
     type ProductionContext,
 } from "../processes/production.js";
+import type { TemplateMasterSourceRunLookup } from "../processes/template-master/source-run.js";
 import { createPinoProcessRunLogSink } from "../run-observation/pino.js";
 import { parsePositiveInteger, type StartupEnvironment } from "./config.js";
 import { createProductionSkillBindings } from "./runtime-skills.js";
@@ -32,6 +33,7 @@ export function createProductionRuntime(
          */
         additionalRunLogSinks?: readonly ProcessRunLogSink[];
         runRecords?: ProcessRunRecords;
+        sourceRunLookup?: TemplateMasterSourceRunLookup;
     } = {},
 ): ProcessRuntime {
     const baseRunLogSink =
@@ -77,5 +79,8 @@ export function createProductionRuntime(
         processTimeoutMs,
         runLogSink,
         ...(options.runRecords ? { runRecords: options.runRecords } : {}),
+        ...(options.sourceRunLookup
+            ? { sourceRunLookup: options.sourceRunLookup }
+            : {}),
     });
 }

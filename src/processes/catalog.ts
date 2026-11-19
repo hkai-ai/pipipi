@@ -50,6 +50,7 @@ import {
     templateSourceV3Production,
 } from "./template-from-source/production.js";
 import { templateMasterProduction } from "./template-master/production.js";
+import type { TemplateMasterSourceRunLookup } from "./template-master/source-run.js";
 
 /**
  * The explicit production catalog: one entry per exact `(id, version)`, each
@@ -96,6 +97,7 @@ export type ProcessRuntimeOptions = {
     runRecords?: ProcessRunRecords;
     runLogSink?: ProcessRunLogSink;
     runLogClock?: ProcessRunLogClock;
+    sourceRunLookup?: TemplateMasterSourceRunLookup;
 };
 
 export type ProcessRuntime = Readonly<{
@@ -128,6 +130,7 @@ export function createProcessRuntime(
             runRecords: options.runRecords,
             runLogSink: options.runLogSink,
             runLogClock: options.runLogClock,
+            sourceRunLookup: options.sourceRunLookup,
         }),
     });
 }

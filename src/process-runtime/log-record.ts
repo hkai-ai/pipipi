@@ -136,6 +136,12 @@ export function sanitizeProcessRunLogRecord(
         MASTER_NOT_ACCEPTED: true,
         PROCESS_NOT_FOUND: true,
         PROCESS_TIMEOUT: true,
+        SOURCE_RUN_EXPIRED: true,
+        SOURCE_RUN_FORBIDDEN: true,
+        SOURCE_RUN_INVALID_PROCESS: true,
+        SOURCE_RUN_MISSING_CONDITION: true,
+        SOURCE_RUN_NOT_FOUND: true,
+        SOURCE_RUN_NOT_READY: true,
     } satisfies Record<ProcessErrorCode, true>;
     if (
         typeof record.errorCode !== "string" ||

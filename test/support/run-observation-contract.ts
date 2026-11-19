@@ -239,6 +239,81 @@ export function describeRunObservationContract(
         );
     });
 
+    it("preserves sourceRunId and sanitized failureDetail across records and recentFailures", async () => {
+        const { archive, stats } = await createBackend();
+        await archive.store({
+            ...processRunRecord({
+                runId: "master-with-source",
+                process: "template-master",
+                version: "v1",
+                status: "succeeded",
+            }),
+            callerId: "memebuy-uat",
+            sourceRunId: "bdf8bd32-4349-4c6f-abe1-b4bb514339a9",
+        });
+        await archive.store({
+            ...processRunRecord({
+                runId: "master-400-rejected",
+                process: "template-master",
+                version: "v1",
+                status: "failed",
+                errorCode: "INVALID_INPUT",
+            }),
+            callerId: "memebuy-uat",
+            failureDetail: {
+                httpStatus: 400,
+                endpoint: "/process-runs",
+                idempotencyKey: "idem-400",
+                traceId: "trace-400",
+                message:
+                    "template-master/v1 input validation failed: /budget is required",
+                details: [
+                    {
+                        path: "/budget",
+                        keyword: "required",
+                        message: "is required",
+                    },
+                ],
+            },
+        });
+        expect(await archive.find("master-with-source")).toMatchObject({
+            sourceRunId: "bdf8bd32-4349-4c6f-abe1-b4bb514339a9",
+            callerId: "memebuy-uat",
+        });
+        expect(await archive.find("master-400-rejected")).toMatchObject({
+            callerId: "memebuy-uat",
+            failureDetail: {
+                httpStatus: 400,
+                endpoint: "/process-runs",
+                idempotencyKey: "idem-400",
+                traceId: "trace-400",
+                details: [
+                    {
+                        path: "/budget",
+                        keyword: "required",
+                        message: "is required",
+                    },
+                ],
+            },
+        });
+        const summary = await stats.summarise({
+            since: "2026-08-11T00:00:00.000Z",
+        });
+        expect(summary.recentFailures).toContainEqual(
+            expect.objectContaining({
+                runId: "master-400-rejected",
+                process: "template-master",
+                version: "v1",
+                errorCode: "INVALID_INPUT",
+                callerId: "memebuy-uat",
+                failureDetail: expect.objectContaining({
+                    httpStatus: 400,
+                    idempotencyKey: "idem-400",
+                }),
+            }),
+        );
+    });
+
     it("reports an unknown record as absent", async () => {
         const { archive } = await createBackend();
 

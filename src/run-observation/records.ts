@@ -1,5 +1,9 @@
 /** Run Record 归档 Interface，以及两套 Adapter 共用的游标、分页上限、净化和聚合规则 */
 import { createHash } from "node:crypto";
+import {
+    sanitizeFailureDetail,
+    stripUrlQueryString,
+} from "../process-runtime/input-validation.js";
 import type {
     ProcessRunRecord,
     ProcessRunRecordAdapter,
@@ -116,47 +120,118 @@ export function parseProcessRunRecordCursor(
     }
 }
 
-/** 归档保留审批身份与图片摘要，省略成图字节并净化 CRT 来源地址。 */
+/** 归档保留审批身份与图片摘要，省略成图字节，净化 CRT 来源地址并剥离签名 URL 查询参数。 */
 export function redactProcessRunRecord(
     record: ProcessRunRecord,
 ): ProcessRunRecord {
-    const content = record.content;
-    const output = content?.output;
+    const failureDetail = sanitizeFailureDetail(record.failureDetail);
+    let next: ProcessRunRecord =
+        record.failureDetail === undefined && failureDetail === undefined
+            ? record
+            : {
+                  ...record,
+                  ...(failureDetail === undefined
+                      ? { failureDetail: undefined }
+                      : { failureDetail }),
+              };
+    if (failureDetail === undefined && "failureDetail" in next) {
+        const { failureDetail: _dropped, ...rest } = next;
+        next = rest;
+    }
+
+    const content = next.content;
+    if (!content) return next;
+
+    let input = content.input;
+    let output = content.output;
+    let changed = false;
+
     if (
-        record.process === "template-image-render" &&
-        record.version === "v1" &&
-        content &&
+        next.process === "template-image-render" &&
+        next.version === "v1" &&
         typeof output === "object" &&
         output !== null &&
         "imageDataUrl" in output
     ) {
         const { imageDataUrl: _imageDataUrl, ...metadata } = output;
-        return { ...record, content: { ...content, output: metadata } };
+        output = metadata;
+        changed = true;
     }
-    const input = content?.input;
+
     if (
-        record.process !== "crt-interface-image" ||
-        typeof input !== "object" ||
-        input === null ||
-        Array.isArray(input) ||
-        !("sourceImageUrl" in input) ||
-        typeof input.sourceImageUrl !== "string"
+        next.process === "crt-interface-image" &&
+        typeof input === "object" &&
+        input !== null &&
+        !Array.isArray(input) &&
+        "sourceImageUrl" in input &&
+        typeof input.sourceImageUrl === "string"
     ) {
-        return record;
+        const { sourceImageUrl, ...rest } = input as Record<string, unknown> & {
+            sourceImageUrl: string;
+        };
+        input = {
+            ...rest,
+            sourceImageUrlSha256: createHash("sha256")
+                .update(sourceImageUrl, "utf8")
+                .digest("hex"),
+        };
+        changed = true;
+    } else {
+        const strippedInput = stripSignedUrlFields(input);
+        if (strippedInput !== input) {
+            input = strippedInput;
+            changed = true;
+        }
     }
-    const { sourceImageUrl, ...rest } = input as Record<string, unknown> & {
-        sourceImageUrl: string;
-    };
-    return {
-        ...record,
-        content: {
-            ...record.content,
-            input: {
-                ...rest,
-                sourceImageUrlSha256: createHash("sha256")
-                    .update(sourceImageUrl, "utf8")
-                    .digest("hex"),
-            },
-        },
-    };
+
+    const strippedOutput = stripSignedUrlFields(output);
+    if (strippedOutput !== output) {
+        output = strippedOutput;
+        changed = true;
+    }
+
+    return changed
+        ? {
+              ...next,
+              content: {
+                  input,
+                  ...(output === undefined ? {} : { output }),
+              },
+          }
+        : next;
+}
+
+const signedUrlFieldNames = new Set([
+    "imageUrl",
+    "sourceImageUrl",
+    "referenceImage",
+    "cover",
+]);
+
+function stripSignedUrlFields(value: unknown, depth = 0): unknown {
+    if (depth > 4 || value === null || typeof value !== "object") return value;
+    if (Array.isArray(value)) {
+        let changed = false;
+        const mapped = value.map((item) => {
+            const next = stripSignedUrlFields(item, depth + 1);
+            if (next !== item) changed = true;
+            return next;
+        });
+        return changed ? mapped : value;
+    }
+    const record = value as Record<string, unknown>;
+    let changed = false;
+    const copy: Record<string, unknown> = {};
+    for (const [key, item] of Object.entries(record)) {
+        if (signedUrlFieldNames.has(key) && typeof item === "string") {
+            const clean = stripUrlQueryString(item);
+            copy[key] = clean;
+            if (clean !== item) changed = true;
+        } else {
+            const next = stripSignedUrlFields(item, depth + 1);
+            copy[key] = next;
+            if (next !== item) changed = true;
+        }
+    }
+    return changed ? copy : value;
 }

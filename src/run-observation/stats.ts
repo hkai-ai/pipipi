@@ -1,5 +1,8 @@
 /** 统计汇总 Interface，拥有 RunObservationSummary */
-import type { ProcessRunLogRecord } from "../process-runtime/index.js";
+import type {
+    ProcessRunFailureDetail,
+    ProcessRunLogRecord,
+} from "../process-runtime/index.js";
 import type { ProcessRunRecord } from "../process-runtime/records.js";
 
 /**
@@ -40,6 +43,8 @@ export type RunObservationSummary = Readonly<{
         process: string;
         version: string;
         errorCode: string;
+        callerId?: string;
+        failureDetail?: ProcessRunFailureDetail;
     }>[];
     attemptDurationMs: Readonly<{
         samples: number;
@@ -115,6 +120,10 @@ export function summariseRunObservation(input: {
                 process: record.process ?? "unknown",
                 version: record.version ?? "unknown",
                 errorCode: record.errorCode,
+                ...(record.callerId ? { callerId: record.callerId } : {}),
+                ...(record.failureDetail
+                    ? { failureDetail: record.failureDetail }
+                    : {}),
             }),
         );
     return summariseAggregatedRunObservation({

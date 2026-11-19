@@ -55,7 +55,7 @@ Pipipi 提供 Agent 运行环境（harness）和场景 skill。Process Registrat
 | `memebuy` | `template-from-image/v1` | `{ imageUrl, note? }` | `{ template }` | 受控下载与真实视觉附件；无 Tool Agent 编译并验证 Gallery v2 草稿，不生图、不入库 |
 | `memebuy` | `template-image-plan/v1` | 原图与备注 | 待审替换方案 | 固定来源规则，无 Tool |
 | `memebuy` | `template-image-render/v1` | 方案批准 | 待审 PNG | 固定单次中转站编辑；历史 FAL 按原请求恢复 |
-| `memebuy` | `template-master/v1` | 原图、v4 草稿、原图状况与预算 | 母版 PNG 与校验报告 | 轻（色键）、中（修复）、重（重绘）分档，逐次确定性加模型对照校验 |
+| `memebuy` | `template-master/v1` | 原图、预算，以及 `sourceRunId`（直读同 caller 上游产物）或兼容直传 v4 草稿与原图状况（二选一） | 母版 PNG 与校验报告 | 受理阶段按 caller 校验并快照上游产物；轻（色键）、中（修复）、重（重绘）分档，逐次确定性加模型对照校验 |
 | `memebuy` | `template-from-source/v1` | 成图批准 | 新图与 Gallery 草稿 | 不可变 OSS 与原编译器 |
 | `common` | `minimal-zine-poster/v1` | `{ brief: string, text?: string }` | `{ prompt, recipe, interpretation, image }` | 无 Tool Agent 编译固定 Runtime Skill；Poster Rendering Capability 复用内部图片服务生成并持久化图片 |
 | `common` | `crt-interface-image/v1` | `{ sourceImageUrl, palette, aspectRatio }` | `{ aspectRatio, image }` | 无 Tool Agent 编译固定 Runtime Skill；CRT Rendering Capability 用公网 HTTPS 参考图执行 FAL GPT Image 2 编辑、后处理并持久化 PNG |
@@ -254,4 +254,4 @@ Pi 会话轨迹属于实际执行的 Attempt 和活动实例。Skill 取自会�
 
 批准图片的印花拆解使用 `template-from-image/v3` 与 `template-from-source/v3`，交付运行语义 V4；复用原成图审批、人工采用与模板版本，v1/v2 和冻结历史不迁移。同一 Process 各版在生产装配时精确选择自己的固定 Skill，不能覆盖旧版规则。见 [印花拆解候选](docs/processes/memebuy/template-from-image/print-design-v4.md)。
 
-控制台用首次 Attempt 事件发现近期执行，父 runId 在模板编译与复核期间即可查询。活动归档只用于观测。
+控制台用首次 Attempt 事件发现近期执行，父 runId 在模板编译与复核期间即可查询。活动归档只用于观测。`POST /process-runs` 与 `POST /execute` 的 HTTP 400 入参/上游引用拒收返回统一字段级 `error.details`，并在不入队、零费用、不占用 `Idempotency-Key` 的前提下写入脱敏观测记录（保留独立解析出的 `process`/`version`、`callerId`、`Idempotency-Key`、`traceId` 与失败字段路径，剥离 URL 签名查询参数与凭证），供控制台「异常排查」与「运行详情」定位；由 `sourceRunId` 发起的 `template-master/v1` 运行在详情页展示并链接上游运行。

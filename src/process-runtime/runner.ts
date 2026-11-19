@@ -1,7 +1,17 @@
-/** 校验并执行版本化 Process，将调用方归属写入运行观测，对外提供执行和评测入口。 */
+/** 校验并执行版本化 Process，将调用方归属与 400 校验明细写入运行观测，对外提供执行和评测入口。 */
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
+import {
+    resolveTemplateMasterAcceptedInput,
+    type TemplateMasterSourceRunLookup,
+} from "../processes/template-master/source-run.js";
 import { createProcessAttemptRunner } from "./attempt.js";
+import {
+    extractRequestIdentity,
+    formatValidationErrorMessage,
+    formatZodValidationDetails,
+    type ProcessRunFailureDetail,
+} from "./input-validation.js";
 import { startLocalTrace } from "./local-trace.js";
 import type { ProcessRunLogClock, ProcessRunLogSink } from "./logging.js";
 import {
@@ -21,18 +31,16 @@ const executeRequestSchema = z.strictObject({
     input: z.unknown(),
 });
 
-const requestIdentitySchema = z.object({
-    process: z.string(),
-    version: z.string(),
-});
+export type ProcessExecutorCaller = {
+    callerId?: string;
+    authMethod?: "api_key" | "gateway" | "anonymous";
+    traceId?: string;
+};
 
 export type ProcessExecutor = Readonly<{
     execute: (
         request: unknown,
-        caller?: {
-            callerId?: string;
-            authMethod?: "api_key" | "gateway" | "anonymous";
-        },
+        caller?: ProcessExecutorCaller,
     ) => Promise<ProcessRunResult>;
     evaluate?: (request: unknown) => Promise<ProcessEvaluationResult>;
 }>;
@@ -48,6 +56,7 @@ export function createProcessRunner(options: {
     runRecords?: ProcessRunRecords;
     runLogSink?: ProcessRunLogSink;
     runLogClock?: ProcessRunLogClock;
+    sourceRunLookup?: TemplateMasterSourceRunLookup;
 }): ProcessExecutor {
     const registry = options.registry;
     if (
@@ -67,30 +76,59 @@ export function createProcessRunner(options: {
     const execute = async (
         rawRequest: unknown,
         captureEvaluation?: (value: JsonValue) => void,
-        caller?: {
-            callerId?: string;
-            authMethod?: "api_key" | "gateway" | "anonymous";
-        },
+        caller?: ProcessExecutorCaller,
     ): Promise<ProcessRunResult> => {
         const complete = (
             records: ProcessRunRecords,
             result: ProcessRunResult,
             acceptedRequest?: { input: unknown },
-        ) => completeProcessRun(records, result, acceptedRequest, caller);
+            failureDetail?: ProcessRunFailureDetail,
+        ) =>
+            completeProcessRun(
+                records,
+                result,
+                acceptedRequest,
+                caller,
+                failureDetail,
+            );
         const runId = randomUUID();
         const requestResult = executeRequestSchema.safeParse(rawRequest);
         if (!requestResult.success) {
-            const identity = requestIdentitySchema.safeParse(rawRequest);
+            const identity = extractRequestIdentity(rawRequest);
+            const details =
+                rawRequest === undefined
+                    ? Object.freeze([
+                          Object.freeze({
+                              path: "/",
+                              keyword: "type",
+                              message: "must be a valid JSON object",
+                          }),
+                      ])
+                    : formatZodValidationDetails(
+                          requestResult.error,
+                          rawRequest,
+                      );
+            const message = formatValidationErrorMessage({
+                ...identity,
+                details,
+            });
             return complete(
                 runRecords,
                 processFailure(
                     runId,
                     "INVALID_INPUT",
-                    "The process input is invalid",
-                    {
-                        ...(identity.success ? identity.data : {}),
-                    },
+                    message,
+                    identity,
+                    details,
                 ),
+                undefined,
+                {
+                    httpStatus: 400,
+                    endpoint: "/execute",
+                    ...(caller?.traceId ? { traceId: caller.traceId } : {}),
+                    message,
+                    details,
+                },
             );
         }
 
@@ -131,14 +169,54 @@ export function createProcessRunner(options: {
         }
 
         if (!acceptance.accepted) {
+            const details = acceptance.details;
+            const message = formatValidationErrorMessage({
+                ...identity,
+                details,
+            });
             return complete(
                 runRecords,
                 processFailure(
                     runId,
                     "INVALID_INPUT",
-                    "The process input is invalid",
+                    message,
                     identity,
+                    details,
                 ),
+                undefined,
+                {
+                    httpStatus: 400,
+                    endpoint: "/execute",
+                    ...(caller?.traceId ? { traceId: caller.traceId } : {}),
+                    message,
+                    ...(details ? { details } : {}),
+                },
+            );
+        }
+
+        const resolved = await resolveTemplateMasterAcceptedInput(
+            acceptance.acceptedInput,
+            { callerId: caller?.callerId },
+            options.sourceRunLookup,
+        );
+        if (!resolved.ok) {
+            return complete(
+                runRecords,
+                processFailure(
+                    runId,
+                    resolved.code,
+                    resolved.message,
+                    identity,
+                    resolved.details,
+                ),
+                undefined,
+                {
+                    httpStatus: 400,
+                    endpoint: "/execute",
+                    ...(caller?.traceId ? { traceId: caller.traceId } : {}),
+                    message: resolved.message,
+                    details: resolved.details,
+                },
             );
         }
 
@@ -146,12 +224,15 @@ export function createProcessRunner(options: {
         const result = await attemptRunner.run({
             runId,
             registration,
-            acceptedInput: acceptance.acceptedInput,
+            acceptedInput: resolved.acceptedInput,
             ...(captureEvaluation ? { captureEvaluation } : {}),
         });
 
         return complete(runRecords, result, {
-            input: request.input,
+            input:
+                resolved.acceptedInput === acceptance.acceptedInput
+                    ? request.input
+                    : resolved.acceptedInput.input,
         });
     };
 
@@ -176,16 +257,16 @@ function completeProcessRun(
     runRecords: ProcessRunRecords,
     result: ProcessRunResult,
     acceptedRequest?: { input: unknown },
-    caller?: {
-        callerId?: string;
-        authMethod?: "api_key" | "gateway" | "anonymous";
-    },
+    caller?: ProcessExecutorCaller,
+    failureDetail?: ProcessRunFailureDetail,
 ): ProcessRunResult {
     try {
         const recording = runRecords.record({
             result,
-            ...caller,
+            ...(caller?.callerId ? { callerId: caller.callerId } : {}),
+            ...(caller?.authMethod ? { authMethod: caller.authMethod } : {}),
             ...(acceptedRequest ? { acceptedRequest } : {}),
+            ...(failureDetail ? { failureDetail } : {}),
         });
         if (recording) void recording.catch(() => {});
     } catch {

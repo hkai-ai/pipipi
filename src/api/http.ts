@@ -1,4 +1,5 @@
 /** 按路由校验调用方身份并分发同步、异步、会话与控制台请求，输出安全观测。 */
+import { randomUUID } from "node:crypto";
 import type {
     IncomingMessage,
     RequestListener,
@@ -18,13 +19,20 @@ import type {
     ProcessRunSubmission,
     ProcessRunView,
 } from "../process-runs/index.js";
-import type {
-    ProcessErrorCode,
-    ProcessEvaluationResult,
-    ProcessExecutor,
-    ProcessRunResult,
+import {
+    type InputValidationDetail,
+    type ProcessErrorCode,
+    type ProcessEvaluationResult,
+    type ProcessExecutor,
+    type ProcessRunFailureDetail,
+    type ProcessRunResult,
+    sanitizeIdempotencyKeyForObservation,
 } from "../process-runtime/index.js";
-import type { ProcessRunRecord } from "../process-runtime/records.js";
+import type {
+    ProcessRunRecord,
+    ProcessRunRecordErrorCode,
+    ProcessRunRecords,
+} from "../process-runtime/records.js";
 import type { ProcessRunActivityArchive } from "../run-observation/activities.js";
 import type {
     ConsoleCallerAuth,
@@ -69,6 +77,7 @@ export type ProcessingHttpOptions = {
     maxConcurrentExecutions?: number;
     internalEvaluationEnabled?: boolean;
     logSink?: ProcessingLogSink;
+    runRecords?: ProcessRunRecords;
     clock?: ProcessingClock;
     asyncProcessRuns?: AsyncProcessRunsHttpOptions;
     agentConversations?: AgentConversationsHttpOptions;
@@ -242,6 +251,17 @@ export type AsyncProcessRunLogRecord =
           retryAfterSeconds: number;
           durationMs: number;
           requestId?: string;
+      }>
+    | Readonly<{
+          event: "process_run_submission_rejected";
+          timestamp: string;
+          process?: string;
+          version?: string;
+          httpStatus: 400;
+          errorCode: string;
+          validationPaths?: readonly string[];
+          durationMs: number;
+          requestId?: string;
       }>;
 
 export type ProcessingLogRecord = {
@@ -278,6 +298,7 @@ type RequestHandlingContext = {
     maxRequestBodyBytes: number;
     admission: ExecutionAdmissionController;
     logging: RequestLoggingContext;
+    runRecords?: ProcessRunRecords;
     internalEvaluationEnabled: boolean;
     asyncProcessRuns?: AsyncProcessRunsHttpOptions;
     agentConversations?: AgentConversationsHttpOptions;
@@ -344,6 +365,7 @@ export function createProcessingRequestListener(
                 startedAt: clock.monotonicMilliseconds(),
                 ...(requestId === undefined ? {} : { requestId }),
             },
+            runRecords: options.runRecords,
             asyncProcessRuns: options.asyncProcessRuns,
             agentConversations: options.agentConversations,
             console: options.console,
@@ -605,7 +627,7 @@ async function handleRequest(
                     (input) =>
                         context.executor.execute(
                             input,
-                            callerObservation(context),
+                            executorCallerContext(request, context),
                         ),
                 )
               : await executeBusinessRequest(
@@ -643,6 +665,29 @@ function callerObservation(context: RequestHandlingContext) {
     return context.caller ?? { authMethod: "anonymous" as const };
 }
 
+function requestTraceId(
+    request: IncomingMessage,
+    context: RequestHandlingContext,
+): string | undefined {
+    return (
+        context.logging.requestId ??
+        parseCallerRequestId(request.headers["x-trace-id"])
+    );
+}
+
+function executorCallerContext(
+    request: IncomingMessage,
+    context: RequestHandlingContext,
+) {
+    const caller = callerObservation(context);
+    const traceId = requestTraceId(request, context);
+    if (!caller && !traceId) return undefined;
+    return {
+        ...caller,
+        ...(traceId ? { traceId } : {}),
+    };
+}
+
 function logAnonymousExecute(
     context: RequestHandlingContext,
     value?: unknown,
@@ -673,15 +718,16 @@ async function executeBusinessRequest(
     input: unknown,
 ) {
     const local = context.console?.localTrace;
+    const caller = executorCallerContext(request, context);
     if (!local || !localConsoleRequest(request))
-        return context.executor.execute(input, callerObservation(context));
+        return context.executor.execute(input, caller);
     const controller = new AbortController();
     const close = () => controller.abort();
     response.once("close", close);
     if (response.destroyed) close();
     try {
         return await local.request(controller.signal, () =>
-            context.executor.execute(input, callerObservation(context)),
+            context.executor.execute(input, caller),
         );
     } finally {
         response.off("close", close);
@@ -1719,17 +1765,33 @@ async function submitProcessRun(
         return;
     }
 
+    const traceId = requestTraceId(request, context);
     const idempotencyKeyHeader = request.headers["idempotency-key"];
     if (
         idempotencyKeyHeader === undefined ||
         (typeof idempotencyKeyHeader === "string" &&
             idempotencyKeyHeader.trim().length === 0)
     ) {
+        const message = "Idempotency-Key is required";
+        const details: readonly InputValidationDetail[] = Object.freeze([
+            Object.freeze({
+                path: "/headers/idempotency-key",
+                keyword: "required",
+                message: "is required",
+            }),
+        ]);
+        await recordAsyncRejection(context, caller, {
+            code: "IDEMPOTENCY_KEY_REQUIRED",
+            message,
+            details,
+            traceId,
+        });
         writeFailureJson(
             response,
             400,
             "IDEMPOTENCY_KEY_REQUIRED",
-            "Idempotency-Key is required",
+            message,
+            details,
         );
         return;
     }
@@ -1737,11 +1799,26 @@ async function submitProcessRun(
         typeof idempotencyKeyHeader !== "string" ||
         Buffer.byteLength(idempotencyKeyHeader, "utf8") > 512
     ) {
+        const message = "Idempotency-Key must be at most 512 bytes";
+        const details: readonly InputValidationDetail[] = Object.freeze([
+            Object.freeze({
+                path: "/headers/idempotency-key",
+                keyword: "maxLength",
+                message: "must be at most 512 bytes",
+            }),
+        ]);
+        await recordAsyncRejection(context, caller, {
+            code: "INVALID_IDEMPOTENCY_KEY",
+            message,
+            details,
+            traceId,
+        });
         writeFailureJson(
             response,
             400,
             "INVALID_IDEMPOTENCY_KEY",
-            "Idempotency-Key must be at most 512 bytes",
+            message,
+            details,
         );
         return;
     }
@@ -1769,23 +1846,45 @@ async function submitProcessRun(
         return;
     }
     if (!submission.accepted) {
+        const rejectionError = submission.error;
         if (
-            submission.error.code === "CALLER_BACKLOG_LIMIT_REACHED" ||
-            submission.error.code === "ASYNC_SERVICE_CAPACITY_REACHED"
+            rejectionError.code === "CALLER_BACKLOG_LIMIT_REACHED" ||
+            rejectionError.code === "ASYNC_SERVICE_CAPACITY_REACHED"
         ) {
-            writeBacklogLimit(response, submission.error, context.logging);
+            writeBacklogLimit(response, rejectionError, context.logging);
             return;
         }
         const status = {
             INVALID_INPUT: 400,
+            SOURCE_RUN_NOT_FOUND: 400,
+            SOURCE_RUN_FORBIDDEN: 400,
+            SOURCE_RUN_INVALID_PROCESS: 400,
+            SOURCE_RUN_NOT_READY: 400,
+            SOURCE_RUN_EXPIRED: 400,
+            SOURCE_RUN_MISSING_CONDITION: 400,
             PROCESS_NOT_FOUND: 404,
             IDEMPOTENCY_CONFLICT: 409,
-        }[submission.error.code];
+        }[rejectionError.code];
+        const rejectionDetails =
+            "details" in rejectionError ? rejectionError.details : undefined;
+        if (status === 400) {
+            await recordAsyncRejection(context, caller, {
+                code: rejectionError.code as ProcessRunRecordErrorCode,
+                message: rejectionError.message,
+                details: rejectionDetails,
+                process: submission.process,
+                version: submission.version,
+                idempotencyKey:
+                    sanitizeIdempotencyKeyForObservation(idempotencyKeyHeader),
+                traceId,
+            });
+        }
         writeFailureJson(
             response,
             status,
-            submission.error.code,
-            submission.error.message,
+            rejectionError.code,
+            rejectionError.message,
+            rejectionDetails,
         );
         return;
     }
@@ -1813,6 +1912,80 @@ async function submitProcessRun(
         status: submission.status,
         createdAt: submission.createdAt,
     });
+}
+
+async function recordAsyncRejection(
+    context: RequestHandlingContext,
+    caller: CallerIdentity,
+    rejection: Readonly<{
+        code: ProcessRunRecordErrorCode;
+        message: string;
+        details?: readonly InputValidationDetail[];
+        process?: string;
+        version?: string;
+        idempotencyKey?: string;
+        traceId?: string;
+    }>,
+): Promise<void> {
+    const validationPaths = rejection.details?.map((detail) => detail.path);
+    emitLog(context.logging, {
+        event: "process_run_submission_rejected",
+        ...caller,
+        timestamp: context.logging.clock.timestamp(),
+        ...(rejection.process ? { process: rejection.process } : {}),
+        ...(rejection.version ? { version: rejection.version } : {}),
+        httpStatus: 400,
+        errorCode: rejection.code,
+        ...(validationPaths && validationPaths.length > 0
+            ? { validationPaths }
+            : {}),
+        durationMs: elapsedMilliseconds(
+            context.logging.clock,
+            context.logging.startedAt,
+        ),
+    });
+    if (!context.runRecords) return;
+    const failureDetail: ProcessRunFailureDetail = {
+        httpStatus: 400,
+        endpoint: "/process-runs",
+        ...(rejection.idempotencyKey
+            ? { idempotencyKey: rejection.idempotencyKey }
+            : {}),
+        ...(rejection.traceId ? { traceId: rejection.traceId } : {}),
+        message: rejection.message,
+        ...(rejection.details && rejection.details.length > 0
+            ? { details: rejection.details }
+            : {}),
+    };
+    try {
+        const recording = context.runRecords.record({
+            callerId: caller.callerId,
+            ...(caller.authMethod ? { authMethod: caller.authMethod } : {}),
+            result: {
+                runId: randomUUID(),
+                ...(rejection.process ? { process: rejection.process } : {}),
+                ...(rejection.version ? { version: rejection.version } : {}),
+                status: "failed",
+                error: {
+                    code: rejection.code,
+                    message: rejection.message,
+                },
+            },
+            failureDetail,
+        });
+        if (!recording) return;
+        let timer: NodeJS.Timeout | undefined;
+        await Promise.race([
+            Promise.resolve(recording).catch(() => {}),
+            new Promise<void>((resolve) => {
+                timer = setTimeout(resolve, 500);
+                timer.unref();
+            }),
+        ]);
+        if (timer) clearTimeout(timer);
+    } catch {
+        // 400 审计落库为 best-effort，不得影响或改变响应结果。
+    }
 }
 
 function intakeIsOpen(options: AsyncProcessRunsHttpOptions): boolean {
@@ -2100,6 +2273,12 @@ function statusFor(result: ProcessRunResult): number {
         MASTER_NOT_ACCEPTED: 502,
         PROCESS_NOT_FOUND: 404,
         PROCESS_TIMEOUT: 504,
+        SOURCE_RUN_EXPIRED: 400,
+        SOURCE_RUN_FORBIDDEN: 400,
+        SOURCE_RUN_INVALID_PROCESS: 400,
+        SOURCE_RUN_MISSING_CONDITION: 400,
+        SOURCE_RUN_NOT_FOUND: 400,
+        SOURCE_RUN_NOT_READY: 400,
     };
     return statuses[result.error.code];
 }
@@ -2118,9 +2297,14 @@ function writeFailureJson(
     status: number,
     code: string,
     message: string,
+    details?: readonly InputValidationDetail[],
 ): void {
     writeJson(response, status, {
         status: "failed",
-        error: { code, message },
+        error: {
+            code,
+            message,
+            ...(details && details.length > 0 ? { details } : {}),
+        },
     });
 }

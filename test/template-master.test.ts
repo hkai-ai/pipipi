@@ -107,12 +107,33 @@ describe("合同", () => {
                 budget: { maxAttempts: 1, maxUsd: 21 },
             }).success,
         ).toBe(false);
-        expect(
-            masterInputSchema.safeParse({
-                ...input,
-                template: { ...template, extra: 1 },
-            }).success,
-        ).toBe(false);
+        const withExtras = masterInputSchema.safeParse({
+            ...input,
+            template: {
+                ...template,
+                cover: imageUrl,
+                referenceImage: imageUrl,
+                imageSize: "1024x1024",
+                imageN: 1,
+                kind: "PROMPT",
+                promptTemplate: "display prompt",
+                preprocessSteps: [],
+                status: "DRAFT",
+                metadata: {
+                    tags: ["标签1"],
+                    needsReview: true,
+                    editablePrompt: true,
+                    templateSource: "source-box",
+                },
+            },
+        });
+        expect(withExtras.success).toBe(true);
+        if (withExtras.success && "template" in withExtras.data) {
+            expect(withExtras.data.template).not.toHaveProperty("cover");
+            expect(withExtras.data.template.metadata).not.toHaveProperty(
+                "needsReview",
+            );
+        }
     });
     it("输出 Schema 严格", () => {
         const ok = {

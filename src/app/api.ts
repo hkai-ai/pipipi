@@ -24,11 +24,13 @@ import {
     type AsyncReleaseStage,
     createPostgresAsyncReleaseReadiness,
 } from "../process-runs/ops/postgres.js";
+import type { StoredProcessRun } from "../process-runs/store/index.js";
 import { createPostgresProcessRunStore } from "../process-runs/store/postgres.js";
 import type { ProcessRegistry } from "../process-runtime/index.js";
 import { createLocalTrace } from "../process-runtime/local-trace.js";
 import type { ProcessRuntime } from "../processes/catalog.js";
 import { renderInputSchema } from "../processes/template-from-source/capability.js";
+import type { TemplateMasterSourceRunLookup } from "../processes/template-master/source-run.js";
 import { constructAgentConversationsApi } from "./agent-conversations.js";
 import { createProductionRuntime } from "./business-processes.js";
 import { createCallerIdentity, loadCallerAuth } from "./caller-auth.js";
@@ -87,12 +89,49 @@ export function constructProcessingService(
             if (response.ok) return response.json();
         },
     });
+    let asyncStoreFindById:
+        | ((runId: string) => Promise<StoredProcessRun | undefined>)
+        | undefined;
+    const sourceRunLookup: TemplateMasterSourceRunLookup = async (runId) => {
+        if (asyncStoreFindById) {
+            const asyncRun = await asyncStoreFindById(runId);
+            if (asyncRun) {
+                return {
+                    runId: asyncRun.runId,
+                    ownerId: asyncRun.ownerId,
+                    process: asyncRun.process,
+                    version: asyncRun.version,
+                    status: asyncRun.status,
+                    ...("resultExpiredAt" in asyncRun &&
+                    asyncRun.resultExpiredAt !== undefined
+                        ? { resultExpiredAt: asyncRun.resultExpiredAt }
+                        : {}),
+                    ...("output" in asyncRun && asyncRun.output !== undefined
+                        ? { output: asyncRun.output }
+                        : {}),
+                };
+            }
+        }
+        const archived = await archive?.archive.find(runId);
+        if (!archived) return undefined;
+        return {
+            runId: archived.runId,
+            ...(archived.callerId ? { ownerId: archived.callerId } : {}),
+            ...(archived.process ? { process: archived.process } : {}),
+            ...(archived.version ? { version: archived.version } : {}),
+            status: archived.status,
+            ...(archived.content?.output !== undefined
+                ? { output: archived.content.output }
+                : {}),
+        };
+    };
     const runtime = createProductionRuntime(environment, {
         ...(archive
             ? {
                   runRecords: archive.records,
               }
             : {}),
+        sourceRunLookup,
         additionalRunLogSinks: [
             templateDiagnostics.record,
             ...(archive ? [archive.activities.record] : []),
@@ -124,7 +163,9 @@ export function constructProcessingService(
         environment,
         runtime.registry,
         callerIdentity,
+        sourceRunLookup,
     );
+    asyncStoreFindById = asyncProcessRuns?.findById;
     const agentConversations = constructAgentConversationsApi(
         environment,
         runtime.registry,
@@ -145,6 +186,7 @@ export function constructProcessingService(
                 executeAuthMode: auth.mode,
                 callerIdentity,
                 templateDiagnostics,
+                ...(archive ? { runRecords: archive.records } : {}),
                 ...(asyncProcessRuns
                     ? { asyncProcessRuns: asyncProcessRuns.http }
                     : {}),
@@ -278,9 +320,11 @@ function constructAsyncProcessRuns(
     environment: StartupEnvironment,
     registry: ProcessRegistry,
     callerIdentity: CallerIdentityResolver,
+    sourceRunLookup: TemplateMasterSourceRunLookup,
 ):
     | Readonly<{
           http: NonNullable<ProcessingHttpOptions["asyncProcessRuns"]>;
+          findById?: (runId: string) => Promise<StoredProcessRun | undefined>;
           close: () => Promise<void>;
       }>
     | undefined {
@@ -392,7 +436,7 @@ function constructAsyncProcessRuns(
             retryAfterSeconds: backlogRetryAfterSeconds,
         },
     });
-    const runs = createAsyncProcessRuns({ registry, store });
+    const runs = createAsyncProcessRuns({ registry, store, sourceRunLookup });
     const releaseReady = createPostgresAsyncReleaseReadiness({
         pool,
         stage: releaseStage,
@@ -417,6 +461,7 @@ function constructAsyncProcessRuns(
             ...(intake ? { intakeOpen: intake.isOpen } : {}),
             retryAfterSeconds,
         }),
+        findById: store.findById,
         close: () => pool.end(),
     });
 }

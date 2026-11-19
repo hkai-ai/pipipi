@@ -231,7 +231,7 @@ export function createProcessWorker(options: {
 async function recordTerminalOutcome(
     records: ProcessRunRecords | undefined,
     result: ProcessRunResult,
-    claim: Readonly<{ acceptedInput: AcceptedProcessInput }>,
+    claim: Readonly<{ ownerId?: string; acceptedInput: AcceptedProcessInput }>,
     timeoutMs: number,
 ): Promise<void> {
     if (!records) return;
@@ -240,6 +240,7 @@ async function recordTerminalOutcome(
         await Promise.race([
             Promise.resolve(
                 records.record({
+                    ...(claim.ownerId ? { callerId: claim.ownerId } : {}),
                     result,
                     acceptedRequest: { input: claim.acceptedInput.input },
                 }),

@@ -1,5 +1,15 @@
-/** 定义含调用方归属的 Process Run Record 存取接口，提供禁用与内存 Adapter。 */
+/** 定义含调用方归属、上游关联与失败审计明细的 Process Run Record 存取接口，提供禁用与内存 Adapter。 */
+import {
+    type ProcessRunFailureDetail,
+    sanitizeDiagnosticText,
+    sanitizeFailureDetail,
+} from "./input-validation.js";
 import type { ProcessErrorCode, ProcessRunResult } from "./result.js";
+
+export type ProcessRunRecordErrorCode =
+    | ProcessErrorCode
+    | "IDEMPOTENCY_KEY_REQUIRED"
+    | "INVALID_IDEMPOTENCY_KEY";
 
 export type ProcessRunRecord = {
     readonly callerId?: string;
@@ -10,8 +20,10 @@ export type ProcessRunRecord = {
     readonly process?: string;
     readonly version?: string;
     readonly templateSemanticsVersion?: number;
+    readonly sourceRunId?: string;
     readonly status: "succeeded" | "failed";
-    readonly errorCode?: ProcessErrorCode;
+    readonly errorCode?: ProcessRunRecordErrorCode;
+    readonly failureDetail?: ProcessRunFailureDetail;
     readonly content?: {
         readonly input: unknown;
         readonly output?: unknown;
@@ -21,7 +33,20 @@ export type ProcessRunRecord = {
 export type CompletedProcessRun = {
     readonly callerId?: string;
     readonly authMethod?: "api_key" | "gateway" | "anonymous";
-    readonly result: ProcessRunResult;
+    readonly result:
+        | ProcessRunResult
+        | Readonly<{
+              runId: string;
+              process?: string;
+              version?: string;
+              status: "failed";
+              error: Readonly<{
+                  code: ProcessRunRecordErrorCode;
+                  message: string;
+              }>;
+          }>;
+    readonly sourceRunId?: string;
+    readonly failureDetail?: ProcessRunFailureDetail;
     readonly acceptedRequest?: {
         readonly input: unknown;
     };
@@ -140,6 +165,19 @@ function objectField(value: unknown, name: string): unknown {
         : undefined;
 }
 
+/** 读取母版生成关联的上游 template-from-image 运行 ID，即使未保留正文也支持控制台溯源。 */
+export function sourceRunIdOf(
+    process: string | undefined,
+    input: unknown,
+): string | undefined {
+    if (process !== "template-master") return undefined;
+    const raw = objectField(input, "sourceRunId");
+    if (typeof raw !== "string") return undefined;
+    const trimmed = raw.trim();
+    if (trimmed.length === 0 || trimmed.length > 256) return undefined;
+    return sanitizeDiagnosticText(trimmed, 256);
+}
+
 function createRecord(
     completion: CompletedProcessRun,
     contentPolicy: "omit" | "accepted-input-and-output",
@@ -149,6 +187,13 @@ function createRecord(
     const semantics =
         result.status === "succeeded"
             ? templateSemanticsVersion(result.process, result.output)
+            : undefined;
+    const sourceRunId =
+        completion.sourceRunId ??
+        sourceRunIdOf(result.process, completion.acceptedRequest?.input);
+    const failureDetail =
+        result.status === "failed"
+            ? sanitizeFailureDetail(completion.failureDetail)
             : undefined;
     return {
         schemaVersion: 1,
@@ -162,7 +207,9 @@ function createRecord(
         ...(semantics === undefined
             ? {}
             : { templateSemanticsVersion: semantics }),
+        ...(sourceRunId === undefined ? {} : { sourceRunId }),
         ...(result.status === "failed" ? { errorCode: result.error.code } : {}),
+        ...(failureDetail === undefined ? {} : { failureDetail }),
         ...(contentPolicy === "accepted-input-and-output" &&
         completion.acceptedRequest
             ? {

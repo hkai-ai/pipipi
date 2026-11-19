@@ -22,11 +22,13 @@ import {
     srgbToLab,
 } from "./checks.js";
 import {
+    isSourceRunMasterInput,
     type MasterFailure,
     type MasterOutput,
     type MasterTier,
     masterInputSchema,
     masterOutputSchema,
+    type ResolvedMasterInput,
 } from "./contract.js";
 import {
     decodeRgba,
@@ -88,7 +90,14 @@ export function createTemplateMasterRegistration(options: {
             "master_verification",
             "master_upload",
         ],
-        execute: async (input, context) => {
+        execute: async (rawInput, context) => {
+            if (isSourceRunMasterInput(rawInput)) {
+                return failProcess(
+                    "INVALID_INPUT",
+                    "sourceRunId 必须在受理阶段由服务端解析后才能执行",
+                );
+            }
+            const input = rawInput as ResolvedMasterInput;
             const spec = input.template.runtimeSemantics.designSpec;
             const form: PrintForm = spec.whole.printForm;
             const { marks } = input.condition;

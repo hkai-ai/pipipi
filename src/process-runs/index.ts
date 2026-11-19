@@ -2,11 +2,20 @@
 import { createHash, randomUUID } from "node:crypto";
 import { z } from "zod";
 import {
+    extractRequestIdentity,
+    formatValidationErrorMessage,
+    formatZodValidationDetails,
+    type InputValidationDetail,
     type ProcessErrorCode,
     type ProcessRegistry,
     type RunCost,
     runCostFromSnapshot,
+    type SourceRunErrorCode,
 } from "../process-runtime/index.js";
+import {
+    resolveTemplateMasterAcceptedInput,
+    type TemplateMasterSourceRunLookup,
+} from "../processes/template-master/source-run.js";
 import type { ProcessWorkQueue } from "./queue/index.js";
 import {
     type ProcessRunAcceptance,
@@ -107,13 +116,17 @@ export type ProcessRunSubmission =
       }>
     | Readonly<{
           accepted: false;
+          process?: string;
+          version?: string;
           error:
               | Readonly<{
                     code:
                         | "INVALID_INPUT"
                         | "PROCESS_NOT_FOUND"
-                        | "IDEMPOTENCY_CONFLICT";
+                        | "IDEMPOTENCY_CONFLICT"
+                        | SourceRunErrorCode;
                     message: string;
+                    details?: readonly InputValidationDetail[];
                 }>
               | Readonly<{
                     code:
@@ -141,12 +154,35 @@ export function createAsyncProcessRuns(options: {
     queue?: ProcessWorkQueue;
     clock?: () => string;
     createRunId?: () => string;
+    sourceRunLookup?: TemplateMasterSourceRunLookup;
 }): AsyncProcessRuns {
     const registry = options.registry;
     const store = options.store;
     const queue = options.queue;
     const clock = options.clock ?? (() => new Date().toISOString());
     const createRunId = options.createRunId ?? randomUUID;
+    const sourceRunLookup: TemplateMasterSourceRunLookup | undefined =
+        options.sourceRunLookup ??
+        (store.findById
+            ? async (runId) => {
+                  const found = await store.findById?.(runId);
+                  if (!found) return undefined;
+                  return {
+                      runId: found.runId,
+                      ownerId: found.ownerId,
+                      process: found.process,
+                      version: found.version,
+                      status: found.status,
+                      ...("resultExpiredAt" in found &&
+                      found.resultExpiredAt !== undefined
+                          ? { resultExpiredAt: found.resultExpiredAt }
+                          : {}),
+                      ...("output" in found && found.output !== undefined
+                          ? { output: found.output }
+                          : {}),
+                  };
+              }
+            : undefined);
 
     return Object.freeze({
         submit: async (rawRequest, context) => {
@@ -155,12 +191,34 @@ export function createAsyncProcessRuns(options: {
 
             const requestResult = processRunRequestSchema.safeParse(rawRequest);
             if (!requestResult.success) {
+                const identity = extractRequestIdentity(rawRequest);
+                const details =
+                    rawRequest === undefined
+                        ? Object.freeze([
+                              Object.freeze({
+                                  path: "/",
+                                  keyword: "type",
+                                  message: "must be a valid JSON object",
+                              }),
+                          ])
+                        : formatZodValidationDetails(
+                              requestResult.error,
+                              rawRequest,
+                          );
                 return rejected(
                     "INVALID_INPUT",
-                    "The process input is invalid",
+                    formatValidationErrorMessage({
+                        ...identity,
+                        details,
+                    }),
+                    { ...identity, details },
                 );
             }
             const request = requestResult.data;
+            const identity = {
+                process: request.process,
+                version: request.version,
+            };
             const registration = registry.find({
                 id: request.process,
                 version: request.version,
@@ -169,15 +227,34 @@ export function createAsyncProcessRuns(options: {
                 return rejected(
                     "PROCESS_NOT_FOUND",
                     "The requested process version is not registered",
+                    identity,
                 );
             }
 
             const acceptance = registration.accept(request.input);
             if (!acceptance.accepted) {
+                const details = acceptance.details;
                 return rejected(
                     "INVALID_INPUT",
-                    "The process input is invalid",
+                    formatValidationErrorMessage({
+                        ...identity,
+                        details,
+                    }),
+                    { ...identity, details },
                 );
+            }
+
+            const requestFingerprint = fingerprint(acceptance.acceptedInput);
+            const resolved = await resolveTemplateMasterAcceptedInput(
+                acceptance.acceptedInput,
+                { callerId: context.callerId },
+                sourceRunLookup,
+            );
+            if (!resolved.ok) {
+                return rejected(resolved.code, resolved.message, {
+                    ...identity,
+                    details: resolved.details,
+                });
             }
 
             let storeResult: ProcessRunAcceptance;
@@ -186,10 +263,10 @@ export function createAsyncProcessRuns(options: {
                     runId: createRunId(),
                     ownerId: context.callerId,
                     idempotencyKey: context.idempotencyKey,
-                    requestFingerprint: fingerprint(acceptance.acceptedInput),
+                    requestFingerprint,
                     process: request.process,
                     version: request.version,
-                    acceptedInput: acceptance.acceptedInput,
+                    acceptedInput: resolved.acceptedInput,
                     createdAt: clock(),
                 });
             } catch (error) {
@@ -202,6 +279,7 @@ export function createAsyncProcessRuns(options: {
                 return rejected(
                     "IDEMPOTENCY_CONFLICT",
                     "The idempotency key was already used for a different request",
+                    identity,
                 );
             }
 
@@ -228,12 +306,29 @@ export function createAsyncProcessRuns(options: {
 }
 
 function rejected(
-    code: "INVALID_INPUT" | "PROCESS_NOT_FOUND" | "IDEMPOTENCY_CONFLICT",
+    code:
+        | "INVALID_INPUT"
+        | "PROCESS_NOT_FOUND"
+        | "IDEMPOTENCY_CONFLICT"
+        | SourceRunErrorCode,
     message: string,
+    extra: Readonly<{
+        process?: string;
+        version?: string;
+        details?: readonly InputValidationDetail[];
+    }> = {},
 ): ProcessRunSubmission {
     return Object.freeze({
         accepted: false,
-        error: Object.freeze({ code, message }),
+        ...(extra.process === undefined ? {} : { process: extra.process }),
+        ...(extra.version === undefined ? {} : { version: extra.version }),
+        error: Object.freeze({
+            code,
+            message,
+            ...(extra.details && extra.details.length > 0
+                ? { details: extra.details }
+                : {}),
+        }),
     });
 }
 
