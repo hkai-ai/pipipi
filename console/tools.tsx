@@ -1,14 +1,17 @@
 /** 保留服务目录、Runtime Skill 浏览与人工任务提交工具。 */
-import { useEffect, useRef, useState } from "react";
+import { Tooltip } from "@base-ui/react/tooltip";
+import { Fragment, useEffect, useRef, useState } from "react";
 import {
     type ConsoleProcessDescription,
     type ConsoleSkillDescription,
-    listProcesses,
+    type ConsoleStats,
     listSkills,
+    readStats,
     skillCoverHref,
 } from "./api.js";
 import { formatTime, Panel } from "./formatting.jsx";
 import { activityName, processName } from "./labels.js";
+import { recordsHref } from "./overview.jsx";
 import {
     type PendingProcessRun,
     type ProcessRunOutcome,
@@ -20,144 +23,1116 @@ import { hrefFor } from "./routing.js";
 import { CollapsibleSection, SelectField } from "./ui.jsx";
 
 export function ProcessesView({
+    processes,
+    loading,
+    error,
     process,
     version,
 }: {
+    processes: readonly ConsoleProcessDescription[];
+    loading?: boolean;
+    error?: string;
     process?: string;
     version?: string;
 }) {
-    const catalog = useAsync(() => listProcesses(), []);
-    const entries = catalog.value?.processes.filter(
-        (entry) =>
-            (!process || entry.process === process) &&
-            (!version || entry.version === version),
+    const statsResult = useAsync(() => readStats(24), []);
+    const stats = statsResult.value;
+    const [query, setQuery] = useState("");
+    const needle = query.trim().toLowerCase();
+
+    const exactTarget = Boolean(process && version);
+    const targetEntry = exactTarget
+        ? processes.find(
+              (entry) => entry.process === process && entry.version === version,
+          )
+        : undefined;
+
+    const matchingEntries = processes.filter((entry) => {
+        if (process && entry.process !== process) return false;
+        if (version && entry.version !== version) return false;
+        if (needle.length === 0) return true;
+        const searchable = [
+            entry.process,
+            entry.version,
+            `${entry.process}/${entry.version}`,
+            processName(entry.process),
+            ...entry.activities,
+            ...entry.activities.map(activityName),
+            ...(entry.skills ?? []).flatMap((skill) => [
+                skill.name,
+                `${skill.name}@${skill.version}`,
+            ]),
+        ];
+        return searchable.some((text) => text.toLowerCase().includes(needle));
+    });
+
+    const allGroupsMap = new Map<string, ConsoleProcessDescription[]>();
+    for (const entry of processes) {
+        const list = allGroupsMap.get(entry.process);
+        if (list) list.push(entry);
+        else allGroupsMap.set(entry.process, [entry]);
+    }
+
+    const visibleGroups: {
+        processId: string;
+        versions: readonly ConsoleProcessDescription[];
+    }[] = [];
+    const seenProcesses = new Set<string>();
+    for (const entry of matchingEntries) {
+        if (seenProcesses.has(entry.process)) continue;
+        seenProcesses.add(entry.process);
+        visibleGroups.push({
+            processId: entry.process,
+            versions: allGroupsMap.get(entry.process) ?? [entry],
+        });
+    }
+
+    const statsByVersion = new Map(
+        (stats?.byProcess ?? []).map((item) => [
+            `${item.process}/${item.version}`,
+            item,
+        ]),
     );
+
+    const [selectedVersions, setSelectedVersions] = useState<
+        Readonly<Record<string, string>>
+    >({});
+    const [openProcesses, setOpenProcesses] = useState<ReadonlySet<string>>(
+        () => new Set(),
+    );
+
+    const activeVersionFor = (
+        processId: string,
+        versions: readonly ConsoleProcessDescription[],
+    ): ConsoleProcessDescription => {
+        if (process === processId && version) {
+            const pinned = versions.find((v) => v.version === version);
+            if (pinned) return pinned;
+        }
+        const chosen = selectedVersions[processId];
+        if (chosen) {
+            const match = versions.find((v) => v.version === chosen);
+            if (
+                match &&
+                (needle.length === 0 ||
+                    matchingEntries.some(
+                        (e) =>
+                            e.process === processId &&
+                            e.version === match.version,
+                    ))
+            ) {
+                return match;
+            }
+        }
+        if (needle.length > 0) {
+            const matchedInFilter = matchingEntries
+                .filter((e) => e.process === processId)
+                .at(-1);
+            if (matchedInFilter) return matchedInFilter;
+        }
+        return versions[versions.length - 1] ?? versions[0];
+    };
+
+    const isExpanded = (
+        processId: string,
+        versions: readonly ConsoleProcessDescription[],
+    ) => {
+        if (process) {
+            return (
+                processId === process &&
+                (!version || versions.some((v) => v.version === version))
+            );
+        }
+        return openProcesses.has(processId);
+    };
+
+    const toggleRow = (processId: string) => {
+        if (process) {
+            setOpenProcesses(new Set());
+            location.hash = hrefFor({ view: "processes" });
+            return;
+        }
+        setOpenProcesses((prev) => {
+            const next = new Set(prev);
+            if (next.has(processId)) next.delete(processId);
+            else next.add(processId);
+            return next;
+        });
+    };
+
+    const selectVersion = (processId: string, nextVersion: string) => {
+        setSelectedVersions((prev) => ({
+            ...prev,
+            [processId]: nextVersion,
+        }));
+        if (process === processId && version && version !== nextVersion) {
+            location.hash = hrefFor({
+                view: "processes",
+                process: processId,
+                version: nextVersion,
+            });
+        }
+    };
+
     return (
         <Panel title="业务流程">
             <p className="hint">
-                查看当前服务支持的业务流程、版本和输入要求。展开流程查看参数与执行限制。
+                查看当前服务支持的业务流程、版本、执行步骤、关联技能与近 24
+                小时调用概况。多版本流程可在行内切换版本，展开行查看完整输入输出
+                Schema 与执行限制。
             </p>
             <p className="hint">
                 流程版本定义一次业务调用的输入、输出与执行规则；技能版本定义
                 Agent 使用的指令。两者独立编号。
             </p>
-            {process ? (
-                <p>
-                    <a href={hrefFor({ view: "processes" })}>
+            <div className="toolbar" style={{ marginTop: 12 }}>
+                <label className="grow">
+                    搜索流程
+                    <input
+                        type="search"
+                        placeholder="按业务名称、流程标识、版本、步骤或绑定 Skill 搜索"
+                        value={query}
+                        onInput={(event) => setQuery(event.currentTarget.value)}
+                    />
+                </label>
+                {process || version ? (
+                    <a
+                        className="table-action"
+                        href={hrefFor({ view: "processes" })}
+                    >
                         查看全部业务流程
                     </a>
-                </p>
-            ) : null}
-            {catalog.error ? <p className="error">{catalog.error}</p> : null}
-            {catalog.loading ? <p className="hint">正在读取业务流程…</p> : null}
-            {entries?.length === 0 ? (
+                ) : null}
+                <span className="hint">
+                    {!loading
+                        ? `共 ${visibleGroups.length} / ${allGroupsMap.size} 个业务流程（${matchingEntries.length} / ${processes.length} 个版本）`
+                        : ""}
+                </span>
+            </div>
+            {error ? <p className="error">{error}</p> : null}
+            {loading ? <p className="hint">正在读取业务流程…</p> : null}
+            {!loading &&
+            !error &&
+            (process || version) &&
+            !targetEntry &&
+            matchingEntries.length === 0 ? (
                 <p className="notice">
                     当前服务未注册 {processName(process)} 的流程版本{" "}
                     {version ?? "（未指定）"}
                     。它可能已下线，或请求指定的版本不存在；不能用其他版本代替查看。
                 </p>
             ) : null}
-            {entries?.map((entry) => (
-                <ProcessEntry
-                    key={`${entry.process}/${entry.version}`}
-                    entry={entry}
-                    expanded={Boolean(process)}
-                />
-            ))}
+            {!loading &&
+            !error &&
+            !(process || version) &&
+            visibleGroups.length === 0 &&
+            processes.length > 0 ? (
+                <p className="empty">没有匹配的业务流程。</p>
+            ) : null}
+            {visibleGroups.length > 0 ? (
+                <div className="table-scroll">
+                    <table className="processes-table">
+                        <thead>
+                            <tr>
+                                <th>业务流程</th>
+                                <th>版本</th>
+                                <th>执行步骤</th>
+                                <th>绑定 Skill</th>
+                                <th className="numeric">24h 调用</th>
+                                <th className="numeric">24h 成功率</th>
+                                <th className="numeric">24h 失败</th>
+                                <th>操作</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {visibleGroups.map(({ processId, versions }) => {
+                                const entry = activeVersionFor(
+                                    processId,
+                                    versions,
+                                );
+                                const key = `${entry.process}/${entry.version}`;
+                                const expanded = isExpanded(
+                                    processId,
+                                    versions,
+                                );
+                                const usage = statsByVersion.get(key);
+                                const total = usage
+                                    ? usage.succeeded + usage.failed
+                                    : 0;
+                                return (
+                                    <Fragment key={processId}>
+                                        <tr
+                                            className={
+                                                expanded
+                                                    ? "process-row process-row-open"
+                                                    : "process-row"
+                                            }
+                                        >
+                                            <td>
+                                                <button
+                                                    type="button"
+                                                    className="ui-collapsible-trigger process-row-trigger"
+                                                    data-panel-open={
+                                                        expanded
+                                                            ? ""
+                                                            : undefined
+                                                    }
+                                                    aria-expanded={expanded}
+                                                    onClick={() =>
+                                                        toggleRow(processId)
+                                                    }
+                                                >
+                                                    <span
+                                                        className="ui-collapsible-chevron"
+                                                        aria-hidden="true"
+                                                    >
+                                                        ▸
+                                                    </span>
+                                                    <span>
+                                                        <strong>
+                                                            {processName(
+                                                                processId,
+                                                            )}
+                                                        </strong>
+                                                        <span className="cell-meta mono">
+                                                            {processId}
+                                                        </span>
+                                                    </span>
+                                                </button>
+                                            </td>
+                                            <td>
+                                                <div className="version-switcher">
+                                                    {versions.map(
+                                                        (candidate) => {
+                                                            const isActive =
+                                                                candidate.version ===
+                                                                entry.version;
+                                                            return versions.length >
+                                                                1 ? (
+                                                                <button
+                                                                    key={
+                                                                        candidate.version
+                                                                    }
+                                                                    type="button"
+                                                                    className={
+                                                                        isActive
+                                                                            ? "version-pill version-pill-active"
+                                                                            : "version-pill"
+                                                                    }
+                                                                    aria-label={`切换到 ${processName(processId)} ${candidate.version}`}
+                                                                    aria-pressed={
+                                                                        isActive
+                                                                    }
+                                                                    onClick={() =>
+                                                                        selectVersion(
+                                                                            processId,
+                                                                            candidate.version,
+                                                                        )
+                                                                    }
+                                                                >
+                                                                    {
+                                                                        candidate.version
+                                                                    }
+                                                                </button>
+                                                            ) : (
+                                                                <span
+                                                                    key={
+                                                                        candidate.version
+                                                                    }
+                                                                    className="version-pill version-pill-single"
+                                                                >
+                                                                    {
+                                                                        candidate.version
+                                                                    }
+                                                                </span>
+                                                            );
+                                                        },
+                                                    )}
+                                                </div>
+                                            </td>
+                                            <td>
+                                                <div className="process-steps-preview">
+                                                    {entry.activities.length ? (
+                                                        entry.activities
+                                                            .map(activityName)
+                                                            .join(" → ")
+                                                    ) : (
+                                                        <span className="hint">
+                                                            无声明步骤
+                                                        </span>
+                                                    )}
+                                                </div>
+                                                <span className="cell-meta">
+                                                    {entry.activities.length} 步
+                                                    {entry.retry
+                                                        .maximumAttempts > 1
+                                                        ? ` · 最多 ${entry.retry.maximumAttempts} 次尝试`
+                                                        : ""}
+                                                </span>
+                                            </td>
+                                            <td>
+                                                {entry.skills?.length ? (
+                                                    <div className="chips">
+                                                        {entry.skills.map(
+                                                            (skill) => (
+                                                                <a
+                                                                    key={`${skill.name}@${skill.version}`}
+                                                                    className="chip chip-link"
+                                                                    href={hrefFor(
+                                                                        {
+                                                                            view: "skill",
+                                                                            name: skill.name,
+                                                                            version:
+                                                                                skill.version,
+                                                                        },
+                                                                    )}
+                                                                >
+                                                                    {skill.name}
+                                                                    @
+                                                                    {
+                                                                        skill.version
+                                                                    }
+                                                                </a>
+                                                            ),
+                                                        )}
+                                                    </div>
+                                                ) : (
+                                                    <span className="cell-meta">
+                                                        无 Skill
+                                                    </span>
+                                                )}
+                                            </td>
+                                            <td className="numeric">
+                                                {stats ? (
+                                                    total > 0 ? (
+                                                        <a
+                                                            href={recordsHref(
+                                                                stats,
+                                                                {
+                                                                    process:
+                                                                        entry.process,
+                                                                    version:
+                                                                        entry.version,
+                                                                },
+                                                            )}
+                                                        >
+                                                            {total}
+                                                        </a>
+                                                    ) : (
+                                                        0
+                                                    )
+                                                ) : (
+                                                    "—"
+                                                )}
+                                            </td>
+                                            <td className="numeric">
+                                                {stats && total > 0 ? (
+                                                    <div className="rate-cell">
+                                                        <span className="rate-bar">
+                                                            <span
+                                                                className={`rate-bar-fill ${
+                                                                    (usage?.succeeded ??
+                                                                        0) /
+                                                                        total >=
+                                                                    0.9
+                                                                        ? "rate-good"
+                                                                        : (usage?.succeeded ??
+                                                                                0) /
+                                                                                total >=
+                                                                            0.5
+                                                                          ? "rate-warn"
+                                                                          : "rate-bad"
+                                                                }`}
+                                                                style={{
+                                                                    width: `${(((usage?.succeeded ?? 0) / total) * 100).toFixed(1)}%`,
+                                                                }}
+                                                            />
+                                                        </span>
+                                                        <span>
+                                                            {(
+                                                                ((usage?.succeeded ??
+                                                                    0) /
+                                                                    total) *
+                                                                100
+                                                            ).toFixed(1)}
+                                                            %
+                                                        </span>
+                                                    </div>
+                                                ) : (
+                                                    "—"
+                                                )}
+                                            </td>
+                                            <td className="numeric">
+                                                {stats ? (
+                                                    (usage?.failed ?? 0) > 0 ? (
+                                                        <a
+                                                            className="status-bad-text"
+                                                            href={recordsHref(
+                                                                stats,
+                                                                {
+                                                                    process:
+                                                                        entry.process,
+                                                                    version:
+                                                                        entry.version,
+                                                                    status: "failed",
+                                                                },
+                                                            )}
+                                                        >
+                                                            {usage?.failed}
+                                                        </a>
+                                                    ) : (
+                                                        0
+                                                    )
+                                                ) : (
+                                                    "—"
+                                                )}
+                                            </td>
+                                            <td>
+                                                <div className="process-actions">
+                                                    <ContractTooltipButton
+                                                        entry={entry}
+                                                        expanded={expanded}
+                                                        onToggle={() =>
+                                                            toggleRow(processId)
+                                                        }
+                                                    />
+                                                    <a
+                                                        className="table-action"
+                                                        href={
+                                                            stats
+                                                                ? recordsHref(
+                                                                      stats,
+                                                                      {
+                                                                          process:
+                                                                              entry.process,
+                                                                          version:
+                                                                              entry.version,
+                                                                      },
+                                                                  )
+                                                                : hrefFor({
+                                                                      view: "runs",
+                                                                      filters: {
+                                                                          process:
+                                                                              entry.process,
+                                                                          version:
+                                                                              entry.version,
+                                                                      },
+                                                                  })
+                                                        }
+                                                    >
+                                                        记录
+                                                    </a>
+                                                    <a
+                                                        className="table-action"
+                                                        href={hrefFor({
+                                                            view: "submit",
+                                                            process:
+                                                                entry.process,
+                                                            version:
+                                                                entry.version,
+                                                        })}
+                                                    >
+                                                        调试
+                                                    </a>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                        {expanded ? (
+                                            <tr className="process-detail-row">
+                                                <td colSpan={8}>
+                                                    <ProcessDetail
+                                                        entry={entry}
+                                                        versions={versions}
+                                                        onSelectVersion={(
+                                                            nextVersion,
+                                                        ) =>
+                                                            selectVersion(
+                                                                processId,
+                                                                nextVersion,
+                                                            )
+                                                        }
+                                                        stats={stats}
+                                                    />
+                                                </td>
+                                            </tr>
+                                        ) : null}
+                                    </Fragment>
+                                );
+                            })}
+                        </tbody>
+                    </table>
+                </div>
+            ) : null}
         </Panel>
     );
 }
 
-function ProcessEntry({
+function ProcessDetail({
     entry,
-    expanded,
+    versions,
+    onSelectVersion,
+    stats,
 }: {
     entry: ConsoleProcessDescription;
-    expanded?: boolean;
+    versions: readonly ConsoleProcessDescription[];
+    onSelectVersion: (version: string) => void;
+    stats?: ConsoleStats;
 }) {
     return (
-        <CollapsibleSection
-            key={`${entry.process}@${entry.version}:${Boolean(expanded)}`}
-            defaultOpen={expanded}
-            title={`${processName(entry.process)} · 流程版本 ${entry.version}`}
-        >
-            <p className="hint">
-                流程标识：{entry.process}。步骤：
-                {entry.activities.map(activityName).join(" → ")}。最多执行次数：
-                {entry.retry.maximumAttempts}
-            </p>
-            <h3>当前声明的 Runtime Skill</h3>
-            {entry.skills?.length ? (
-                <ul>
-                    {entry.skills.map(({ name, version }) => (
-                        <li key={`${name}@${version}`}>
-                            <a href={hrefFor({ view: "skill", name, version })}>
-                                {name} · {version}
-                            </a>
-                        </li>
-                    ))}
-                </ul>
-            ) : (
-                <p className="hint">此版本未绑定 Runtime Skill。</p>
-            )}
-            <SchemaTable label="输入" schema={entry.input} />
-            <SchemaTable label="输出" schema={entry.output} />
-        </CollapsibleSection>
+        <div className="ui-collapsible process-detail-panel" data-open="">
+            <div className="process-detail-header">
+                <div>
+                    <div className="process-detail-title-row">
+                        <strong>
+                            {processName(entry.process)} · 流程版本{" "}
+                            {entry.version}
+                        </strong>
+                        {versions.length > 1 ? (
+                            <div className="version-switcher">
+                                {versions.map((candidate) => (
+                                    <button
+                                        key={candidate.version}
+                                        type="button"
+                                        className={
+                                            candidate.version === entry.version
+                                                ? "version-pill version-pill-active"
+                                                : "version-pill"
+                                        }
+                                        aria-pressed={
+                                            candidate.version === entry.version
+                                        }
+                                        onClick={() =>
+                                            onSelectVersion(candidate.version)
+                                        }
+                                    >
+                                        {candidate.version}
+                                    </button>
+                                ))}
+                            </div>
+                        ) : null}
+                    </div>
+                    <p className="hint">
+                        流程标识：<code>{entry.process}</code> · 步骤：
+                        {entry.activities.length
+                            ? entry.activities
+                                  .map((act) => `${activityName(act)} (${act})`)
+                                  .join(" → ")
+                            : "无"}
+                        {" · "}最多执行次数：{entry.retry.maximumAttempts}
+                        {entry.retry.retryableErrorCodes.length
+                            ? `（可重试：${entry.retry.retryableErrorCodes.join("、")}）`
+                            : ""}
+                    </p>
+                </div>
+                <div className="actions">
+                    <a
+                        className="table-action"
+                        href={
+                            stats
+                                ? recordsHref(stats, {
+                                      process: entry.process,
+                                      version: entry.version,
+                                  })
+                                : hrefFor({
+                                      view: "runs",
+                                      filters: {
+                                          process: entry.process,
+                                          version: entry.version,
+                                      },
+                                  })
+                        }
+                    >
+                        查看运行记录
+                    </a>
+                    <a
+                        className="table-action"
+                        href={
+                            stats
+                                ? recordsHref(stats, {
+                                      process: entry.process,
+                                      version: entry.version,
+                                      status: "failed",
+                                  })
+                                : hrefFor({
+                                      view: "runs",
+                                      filters: {
+                                          process: entry.process,
+                                          version: entry.version,
+                                          status: "failed",
+                                      },
+                                  })
+                        }
+                    >
+                        排查失败记录
+                    </a>
+                    <a
+                        className="table-action"
+                        href={hrefFor({
+                            view: "submit",
+                            process: entry.process,
+                            version: entry.version,
+                        })}
+                    >
+                        去手动调试
+                    </a>
+                </div>
+            </div>
+            <div className="process-detail-skills">
+                <h3>当前声明的 Runtime Skill</h3>
+                {entry.skills?.length ? (
+                    <ul>
+                        {entry.skills.map(({ name, version }) => (
+                            <li key={`${name}@${version}`}>
+                                <a
+                                    href={hrefFor({
+                                        view: "skill",
+                                        name,
+                                        version,
+                                    })}
+                                >
+                                    {name} · {version}
+                                </a>
+                            </li>
+                        ))}
+                    </ul>
+                ) : (
+                    <p className="hint">此版本未绑定 Runtime Skill。</p>
+                )}
+            </div>
+            <div className="process-schema-grid">
+                <div>
+                    <SchemaTable label="输入" schema={entry.input} />
+                </div>
+                <div>
+                    <SchemaTable label="输出" schema={entry.output} />
+                </div>
+            </div>
+        </div>
     );
 }
 
 type JsonSchema = Readonly<{
+    type?: string | readonly string[];
     properties?: Record<string, Record<string, unknown>>;
     required?: readonly string[];
+    oneOf?: readonly Record<string, unknown>[];
+    anyOf?: readonly Record<string, unknown>[];
+    items?: Record<string, unknown>;
+    enum?: readonly unknown[];
+    const?: unknown;
+    minLength?: number;
+    maxLength?: number;
+    minimum?: number;
+    maximum?: number;
+    minItems?: number;
+    maxItems?: number;
+    pattern?: string;
+    format?: string;
+    default?: unknown;
+    $ref?: string;
+    $defs?: Record<string, Record<string, unknown>>;
+    additionalProperties?: boolean | Record<string, unknown>;
+    propertyNames?: Record<string, unknown>;
+    not?: Record<string, unknown>;
 }>;
+
+type FlattenedField = Readonly<{
+    path: string;
+    required: boolean;
+    constraint: string;
+}>;
+
+type SchemaFieldSummary = Readonly<{
+    name: string;
+    required: boolean;
+}>;
+
+function extractSchemaFieldSummary(schema: unknown): {
+    branchCount: number;
+    fields: readonly SchemaFieldSummary[];
+} {
+    const parsed = schema as JsonSchema | undefined;
+    if (!parsed) return { branchCount: 0, fields: [] };
+    const branches = (parsed.oneOf ?? parsed.anyOf) as
+        | readonly JsonSchema[]
+        | undefined;
+    if (Array.isArray(branches) && branches.length > 0) {
+        const fieldMap = new Map<string, boolean>();
+        let validBranches = 0;
+        const requiredCounts = new Map<string, number>();
+        for (const branch of branches) {
+            if (!branch.properties) continue;
+            validBranches += 1;
+            const req = new Set(branch.required ?? []);
+            for (const [key, prop] of Object.entries(branch.properties)) {
+                const p = prop as JsonSchema;
+                if (p.not !== undefined && Object.keys(p.not).length === 0) {
+                    continue;
+                }
+                if (!fieldMap.has(key)) fieldMap.set(key, false);
+                if (req.has(key)) {
+                    requiredCounts.set(key, (requiredCounts.get(key) ?? 0) + 1);
+                }
+            }
+        }
+        const fields: SchemaFieldSummary[] = [];
+        for (const key of fieldMap.keys()) {
+            fields.push({
+                name: key,
+                required:
+                    validBranches > 0 &&
+                    (requiredCounts.get(key) ?? 0) === validBranches,
+            });
+        }
+        fields.sort((a, b) => Number(b.required) - Number(a.required));
+        return { branchCount: branches.length, fields };
+    }
+    if (parsed.properties) {
+        const req = new Set(parsed.required ?? []);
+        const fields = Object.entries(parsed.properties)
+            .filter(([, prop]) => {
+                const p = prop as JsonSchema;
+                return !(
+                    p.not !== undefined && Object.keys(p.not).length === 0
+                );
+            })
+            .map(([name]) => ({
+                name,
+                required: req.has(name),
+            }))
+            .sort((a, b) => Number(b.required) - Number(a.required));
+        return { branchCount: 0, fields };
+    }
+    return { branchCount: 0, fields: [] };
+}
+
+function ContractTooltipButton({
+    entry,
+    expanded,
+    onToggle,
+}: {
+    entry: ConsoleProcessDescription;
+    expanded: boolean;
+    onToggle: () => void;
+}) {
+    return (
+        <Tooltip.Root>
+            <Tooltip.Trigger
+                type="button"
+                delay={120}
+                closeDelay={80}
+                className="link-btn"
+                onClick={onToggle}
+            >
+                {expanded ? "收起" : "契约"}
+            </Tooltip.Trigger>
+            <Tooltip.Portal>
+                <Tooltip.Positioner
+                    className="error-tooltip-positioner"
+                    side="top"
+                    align="end"
+                    sideOffset={8}
+                    collisionPadding={12}
+                >
+                    <Tooltip.Popup className="contract-tooltip">
+                        <div className="contract-tooltip-head">
+                            <strong>{processName(entry.process)}</strong>
+                            <span className="mono">
+                                {entry.version} 契约摘要
+                            </span>
+                        </div>
+                        <div className="contract-summary">
+                            <SchemaPreviewLine
+                                direction="入"
+                                schema={entry.input}
+                            />
+                            <SchemaPreviewLine
+                                direction="出"
+                                schema={entry.output}
+                            />
+                        </div>
+                        <span className="contract-tooltip-foot">
+                            {expanded
+                                ? "点击收起完整契约表"
+                                : "点击展开完整输入输出 Schema 约束表"}
+                        </span>
+                    </Tooltip.Popup>
+                </Tooltip.Positioner>
+            </Tooltip.Portal>
+        </Tooltip.Root>
+    );
+}
+
+function SchemaPreviewLine({
+    direction,
+    schema,
+}: {
+    direction: "入" | "出";
+    schema: unknown;
+}) {
+    const { branchCount, fields } = extractSchemaFieldSummary(schema);
+    return (
+        <div className="contract-line">
+            <span
+                className={
+                    direction === "入"
+                        ? "contract-badge contract-badge-in"
+                        : "contract-badge contract-badge-out"
+                }
+            >
+                {direction}
+            </span>
+            {branchCount > 1 ? (
+                <span className="contract-branch-tag">{branchCount}模式</span>
+            ) : null}
+            {fields.length > 0 ? (
+                <span className="contract-fields mono">
+                    {"{ "}
+                    {fields.map((field, index) => (
+                        <Fragment key={field.name}>
+                            {index > 0 ? ", " : ""}
+                            <span
+                                className={
+                                    field.required
+                                        ? "contract-field-req"
+                                        : "contract-field-opt"
+                                }
+                            >
+                                {field.name}
+                                {field.required ? "" : "?"}
+                            </span>
+                        </Fragment>
+                    ))}
+                    {" }"}
+                </span>
+            ) : (
+                <span className="cell-meta">未定义</span>
+            )}
+        </div>
+    );
+}
 
 function SchemaTable({ label, schema }: { label: string; schema: unknown }) {
     const parsed = schema as JsonSchema | undefined;
-    if (!parsed?.properties) {
+    if (!parsed) {
         return (
             <p className="hint">
                 {label}：该 Schema 无法自动生成，请查阅业务接口文档。
             </p>
         );
     }
-    const required = new Set(parsed.required ?? []);
+    const defs = parsed.$defs ?? {};
+    const branches = (parsed.oneOf ?? parsed.anyOf) as
+        | readonly JsonSchema[]
+        | undefined;
+    if (
+        Array.isArray(branches) &&
+        branches.length > 0 &&
+        branches.every((b) => b.properties || b.oneOf || b.anyOf)
+    ) {
+        return (
+            <div className="schema-block">
+                <h3>
+                    {label}（{branches.length} 种分支模式）
+                </h3>
+                {branches.map((branch, index) => {
+                    const branchTitle = describeBranchTitle(branch, index);
+                    const rows = flattenSchemaFields(branch, defs);
+                    return (
+                        <div key={branchTitle} className="schema-branch">
+                            <p className="hint schema-branch-title">
+                                <strong>{branchTitle}</strong>
+                            </p>
+                            <FieldRowsTable rows={rows} />
+                        </div>
+                    );
+                })}
+            </div>
+        );
+    }
+    const rows = flattenSchemaFields(parsed, defs);
+    if (rows.length === 0) {
+        return (
+            <p className="hint">
+                {label}：该 Schema 无法自动生成，请查阅业务接口文档。
+            </p>
+        );
+    }
     return (
-        <>
-            <p className="hint">{label}</p>
-            <table>
-                <thead>
-                    <tr>
-                        <th>字段</th>
-                        <th>必填</th>
-                        <th>约束</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {Object.entries(parsed.properties).map(
-                        ([name, property]) => (
-                            <tr key={name}>
-                                <td className="mono">{name}</td>
-                                <td>{required.has(name) ? "是" : "否"}</td>
-                                <td>{describeConstraint(property)}</td>
-                            </tr>
-                        ),
-                    )}
-                </tbody>
-            </table>
-        </>
+        <div className="schema-block">
+            <h3>{label}</h3>
+            <FieldRowsTable rows={rows} />
+        </div>
     );
 }
 
-function describeConstraint(property: Record<string, unknown>): string {
-    const parts: string[] = [String(property.type ?? "any")];
-    if (Array.isArray(property.enum)) parts.push(property.enum.join(" | "));
-    if (property.minLength !== undefined || property.maxLength !== undefined) {
+function FieldRowsTable({ rows }: { rows: readonly FlattenedField[] }) {
+    return (
+        <table>
+            <thead>
+                <tr>
+                    <th>字段</th>
+                    <th>必填</th>
+                    <th>约束</th>
+                </tr>
+            </thead>
+            <tbody>
+                {rows.map((row) => (
+                    <tr key={row.path}>
+                        <td className="mono">{row.path}</td>
+                        <td>{row.required ? "是" : "否"}</td>
+                        <td>{row.constraint}</td>
+                    </tr>
+                ))}
+            </tbody>
+        </table>
+    );
+}
+
+function describeBranchTitle(branch: JsonSchema, index: number): string {
+    const props = branch.properties ?? {};
+    for (const [key, prop] of Object.entries(props)) {
+        if ((prop as JsonSchema).const !== undefined) {
+            return `模式 ${index + 1}：${key} = ${JSON.stringify((prop as JsonSchema).const)}`;
+        }
+    }
+    const required = branch.required ?? [];
+    if (required.length > 0) {
+        return `模式 ${index + 1}（必填：${required.join(", ")}）`;
+    }
+    return `模式 ${index + 1}`;
+}
+
+function flattenSchemaFields(
+    schema: JsonSchema,
+    defs: Record<string, Record<string, unknown>>,
+    prefix = "",
+    depth = 0,
+): FlattenedField[] {
+    if (depth > 3) return [];
+    const rows: FlattenedField[] = [];
+    const properties = schema.properties;
+    if (!properties) return rows;
+    const requiredSet = new Set(schema.required ?? []);
+    for (const [name, rawProp] of Object.entries(properties)) {
+        const prop = resolveRef(rawProp as JsonSchema, defs);
+        if (prop.not !== undefined && Object.keys(prop.not).length === 0) {
+            continue;
+        }
+        const path = prefix ? `${prefix}.${name}` : name;
+        const isRequired = requiredSet.has(name);
+        rows.push({
+            path,
+            required: isRequired,
+            constraint: describeConstraint(prop, defs),
+        });
+        if (prop.properties && depth < 2) {
+            rows.push(...flattenSchemaFields(prop, defs, path, depth + 1));
+        } else if (prop.items && depth < 2) {
+            const itemSchema = resolveRef(prop.items as JsonSchema, defs);
+            if (itemSchema.properties) {
+                rows.push(
+                    ...flattenSchemaFields(
+                        itemSchema,
+                        defs,
+                        `${path}[]`,
+                        depth + 1,
+                    ),
+                );
+            }
+        }
+    }
+    return rows;
+}
+
+function resolveRef(
+    prop: JsonSchema,
+    defs: Record<string, Record<string, unknown>>,
+): JsonSchema {
+    if (typeof prop.$ref === "string" && prop.$ref.startsWith("#/$defs/")) {
+        const defName = prop.$ref.slice("#/$defs/".length);
+        const target = defs[defName];
+        if (target) return target as JsonSchema;
+    }
+    return prop;
+}
+
+function describeConstraint(
+    property: Record<string, unknown>,
+    defs: Record<string, Record<string, unknown>> = {},
+): string {
+    const resolved = resolveRef(property as JsonSchema, defs);
+    if (resolved.const !== undefined) {
+        return `固定值 ${JSON.stringify(resolved.const)}`;
+    }
+    const union = (resolved.oneOf ?? resolved.anyOf) as
+        | readonly JsonSchema[]
+        | undefined;
+    if (Array.isArray(union) && union.length > 0) {
+        const primitiveTypes = union
+            .map((item) => item.type)
+            .filter((t): t is string => typeof t === "string");
+        if (primitiveTypes.length >= 4 && union.some((item) => item.$ref)) {
+            return "JSON 任意值";
+        }
+        const branchSummaries = union.map((branch, idx) => {
+            if (branch.const !== undefined) return JSON.stringify(branch.const);
+            if (branch.properties) {
+                const constEntry = Object.entries(branch.properties).find(
+                    ([, v]) => (v as JsonSchema).const !== undefined,
+                );
+                const keys = Object.keys(branch.properties).join(", ");
+                return constEntry
+                    ? `{ ${constEntry[0]}: ${JSON.stringify((constEntry[1] as JsonSchema).const)}, ... (${keys}) }`
+                    : `{ ${keys} }`;
+            }
+            return String(branch.type ?? `分支${idx + 1}`);
+        });
+        return `联合类型：${branchSummaries.join(" | ")}`;
+    }
+    const parts: string[] = [];
+    if (resolved.type === "array") {
+        const itemSchema = resolved.items
+            ? resolveRef(resolved.items as JsonSchema, defs)
+            : undefined;
+        const itemType = itemSchema?.type ? String(itemSchema.type) : "any";
+        parts.push(`array<${itemType}>`);
+        if (
+            resolved.minItems !== undefined ||
+            resolved.maxItems !== undefined
+        ) {
+            parts.push(
+                `${resolved.minItems ?? 0}–${resolved.maxItems ?? "∞"} 项`,
+            );
+        }
+        if (itemSchema && Array.isArray(itemSchema.enum)) {
+            parts.push(`项枚举：${itemSchema.enum.join(" | ")}`);
+        }
+    } else if (
+        resolved.type === "object" &&
+        !resolved.properties &&
+        typeof resolved.additionalProperties === "object"
+    ) {
+        const valType =
+            (resolved.additionalProperties as JsonSchema).type ?? "any";
+        parts.push(`record<string, ${String(valType)}>`);
+    } else {
+        parts.push(String(resolved.type ?? "any"));
+    }
+    if (Array.isArray(resolved.enum)) parts.push(resolved.enum.join(" | "));
+    if (resolved.minLength !== undefined || resolved.maxLength !== undefined) {
         parts.push(
-            `${property.minLength ?? 0}–${property.maxLength ?? "∞"} 字符`,
+            `${resolved.minLength ?? 0}–${resolved.maxLength ?? "∞"} 字符`,
         );
     }
-    if (property.default !== undefined) {
-        parts.push(`缺省 ${JSON.stringify(property.default)}`);
+    if (resolved.minimum !== undefined || resolved.maximum !== undefined) {
+        parts.push(`${resolved.minimum ?? "-∞"}–${resolved.maximum ?? "∞"}`);
+    }
+    if (typeof resolved.format === "string") {
+        parts.push(`格式 ${resolved.format}`);
+    }
+    if (resolved.default !== undefined) {
+        parts.push(`缺省 ${JSON.stringify(resolved.default)}`);
     }
     return parts.join("，");
 }
@@ -398,11 +1373,30 @@ export function SkillView({
 
 export function SubmitView({
     processes,
+    process,
+    version,
 }: {
     processes: readonly ConsoleProcessDescription[];
+    process?: string;
+    version?: string;
 }) {
-    const [selected, setSelected] = useState("");
+    const initialSelection =
+        process && version ? `${process}/${version}` : (process ?? "");
+    const [selected, setSelected] = useState(initialSelection);
     const [values, setValues] = useState<Record<string, string>>({});
+
+    useEffect(() => {
+        if (process && version) {
+            setSelected(`${process}/${version}`);
+            setValues({});
+        } else if (process) {
+            const match = processes.find((p) => p.process === process);
+            if (match) {
+                setSelected(`${match.process}/${match.version}`);
+                setValues({});
+            }
+        }
+    }, [process, version, processes]);
     const [running, setRunning] = useState(false);
     const [progress, setProgress] = useState<ProcessRunProgress | undefined>(
         undefined,

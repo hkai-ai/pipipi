@@ -8,8 +8,12 @@ export type Route =
     | Readonly<{ view: "live"; runId?: string }>
     | Readonly<{ view: "caller-keys"; callerId?: string }>
     | Readonly<{ view: "run"; runId: string; back?: string }>
-    | Readonly<{ view: "skills" | "submit" }>
-    | Readonly<{ view: "processes"; process?: string; version?: string }>
+    | Readonly<{ view: "skills" }>
+    | Readonly<{
+          view: "processes" | "submit";
+          process?: string;
+          version?: string;
+      }>
     | Readonly<{ view: "skill"; name: string; version: string }>;
 
 export function parseRoute(hash: string): Route {
@@ -70,13 +74,13 @@ export function parseRoute(hash: string): Route {
                 hours: [1, 24, 168, 720].includes(hours) ? hours : 24,
             };
         }
-        if (head === "processes")
+        if (head === "processes" || head === "submit")
             return {
-                view: "processes",
+                view: head,
                 process: params.get("process") || undefined,
                 version: params.get("version") || undefined,
             };
-        if (head === "skills" || head === "submit") return { view: head };
+        if (head === "skills") return { view: head };
     } catch {
         /* A malformed shared link returns to the overview. */
     }
@@ -93,9 +97,10 @@ export function hrefFor(route: Route): string {
     const query = new URLSearchParams();
     switch (route.view) {
         case "processes":
+        case "submit":
             if (route.process) query.set("process", route.process);
             if (route.version) query.set("version", route.version);
-            return `#/processes${query.size ? `?${query}` : ""}`;
+            return `#/${route.view}${query.size ? `?${query}` : ""}`;
         case "caller-keys":
             if (route.callerId !== undefined)
                 query.set("callerId", route.callerId);

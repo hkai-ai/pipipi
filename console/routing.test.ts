@@ -15,6 +15,17 @@ describe("console navigation", () => {
             process: "retired",
             version: "v99",
         });
+        const submitRoute = {
+            view: "submit",
+            process: "character-emoji",
+            version: "v3",
+        } as const;
+        expect(parseRoute(hrefFor(submitRoute))).toEqual(submitRoute);
+        expect(parseRoute("#/submit")).toEqual({
+            view: "submit",
+            process: undefined,
+            version: undefined,
+        });
     });
     it("keeps exact version, errors and timestamp boundaries through a shared link", () => {
         const route = {

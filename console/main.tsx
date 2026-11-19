@@ -179,7 +179,9 @@ function Console() {
                     ) : null}
                     {route.view === "processes" ? (
                         <ProcessesView
-                            key={hrefFor(route)}
+                            processes={catalog.value?.processes ?? []}
+                            loading={catalog.loading}
+                            error={catalog.error}
                             process={route.process}
                             version={route.version}
                         />
@@ -196,6 +198,8 @@ function Console() {
                         ) : (
                             <SubmitView
                                 processes={catalog.value?.processes ?? []}
+                                process={route.process}
+                                version={route.version}
                             />
                         )
                     ) : null}

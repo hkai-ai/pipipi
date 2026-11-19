@@ -161,20 +161,68 @@ browserDescribe("operator observation browser", () => {
         const planner = { name: "test-planner", version: "v1" };
         const single = { name: "test-planner", version: "v2" };
         const processes = [
-            { version: "v2", skills: [planner] },
-            { version: "v3", skills: [single] },
-            { version: "v4", skills: [] },
-        ].map(({ version, skills }) => ({
+            {
+                version: "v2",
+                skills: [planner],
+                input: {
+                    anyOf: [
+                        {
+                            type: "object",
+                            properties: {
+                                idea: { type: "string", maxLength: 200 },
+                                cast: {
+                                    type: "array",
+                                    minItems: 1,
+                                    items: {
+                                        type: "object",
+                                        properties: {
+                                            character: {
+                                                type: "string",
+                                                enum: ["DeepSeek", "Claude"],
+                                            },
+                                        },
+                                        required: ["character"],
+                                    },
+                                },
+                            },
+                            required: ["idea", "cast"],
+                        },
+                        {
+                            type: "object",
+                            properties: {
+                                mode: { type: "string", const: "comic" },
+                                idea: { type: "string", maxLength: 800 },
+                            },
+                            required: ["mode", "idea"],
+                        },
+                    ],
+                },
+            },
+            {
+                version: "v3",
+                skills: [single],
+                input: {
+                    type: "object",
+                    properties: { idea: { type: "string" } },
+                    required: ["idea"],
+                },
+            },
+            {
+                version: "v4",
+                skills: [],
+                input: {
+                    type: "object",
+                    properties: { idea: { type: "string" } },
+                    required: ["idea"],
+                },
+            },
+        ].map(({ version, skills, input }) => ({
             process: "character-emoji",
             version,
             skills,
-            activities: ["planning"],
+            activities: ["character_emoji_planning"],
             retry: { maximumAttempts: 1, retryableErrorCodes: [] },
-            input: {
-                type: "object",
-                properties: { idea: { type: "string" } },
-                required: ["idea"],
-            },
+            input,
         }));
         for (let i = 0; i < 54; i += 1)
             await records.store({
@@ -331,6 +379,35 @@ browserDescribe("operator observation browser", () => {
                 .getByRole("link", { name: "test-planner · v1" })
                 .waitFor();
             expect(await detail.innerText()).not.toContain("test-planner · v2");
+            expect(await detail.innerText()).toContain("2 种分支模式");
+            expect(await detail.innerText()).toContain("cast[].character");
+            expect(await detail.innerText()).toContain('mode = "comic"');
+            await detail.getByRole("link", { name: "去手动调试" }).click();
+            await page.waitForURL(
+                "**/#/submit?process=character-emoji&version=v2",
+            );
+            expect(
+                await page
+                    .getByRole("combobox", { name: "Business Process" })
+                    .innerText(),
+            ).toContain("character-emoji / v2");
+            await page.goto(`${url}#/processes`);
+            await page
+                .getByText("共 1 / 1 个业务流程（3 / 3 个版本）")
+                .waitFor();
+            await page
+                .getByRole("button", { name: "切换到 角色表情包 v2" })
+                .click();
+            await page.getByText("test-planner@v1").waitFor();
+            await page.getByLabel("搜索流程").fill("test-planner@v2");
+            await page
+                .getByText("共 1 / 1 个业务流程（1 / 3 个版本）")
+                .waitFor();
+            await page.getByText("test-planner@v2").waitFor();
+            await page.getByLabel("搜索流程").fill("");
+            await page
+                .getByText("共 1 / 1 个业务流程（3 / 3 个版本）")
+                .waitFor();
             await page.goto(
                 `${url}#/processes?process=character-emoji&version=v4`,
             );
