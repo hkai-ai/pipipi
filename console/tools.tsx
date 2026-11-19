@@ -87,7 +87,7 @@ function ProcessEntry({
                 {entry.retry.maximumAttempts}
             </p>
             <h3>当前声明的 Runtime Skill</h3>
-            {entry.skills.length > 0 ? (
+            {entry.skills?.length ? (
                 <ul>
                     {entry.skills.map(({ name, version }) => (
                         <li key={`${name}@${version}`}>
