@@ -1,8 +1,9 @@
 /** 本地开发控制台按 runId 轮询活跃请求，结束或离开后清除已展开的临时正文。 */
-import { useEffect, useState } from "preact/hooks";
+import { useEffect, useState } from "react";
 import type { LocalTraceEvent } from "../src/process-runtime/local-trace.js";
 import { Panel } from "./formatting.jsx";
 import { hrefFor } from "./routing.js";
+import { CollapsibleSection } from "./ui.jsx";
 
 type Run = { runId: string; process: string; version: string };
 type Data = {
@@ -58,7 +59,7 @@ export function LiveView({ runId }: { runId?: string }) {
                     <h3>{runId}</h3>
                 </>
             ) : (
-                <p class="hint">
+                <p className="hint">
                     在本机通过 /execute 发起请求后，选择正在执行的运行。
                 </p>
             )}
@@ -74,11 +75,11 @@ export function LiveView({ runId }: { runId?: string }) {
                 </p>
             ))}
             {data.events?.length === 0 ? <p>尚未采集到可展示的字段。</p> : null}
-            {data.events?.map((event, index) => (
-                <details key={index}>
-                    <summary>
-                        {labels[event.kind]} · {event.field}
-                    </summary>
+            {data.events?.map((event) => (
+                <CollapsibleSection
+                    key={`${event.kind}-${event.field}-${event.activityId ?? ""}-${event.sessionId ?? ""}-${event.round ?? ""}-${event.call ?? ""}`}
+                    title={`${labels[event.kind]} · ${event.field}`}
+                >
                     {event.activityId ? (
                         <small>
                             活动 {event.activityId}
@@ -92,11 +93,11 @@ export function LiveView({ runId }: { runId?: string }) {
                     {event.value !== undefined ? (
                         <pre>{event.value}</pre>
                     ) : null}
-                    {event.note ? <p class="hint">{event.note}</p> : null}
-                </details>
+                    {event.note ? <p className="hint">{event.note}</p> : null}
+                </CollapsibleSection>
             ))}
             {runId ? (
-                <p class="hint">正式业务输出由原 POST /execute 返回。</p>
+                <p className="hint">正式业务输出由原 POST /execute 返回。</p>
             ) : null}
             {runId && data.ended ? (
                 <a href={hrefFor({ view: "run", runId })}>

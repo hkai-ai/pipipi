@@ -5,6 +5,7 @@ import path from "node:path";
 import { chromium } from "playwright-core";
 import { describe, expect, it } from "vitest";
 import { createProcessingRequestListener } from "../src/api/http.js";
+import { createInMemoryCallerApiKeyStore } from "../src/caller-api-keys/memory.js";
 import {
     createJsonlProcessRunActivityArchive,
     createJsonlProcessRunRecordArchive,
@@ -17,6 +18,129 @@ const browserDescribe =
         ? describe
         : describe.skip;
 browserDescribe("operator observation browser", () => {
+    it("manages caller keys through a protected custom Console base path", async () => {
+        const listener = createProcessingRequestListener(
+            {
+                execute: async () => {
+                    throw new Error("Unexpected execution");
+                },
+            },
+            {
+                console: {
+                    basePath: "/ops-secret",
+                    assetDirectory: path.resolve("dist/console"),
+                    records: {
+                        list: async () => ({ records: [] }),
+                        find: async () => undefined,
+                    },
+                    callerKeys: {
+                        store: createInMemoryCallerApiKeyStore(),
+                        persistent: false,
+                        executeAuthMode: "audit",
+                        gatewayFallbackEnabled: true,
+                    },
+                },
+            },
+        );
+        const credentials = { username: "operator", password: "console-test" };
+        const basic = Buffer.from(
+            `${credentials.username}:${credentials.password}`,
+        ).toString("base64");
+        const server = createServer((request, response) => {
+            if (request.headers.authorization !== `Basic ${basic}`) {
+                response.writeHead(401, {
+                    "www-authenticate": 'Basic realm="console-test"',
+                });
+                response.end();
+                return;
+            }
+            listener(request, response);
+        });
+        const browser = await chromium.launch({
+            executablePath: await chromeExecutable(),
+            headless: true,
+        });
+        try {
+            await new Promise<void>((resolve) =>
+                server.listen(0, "127.0.0.1", resolve),
+            );
+            const address = server.address();
+            if (!address || typeof address === "string")
+                throw new Error("Missing address");
+            const url = `http://127.0.0.1:${address.port}/ops-secret/`;
+            expect((await fetch(`${url}caller-keys`)).status).toBe(401);
+            const context = await browser.newContext({
+                httpCredentials: credentials,
+            });
+            const page = await context.newPage();
+            await page.goto(url);
+            await page.getByRole("link", { name: "调用方密钥" }).click();
+            await page.getByRole("heading", { name: "调用方密钥" }).waitFor();
+            await page.getByText("audit", { exact: true }).waitFor();
+            await page.getByText("本地内存开发模式").waitFor();
+            await page
+                .getByLabel("调用方 ID", { exact: true })
+                .fill("memebuy-uat");
+            await page
+                .getByLabel("用途标签", { exact: true })
+                .fill("UAT backend");
+            await page.getByRole("button", { name: "发放密钥" }).click();
+            const secret = page.locator(".secret-value");
+            await secret.waitFor();
+            expect(await secret.textContent()).toMatch(
+                /^ppk_[0-9a-f]{8}_[A-Za-z0-9_-]{43}$/,
+            );
+            const key = await secret.innerText();
+            const keysTable = page.getByRole("table", { name: "密钥列表" });
+            const audits = page.getByRole("table", { name: "操作审计" });
+            const row = keysTable
+                .getByRole("row")
+                .filter({ hasText: "memebuy-uat" });
+            await row.getByText("有效", { exact: true }).waitFor();
+            await audits.getByText("发放", { exact: true }).waitFor();
+            await page.setViewportSize({ width: 390, height: 844 });
+            expect(
+                await page.evaluate(
+                    () => document.documentElement.scrollWidth <= innerWidth,
+                ),
+            ).toBe(true);
+            await page
+                .getByRole("button", { name: "我已保存，关闭提示" })
+                .click();
+            await secret.waitFor({ state: "detached" });
+
+            await page.getByLabel("按调用方 ID 筛选").fill("memebuy-uat");
+            await page
+                .getByRole("button", { name: "筛选", exact: true })
+                .click();
+            await page.waitForURL("**/#/caller-keys?callerId=memebuy-uat");
+            await row
+                .getByRole("button", { name: "吊销", exact: true })
+                .click();
+            await page.getByRole("alertdialog").waitFor();
+            await page.getByLabel("吊销操作人").fill("operator");
+            await page.getByLabel("吊销原因").fill("已轮换");
+            await page.getByRole("button", { name: "确认吊销" }).click();
+            await row.getByText("已吊销", { exact: true }).waitFor();
+            await audits.getByText("已轮换", { exact: true }).waitFor();
+            await page.reload();
+            await row.getByText("已吊销", { exact: true }).waitFor();
+            expect(await page.locator("body").innerText()).not.toContain(key);
+            expect(await page.getByLabel("按调用方 ID 筛选").inputValue()).toBe(
+                "memebuy-uat",
+            );
+            await context.close();
+        } finally {
+            await browser.close();
+            if (server.listening)
+                await new Promise<void>((resolve, reject) =>
+                    server.close((error) =>
+                        error ? reject(error) : resolve(),
+                    ),
+                );
+        }
+    }, 30_000);
+
     it("drills from full-window failures to exact versions, returns to filters and handles unavailable data", async () => {
         const directory = await mkdtemp(
             path.join(tmpdir(), "pipipi-console-observation-"),
@@ -37,20 +161,68 @@ browserDescribe("operator observation browser", () => {
         const planner = { name: "test-planner", version: "v1" };
         const single = { name: "test-planner", version: "v2" };
         const processes = [
-            { version: "v2", skills: [planner] },
-            { version: "v3", skills: [single] },
-            { version: "v4", skills: [] },
-        ].map(({ version, skills }) => ({
+            {
+                version: "v2",
+                skills: [planner],
+                input: {
+                    anyOf: [
+                        {
+                            type: "object",
+                            properties: {
+                                idea: { type: "string", maxLength: 200 },
+                                cast: {
+                                    type: "array",
+                                    minItems: 1,
+                                    items: {
+                                        type: "object",
+                                        properties: {
+                                            character: {
+                                                type: "string",
+                                                enum: ["DeepSeek", "Claude"],
+                                            },
+                                        },
+                                        required: ["character"],
+                                    },
+                                },
+                            },
+                            required: ["idea", "cast"],
+                        },
+                        {
+                            type: "object",
+                            properties: {
+                                mode: { type: "string", const: "comic" },
+                                idea: { type: "string", maxLength: 800 },
+                            },
+                            required: ["mode", "idea"],
+                        },
+                    ],
+                },
+            },
+            {
+                version: "v3",
+                skills: [single],
+                input: {
+                    type: "object",
+                    properties: { idea: { type: "string" } },
+                    required: ["idea"],
+                },
+            },
+            {
+                version: "v4",
+                skills: [],
+                input: {
+                    type: "object",
+                    properties: { idea: { type: "string" } },
+                    required: ["idea"],
+                },
+            },
+        ].map(({ version, skills, input }) => ({
             process: "character-emoji",
             version,
             skills,
-            activities: ["planning"],
+            activities: ["character_emoji_planning"],
             retry: { maximumAttempts: 1, retryableErrorCodes: [] },
-            input: {
-                type: "object",
-                properties: { idea: { type: "string" } },
-                required: ["idea"],
-            },
+            input,
         }));
         for (let i = 0; i < 54; i += 1)
             await records.store({
@@ -137,7 +309,7 @@ browserDescribe("operator observation browser", () => {
             page.on("pageerror", (error) => errors.push(error.message));
             await page.goto(url);
             await page.getByRole("heading", { name: "运行概览" }).waitFor();
-            await page.getByText("56", { exact: true }).waitFor();
+            await page.getByText("56", { exact: true }).first().waitFor();
             await page.getByText("54", { exact: true }).first().waitFor();
             const output = path.resolve("artifacts/agent-diagnostics/console");
             await mkdir(output, { recursive: true });
@@ -156,8 +328,10 @@ browserDescribe("operator observation browser", () => {
             await group.getByRole("link", { name: "排查记录" }).click();
             await page.getByText("已加载 50 条").waitFor();
             expect(
-                await page.getByLabel("流程版本", { exact: true }).inputValue(),
-            ).toBe("v3");
+                await page
+                    .getByRole("combobox", { name: "流程版本", exact: true })
+                    .innerText(),
+            ).toContain("v3");
             expect(
                 await page.getByText("failure-v2", { exact: true }).count(),
             ).toBe(0);
@@ -181,12 +355,14 @@ browserDescribe("operator observation browser", () => {
             await page
                 .getByText("流程版本定义一次业务调用", { exact: false })
                 .waitFor();
-            await page.locator("details[open]").waitFor();
-            expect(await page.locator("details[open]").count()).toBe(1);
-            expect(await page.locator("details[open]").innerText()).toContain(
-                "流程版本 v3",
-            );
-            const detail = page.locator("details[open]");
+            await page.locator(".ui-collapsible[data-open]").waitFor();
+            expect(
+                await page.locator(".ui-collapsible[data-open]").count(),
+            ).toBe(1);
+            expect(
+                await page.locator(".ui-collapsible[data-open]").innerText(),
+            ).toContain("流程版本 v3");
+            const detail = page.locator(".ui-collapsible[data-open]");
             expect(await detail.innerText()).toContain(
                 "当前声明的 Runtime Skill",
             );
@@ -203,6 +379,35 @@ browserDescribe("operator observation browser", () => {
                 .getByRole("link", { name: "test-planner · v1" })
                 .waitFor();
             expect(await detail.innerText()).not.toContain("test-planner · v2");
+            expect(await detail.innerText()).toContain("2 种分支模式");
+            expect(await detail.innerText()).toContain("cast[].character");
+            expect(await detail.innerText()).toContain('mode = "comic"');
+            await detail.getByRole("link", { name: "去手动调试" }).click();
+            await page.waitForURL(
+                "**/#/submit?process=character-emoji&version=v2",
+            );
+            expect(
+                await page
+                    .getByRole("combobox", { name: "Business Process" })
+                    .innerText(),
+            ).toContain("character-emoji / v2");
+            await page.goto(`${url}#/processes`);
+            await page
+                .getByText("共 1 / 1 个业务流程（3 / 3 个版本）")
+                .waitFor();
+            await page
+                .getByRole("button", { name: "切换到 角色表情包 v2" })
+                .click();
+            await page.getByText("test-planner@v1").waitFor();
+            await page.getByLabel("搜索流程").fill("test-planner@v2");
+            await page
+                .getByText("共 1 / 1 个业务流程（1 / 3 个版本）")
+                .waitFor();
+            await page.getByText("test-planner@v2").waitFor();
+            await page.getByLabel("搜索流程").fill("");
+            await page
+                .getByText("共 1 / 1 个业务流程（3 / 3 个版本）")
+                .waitFor();
             await page.goto(
                 `${url}#/processes?process=character-emoji&version=v4`,
             );
@@ -213,7 +418,9 @@ browserDescribe("operator observation browser", () => {
                     .replace("#/runs", "#/processes"),
             );
             await page.getByText("当前服务未注册", { exact: false }).waitFor();
-            expect(await page.locator("details[open]").count()).toBe(0);
+            expect(
+                await page.locator(".ui-collapsible[data-open]").count(),
+            ).toBe(0);
             await page.goto(filteredUrl);
             await page.getByText("已加载 50 条").waitFor();
             await page.evaluate(() => window.scrollTo(0, 700));
@@ -241,7 +448,9 @@ browserDescribe("operator observation browser", () => {
             await page
                 .getByText("失败步骤：业务处理步骤", { exact: true })
                 .waitFor();
-            expect(await page.locator("details[open]").count()).toBe(0);
+            expect(
+                await page.locator(".ui-collapsible[data-open]").count(),
+            ).toBe(0);
             await page.screenshot({
                 path: path.join(output, "run-detail.png"),
                 fullPage: true,
@@ -324,19 +533,26 @@ browserDescribe("operator observation browser", () => {
             await page.reload();
             await page.getByText("已加载 50 条").waitFor();
             expect(
-                await page.getByLabel("流程版本", { exact: true }).inputValue(),
-            ).toBe("v3");
+                await page
+                    .getByRole("combobox", { name: "流程版本", exact: true })
+                    .innerText(),
+            ).toContain("v3");
             await page.getByRole("link", { name: "清除筛选" }).click();
             await page.getByText("failure-v2", { exact: true }).waitFor();
             await page.goto(`${url}#/submit`);
             await page
-                .getByLabel("Business Process")
-                .selectOption("character-emoji/v3");
-            expect(await page.getByLabel("Business Process").inputValue()).toBe(
-                "character-emoji/v3",
-            );
+                .getByRole("combobox", { name: "Business Process" })
+                .click();
+            await page
+                .getByRole("option", { name: "character-emoji / v3" })
+                .click();
+            expect(
+                await page
+                    .getByRole("combobox", { name: "Business Process" })
+                    .innerText(),
+            ).toContain("character-emoji / v3");
             await page.goto(`${url}#/overview?hours=168`);
-            await page.getByText("56", { exact: true }).waitFor();
+            await page.getByText("56", { exact: true }).first().waitFor();
             await page.setViewportSize({ width: 390, height: 844 });
             await page.screenshot({
                 path: path.join(output, "overview-mobile.png"),
@@ -375,7 +591,7 @@ browserDescribe("operator observation browser", () => {
                 fullPage: false,
             });
             await page.goto(`${url}#/overview`);
-            await page.getByText("56", { exact: true }).waitFor();
+            await page.getByText("56", { exact: true }).first().waitFor();
             await page.route("**/ops/stats?*", (route) =>
                 route.fulfill({ status: 503, body: "unavailable" }),
             );

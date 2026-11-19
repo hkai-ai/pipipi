@@ -160,9 +160,13 @@ acceptanceDescribe("built Console async browser acceptance", () => {
 
                     await page.goto(`${environment.url}/console/#/runs`);
                     await page
-                        .getByLabel("业务", { exact: true })
-                        .selectOption("template-image-render");
-                    await page.getByLabel("状态").selectOption("failed");
+                        .getByRole("combobox", { name: "业务", exact: true })
+                        .click();
+                    await page
+                        .getByRole("option", { name: /template-image-render$/ })
+                        .click();
+                    await page.getByRole("combobox", { name: "状态" }).click();
+                    await page.getByRole("option", { name: "失败" }).click();
                     await page
                         .getByLabel("错误码")
                         .fill("DEPENDENCY_FAILURE_AFTER_COMMIT");
@@ -213,9 +217,10 @@ acceptanceDescribe("built Console async browser acceptance", () => {
 
 async function fillApproval(page: Page, reviewer: string) {
     const input = renderApproval(reviewer);
+    await page.getByRole("combobox", { name: "Business Process" }).click();
     await page
-        .getByLabel("Business Process")
-        .selectOption("template-image-render/v1");
+        .getByRole("option", { name: "template-image-render / v1" })
+        .click();
     for (const [name, value] of Object.entries(input)) {
         await page.getByLabel(`${name} *`, { exact: true }).fill(value);
     }

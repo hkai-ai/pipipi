@@ -23,6 +23,8 @@ const names: Record<string, string> = {
     "monochrome-photo-poster": "黑白蜡笔海报",
     "woodcut-photo-poster": "木刻海报",
     "photo-fashion-manga": "时装漫画",
+    "memory-checklist-photo-poster": "记忆清单海报",
+    "risograph-album": "复古唱片封面",
     "composed-task": "组合任务",
 };
 export function processName(id?: string): string {
@@ -47,6 +49,7 @@ const activities: Record<string, string> = {
     template_compilation: "编译模板",
     template_correction: "修正模板",
     template_review: "独立复核模板",
+    template_review_correction: "修正复核问题",
     template_validation: "校验模板",
     photo_poster_compilation: "编译照片海报方案",
     photo_poster_rendering: "生成照片海报",
@@ -61,6 +64,7 @@ const activities: Record<string, string> = {
     master_generation: "生成母版",
     master_verification: "校验母版",
     master_upload: "上传母版",
+    planner_session: "规划组合步骤",
     process_step: "执行子流程",
 };
 export function activityName(id: string): string {

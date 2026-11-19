@@ -253,6 +253,12 @@ describe("Async production environment provisioning", () => {
         expect(contents[3]).toContain(REDIS_URL);
         expect(contents[4]).not.toContain(REDIS_URL);
         expect(contents[0]).toContain("ASYNC_GATEWAY_SHARED_SECRET=");
+        expect(contents[0]).toContain("EXECUTE_AUTH_MODE=audit");
+        expect(contents[0]).toContain("CALLER_AUTH_GATEWAY_FALLBACK=false");
+        for (const content of contents.slice(1)) {
+            expect(content).not.toContain("EXECUTE_AUTH_MODE");
+            expect(content).not.toContain("CALLER_AUTH_GATEWAY_FALLBACK");
+        }
         expect(contents[3]).toContain("WEBHOOK_SECRET_ENCRYPTION_KEY=");
         expect(contents[1]).not.toContain("OPENAI_API_KEY");
         expect(contents[2]).toContain("OPENAI_API_KEY=openai-secret");
@@ -638,6 +644,8 @@ describe("Async production environment provisioning", () => {
                 "OPENAI_IMAGE_API_KEY=image-secret-must-not-copy",
                 "CHARACTER_EMOJI_IMAGE_API_KEY=flare-secret-must-not-copy",
                 "CHARACTER_EMOJI_IMAGE_ENABLED=true",
+                "EXECUTE_AUTH_MODE=audit",
+                "CALLER_AUTH_GATEWAY_FALLBACK=false",
                 "FAL_KEY=fal-secret-must-not-copy",
                 "OSS_ACCESS_KEY_SECRET=oss-secret-must-not-copy",
                 "",

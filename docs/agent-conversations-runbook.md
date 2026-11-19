@@ -43,18 +43,20 @@ docker compose -f compose.integration.yaml down
 
 | 角色 | 必需配置 |
 | --- | --- |
-| API | `AGENT_CONVERSATIONS_ENABLED=true`、`DATABASE_URL`、`REDIS_URL`、`PI_PROVIDER`、`PI_MODEL`、`AGENT_GATEWAY_SHARED_SECRET`、资源服务地址与 Secret、三个 backlog 控制 |
+| API | `AGENT_CONVERSATIONS_ENABLED=true`、`DATABASE_URL`、`REDIS_URL`、`PI_PROVIDER`、`PI_MODEL`、网关回落开启时的 `AGENT_GATEWAY_SHARED_SECRET`、资源服务地址与 Secret、三个 backlog 控制 |
 | Process Dispatcher | 同一开关、数据库、Redis、同一 Queue identity、三个 backlog 控制 |
 | Process Worker | 同一开关、数据库、Redis、同一 Queue identity、Pi 模型与凭证、资源服务、三个 backlog 控制 |
 | Retention Cleaner | 同一开关和数据库；清理批次参数可选 |
 
 三个必需 admission 变量是 `AGENT_GLOBAL_BACKLOG_LIMIT`、`AGENT_CALLER_BACKLOG_LIMIT` 和 `AGENT_BACKLOG_RETRY_AFTER_SECONDS`。caller 上限不得大于全局上限。请求不能覆盖这些值；caller 与全局饱和都返回 HTTP 429 和固定 `Retry-After`。
 
-`AGENT_GATEWAY_SHARED_SECRET` 与 `AGENT_RESOURCE_SERVICE_SHARED_SECRET` 至少 32 bytes、用途分离。入口网关必须删除外部 `x-pipipi-caller-id` 和 `x-pipipi-gateway-token`，完成用户认证后再注入内部 caller identity。应用端口和资源服务端口只能由受信网络访问。
+调用方使用与 `/execute`、`/process-runs` 相同的 Bearer API Key；发放、同 callerId 轮换与吊销见[密钥管理](mvp-release-runbook.md#调用方-api-key-管理与迁移)。先应用 `020_caller_api_keys.mjs`。`CALLER_AUTH_GATEWAY_FALLBACK=true`（默认）时 `AGENT_GATEWAY_SHARED_SECRET` 至少 32 bytes；关闭回落则仅需持久 Key 验证的 DATABASE_URL，不再要求网关共享密钥。资源服务仍独立要求至少 32 bytes 的 `AGENT_RESOURCE_SERVICE_SHARED_SECRET`。OpenResty 必须透传 Authorization，删除外部 `x-pipipi-caller-id` 和 `x-pipipi-gateway-token`，仅在过渡期为已认证的旧调用方注入身份。应用端口和资源服务端口只能由受信网络访问。
 
 owned resource service 必须实现 `GET /readyz`，以及 Bearer Secret 保护的 `POST /agent-resources/inspect`、`POST /agent-resources/model-content`、`POST /agent-resources/read-projection` 和 `POST /agent-resources/process-output`。最后一个接口只接收 Worker 已成功执行的 priced Process Tool envelope，把其中业务图片复制或登记为当前 owner/Turn 的稳定资源，并返回保持原 invocation/process/version/status、但图片包含 `resourceId` 的净化 envelope。后续 `inspect` 必须能用同一 owner、Turn 和 `resourceId` 证明输出来源；失败按 after-commit 处理，不能重新执行付费 Tool。资源服务不得记录 Bearer Secret、业务图片 URL、模型内容或完整 Tool envelope。
 
 每个生产 Agent 的 Runtime Skill 固定为准确 name/version/SHA-256，部署覆盖只能切换到内容完全相同的受审快照，不能绕过摘要校验。模型、provider 和 endpoint 是行为配置的一部分；任何变化都会生成新的 `configRevision`。
+
+控制台继续由 Basic Auth 保护；`EXECUTE_AUTH_MODE=open → audit → required` 仅调整同步执行，Agent Conversations 始终要求身份，详情见上述迁移步骤。
 
 ## 分阶段启用
 

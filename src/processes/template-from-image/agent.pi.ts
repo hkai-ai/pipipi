@@ -5,6 +5,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { z } from "zod";
 import { AgentJsonSyntaxError } from "../../agent-runtime/pi.js";
+import { skillPromptCacheKey } from "../../agent-runtime/skills.js";
 import {
     PiStructuredAgent,
     type PiStructuredAgentOptions,
@@ -103,11 +104,18 @@ export class PiTemplateAgent implements TemplateAgent {
             "reviewedPlanSha256 回传输入摘要；补丁使用输入计划中已有路径。运行语义只修改 /analysis/semanticModel；draft 下不存在第二份运行语义。review.evidence 可以引用最终候选的对应字段，不引用 targetScopes、backendFactRefs、relationIndex 或 runtimeFactRef。",
             "slotRecallComplete.evidence 按响应 Schema 使用八轴具名对象，每轴记录对应 /analysis/slotCoverageReview/ 路径和实际取舍依据，不适用也必须说明。存在文字区域时，textEditLayersComplete.evidence 分为 textRegions、visualContract 两组：前组独立记录附件中的文字观察，后组对照正式约束说明这些可见特征如何保留或需要怎样修正。结构校验不证明视觉正确。",
         ];
-        this.#agent = new PiStructuredAgent({
+        const sharedOptions: Omit<PiStructuredAgentOptions, "instructions"> = {
             ...options,
+            // 76KB 的 Skill 正文与公共规则放最前，并绑定按版本固定的缓存键，最大化前缀缓存复用。
+            skillFirst: options.skillFirst ?? true,
+            promptCacheKey:
+                options.promptCacheKey ?? skillPromptCacheKey(options.skills),
             sessionFactory,
             thinkingLevel: options.runtimeVersion === 3 ? "low" : "medium",
             jsonMode: true,
+        };
+        this.#agent = new PiStructuredAgent({
+            ...sharedOptions,
             instructions: [
                 ...common,
                 `analysis 按 Schema 输出：${schemaText(compactAnalysisSchema)}。`,
@@ -116,10 +124,7 @@ export class PiTemplateAgent implements TemplateAgent {
             ],
         });
         this.#reviewer = {
-            ...options,
-            sessionFactory,
-            thinkingLevel: options.runtimeVersion === 3 ? "low" : "medium",
-            jsonMode: true,
+            ...sharedOptions,
             instructions: [
                 ...common,
                 `输入计划和补丁解码后的值使用展开格式：${schemaText(templatePlanAnalysisSchema)}。`,

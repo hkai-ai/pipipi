@@ -1,3 +1,4 @@
+/** 构建同源运维控制台并配置本地 API 开发代理。 */
 import { fileURLToPath } from "node:url";
 import { defineConfig, loadEnv } from "vite";
 import { createDevelopmentGateway } from "./development-gateway.js";
@@ -19,6 +20,7 @@ export default defineConfig(({ command, mode }) => {
         environment,
     });
 
+    const consoleBasePath = environment.CONSOLE_BASE_PATH?.trim() || "/console";
     return {
         root: fileURLToPath(new URL(".", import.meta.url)),
         base: "./",
@@ -30,15 +32,16 @@ export default defineConfig(({ command, mode }) => {
         },
         esbuild: {
             jsx: "automatic",
-            jsxImportSource: "preact",
+            jsxImportSource: "react",
         },
         server: {
             // `npm run dev:console` talks to a locally running API.
             proxy: {
-                "/console/runs": "http://127.0.0.1:4300",
-                "/console/processes": "http://127.0.0.1:4300",
-                "/console/skills": "http://127.0.0.1:4300",
-                "/console/stats": "http://127.0.0.1:4300",
+                [`${consoleBasePath}/runs`]: "http://127.0.0.1:4300",
+                [`${consoleBasePath}/processes`]: "http://127.0.0.1:4300",
+                [`${consoleBasePath}/skills`]: "http://127.0.0.1:4300",
+                [`${consoleBasePath}/stats`]: "http://127.0.0.1:4300",
+                [`${consoleBasePath}/caller-keys`]: "http://127.0.0.1:4300",
                 ...(developmentGateway
                     ? { "/process-runs": developmentGateway }
                     : {}),

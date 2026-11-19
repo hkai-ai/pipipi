@@ -352,6 +352,13 @@ function isProcessRunRecord(value: unknown): value is ProcessRunRecord {
     if (typeof value !== "object" || value === null) return false;
     const candidate = value as Record<string, unknown>;
     return (
+        (candidate.callerId === undefined ||
+            (typeof candidate.callerId === "string" &&
+                candidate.callerId.trim().length > 0)) &&
+        (candidate.authMethod === undefined ||
+            candidate.authMethod === "api_key" ||
+            candidate.authMethod === "gateway" ||
+            candidate.authMethod === "anonymous") &&
         candidate.schemaVersion === 1 &&
         typeof candidate.recordedAt === "string" &&
         typeof candidate.runId === "string" &&

@@ -23,6 +23,14 @@ afterEach(async () => {
 });
 
 describe("Startup Construction", () => {
+    it("treats a whitespace DATABASE_URL as unconfigured for local open authentication", async () => {
+        const service = constructProcessingService({
+            CRT_BUSINESS_API_BASE_URL: "https://business.example",
+            DATABASE_URL: " \t ",
+        });
+        await service.application.close();
+        expect(service.port).toBe(3000);
+    });
     it("registers minimal-zine-poster/v1 in the production catalog", () => {
         const runtime = createProductionRuntime({
             CRT_BUSINESS_API_BASE_URL: "https://business.example",
@@ -519,12 +527,20 @@ describe("Startup Construction", () => {
         const constructed = constructProcessingService({
             CRT_BUSINESS_API_BASE_URL: "https://business.example",
             ASYNC_PROCESS_RUNS_ENABLED: "false",
-            DATABASE_URL: "not-a-database-url",
-            ASYNC_GATEWAY_SHARED_SECRET: "short",
             PROCESS_RUN_ACCEPTED_INPUT_RETENTION_MS: "invalid",
         });
 
         expect(constructed.port).toBe(3000);
+    });
+
+    it("validates DATABASE_URL even when async execution is off because caller keys use it", () => {
+        expect(() =>
+            constructProcessingService({
+                CRT_BUSINESS_API_BASE_URL: "https://business.example",
+                ASYNC_PROCESS_RUNS_ENABLED: "false",
+                DATABASE_URL: "not-a-database-url",
+            }),
+        ).toThrow("DATABASE_URL");
     });
 
     it.each(["", "TRUE", "yes", "0"])(

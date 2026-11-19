@@ -1,6 +1,6 @@
 # 图片替换方案
 
-`template-image-plan/v1` 使用真实图片附件与固定 Runtime Skill 输出未批准的替换策略，不生图、不上传。调用方必须展示完整策略，等待第一次人工确认。
+`template-image-plan/v1` 使用真实图片附件与固定 Runtime Skill 输出未批准的替换策略，不生图、不上传。系统提示将约 27KB Skill 正文置于规划与修正指令之前（`skillFirst`），并在 OpenAI 协议下绑定稳定 `prompt_cache_key`（`template-image-preparer:v3`）共享前缀缓存。调用方必须展示完整策略，等待第一次人工确认。
 
 模板制作的新方案默认保留原图的透明区域，明确指定的背景要求优先。背景随方案批准固定，旧方案需重新规划才能匹配原图。
 

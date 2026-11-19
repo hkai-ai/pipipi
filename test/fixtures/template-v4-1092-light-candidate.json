@@ -1,0 +1,390 @@
+{
+    "observation": {
+        "overview": "竖版平面线描插画。多只熟睡或慵懒的小狗分布在床、被子和枕头周围，中央两行深蓝粗体英文构成第一视觉焦点，底部另有一行较细的手写英文。床铺、枕头、书本、杯子、纸张和花瓶形成密集但近似对称的生活场景，主体与道具围绕中央文字叠放。画面主要使用深海军蓝线条与大面积浅奶油色，缺少独立透明背景版本。整体气质安静、慵懒、可爱，表达机制是大号自我陈述与底部消极休息口号互相补充，并由熟睡群像强化含义。",
+        "texts": [
+            {
+                "text": "I’m Just\nA Girl",
+                "location": "画面中央，两行大号粗体文字",
+                "elementId": "main_slogan"
+            },
+            {
+                "text": "let me rot in bed.",
+                "location": "画面底部中央，单行手写文字",
+                "elementId": "bottom_tagline"
+            }
+        ],
+        "printRisks": [
+            "原图为不透明浅奶油色整幅画布，不是已验证的透明底印花母版。",
+            "大量浅奶油色区域依赖纸面底色形成，在白色衣服上可能失去边界或与面料混合。",
+            "深海军蓝细线和小型道具细节在缩小印制时可能变弱，实际线宽未测量。",
+            "底部手写小字相对主标题明显更细，实际印制字高未测量。",
+            "主体、寝具与文字之间存在多处紧密遮挡，清理背景时需避免破坏线条和字形。",
+            "若直接保留整幅浅色底，会形成未经设计的矩形贴片；若去底，则需补齐封闭区域的实心浅色填充。",
+            "尚未经过白底、黑底叠图和实际服装打样，版面框仅为目测候选。"
+        ],
+        "sourceCondition": {
+            "marks": [],
+            "carrier": "flat_artwork",
+            "sharpness": "clear",
+            "compressionArtifacts": false,
+            "notes": [
+                "附件1为完整原图总览，附件2为近似去除外围背景后的内容观察图。",
+                "原图没有透明通道。",
+                "未见水印、署名或平台标识。",
+                "深蓝线条与文字边缘清楚，淡色区域主要由底色承载。"
+            ]
+        }
+    },
+    "draft": {
+        "key": "sleepy-bed-girl",
+        "title": "赖床女孩",
+        "description": "慵懒卧室群像文字印花",
+        "metadata": {
+            "tags": ["赖床", "女孩", "卧室", "萌宠", "线描", "英文", "慵懒"]
+        },
+        "inputSchema": {
+            "version": 2,
+            "slots": [
+                {
+                    "id": "subject",
+                    "label": "陪睡动物",
+                    "required": false,
+                    "text": {
+                        "defaultValue": "一组慵懒熟睡的猫",
+                        "allowCustom": true,
+                        "presentation": "suggestions",
+                        "suggestions": [
+                            "一组慵懒熟睡的猫",
+                            "一组打盹的兔子",
+                            "一组蜷卧的小熊",
+                            "一组熟睡的水獭"
+                        ]
+                    },
+                    "image": {
+                        "sourceOptions": [
+                            "upload",
+                            "recent_upload",
+                            "asset_library"
+                        ],
+                        "maxCount": 1,
+                        "private": true
+                    },
+                    "resolutionStrategy": "image_over_text"
+                },
+                {
+                    "id": "main_slogan",
+                    "label": "主标题",
+                    "required": false,
+                    "text": {
+                        "defaultValue": "I’m Just\nA Girl",
+                        "allowCustom": true,
+                        "presentation": "free_text"
+                    }
+                },
+                {
+                    "id": "bottom_tagline",
+                    "label": "底部短句",
+                    "required": false,
+                    "text": {
+                        "defaultValue": "let me rot in bed.",
+                        "allowCustom": true,
+                        "presentation": "free_text"
+                    }
+                },
+                {
+                    "id": "ink_color",
+                    "label": "线条与文字颜色",
+                    "required": false,
+                    "text": {
+                        "defaultValue": "深海军蓝",
+                        "allowCustom": true,
+                        "presentation": "suggestions",
+                        "suggestions": [
+                            "深海军蓝",
+                            "近黑墨绿",
+                            "深酒红",
+                            "炭黑"
+                        ]
+                    }
+                },
+                {
+                    "id": "paper_color",
+                    "label": "浅色填充",
+                    "required": false,
+                    "text": {
+                        "defaultValue": "浅奶油色",
+                        "allowCustom": true,
+                        "presentation": "suggestions",
+                        "suggestions": [
+                            "浅奶油色",
+                            "暖白色",
+                            "浅灰米色",
+                            "淡粉米色"
+                        ]
+                    }
+                }
+            ]
+        },
+        "runtimeSemantics": {
+            "version": 4,
+            "targetInstances": [
+                {
+                    "id": "sleepy_companions",
+                    "kind": "identity_subject",
+                    "role": "围绕寝具休息的重复陪伴主体",
+                    "region": "中央文字外侧及床铺上下区域"
+                },
+                {
+                    "id": "main_slogan",
+                    "kind": "content_element",
+                    "role": "中央两行主标题",
+                    "region": "画面中央"
+                },
+                {
+                    "id": "bottom_tagline",
+                    "kind": "content_element",
+                    "role": "底部辅助短句",
+                    "region": "主体簇下方中央"
+                },
+                {
+                    "id": "ink_color",
+                    "kind": "content_element",
+                    "role": "线条和文字的深色套色",
+                    "region": "全图线条、字形与局部实色区域"
+                },
+                {
+                    "id": "paper_color",
+                    "kind": "content_element",
+                    "role": "封闭形状内部的浅色套色",
+                    "region": "寝具、主体与道具的封闭区域"
+                }
+            ],
+            "inputBindings": {
+                "subject": {
+                    "operation": "replace_identity",
+                    "targetIds": ["sleepy_companions"],
+                    "bindingPolicy": "one_to_one",
+                    "renderingMode": "illustration_redraw",
+                    "allowedSourceGrouping": ["single_subject"],
+                    "groupToSinglePolicy": "reject",
+                    "clothingOwnership": "source"
+                },
+                "main_slogan": {
+                    "operation": "replace_content",
+                    "targetIds": ["main_slogan"],
+                    "valueKind": "exact_text",
+                    "distributionPolicy": "replace_as_unit"
+                },
+                "bottom_tagline": {
+                    "operation": "replace_content",
+                    "targetIds": ["bottom_tagline"],
+                    "valueKind": "exact_text",
+                    "distributionPolicy": "replace_as_unit"
+                },
+                "ink_color": {
+                    "operation": "replace_content",
+                    "targetIds": ["ink_color"],
+                    "valueKind": "color",
+                    "distributionPolicy": "replace_as_unit"
+                },
+                "paper_color": {
+                    "operation": "replace_content",
+                    "targetIds": ["paper_color"],
+                    "valueKind": "color",
+                    "distributionPolicy": "replace_as_unit"
+                }
+            },
+            "designSpec": {
+                "tier": "same_design",
+                "whole": {
+                    "tone": "安静、慵懒、亲昵，带轻微自嘲感；可爱但不过度兴奋。",
+                    "technique": "双色平面线描插画；轮廓使用连续而圆润的深色线，局部以同色实形强化文字和少量特征；封闭区域使用不透明浅色平涂，线条粗细有轻微手绘变化，不使用渐变、柔焦或半透明阴影。",
+                    "composition": {
+                        "canvas": "竖向画幅，完整图案集中在中部，底部短句独立收尾。",
+                        "balance": "近似对称的中心式平衡，左右道具和休息主体自由错落。",
+                        "types": ["中心式", "堆叠式", "嵌合式"],
+                        "layout": [
+                            {
+                                "id": "bed_cluster",
+                                "role": "承载中央文字和休息主体的寝具主体簇",
+                                "shape": "层叠的柔软封闭轮廓形成整体外形",
+                                "region": "画面中部至下部",
+                                "bbox": [0.08, 0.08, 0.84, 0.76],
+                                "z": 1
+                            },
+                            {
+                                "id": "sleepy_companions",
+                                "role": "重复陪伴主体",
+                                "content": "按输入主体的标准外形重绘，并以不同休息姿态分布在寝具周围",
+                                "region": "主体簇上缘、左右两侧与下缘",
+                                "bbox": [0.14, 0.08, 0.72, 0.72],
+                                "z": 3
+                            },
+                            {
+                                "id": "main_slogan",
+                                "role": "第一视觉焦点",
+                                "text": "I’m Just\nA Girl",
+                                "region": "主体簇中央",
+                                "bbox": [0.17, 0.29, 0.66, 0.27],
+                                "z": 4
+                            },
+                            {
+                                "id": "bedside_items",
+                                "role": "生活场景点缀",
+                                "content": "阅读与休息相关的小型物件",
+                                "region": "主体簇边缘与中央空隙",
+                                "bbox": [0.03, 0.2, 0.9, 0.62],
+                                "z": 2
+                            },
+                            {
+                                "id": "bottom_tagline",
+                                "role": "情绪收尾短句",
+                                "text": "let me rot in bed.",
+                                "region": "主体簇下方中央",
+                                "bbox": [0.28, 0.86, 0.45, 0.06],
+                                "z": 4
+                            }
+                        ],
+                        "relations": [
+                            ["main_slogan", "位于中央并压在", "bed_cluster"],
+                            [
+                                "sleepy_companions",
+                                "环绕并局部压住",
+                                "bed_cluster"
+                            ],
+                            [
+                                "bedside_items",
+                                "嵌入边缘和内部空隙",
+                                "bed_cluster"
+                            ],
+                            [
+                                "bottom_tagline",
+                                "位于下方且不接触",
+                                "bed_cluster"
+                            ]
+                        ],
+                        "layers": "后层为寝具主体簇，中层为生活道具，前层为重复陪伴主体和中央主标题，底部短句单独位于主体簇之外。",
+                        "visualWeight": "中央两行深色主标题最重；寝具形成大而轻的承载形；重复主体提供第二阅读层；底部短句最轻。",
+                        "density": "主体簇内部密集，外轮廓清楚；中央文字周围保留足以辨认字形的负空间。"
+                    },
+                    "printForm": "standalone",
+                    "mechanism": "中央自我陈述与底部休息口号形成语义递进，周围重复的慵懒休息姿态把短句转化为可见情境。",
+                    "paletteSummary": "限制为一深一浅两种不透明套色；深色承担线条、主标题和少量实形，浅色承担封闭形状内部填充。",
+                    "colorRoles": [
+                        {
+                            "id": "ink_color",
+                            "name": "深色墨线",
+                            "usage": "用于全部轮廓线、中央主标题、底部短句和少量局部实色，形成主要明暗骨架。",
+                            "appliesTo": [
+                                "sleepy_companions",
+                                "bedside_items",
+                                "main_slogan",
+                                "bottom_tagline"
+                            ],
+                            "belongsToTechnique": true
+                        },
+                        {
+                            "id": "paper_color",
+                            "name": "浅色填充",
+                            "usage": "作为封闭形状内部的不透明实心填色，使图案脱离原画布后仍保持完整。",
+                            "appliesTo": ["sleepy_companions", "bedside_items"],
+                            "belongsToTechnique": true
+                        }
+                    ],
+                    "prePress": {
+                        "softEdge": "清除外围画布底色，保留一至二像素抗锯齿；所有内部浅色区域转为不透明实心填充。",
+                        "paperColor": "浅奶油色"
+                    }
+                },
+                "elements": [
+                    {
+                        "id": "sleepy_companions",
+                        "purpose": "以重复休息姿态强化赖床和放松的主题，并围绕中央文字建立节奏。",
+                        "instance": "多只小狗以趴卧、仰卧、蜷卧等姿态分布在床铺和枕头周围。",
+                        "category": "subject",
+                        "originalObject": "多只小狗",
+                        "shapeFeatures": [
+                            "圆头与短口鼻",
+                            "下垂耳朵",
+                            "柔软的短肢体轮廓",
+                            "闭眼或半闭眼表情"
+                        ],
+                        "genericShape": "保持输入主体自身可辨认的标准外形，以圆润简化轮廓适配重复休息姿态。",
+                        "inherentColorPolicy": "follow_palette",
+                        "pose": "围绕中央区域呈现多种放松休息姿态，朝向自由变化，保持彼此不拥挤。"
+                    },
+                    {
+                        "id": "bedside_items",
+                        "purpose": "建立卧室休息情境并填补主体簇边缘与内部空隙。",
+                        "instance": "床、被子、枕头、杯子、纸张、打开的书、闭合的书与小花瓶。",
+                        "description": "使用与休息和安静阅读相关的小型生活物件，均以简洁线描和封闭浅色形状表现。",
+                        "position": "分布在主体簇左右边缘、中央下部和局部空隙。",
+                        "layer": "主要位于寝具之上、陪伴主体之下，少量物件可越出主体簇轮廓。",
+                        "hasPropText": false,
+                        "category": "accent"
+                    },
+                    {
+                        "id": "main_slogan",
+                        "purpose": "承担第一视觉焦点和主要态度表达。",
+                        "instance": "I’m Just\nA Girl",
+                        "category": "text",
+                        "role": "中央两行主标题",
+                        "letterform": "粗重、宽体、圆润的展示衬线字；字面为深色实心，行距紧凑，第一行略宽，第二行形成稳定底座。"
+                    },
+                    {
+                        "id": "bottom_tagline",
+                        "purpose": "补充并反转主标题语气，作为画面情绪收尾。",
+                        "instance": "let me rot in bed.",
+                        "category": "text",
+                        "role": "底部单行辅助短句",
+                        "letterform": "细笔画、略右倾的非正式手写字，字距自然，视觉重量明显从属于中央主标题。"
+                    }
+                ],
+                "signatureFeatures": [
+                    "中央两行粗重深色主标题嵌入大面积浅色寝具主体簇。",
+                    "重复休息主体从上缘、左右和下缘围绕中央文字。",
+                    "底部独立细手写短句与中央粗体主标题形成强烈字层对比。"
+                ],
+                "lockedInstances": [
+                    "中央主标题保持两行堆叠并作为最重视觉焦点。",
+                    "底部辅助短句保持独立单行，不与主体簇接触。",
+                    "阅读与休息相关的小型生活物件继续填入主体簇空隙。"
+                ],
+                "bannedWords": [
+                    "dog",
+                    "dogs",
+                    "puppy",
+                    "puppies",
+                    "小狗",
+                    "犬",
+                    "垂耳犬"
+                ],
+                "printFit": {
+                    "verdict": "needs_prep",
+                    "lightIsMood": false,
+                    "recommendedMethod": "制作透明画布上的双色独立图形：移除外围浅色画布，将封闭形状内部补为不透明浅色实心填充，保留深色线条与文字；随后在白色和黑色服装预览中人工核对细线、小字及浅色区域。"
+                },
+                "defaults": {
+                    "subject": "一组慵懒熟睡的猫",
+                    "subjectName": "猫",
+                    "subjectShape": "保持猫自身可辨认的头部、耳朵、身体和尾巴轮廓，以圆润简化线条表现。",
+                    "subjectInherentColor": "按深色墨线与浅色填充的双色套色处理。",
+                    "pose": "以趴卧、蜷卧、侧卧和仰卧等放松姿态围绕中央文字分布。",
+                    "fun": "用多个慵懒休息姿态把底部短句转化为直观情境。",
+                    "texts": {
+                        "main_slogan": "I’m Just\nA Girl",
+                        "bottom_tagline": "let me rot in bed."
+                    },
+                    "specifiedContent": {},
+                    "accentSources": {
+                        "bedside_items": "休息和安静阅读情境中自然出现的寝具、饮品容器、书本、纸张与小型植物。"
+                    },
+                    "colors": {
+                        "ink_color": "深海军蓝",
+                        "paper_color": "浅奶油色"
+                    }
+                }
+            }
+        }
+    }
+}

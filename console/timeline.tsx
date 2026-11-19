@@ -12,6 +12,7 @@ import { formatDuration, formatTime } from "./formatting.jsx";
 import { activityName } from "./labels.js";
 
 import { PiTrace } from "./pi-trace.jsx";
+import { CollapsibleSection } from "./ui.jsx";
 
 const reviewLabels: Record<string, string> = {
     imageFidelity: "原图还原",
@@ -61,14 +62,14 @@ function ContractIssues({ diagnostic }: { diagnostic?: ActivityDiagnostic }) {
         ) : null;
     return (
         <>
-            {diagnostic.issues.map((issue, index) => {
+            {diagnostic.issues.map((issue) => {
                 const check = issue.path.split("/")[3];
                 const explanation =
                     issue.code === "check_failed"
                         ? `${reviewLabels[check] ?? "独立复核检查"}未通过`
                         : ruleLabels[issue.code];
                 return (
-                    <p key={`${index}-${issue.path}`}>
+                    <p key={`${issue.path}-${issue.code}`}>
                         {explanation && <strong>{explanation} · </strong>}
                         校验字段 <code>{issue.path}</code> · 规则{" "}
                         <code>{issue.code}</code>
@@ -123,10 +124,10 @@ export function Timeline({
     timeline?: RunTimeline;
     declaredActivities?: readonly string[];
 }) {
-    if (!timeline) return <p class="hint">读取中…</p>;
+    if (!timeline) return <p className="hint">读取中…</p>;
     if (timeline.activities.length === 0)
         return (
-            <p class="empty">
+            <p className="empty">
                 没有执行步骤记录。记录可能尚未启用或已超出保留期。
             </p>
         );
@@ -139,15 +140,15 @@ export function Timeline({
                     当前步骤：{activityName(lastEvent.activity)}
                 </p>
             )}
-            <p class="hint">
+            <p className="hint">
                 按时间查看每次执行经过的步骤。缺少结束记录不代表任务仍在运行。
             </p>
             {attempts.map((attempt) => (
-                <section class="attempt" key={attempt.number}>
-                    <div class="attempt-heading">
+                <section className="attempt" key={attempt.number}>
+                    <div className="attempt-heading">
                         <h3>第 {attempt.number} 次执行</h3>
                         <span
-                            class={
+                            className={
                                 attempt.outcome === "succeeded"
                                     ? "status-succeeded"
                                     : attempt.outcome
@@ -159,12 +160,12 @@ export function Timeline({
                                 ? outcomes[attempt.outcome]
                                 : "结束结果未记录"}
                         </span>
-                        <span class="hint">
+                        <span className="hint">
                             耗时 {formatDuration(attempt.durationMs)}
                         </span>
                     </div>
-                    <ol class="execution-steps">
-                        {attempt.events.map((entry, index) => {
+                    <ol className="execution-steps">
+                        {attempt.events.map((entry) => {
                             const diagnostic =
                                 "diagnostic" in entry
                                     ? sanitizeActivityDiagnostic(
@@ -176,11 +177,16 @@ export function Timeline({
                                 entry.outcome !== "succeeded";
                             return (
                                 <li
-                                    key={`${entry.sequence}.${index}`}
-                                    class={failed ? "step-failed" : undefined}
+                                    key={`${entry.sequence}-${entry.event}`}
+                                    className={
+                                        failed ? "step-failed" : undefined
+                                    }
                                 >
-                                    <span class="step-dot" aria-hidden="true" />
-                                    <div class="step-copy">
+                                    <span
+                                        className="step-dot"
+                                        aria-hidden="true"
+                                    />
+                                    <div className="step-copy">
                                         <strong>{eventTitle(entry)}</strong>
                                         {entry.event ===
                                             "process_run_activity_finished" &&
@@ -193,14 +199,14 @@ export function Timeline({
                                         {entry.event ===
                                             "process_run_activity_finished" &&
                                             !entry.sessions && (
-                                                <p class="hint">
+                                                <p className="hint">
                                                     会话轨迹未采集
                                                 </p>
                                             )}
                                         {entry.event ===
                                             "process_run_activity_finished" &&
                                         entry.sessions?.length === 0 ? (
-                                            <p class="hint">
+                                            <p className="hint">
                                                 本次活动没有 Pi 会话
                                             </p>
                                         ) : null}
@@ -223,14 +229,14 @@ export function Timeline({
                                             diagnostic={diagnostic}
                                         />
                                         <time
-                                            class="cell-meta"
+                                            className="cell-meta"
                                             dateTime={entry.timestamp}
                                         >
                                             {formatTime(entry.timestamp)}
                                         </time>
                                     </div>
                                     {"durationMs" in entry ? (
-                                        <span class="step-duration">
+                                        <span className="step-duration">
                                             {formatDuration(entry.durationMs)}
                                         </span>
                                     ) : null}
@@ -240,8 +246,10 @@ export function Timeline({
                     </ol>
                 </section>
             ))}
-            <details class="technical-details">
-                <summary>技术详情：原始事件与步骤标识</summary>
+            <CollapsibleSection
+                className="technical-details"
+                title="技术详情：原始事件与步骤标识"
+            >
                 {declaredActivities ? (
                     <ActivityComparison
                         declared={declaredActivities}
@@ -257,7 +265,7 @@ export function Timeline({
                         2,
                     )}
                 </pre>
-            </details>
+            </CollapsibleSection>
         </>
     );
 }
@@ -269,11 +277,13 @@ function ActivityComparison({
     timeline: RunTimeline;
 }) {
     return (
-        <div class="comparison">
-            <p class="hint">流程声明的步骤：{declared.join(" → ") || "无"}</p>
+        <div className="comparison">
+            <p className="hint">
+                流程声明的步骤：{declared.join(" → ") || "无"}
+            </p>
             {compareAttemptActivities(declared, timeline.activities).map(
                 (comparison) => (
-                    <p class="hint" key={comparison.attemptNumber}>
+                    <p className="hint" key={comparison.attemptNumber}>
                         第 {comparison.attemptNumber} 次执行：
                         {comparison.actual.join(" → ") || "未记录步骤开始事件"}
                         （

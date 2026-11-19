@@ -40,8 +40,8 @@ export function createPostgresProcessRunRecordArchive(options: {
             await pool.query(
                 `insert into process_run_records
                    (run_id, recorded_at, process_id, process_version,
-                    status, error_code, content, template_semantics_version)
-                 values ($1, $2, $3, $4, $5, $6, $7, $8)
+                    status, error_code, content, template_semantics_version, caller_id, auth_method)
+                 values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
                  on conflict (run_id) do update set
                    recorded_at = excluded.recorded_at,
                    process_id = excluded.process_id,
@@ -49,7 +49,8 @@ export function createPostgresProcessRunRecordArchive(options: {
                    status = excluded.status,
                    error_code = excluded.error_code,
                    content = excluded.content,
-                   template_semantics_version = excluded.template_semantics_version`,
+                   template_semantics_version = excluded.template_semantics_version,
+                   caller_id = excluded.caller_id, auth_method = excluded.auth_method`,
                 [
                     safe.runId,
                     safe.recordedAt,
@@ -59,6 +60,8 @@ export function createPostgresProcessRunRecordArchive(options: {
                     safe.errorCode ?? null,
                     safe.content ? JSON.stringify(safe.content) : null,
                     safe.templateSemanticsVersion ?? null,
+                    safe.callerId ?? null,
+                    safe.authMethod ?? null,
                 ],
             );
         },
@@ -355,10 +358,12 @@ export async function pruneProcessRunObservation(options: {
 }
 
 const recordSelect = `select run_id, recorded_at, process_id, process_version,
-                             status, error_code, content, template_semantics_version
+                             status, error_code, content, template_semantics_version, caller_id, auth_method
                         from process_run_records`;
 
 type RecordRow = Readonly<{
+    caller_id: string | null;
+    auth_method: ProcessRunRecord["authMethod"] | null;
     run_id: string;
     recorded_at: Date;
     process_id: string | null;
@@ -390,6 +395,8 @@ function toRecord(row: RecordRow): ProcessRunRecord {
     return {
         schemaVersion: 1,
         recordedAt: row.recorded_at.toISOString(),
+        ...(row.caller_id == null ? {} : { callerId: row.caller_id }),
+        ...(row.auth_method == null ? {} : { authMethod: row.auth_method }),
         runId: row.run_id,
         ...(row.process_id === null ? {} : { process: row.process_id }),
         ...(row.process_version === null

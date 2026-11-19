@@ -1,24 +1,24 @@
-/** 经正式 HTTP 与流程接缝验证拆解候选、独立复核、旧版兼容及跨仓交接。 */
+/** 经正式 HTTP 与流程接缝验证拆解候选、按需修正、旧版兼容及跨仓交接。 */
 import { readFileSync, writeFileSync } from "node:fs";
 import { afterEach, expect, it, vi } from "vitest";
 import { AgentExecutionFailure } from "../src/agent-runtime/failure.js";
 import { AgentJsonSyntaxError } from "../src/agent-runtime/pi.js";
 import { createProcessingApplication } from "../src/api/application.js";
-import { createProcessAttemptRunner } from "../src/process-runtime/index.js";
+import {
+    createProcessAttemptRunner,
+    createProcessRegistry,
+} from "../src/process-runtime/index.js";
 import { createProcessExecutor } from "../src/processes/catalog.js";
 import type { PrintDesignAgent } from "../src/processes/template-from-image/design-spec/agent.js";
 import {
     candidateIssues,
+    compilePromptSchema,
     compileResult,
     PrintDesignContractError,
     readCandidate,
 } from "../src/processes/template-from-image/design-spec/contract.js";
+import { printDesignProduction } from "../src/processes/template-from-image/design-spec/production.js";
 import { createPrintDesignRegistration } from "../src/processes/template-from-image/design-spec/registration.js";
-import {
-    applyReview,
-    candidateDigest,
-    reviewSchema,
-} from "../src/processes/template-from-image/design-spec/review.js";
 import { toTemplatePlan } from "../src/processes/template-from-image/projection.js";
 import { createTemplateRegistration } from "../src/processes/template-from-image/registration.js";
 import { createTemplateSourceRegistration } from "../src/processes/template-from-source/registration.js";
@@ -43,29 +43,7 @@ const image = {
     height: 1024,
 };
 const imageUrl = `https://assets.memebuy.cn/gallery/template-images/${"c".repeat(64)}.png`;
-function review(value = fixture()) {
-    const evidence = [
-        {
-            path: "/draft/runtimeSemantics/designSpec",
-            observation: "受控合成夹具按输入合同保留主体、配饰、收形与版面",
-        },
-    ];
-    return {
-        reviewedCandidateSha256: candidateDigest(value),
-        changes: [] as { path: string; valueJson: string }[],
-        checks: Object.fromEntries(
-            [
-                "imageFidelity",
-                "layoutAndText",
-                "printForm",
-                "inputBindings",
-                "defaultMigration",
-                "sourceIsolation",
-            ].map((key) => [key, { passed: true, evidence }]),
-        ),
-        issues: [] as { check: string; path: string; reason: string }[],
-    };
-}
+
 const applications: ReturnType<typeof createProcessingApplication>[] = [];
 afterEach(async () => {
     await Promise.all(applications.splice(0).map((app) => app.close()));
@@ -75,9 +53,6 @@ function dependencies() {
         loadImage: vi.fn(async () => image),
         agent: {
             compile: vi.fn<PrintDesignAgent["compile"]>(async () => fixture()),
-            review: vi.fn<PrintDesignAgent["review"]>(async (request) =>
-                review(request.candidate),
-            ),
         },
     };
 }
@@ -91,7 +66,7 @@ async function run(deps = dependencies()) {
         acceptedInput: accepted.acceptedInput,
     });
 }
-it("源图批准入口 v3 复用同一成图，回包可交给 Memebuy；旧 v1 仍精确执行", async () => {
+it("源图批准入口 v3 首轮合规直接单次返回，回包可交给 Memebuy；旧 v1 仍精确执行", async () => {
     const deps = dependencies();
     const compiler = createPrintDesignRegistration(deps);
     const old = candidate();
@@ -166,7 +141,6 @@ it("源图批准入口 v3 复用同一成图，回包可交给 Memebuy；旧 v1 
         expect.any(AbortSignal),
     );
     expect(deps.agent.compile).toHaveBeenCalledOnce();
-    expect(deps.agent.review).toHaveBeenCalledOnce();
     if (process.env.PIPIPI_V4_CONTRACT_OUTPUT)
         writeFileSync(
             process.env.PIPIPI_V4_CONTRACT_OUTPUT,
@@ -187,14 +161,13 @@ it("源图批准入口 v3 复用同一成图，回包可交给 Memebuy；旧 v1 
     ).toBe(2);
     expect(oldCompile).toHaveBeenCalledOnce();
 });
-it("结构不可读只重编译一次，然后独立复核；模型执行错误不重投", async () => {
+it("结构不可读只按需修正一次后成功；模型执行错误不重投", async () => {
     const deps = dependencies();
     deps.agent.compile.mockRejectedValueOnce(
         new AgentJsonSyntaxError("not-json"),
     );
     expect((await run(deps)).status).toBe("succeeded");
     expect(deps.agent.compile).toHaveBeenCalledTimes(2);
-    expect(deps.agent.review).toHaveBeenCalledOnce();
     const failed = dependencies();
     failed.agent.compile.mockRejectedValue(
         new AgentExecutionFailure({ stage: "request", code: "connection" }),
@@ -204,9 +177,8 @@ it("结构不可读只重编译一次，然后独立复核；模型执行错误�
         error: { code: "AGENT_FAILURE" },
     });
     expect(failed.agent.compile).toHaveBeenCalledOnce();
-    expect(failed.agent.review).not.toHaveBeenCalled();
 });
-it("复核拒绝保留具体检查，结构错误保留安全字段，动态键仅显示星号", () => {
+it("结构错误保留安全字段，动态键仅显示星号", () => {
     const value = fixture();
     const broken = structuredClone(value);
     broken.draft.runtimeSemantics.designSpec.defaults.accentSources.private_key =
@@ -221,48 +193,6 @@ it("复核拒绝保留具体检查，结构错误保留安全字段，动态键�
                     },
                 ]),
             }),
-        }),
-    );
-    const report = review(value);
-    report.checks.printForm.passed = false;
-    report.checks.inputBindings.passed = false;
-    report.issues.push({
-        check: "printForm",
-        path: "/draft/runtimeSemantics/designSpec/whole/printForm",
-        reason: "私有复核正文",
-    });
-    expect(() => applyReview(value, report)).toThrowError(
-        expect.objectContaining({
-            diagnostic: {
-                stage: "schema",
-                code: "invalid_contract",
-                issues: [
-                    {
-                        path: "/review/checks/printForm/passed",
-                        code: "check_failed",
-                    },
-                    {
-                        path: "/review/checks/inputBindings/passed",
-                        code: "check_failed",
-                    },
-                    {
-                        path: "/review/checks/printForm",
-                        code: "unresolved_review",
-                    },
-                    {
-                        path: "/draft/runtimeSemantics/designSpec/whole/printForm",
-                        code: "review_evidence",
-                    },
-                    {
-                        path: "/draft/runtimeSemantics/designSpec",
-                        code: "review_evidence",
-                    },
-                    {
-                        path: "/draft/runtimeSemantics/designSpec",
-                        code: "review_evidence",
-                    },
-                ],
-            },
         }),
     );
     expect(() =>
@@ -295,48 +225,27 @@ it("复核拒绝保留具体检查，结构错误保留安全字段，动态键�
         }),
     );
 });
-it("复核补丁修改后完整重验，不补造通过结论，不改变原候选", () => {
-    const value = fixture();
-    const before = structuredClone(value);
-    const report = review(value);
-    report.changes.push({
-        path: "/draft/title",
-        valueJson: JSON.stringify("新标题"),
-    });
-    expect(applyReview(value, report).draft.title).toBe("新标题");
-    expect(value).toEqual(before);
-    const bad = review(value);
-    bad.reviewedCandidateSha256 = "f".repeat(64);
-    expect(() => applyReview(value, bad)).toThrow();
-    const blocked = review(value);
-    blocked.issues.push({
-        check: "imageFidelity",
-        path: "/observation/overview",
-        reason: "图片不能确认",
-    });
-    expect(() => applyReview(value, blocked)).toThrow();
-    const wrong = review(value);
-    wrong.changes.push(
-        {
-            path: "/draft/runtimeSemantics/designSpec/whole/printForm",
-            valueJson: '"rect_patch"',
-        },
-        {
-            path: "/draft/runtimeSemantics/designSpec/elements",
-            valueJson: JSON.stringify(
-                value.draft.runtimeSemantics.designSpec.elements.filter(
-                    (element) => element.category !== "edge",
-                ),
-            ),
-        },
+it("省略 overview、printRisks 与文字 location 的紧凑输出可直接通过合同", () => {
+    const compact = structuredClone(fixture());
+    Reflect.deleteProperty(compact.observation, "overview");
+    Reflect.deleteProperty(compact.observation, "printRisks");
+    for (const item of compact.observation.texts) {
+        Reflect.deleteProperty(item, "location");
+    }
+    for (const slot of compact.draft.inputSchema.slots) {
+        Reflect.deleteProperty(slot.text, "placeholder");
+        if (slot.image) {
+            Reflect.deleteProperty(slot.image, "promptValue");
+            Reflect.deleteProperty(slot.image, "hint");
+        }
+    }
+    expect(compilePromptSchema.safeParse(compact).success).toBe(true);
+    const parsed = readCandidate(compact);
+    expect(compileResult(parsed, imageUrl, image).template.status).toBe(
+        "DRAFT",
     );
-    expect(() =>
-        compileResult(applyReview(value, wrong), imageUrl, image),
-    ).toThrow();
-    const schema = reviewSchema(value);
-    expect(schema.safeParse(review(value)).success).toBe(true);
 });
-it("原物词命中可执行字段时记录叶子路径与规则，不泄露禁词", () => {
+it("原物词命中可执行字段与关系行时记录叶子路径与规则，不泄露禁词", () => {
     const value = fixture();
     const spec = value.draft.runtimeSemantics.designSpec;
     spec.bannedWords.push("受限原物词");
@@ -355,44 +264,37 @@ it("原物词命中可执行字段时记录叶子路径与规则，不泄露禁�
             },
         }),
     );
-});
-it("复核可单独修正命中原物词的关系行并通过最终合同", () => {
-    const value = fixture();
-    const spec = value.draft.runtimeSemantics.designSpec;
-    const relations = spec.whole.composition.relations;
+    const relValue = fixture();
+    const relSpec = relValue.draft.runtimeSemantics.designSpec;
+    const relations = relSpec.whole.composition.relations;
     if (!relations?.length) throw new Error("测试样本必须包含构图关系");
-    const original = structuredClone(relations[0]);
-    spec.bannedWords.push("受限原物");
+    relSpec.bannedWords.push("受限原物");
     relations[0][2] = "受限原物";
-    const rowPath =
-        "/draft/runtimeSemantics/designSpec/whole/composition/relations/0";
-    expect(() => compileResult(value, imageUrl, image)).toThrowError(
+    expect(() => compileResult(relValue, imageUrl, image)).toThrowError(
         expect.objectContaining({
             diagnostic: expect.objectContaining({
-                issues: [{ path: rowPath, code: "source_word" }],
+                issues: [
+                    {
+                        path: "/draft/runtimeSemantics/designSpec/whole/composition/relations/0",
+                        code: "source_word",
+                    },
+                ],
             }),
         }),
     );
-    const report = review(value);
-    report.changes.push({ path: rowPath, valueJson: JSON.stringify(original) });
-    expect(
-        compileResult(applyReview(value, report), imageUrl, image).template
-            .status,
-    ).toBe("DRAFT");
 });
-it("逐字对账区分引用错误与文字冲突，复核可只改出错的文字叶子", () => {
+it("原文观察与默认迁移文字可以不同，文字元素引用错误仍被拒绝", () => {
     const value = fixture();
     const original = value.observation.texts[0].text;
+    const element = value.observation.texts[0].elementId;
     value.observation.texts[0].text = `${original}!`;
-    expect(candidateIssues(value).join(" ")).toContain(
-        "observation.texts[0].text",
+    expect(candidateIssues(value)).toEqual([]);
+    expect(compileResult(value, imageUrl, image).source.texts[0].text).toBe(
+        `${original}!`,
     );
-    const report = review(value);
-    report.changes.push({
-        path: "/observation/texts/0/text",
-        valueJson: JSON.stringify(original),
-    });
-    expect(candidateIssues(applyReview(value, report))).toEqual([]);
+    expect(
+        value.draft.runtimeSemantics.designSpec.defaults.texts[element],
+    ).toBe(original);
     value.observation.texts[0].elementId = "unknown";
     expect(() => compileResult(value, imageUrl, image)).toThrowError(
         expect.objectContaining({
@@ -407,8 +309,99 @@ it("逐字对账区分引用错误与文字冲突，复核可只改出错的文�
         }),
     );
 });
+const fixtureFile = (name: string) =>
+    JSON.parse(
+        readFileSync(new URL(`./fixtures/${name}`, import.meta.url), "utf8"),
+    );
+it("#1092 重档真实候选：原文与迁移默认字不同仍通过，原文逐字回传", () => {
+    const value = readCandidate(
+        fixtureFile("template-v4-1092-heavy-candidate.json"),
+    );
+    expect(candidateIssues(value)).toEqual([]);
+    const result = compileResult(value, imageUrl, image);
+    const spec = value.draft.runtimeSemantics.designSpec;
+    expect(result.source.texts[1]).toEqual({
+        text: "MACROSS",
+        elementId: "main_title",
+    });
+    expect(spec.defaults.texts.main_title).toBe("NOCTURNE");
+    expect(result.template.promptTemplate).toContain("NOCTURNE");
+    expect(result.template.promptTemplate).not.toContain("MACROSS");
+});
+it("#1092 重档真实候选：槽默认值与迁移默认字不一致仍被拒绝", () => {
+    const value = readCandidate(
+        fixtureFile("template-v4-1092-heavy-candidate.json"),
+    );
+    const slot = value.draft.inputSchema.slots.find(
+        (item) => item.id === "main_title",
+    );
+    if (!slot) throw new Error("夹具缺少 main_title 槽");
+    slot.text.defaultValue = "MACROSS";
+    expect(() => compileResult(value, imageUrl, image)).toThrowError(
+        expect.objectContaining({
+            diagnostic: expect.objectContaining({
+                issues: expect.arrayContaining([
+                    {
+                        path: "/draft/inputSchema/slots/2/text/defaultValue",
+                        code: "value_mismatch",
+                    },
+                ]),
+            }),
+        }),
+    );
+});
+it("#1092 绑定里唯一合法的常量被写错时按合同改回，真正的取舍错误仍被拒绝", () => {
+    const base = fixtureFile("template-v4-1092-light-candidate.json");
+    const noisy = structuredClone(base);
+    const bindings = noisy.draft.runtimeSemantics.inputBindings;
+    bindings.subject.bindingPolicy = "many";
+    bindings.subject.groupToSinglePolicy = "merge";
+    bindings.subject.allowedSourceGrouping = ["group"];
+    bindings.main_slogan.distributionPolicy = "split";
+    bindings.main_slogan.valueKind = "text";
+    bindings.ink_color.valueKind = "colour";
+    const value = readCandidate(noisy);
+    const fixed = value.draft.runtimeSemantics.inputBindings;
+    expect(fixed.subject).toMatchObject({
+        bindingPolicy: "one_to_one",
+        groupToSinglePolicy: "reject",
+        allowedSourceGrouping: ["single_subject"],
+    });
+    expect(fixed.main_slogan).toMatchObject({
+        valueKind: "exact_text",
+        distributionPolicy: "replace_as_unit",
+    });
+    expect(fixed.ink_color).toMatchObject({ valueKind: "color" });
+    expect(candidateIssues(value)).toEqual(
+        candidateIssues(readCandidate(base)),
+    );
+    for (const mutate of [
+        (b: typeof base) => {
+            b.draft.runtimeSemantics.inputBindings.main_slogan.valueKind = "x";
+            b.draft.runtimeSemantics.inputBindings.main_slogan.targetIds = [
+                "missing",
+            ];
+        },
+        (b: typeof base) => {
+            b.draft.runtimeSemantics.inputBindings.subject.clothingOwnership =
+                "none";
+        },
+    ]) {
+        const broken = structuredClone(base);
+        mutate(broken);
+        expect(() => readCandidate(broken)).toThrowError(
+            PrintDesignContractError,
+        );
+    }
+    const wrongKind = structuredClone(base);
+    wrongKind.draft.runtimeSemantics.inputBindings.ink_color.valueKind =
+        "exact_text";
+    expect(() =>
+        compileResult(readCandidate(wrongKind), imageUrl, image),
+    ).toThrowError(PrintDesignContractError);
+});
 it.each(["binding", "default", "shapeLeak", "secondImage", "wrongVersion"])(
-    "拒绝 %s 违规，不放松作者合同",
+    "拒绝 %s 违规，修正后仍不合规时失败且不放松作者合同",
     async (reason) => {
         const value = fixture();
         if (reason === "binding")
@@ -426,42 +419,27 @@ it.each(["binding", "default", "shapeLeak", "secondImage", "wrongVersion"])(
             Object.assign(value.draft.runtimeSemantics, { version: 3 });
         const deps = dependencies();
         deps.agent.compile.mockResolvedValue(value);
-        deps.agent.review.mockImplementation(async (request) =>
-            review(request.candidate),
-        );
         expect((await run(deps)).status).toBe("failed");
+        expect(deps.agent.compile).toHaveBeenCalledTimes(2);
     },
 );
-it("语义问题由同一独立复核有界修正；不追加模型轮次或返回观察", async () => {
-    const value = fixture();
-    value.draft.inputSchema.slots[0].text.defaultValue = "冲突默认值";
-    expect(candidateIssues(value).length).toBeGreaterThan(0);
+it("首轮语义问题进入一次按需 correction 修正，通过后直接返回且不暴露 observation", async () => {
+    const broken = fixture();
+    broken.draft.inputSchema.slots[0].text.defaultValue = "冲突默认值";
+    expect(candidateIssues(broken).length).toBeGreaterThan(0);
     const deps = dependencies();
-    deps.agent.compile.mockResolvedValue(value);
-    deps.agent.review.mockImplementation(async (request) => {
-        const result = review(request.candidate);
-        result.changes.push({
-            path: "/draft/inputSchema/slots/0",
-            valueJson: JSON.stringify({
-                ...value.draft.inputSchema.slots[0],
-                text: {
-                    ...value.draft.inputSchema.slots[0].text,
-                    defaultValue:
-                        value.draft.runtimeSemantics.designSpec.defaults
-                            .subject,
-                },
-            }),
-        });
-        return result;
-    });
+    deps.agent.compile
+        .mockResolvedValueOnce(broken)
+        .mockResolvedValueOnce(fixture());
     const result = await run(deps);
     expect(result.status).toBe("succeeded");
-    expect(deps.agent.compile).toHaveBeenCalledOnce();
-    expect(deps.agent.review).toHaveBeenCalledOnce();
+    expect(deps.agent.compile).toHaveBeenCalledTimes(2);
+    expect(
+        deps.agent.compile.mock.calls[1][0].correction?.issues.join("\n"),
+    ).toContain("默认值与 designSpec.defaults 不一致");
     if (result.status === "succeeded")
         expect(result.output).not.toHaveProperty("observation");
 });
-
 it("结构修正准确指出缺失的文本展示方式与图片来源", () => {
     const raw = fixture();
     const slot = raw.draft.inputSchema.slots[0];
@@ -481,24 +459,20 @@ it("结构修正准确指出缺失的文本展示方式与图片来源", () => {
         );
     }
 });
-it("成功输出回传复核后的 source：文字取 text+elementId，状况取 sourceCondition", async () => {
+it("成功输出回传 source：文字取 text+elementId，状况取 sourceCondition", async () => {
+    const custom = fixture();
+    custom.observation.sourceCondition = {
+        marks: [{ kind: "watermark", text: "sample.com" }],
+        carrier: "garment_photo",
+        sharpness: "slightly_blurry",
+        compressionArtifacts: true,
+        notes: ["右下角有水印"],
+    };
     const deps = dependencies();
-    deps.agent.review.mockImplementation(async (request) => {
-        const result = review(request.candidate);
-        result.changes.push({
-            path: "/observation/sourceCondition",
-            valueJson: JSON.stringify({
-                marks: [{ kind: "watermark", text: "sample.com" }],
-                carrier: "garment_photo",
-                sharpness: "slightly_blurry",
-                compressionArtifacts: true,
-                notes: ["右下角有水印"],
-            }),
-        });
-        return result;
-    });
+    deps.agent.compile.mockResolvedValueOnce(custom);
     const result = await run(deps);
     expect(result.status).toBe("succeeded");
+    expect(deps.agent.compile).toHaveBeenCalledOnce();
     if (result.status !== "succeeded") return;
     const output = result.output as ReturnType<typeof compileResult>;
     expect(output.source).toEqual({
@@ -516,30 +490,6 @@ it("成功输出回传复核后的 source：文字取 text+elementId，状况取
     });
     expect(output.source.texts[0]).not.toHaveProperty("location");
     expect(output).not.toHaveProperty("observation");
-});
-it("复核可逐叶修正 sourceCondition，但不能越出路径或写入非法取值", () => {
-    const value = fixture();
-    const report = review(value);
-    report.changes.push({
-        path: "/observation/sourceCondition/sharpness",
-        valueJson: JSON.stringify("severely_blurry"),
-    });
-    expect(
-        compileResult(applyReview(value, report), imageUrl, image).source
-            .condition.sharpness,
-    ).toBe("severely_blurry");
-    const bad = review(value);
-    bad.changes.push({
-        path: "/observation/sourceCondition/carrier",
-        valueJson: JSON.stringify("poster"),
-    });
-    expect(() => applyReview(value, bad)).toThrow(PrintDesignContractError);
-    const outside = review(value);
-    outside.changes.push({
-        path: "/observation/sourceCondition/marks/0/kind",
-        valueJson: JSON.stringify("watermark"),
-    });
-    expect(reviewSchema(value).safeParse(outside).success).toBe(false);
 });
 it("缺少 sourceCondition 进入修正预算而不是崩溃，修正后成功", async () => {
     const broken = fixture();
@@ -566,4 +516,27 @@ it("缺少 sourceCondition 进入修正预算而不是崩溃，修正后成功",
     expect(
         deps.agent.compile.mock.calls[1][0].correction?.issues.join(),
     ).toContain("observation.sourceCondition");
+});
+it("生产装配在未指定 TEMPLATE_MODEL 时默认选用 gpt-6.1-terra", () => {
+    const registration = printDesignProduction.build({
+        pi: { provider: "openai", model: "gpt-5.4-mini" },
+        environment: {},
+        skills: [
+            {
+                name: "print-design-template-compiler",
+                version: "v3",
+                sha256: "f373a22b93be426661727ae382048b703db7e23136ca04a2bd8404652dedd45d",
+                path: ".pi/skills/print-design-template-compiler",
+            },
+        ],
+        members: {
+            registry: createProcessRegistry([]),
+            attemptRunner: createProcessAttemptRunner(),
+        },
+        positiveInteger: (_name, fallback) => fallback,
+    });
+    expect(registration.identity).toEqual({
+        id: "template-from-image",
+        version: "v3",
+    });
 });

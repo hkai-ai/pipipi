@@ -1,4 +1,4 @@
-/** 显式付费验收本地批准图片的 V4 拆解，经正式 HTTP 与独立看图复核保留本地证据。 */
+/** 显式付费验收本地批准图片的 V4 拆解，经正式 HTTP 与按需修正保留本地证据。 */
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { createInstalledSkillCatalog } from "../src/agent-runtime/catalog.js";
@@ -32,7 +32,7 @@ const agent = new PiPrintDesignAgent({
     provider,
     model:
         process.env.TEMPLATE_MODEL?.trim() ||
-        (provider === "openai" ? "gpt-5.4" : process.env.PI_MODEL),
+        (provider === "openai" ? "gpt-6.1-terra" : process.env.PI_MODEL),
     gateway: resolveModelGateway(process.env),
     openAIApiMode: parseOpenAIApiMode(process.env.OPENAI_API_MODE),
 });
@@ -50,12 +50,6 @@ const registration = createPrintDesignRegistration({
             const candidate = await agent.compile(request);
             await save(`candidate-${calls}.json`, candidate);
             return candidate;
-        },
-        review: async (request) => {
-            calls++;
-            const review = await agent.review(request);
-            await save(`review-${calls}.json`, review);
-            return review;
         },
     },
 });

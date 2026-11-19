@@ -80,7 +80,9 @@ curl -X POST http://127.0.0.1:4300/execute \
 
 ### 新闻图片内部评测
 
-设置 `INTERNAL_EVAL_ENABLED=true` 后，可调用 `POST /internal/eval/execute`；生产当前已开启。该调用会访问文本模型、图片供应商和对象存储，产生费用和外部写入。该入口不实现独立鉴权，鉴权与 `/execute` 一并后续统一处理；在此之前入口网关必须放行该路径，否则网关会先返回 `401`。完整请求、响应和错误契约见[内部新闻图片评测接口](api.md#内部新闻图片评测)。
+设置 `INTERNAL_EVAL_ENABLED=true` 后，可调用 `POST /internal/eval/execute`；生产当前已开启。该调用会访问文本模型、图片供应商和对象存储，产生费用和外部写入。该入口保持现有行为，不使用 `/execute` 三档认证；入口访问控制仍由部署网关负责。完整请求、响应和错误契约见[内部新闻图片评测接口](api.md#内部新闻图片评测)。
+
+`EXECUTE_AUTH_MODE` 默认 `open`，可选 `audit`、`required`；`CALLER_AUTH_GATEWAY_FALLBACK` 默认 `true`。required 或关闭回落要求 DATABASE_URL。契约见 [API 认证](api.md#调用方认证)，控制台、CLI 与切换步骤见[同步 Runbook](mvp-release-runbook.md#调用方-api-key-管理与迁移)。内存与 PostgreSQL 共用 `test/support/caller-api-key-contract.ts`，隔离数据库运行 `npm run test:integration:caller-keys`；默认 npm test 不连接数据库。
 
 ## 常用命令
 
@@ -186,7 +188,8 @@ curl -X POST http://127.0.0.1:4300/execute \
 | `console/main.tsx`、`overview.tsx`、`runs.tsx`、`timeline.tsx` | 页面装配、概览与异常聚合、记录筛选与详情、活动时间线 |
 | `console/tools.tsx`、`routing.ts`、`resource.ts`、`diagnostics.ts` | 既有开发工具、可分享筛选与返回位置、异步读取状态、无正文的排障摘要 |
 | `src/api/console-assets.ts` | 从构建产物目录按白名单模式提供控制台文档与静态资源 |
-| `src/api/identity.ts` | 网关共享密钥 Seam 的唯一 Adapter：校验请求头并解析 caller identity |
+| `src/api/identity.ts`、`src/app/caller-auth.ts` | 唯一 CallerIdentityResolver 接缝：API Key 优先、受控网关回落与启动配置校验 |
+| `src/caller-api-keys/`、`src/bin/caller-api-keys.ts` | 密钥存储契约、内存/PostgreSQL Adapter、节流使用观测、审计与 CLI |
 | `src/api/public-documents.ts` | 缓存并按固定路径提供随版本发布的只读文档（如 `llms.txt`） |
 | `src/run-observation/records.ts`、`activities.ts`、`stats.ts` | Run Record 归档、活动归档与统计汇总的 Interface，以及两套 Adapter 共用的游标、分页上限、净化和聚合规则；`stats.ts` 拥有 `RunObservationSummary` |
 | `src/run-observation/jsonl.ts`、`postgres.ts` | 同一组 Interface 的 JSONL Adapter（含按 UTC 日分片的 `day-files.ts` 内部 Seam）与 PostgreSQL Adapter |
@@ -429,7 +432,7 @@ npm run check:deployment-env -- api
 - `CRT_API_TIMEOUT_MS` 只控制受控 `POST /crt-images` Adapter，默认 `180000`。受控发布必须让 `PROCESS_TIMEOUT_MS` 长于它，平台请求超时再长于 Process 总超时。
 - `IMAGE_PROVIDER=openai|fal` 选择真实图片集成 Adapter，默认 `openai`。OpenAI Adapter 优先选择完整 `OPENAI_IMAGE_API_KEY` 与 `OPENAI_IMAGE_BASE_URL` 图片覆盖；无覆盖时使用共享 `MODEL_GATEWAY_*`，再兼容 `OPENAI_*`。旧图片覆盖仅 key 时使用官方默认地址，不拼接其他组的地址；仅 base 缺 key 时失败。FAL Adapter 只读取服务端 `FAL_KEY`，并固定调用 GPT Image 2 生成与编辑 endpoint。
 - 全部文本 Agent、表情包构思与搜梗统一使用 `MODEL_GATEWAY_API_KEY`、`MODEL_GATEWAY_BASE_URL`；新配置全缺省时才依次成对回退旧 `TEXT_MODEL_*`、`CHARACTER_EMOJI_*`、`OPENAI_*`。表情包由专用 DeepSeek 4.1 Flash Pi Agent 按模式加载固定 Skill，通过 DeepSeek Responses 搜梗 Tool 编译方案；构思与修正不再读取 `CHARACTER_EMOJI_PLANNER_API_KEY`、`CHARACTER_EMOJI_PLANNER_BASE_URL`，已部署角色文件可以保留但不生效；参数及来源核验见 [Character Emoji](processes/common/character-emoji/README.md)。生图由 `character-emoji-image.ts` 装配 Flare 参考 Memebuy 通过 multipart image[] 提交内存中的角色参考图，保留输入顺序；Magikaru 保持 URL 直传。配置备用时主用最多180秒，总预算300秒，主备观测均保留；Magikaru 保存受理回执后只轮询原 Job。v4 主用派发后结果未知时，Worker 按原运行查询内部成品或已保存回执。模型选择固定在服务端，产品请求仍只包含角色和业务创意。
-- `INTERNAL_EVAL_ENABLED=true` 挂载 `POST /internal/eval/execute`。该入口仅接受三个新闻图片 Process，复用正式 Executor、Registration、Agent 和图片 Capability，在同一次成功执行中返回实际 Prompt、文本模型与非敏感图片参数。响应使用 `no-store`，诊断内容不进入正式输出、日志或 Run Record；生产 Compose 当前开启，鉴权与 `/execute` 一并后续统一处理。
+- `INTERNAL_EVAL_ENABLED=true` 挂载 `POST /internal/eval/execute`。该入口仅接受三个新闻图片 Process，复用正式 Executor、Registration、Agent 和图片 Capability，在同一次成功执行中返回实际 Prompt、文本模型与非敏感图片参数。响应使用 `no-store`，诊断内容不进入正式输出、日志或 Run Record；生产 Compose 当前开启，不受 `/execute` 三档认证影响，访问控制仍由部署网关负责。
 - `CRT_IMAGE_EVIDENCE_MODE=off|metadata|full` 控制 `crt-interface-image/v1` 的服务端证据副本。产品请求不能覆盖它；本地完整验收默认 `full`，生产 `POST /crt-images` 必须默认 `off`。
 - `CRT_IMAGE_EVIDENCE_DIRECTORY` 只在 `metadata` 或 `full` 时使用。完整字段、敏感数据边界和清理责任见 [`crt-interface-image` 的证据保留说明](processes/common/crt-interface-image/evidence-retention.md)。
 - `PI_POSTER_SKILL_DIRECTORY` 与 `PI_CRT_SKILL_DIRECTORY` 分别覆盖一个固定绑定，不改变 Skill 名称、集合或顺序。

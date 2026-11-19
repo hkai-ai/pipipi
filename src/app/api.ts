@@ -1,4 +1,4 @@
-/** API 配置翻译、校验、Adapter 选择和完整生产组装 */
+/** 校验 API 配置并组装生产服务、调用方认证与运维控制台。 */
 
 import { fileURLToPath } from "node:url";
 import { Pool } from "pg";
@@ -8,14 +8,17 @@ import {
 } from "../api/application.js";
 import { createFileControlledAsyncIntake } from "../api/async-intake.js";
 import {
+    type ConsoleCallerKeysOptions,
     defaultHttpMaxRequestBodyBytes,
     defaultMaxConcurrentExecutions,
     type ProcessingHttpOptions,
 } from "../api/http.js";
-import { createGatewayCallerIdentityResolver } from "../api/identity.js";
+import type { CallerIdentityResolver } from "../api/identity.js";
 import { describeProcessCatalog } from "../api/process-catalog.js";
 import { describeSkillCatalog } from "../api/skill-catalog.js";
 import { createTemplateDiagnostics } from "../api/template-diagnostics.js";
+import { createInMemoryCallerApiKeyStore } from "../caller-api-keys/memory.js";
+import { createPostgresCallerApiKeyStore } from "../caller-api-keys/postgres.js";
 import { createAsyncProcessRuns } from "../process-runs/index.js";
 import {
     type AsyncReleaseStage,
@@ -28,8 +31,10 @@ import type { ProcessRuntime } from "../processes/catalog.js";
 import { renderInputSchema } from "../processes/template-from-source/capability.js";
 import { constructAgentConversationsApi } from "./agent-conversations.js";
 import { createProductionRuntime } from "./business-processes.js";
+import { createCallerIdentity, loadCallerAuth } from "./caller-auth.js";
 import type { StartupEnvironment } from "./config.js";
 import { assertDeploymentEnvironment } from "./deployment-environment.js";
+import { createRuntimePool } from "./postgres-pool.js";
 import {
     type ConstructedProcessRunObservation,
     constructProcessRunObservation,
@@ -50,6 +55,7 @@ export function constructProcessingService(
     });
     const port = parsePort(environment.PORT);
     const httpConfiguration = loadHttpConfiguration(environment);
+    const auth = loadCallerAuth(environment);
     const archive = constructProcessRunObservation(environment);
     const templateDiagnostics = createTemplateDiagnostics({
         secret: environment.MEMEBUY_TEMPLATE_DIAGNOSTICS_TOKEN,
@@ -92,21 +98,52 @@ export function constructProcessingService(
             ...(archive ? [archive.activities.record] : []),
         ],
     });
+    const keyPool = environment.DATABASE_URL?.trim()
+        ? createRuntimePool({
+              environment,
+              connectionString: parsePostgresConnectionString(
+                  environment.DATABASE_URL,
+              ),
+              applicationName: "pipipi-caller-auth",
+          })
+        : undefined;
+    const keys = keyPool
+        ? createPostgresCallerApiKeyStore({ pool: keyPool })
+        : createInMemoryCallerApiKeyStore();
+    const callerIdentity = createCallerIdentity(
+        environment,
+        keys,
+        "ASYNC_GATEWAY_SHARED_SECRET",
+    );
+    const agentIdentity = createCallerIdentity(
+        environment,
+        keys,
+        "AGENT_GATEWAY_SHARED_SECRET",
+    );
     const asyncProcessRuns = constructAsyncProcessRuns(
         environment,
         runtime.registry,
+        callerIdentity,
     );
     const agentConversations = constructAgentConversationsApi(
         environment,
         runtime.registry,
+        agentIdentity,
     );
-    const consoleOptions = constructConsole(environment, archive, runtime);
+    const consoleOptions = constructConsole(environment, archive, runtime, {
+        store: keys,
+        persistent: Boolean(keyPool),
+        executeAuthMode: auth.mode,
+        gatewayFallbackEnabled: auth.isGatewayFallbackEnabled,
+    });
 
     return {
         application: createProcessingApplication({
             executor: runtime.executor,
             http: {
                 ...httpConfiguration,
+                executeAuthMode: auth.mode,
+                callerIdentity,
                 templateDiagnostics,
                 ...(asyncProcessRuns
                     ? { asyncProcessRuns: asyncProcessRuns.http }
@@ -120,6 +157,7 @@ export function constructProcessingService(
                 agentConversations?.close,
                 asyncProcessRuns?.close,
                 archive?.close,
+                keyPool ? () => keyPool.end() : undefined,
             ]),
         }),
         port,
@@ -167,6 +205,7 @@ function constructConsole(
     environment: StartupEnvironment,
     archive: ConstructedProcessRunObservation | undefined,
     runtime: ProcessRuntime,
+    callerKeys: ConsoleCallerKeysOptions,
 ): NonNullable<ProcessingHttpOptions["console"]> | undefined {
     if (!parseFeatureFlag(environment.CONSOLE_ENABLED, "CONSOLE_ENABLED")) {
         return undefined;
@@ -182,6 +221,7 @@ function constructConsole(
     const revision = parseRevision(environment.PIPIPI_REVISION);
     return Object.freeze({
         ...(local ? { localTrace: createLocalTrace() } : {}),
+        callerKeys,
         basePath: parseConsoleBasePath(environment.CONSOLE_BASE_PATH),
         ...(revision ? { revision } : {}),
         assetDirectory: consoleAssetDirectory(environment),
@@ -237,6 +277,7 @@ function parseConsoleBasePath(value: string | undefined): string {
 function constructAsyncProcessRuns(
     environment: StartupEnvironment,
     registry: ProcessRegistry,
+    callerIdentity: CallerIdentityResolver,
 ):
     | Readonly<{
           http: NonNullable<ProcessingHttpOptions["asyncProcessRuns"]>;
@@ -254,13 +295,6 @@ function constructAsyncProcessRuns(
     const connectionString = parsePostgresConnectionString(
         environment.DATABASE_URL,
     );
-    const sharedSecret = requireConfiguration(
-        environment.ASYNC_GATEWAY_SHARED_SECRET,
-        "ASYNC_GATEWAY_SHARED_SECRET",
-    );
-    const callerIdentity = createGatewayCallerIdentityResolver({
-        sharedSecret,
-    });
     const retention = {
         acceptedInputMs: parseRequiredPositiveInteger(
             environment.PROCESS_RUN_ACCEPTED_INPUT_RETENTION_MS,
@@ -479,15 +513,6 @@ function parsePostgresConnectionString(value: string | undefined): string {
         );
     }
     return candidate;
-}
-
-function requireConfiguration(value: string | undefined, name: string): string {
-    if (value === undefined || value.length === 0) {
-        throw new Error(
-            `${name} is required when Async Process Runs are enabled`,
-        );
-    }
-    return value;
 }
 
 function loadHttpConfiguration(

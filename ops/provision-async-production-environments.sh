@@ -420,6 +420,8 @@ agent_keys=(
     PI_COMPOSED_SKILL_DIRECTORY
 )
 append_owned_key "$shared_env" MEMEBUY_TEMPLATE_DIAGNOSTICS_TOKEN "$api_candidate"
+append_owned_key "$shared_env" EXECUTE_AUTH_MODE "$api_candidate"
+append_owned_key "$shared_env" CALLER_AUTH_GATEWAY_FALLBACK "$api_candidate"
 for key in "${agent_keys[@]}"; do
     append_owned_key "$shared_env" "$key" "$api_candidate"
     append_owned_key "$shared_env" "$key" "$worker_candidate"

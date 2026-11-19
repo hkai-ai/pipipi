@@ -16,8 +16,8 @@ import {
 
 export const skillRef = Object.freeze({
     name: "print-design-template-compiler",
-    version: "v2",
-    sha256: "275c9291efde5cf8d400710c4adb72002ee8e4d7a739545a1a440560d691d31a",
+    version: "v3",
+    sha256: "f373a22b93be426661727ae382048b703db7e23136ca04a2bd8404652dedd45d",
     path: ".pi/skills/print-design-template-compiler",
 });
 const bytes = readFileSync(
@@ -163,22 +163,107 @@ export const sourceConditionSchema = z.strictObject({
 });
 export const candidateSchema = z.strictObject({
     observation: z.strictObject({
-        overview: z.string().trim().min(1).max(3000),
+        overview: z.string().trim().min(1).max(3000).optional(),
         texts: z
             .array(
                 z.strictObject({
                     text: z.string().min(1).max(500),
-                    location: z.string().min(1),
+                    location: z.string().min(1).optional(),
                     elementId: z.string().min(1),
                 }),
             )
             .max(40),
-        printRisks: z.array(z.string().min(1)).max(20),
+        printRisks: z.array(z.string().min(1)).max(20).optional(),
         sourceCondition: sourceConditionSchema,
     }),
     draft: draftSchema,
 });
 export type PrintDesignCandidate = z.infer<typeof candidateSchema>;
+
+// 供编译提示使用的精简 Schema：精确覆盖作者合同，省略会被服务端丢弃或纯展示默认值的冗余字段。
+const promptSlotTextBase = z.strictObject({
+    defaultValue: z.string().min(1).max(120),
+    allowCustom: z.literal(true),
+});
+export const compilePromptSchema = z.strictObject({
+    observation: z.strictObject({
+        texts: z
+            .array(
+                z.strictObject({
+                    text: z.string().min(1).max(500),
+                    elementId: z.string().min(1),
+                }),
+            )
+            .max(40),
+        sourceCondition: sourceConditionSchema,
+    }),
+    draft: z.strictObject({
+        key: z.string().regex(/^[a-z][a-z0-9-]{1,59}$/u),
+        title: z.string().trim().min(1).max(20),
+        description: z.string().trim().min(1).max(20),
+        metadata: z.strictObject({
+            tags: z.array(z.string().min(1).max(12)).min(5).max(8),
+        }),
+        inputSchema: z.strictObject({
+            version: z.literal(2),
+            slots: z
+                .array(
+                    z.strictObject({
+                        id: z.string().regex(/^[a-zA-Z][a-zA-Z0-9_-]{0,39}$/u),
+                        label: z.string().min(1).max(40),
+                        required: z.literal(false),
+                        text: z.discriminatedUnion("presentation", [
+                            promptSlotTextBase.extend({
+                                presentation: z.literal("free_text"),
+                            }),
+                            promptSlotTextBase.extend({
+                                presentation: z.literal("suggestions"),
+                                suggestions: z
+                                    .array(z.string().min(1).max(120))
+                                    .min(1)
+                                    .max(6),
+                            }),
+                        ]),
+                        image: z
+                            .strictObject({
+                                sourceOptions: z
+                                    .array(
+                                        z.enum([
+                                            "upload",
+                                            "recent_upload",
+                                            "asset_library",
+                                        ]),
+                                    )
+                                    .min(1),
+                                maxCount: z.literal(1),
+                                private: z.literal(true),
+                            })
+                            .optional(),
+                        resolutionStrategy: z
+                            .literal("image_over_text")
+                            .optional(),
+                    }),
+                )
+                .min(1)
+                .max(12),
+        }),
+        runtimeSemantics: z.strictObject({
+            version: z.literal(4),
+            targetInstances: z
+                .array(
+                    z.strictObject({
+                        id: z.string().regex(/^[a-z][a-z0-9_]{1,79}$/u),
+                        kind: z.enum(["identity_subject", "content_element"]),
+                        role: z.string().min(1).max(200),
+                        region: z.string().min(1).max(300),
+                    }),
+                )
+                .min(1),
+            inputBindings: z.record(z.string(), bindingSchema),
+            designSpec: designSpecSchema,
+        }),
+    }),
+});
 
 type Finding = { path: readonly PropertyKey[]; code: string };
 function schemaFindings(
@@ -237,7 +322,66 @@ export class PrintDesignContractError extends Error {
         } as const;
     }
 }
-export function readCandidate(raw: unknown): PrintDesignCandidate {
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+    Boolean(value) && typeof value === "object" && !Array.isArray(value);
+const valueKinds = new Set(["exact_text", "scene_description", "color"]);
+/**
+ * 绑定里只有一个合法取值的字段（策略、渲染模式、分发方式等）由合同唯一确定，
+ * 模型写成别的值不携带任何信息，按合同改回；valueKind 按目标类型推断。
+ * 推断不出（目标不存在或类型不符）时保持原值，仍由 Schema 报错，不放过真正的错误。
+ */
+export function normalizeBindings(raw: unknown): unknown {
+    const draft = isRecord(raw) ? raw.draft : undefined;
+    const semantics = isRecord(draft) ? draft.runtimeSemantics : undefined;
+    if (!isRecord(semantics) || !isRecord(semantics.inputBindings)) return raw;
+    const spec = isRecord(semantics.designSpec)
+        ? semantics.designSpec
+        : undefined;
+    const categories = new Map<string, string>();
+    for (const element of Array.isArray(spec?.elements) ? spec.elements : [])
+        if (isRecord(element) && typeof element.id === "string")
+            categories.set(element.id, String(element.category));
+    const whole = isRecord(spec?.whole) ? spec.whole : undefined;
+    const colors = new Set<string>();
+    for (const role of Array.isArray(whole?.colorRoles) ? whole.colorRoles : [])
+        if (isRecord(role) && typeof role.id === "string") colors.add(role.id);
+    const kindOf = (id: unknown) => {
+        if (typeof id !== "string") return undefined;
+        const category = categories.get(id);
+        if (category === "text") return "exact_text";
+        if (colors.has(id) && category === undefined) return "color";
+        return category === "subject" ||
+            category === "accent" ||
+            category === "decoration"
+            ? "scene_description"
+            : undefined;
+    };
+    const next = structuredClone(raw) as typeof raw & {
+        draft: { runtimeSemantics: { inputBindings: Record<string, unknown> } };
+    };
+    for (const binding of Object.values(
+        next.draft.runtimeSemantics.inputBindings,
+    )) {
+        if (!isRecord(binding)) continue;
+        if (binding.operation === "replace_identity") {
+            binding.bindingPolicy = "one_to_one";
+            binding.renderingMode = "illustration_redraw";
+            binding.groupToSinglePolicy = "reject";
+            if ("allowedSourceGrouping" in binding)
+                binding.allowedSourceGrouping = ["single_subject"];
+        } else if (binding.operation === "replace_content") {
+            binding.distributionPolicy = "replace_as_unit";
+            const kind = Array.isArray(binding.targetIds)
+                ? kindOf(binding.targetIds[0])
+                : undefined;
+            if (kind && !valueKinds.has(String(binding.valueKind)))
+                binding.valueKind = kind;
+        }
+    }
+    return next;
+}
+export function readCandidate(input: unknown): PrintDesignCandidate {
+    const raw = normalizeBindings(input);
     const result = candidateSchema.safeParse(raw);
     if (!result.success)
         throw new PrintDesignContractError(
@@ -496,15 +640,10 @@ export function candidateIssues(
                 path: ["observation", "texts", index, "elementId"],
                 code: "expected_text_element",
             });
-        } else if (spec.defaults.texts[text.elementId] !== text.text) {
-            issues.push(
-                `observation.texts[${index}].text 与 designSpec.defaults.texts[${JSON.stringify(text.elementId)}] 不匹配，请依批准图逐字核对，同步关联槽的默认值`,
-            );
-            findings.push({
-                path: ["observation", "texts", index, "text"],
-                code: "value_mismatch",
-            });
         }
+        // observation.texts 是原图原文，defaults.texts 是默认迁移文字，两者允许不同：
+        // 随主体迁移的标题、姓名在默认值里换成新题材，原文仍须逐字回传给调用方。
+        // 槽默认值与 defaults 的一致性由 draftIssues 的 value_mismatch 保证。
     }
     return issues;
 }

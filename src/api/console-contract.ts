@@ -1,4 +1,5 @@
-/** 定义控制台共享的只读响应与运行记录筛选合同。 */
+/** 定义控制台共享的运行观测与调用方密钥管理合同。 */
+import type { CallerApiKeyStore, IssueKey } from "../caller-api-keys/index.js";
 import type { RunObservationSummary } from "../run-observation/stats.js";
 
 export type { ProcessRunLogRecord } from "../process-runtime/logging.js";
@@ -62,3 +63,21 @@ export type ConsoleSkillDescription = Readonly<{
     /** Provenance notes from `SOURCE.md`, when the snapshot carries them. */
     source?: string;
 }>;
+
+export type ConsoleCallerAuth = Readonly<{
+    persistent: boolean;
+    executeAuthMode: "open" | "audit" | "required";
+    gatewayFallbackEnabled: boolean;
+}>;
+
+export type ConsoleCallerKeys = Readonly<{
+    auth: ConsoleCallerAuth;
+    keys: Awaited<ReturnType<CallerApiKeyStore["list"]>>;
+    audits: Awaited<ReturnType<CallerApiKeyStore["audits"]>>;
+}>;
+
+export type ConsoleIssueKey = IssueKey;
+export type ConsoleIssuedKey = Awaited<ReturnType<CallerApiKeyStore["issue"]>> &
+    Readonly<{ persistent: boolean }>;
+
+export type ConsoleRevokeKey = Pick<IssueKey, "actor" | "note">;

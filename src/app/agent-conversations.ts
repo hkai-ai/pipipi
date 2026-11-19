@@ -12,7 +12,7 @@ import {
 } from "../agents/catalog.js";
 import { assertAgentRegistrationRevisions } from "../agents/postgres.js";
 import type { ProcessingHttpOptions } from "../api/http.js";
-import { createGatewayCallerIdentityResolver } from "../api/identity.js";
+import type { CallerIdentityResolver } from "../api/identity.js";
 import {
     createProcessAttemptRunner,
     type ProcessRegistry,
@@ -77,6 +77,7 @@ export function loadAgentConnections(
 export function constructAgentConversationsApi(
     environment: StartupEnvironment,
     processRegistry: ProcessRegistry,
+    callerIdentity: CallerIdentityResolver,
 ):
     | Readonly<{
           http: NonNullable<ProcessingHttpOptions["agentConversations"]>;
@@ -140,13 +141,6 @@ export function constructAgentConversationsApi(
         queue,
         resourceResolver,
         deletionGraceMs: agentConversationDeletionGraceMs,
-    });
-    const callerIdentity = createGatewayCallerIdentityResolver({
-        sharedSecret: required(
-            environment.AGENT_GATEWAY_SHARED_SECRET,
-            "AGENT_GATEWAY_SHARED_SECRET",
-        ),
-        secretName: "AGENT_GATEWAY_SHARED_SECRET",
     });
     return Object.freeze({
         http: Object.freeze({

@@ -1,5 +1,6 @@
 /** 按 Role 声明并校验部署所需的环境变量，缺失或生产环境不合规时报错 */
 import { modelGatewayVariables } from "../model-gateway.js";
+import { loadCallerAuth } from "./caller-auth.js";
 import type { StartupEnvironment } from "./config.js";
 
 export const deploymentRoles = Object.freeze([
@@ -66,7 +67,6 @@ const variablesByRole: Readonly<Record<DeploymentRole, readonly string[]>> =
 
 const asyncApiVariables = Object.freeze([
     "DATABASE_URL",
-    "ASYNC_GATEWAY_SHARED_SECRET",
     "PROCESS_RUN_ACCEPTED_INPUT_RETENTION_MS",
     "PROCESS_RUN_RESULT_RETENTION_MS",
     "PROCESS_RUN_METADATA_RETENTION_MS",
@@ -130,7 +130,15 @@ export function checkDeploymentEnvironment(
                   ...modelGatewayVariables(environment, "character-image"),
               ]
             : [];
+    const auth = role === "api" ? loadCallerAuth(environment) : undefined;
     const requiredCandidates = [
+        ...(auth && (!auth.isGatewayFallbackEnabled || auth.mode === "required")
+            ? ["DATABASE_URL"]
+            : []),
+        ...(auth?.isGatewayFallbackEnabled &&
+        environment.ASYNC_PROCESS_RUNS_ENABLED === "true"
+            ? ["DATABASE_URL", "ASYNC_GATEWAY_SHARED_SECRET"]
+            : []),
         ...imageGatewayVariables,
         ...variablesByRole[role],
         ...(role === "api" && environment.ASYNC_PROCESS_RUNS_ENABLED === "true"
@@ -146,7 +154,9 @@ export function checkDeploymentEnvironment(
         (role === "api" || role === "process-worker")
             ? agentExecutionVariables
             : []),
-        ...(environment.AGENT_CONVERSATIONS_ENABLED === "true" && role === "api"
+        ...(environment.AGENT_CONVERSATIONS_ENABLED === "true" &&
+        role === "api" &&
+        auth?.isGatewayFallbackEnabled
             ? ["AGENT_GATEWAY_SHARED_SECRET"]
             : []),
         ...(role === "api" && environment.CONSOLE_ENABLED === "true"
@@ -187,6 +197,27 @@ export function assertDeploymentEnvironment(
         throw new Error(
             `Deployment environment for ${role} is missing required variables: ${missingVariables.join(", ")}`,
         );
+    }
+    if (
+        role === "api" &&
+        loadCallerAuth(environment).isGatewayFallbackEnabled
+    ) {
+        for (const [enabled, name] of [
+            [
+                environment.ASYNC_PROCESS_RUNS_ENABLED,
+                "ASYNC_GATEWAY_SHARED_SECRET",
+            ],
+            [
+                environment.AGENT_CONVERSATIONS_ENABLED,
+                "AGENT_GATEWAY_SHARED_SECRET",
+            ],
+        ]) {
+            if (
+                enabled === "true" &&
+                Buffer.byteLength(environment[name ?? ""] ?? "") < 32
+            )
+                throw new Error(`${name} must be at least 32 bytes`);
+        }
     }
     if (role === "process-worker" && environment.NODE_ENV === "production") {
         if (environment.PROCESS_RUN_RECORD_STORE !== "postgres") {

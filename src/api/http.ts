@@ -1,13 +1,18 @@
-/** Composition Root：按路由把执行、异步 Process Run、控制台 Run Record 查询分发给各协作者 */
+/** 按路由校验调用方身份并分发同步、异步、会话与控制台请求，输出安全观测。 */
 import type {
     IncomingMessage,
     RequestListener,
     ServerResponse,
 } from "node:http";
+import { z } from "zod";
 import type {
     AgentConversationSubmission,
     AgentConversations,
 } from "../agent-conversations/index.js";
+import {
+    type CallerApiKeyStore,
+    InvalidKeyInput,
+} from "../caller-api-keys/index.js";
 import type {
     AsyncProcessRuns,
     ProcessRunSubmission,
@@ -22,6 +27,9 @@ import type {
 import type { ProcessRunRecord } from "../process-runtime/records.js";
 import type { ProcessRunActivityArchive } from "../run-observation/activities.js";
 import type {
+    ConsoleCallerAuth,
+    ConsoleCallerKeys,
+    ConsoleIssuedKey,
     ConsoleProcessDescription,
     ConsoleSkillDescription,
     ConsoleStatsSummary,
@@ -35,7 +43,7 @@ export type {
 } from "./console-contract.js";
 
 import { createConsoleAssets } from "./console-assets.js";
-import type { CallerIdentityResolver } from "./identity.js";
+import type { CallerIdentity, CallerIdentityResolver } from "./identity.js";
 import { createPublicDocumentation } from "./public-documents.js";
 import type { TemplateDiagnostics } from "./template-diagnostics.js";
 
@@ -55,6 +63,8 @@ const safeCallerRequestId = /^[A-Za-z0-9_.:-]+$/;
 const handlePublicDocumentation = createPublicDocumentation();
 
 export type ProcessingHttpOptions = {
+    callerIdentity?: CallerIdentityResolver;
+    executeAuthMode?: "open" | "audit" | "required";
     maxRequestBodyBytes?: number;
     maxConcurrentExecutions?: number;
     internalEvaluationEnabled?: boolean;
@@ -78,6 +88,9 @@ export type ConsoleRecordPage = Readonly<{
     nextBefore?: string;
 }>;
 
+export type ConsoleCallerKeysOptions = ConsoleCallerAuth &
+    Readonly<{ store: CallerApiKeyStore }>;
+
 /**
  * Serves the operator console and the Run Records behind it. This is an
  * operations Interface, not part of the product contract: it is mounted only
@@ -85,6 +98,7 @@ export type ConsoleRecordPage = Readonly<{
  */
 export type ConsoleHttpOptions = Readonly<{
     basePath: string;
+    callerKeys?: ConsoleCallerKeysOptions;
     revision?: string;
     /** Directory holding the built console: `index.html` plus `assets/`. */
     assetDirectory: string;
@@ -124,12 +138,17 @@ export type ConsoleHttpOptions = Readonly<{
     }>;
 }>;
 
-function localConsoleRequest(request: IncomingMessage) {
-    const address = request.socket.remoteAddress;
+function isLoopback(address: string | undefined): boolean {
     return (
-        (address === "127.0.0.1" ||
-            address === "::1" ||
-            address === "::ffff:127.0.0.1") &&
+        address === "127.0.0.1" ||
+        address === "::1" ||
+        address === "::ffff:127.0.0.1"
+    );
+}
+
+function localConsoleRequest(request: IncomingMessage) {
+    return (
+        isLoopback(request.socket.remoteAddress) &&
         /^(?:127\.0\.0\.1|localhost|\[::1\])(?::\d+)?$/.test(
             request.headers.host ?? "",
         ) &&
@@ -225,10 +244,22 @@ export type AsyncProcessRunLogRecord =
           requestId?: string;
       }>;
 
-export type ProcessingLogRecord =
+export type ProcessingLogRecord = {
+    callerId?: string;
+    authMethod?: "api_key" | "gateway" | "anonymous";
+} & (
+    | {
+          event: "execute_anonymous";
+          timestamp: string;
+          path: "/execute";
+          process?: string;
+          version?: string;
+          requestId?: string;
+      }
     | ProcessRunCompletedLogRecord
     | HttpRequestRejectedLogRecord
-    | AsyncProcessRunLogRecord;
+    | AsyncProcessRunLogRecord
+);
 
 export type ProcessingLogSink = (record: ProcessingLogRecord) => void;
 
@@ -240,6 +271,9 @@ type RequestLoggingContext = {
 };
 
 type RequestHandlingContext = {
+    callerIdentity?: CallerIdentityResolver;
+    executeAuthMode?: "open" | "audit" | "required";
+    caller?: CallerIdentity;
     executor: ProcessExecutor;
     maxRequestBodyBytes: number;
     admission: ExecutionAdmissionController;
@@ -299,6 +333,8 @@ export function createProcessingRequestListener(
         );
         const context: RequestHandlingContext = {
             executor,
+            callerIdentity: options.callerIdentity,
+            executeAuthMode: options.executeAuthMode,
             maxRequestBodyBytes,
             admission,
             internalEvaluationEnabled,
@@ -380,12 +416,15 @@ async function handleRequest(
 
     if (await handlePublicDocumentation(request, response)) return;
 
-    if (context.console && request.method === "GET") {
+    if (
+        context.console &&
+        (request.method === "GET" || request.method === "POST")
+    ) {
         const handled = await handleConsole(
             request,
             response,
             context.console,
-            context.admission,
+            context,
         );
         if (handled) return;
     }
@@ -483,7 +522,39 @@ async function handleRequest(
         return;
     }
 
+    if (
+        !isInternalEvaluation &&
+        context.executeAuthMode !== "open" &&
+        context.executeAuthMode !== undefined
+    ) {
+        try {
+            context.caller = await context.callerIdentity?.resolve(
+                request.headers,
+            );
+        } catch {
+            if (context.executeAuthMode === "required") {
+                writeFailureJson(
+                    response,
+                    503,
+                    "CALLER_AUTH_UNAVAILABLE",
+                    "Caller authentication is temporarily unavailable",
+                );
+                return;
+            }
+        }
+        if (context.executeAuthMode === "required" && !context.caller) {
+            writeFailureJson(
+                response,
+                401,
+                "CALLER_UNAUTHORIZED",
+                "Caller identity could not be verified",
+            );
+            return;
+        }
+    }
+
     if (!isJsonMediaType(request.headers["content-type"])) {
+        if (!isInternalEvaluation) logAnonymousExecute(context);
         rejectRequest(response, unsupportedMediaTypeFailure, context.logging);
         return;
     }
@@ -493,9 +564,11 @@ async function handleRequest(
         context.maxRequestBodyBytes,
     );
     if (requestBody.kind === "too_large") {
+        if (!isInternalEvaluation) logAnonymousExecute(context);
         rejectRequest(response, requestTooLargeFailure, context.logging);
         return;
     }
+    if (!isInternalEvaluation) logAnonymousExecute(context, requestBody.value);
     if (
         isInternalEvaluation &&
         !isNewsImageEvaluationRequest(requestBody.value)
@@ -529,7 +602,11 @@ async function handleRequest(
                 request.headers["x-pipipi-template-steps"] === "1"
               ? await context.templateDiagnostics.execute(
                     requestBody.value,
-                    context.executor.execute,
+                    (input) =>
+                        context.executor.execute(
+                            input,
+                            callerObservation(context),
+                        ),
                 )
               : await executeBusinessRequest(
                     request,
@@ -539,6 +616,7 @@ async function handleRequest(
                 );
         emitLog(context.logging, {
             event: "process_run_completed",
+            ...(isInternalEvaluation ? undefined : callerObservation(context)),
             timestamp: context.logging.clock.timestamp(),
             runId: result.runId,
             process: result.process ?? "unknown",
@@ -560,6 +638,34 @@ async function handleRequest(
     }
 }
 
+function callerObservation(context: RequestHandlingContext) {
+    if ((context.executeAuthMode ?? "open") === "open") return undefined;
+    return context.caller ?? { authMethod: "anonymous" as const };
+}
+
+function logAnonymousExecute(
+    context: RequestHandlingContext,
+    value?: unknown,
+): void {
+    if (context.executeAuthMode !== "audit" || context.caller) return;
+    const identity =
+        value && typeof value === "object"
+            ? (value as Record<string, unknown>)
+            : {};
+    const safe = (field: unknown, pattern: RegExp) =>
+        typeof field === "string" && field.length <= 64 && pattern.test(field)
+            ? field
+            : undefined;
+    emitLog(context.logging, {
+        event: "execute_anonymous",
+        timestamp: context.logging.clock.timestamp(),
+        path: "/execute",
+        process: safe(identity.process, /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/),
+        version: safe(identity.version, /^v[0-9]+(?:\.[0-9]+){0,2}$/),
+        authMethod: "anonymous",
+    });
+}
+
 async function executeBusinessRequest(
     request: IncomingMessage,
     response: ServerResponse,
@@ -568,14 +674,14 @@ async function executeBusinessRequest(
 ) {
     const local = context.console?.localTrace;
     if (!local || !localConsoleRequest(request))
-        return context.executor.execute(input);
+        return context.executor.execute(input, callerObservation(context));
     const controller = new AbortController();
     const close = () => controller.abort();
     response.once("close", close);
     if (response.destroyed) close();
     try {
         return await local.request(controller.signal, () =>
-            context.executor.execute(input),
+            context.executor.execute(input, callerObservation(context)),
         );
     } finally {
         response.off("close", close);
@@ -1006,24 +1112,201 @@ function evaluationResponse(
     };
 }
 
-/**
- * Handles the console document and its Run Record reads. Returns `false` when
- * the request is not addressed to the console, so unrelated paths keep falling
- * through to the business routes.
- */
+// 防止把已发放的凭证误填到会持久保存的元数据中。
+const consoleKeyText = z
+    .string()
+    .refine(
+        (value) =>
+            !value.includes("\0") &&
+            !/ppk_[0-9a-f]{8}_[A-Za-z0-9_-]{43}/.test(value),
+    );
+const revokeKeySchema = z.strictObject({
+    actor: consoleKeyText.optional(),
+    note: consoleKeyText.optional(),
+});
+const issueKeySchema = revokeKeySchema.extend({
+    callerId: consoleKeyText,
+    label: consoleKeyText,
+    expiresAt: z.iso.datetime({ offset: true }).optional(),
+});
+
+async function handleCallerKeys(
+    request: IncomingMessage,
+    response: ServerResponse,
+    { store, ...auth }: ConsoleCallerKeysOptions,
+    query: URLSearchParams,
+    encodedKeyId: string | undefined,
+    context: RequestHandlingContext,
+): Promise<void> {
+    response.setHeader("cache-control", "no-store");
+    try {
+        if (request.method === "GET") {
+            const filter = consoleKeyText
+                .optional()
+                .safeParse(query.get("callerId") ?? undefined);
+            if (!filter.success || query.getAll("callerId").length > 1)
+                throw new InvalidKeyInput("Invalid caller filter");
+            const callerId = filter.data;
+            const [keys, audits] = await Promise.all([
+                store.list(callerId),
+                store.audits(callerId, 100),
+            ]);
+            const expiry = new Map(
+                keys.map((key) => [key.keyId, key.expiresAt]),
+            );
+            const result: ConsoleCallerKeys = {
+                auth,
+                keys: [...keys].sort((first, second) =>
+                    second.createdAt.localeCompare(first.createdAt),
+                ),
+                audits: audits.map((entry) => ({
+                    ...entry,
+                    expiresAt: entry.expiresAt ?? expiry.get(entry.keyId),
+                })),
+            };
+            writeJson(response, 200, result);
+            return;
+        }
+
+        if (
+            request.headersDistinct["content-type"]?.length !== 1 ||
+            !isJsonMediaType(request.headers["content-type"])
+        ) {
+            rejectRequest(
+                response,
+                unsupportedMediaTypeFailure,
+                context.logging,
+            );
+            return;
+        }
+        if (!isConsoleAction(request)) {
+            writeFailureJson(
+                response,
+                403,
+                "FORBIDDEN",
+                "Console action is forbidden",
+            );
+            return;
+        }
+        const body = await readRequestBody(
+            request,
+            context.maxRequestBodyBytes,
+        );
+        if (body.kind === "too_large") {
+            rejectRequest(response, requestTooLargeFailure, context.logging);
+            return;
+        }
+        if (encodedKeyId === undefined) {
+            const input = issueKeySchema.safeParse(body.value);
+            if (!input.success)
+                throw new InvalidKeyInput("Invalid issue request");
+            const result: ConsoleIssuedKey = {
+                ...(await store.issue(input.data)),
+                persistent: auth.persistent,
+            };
+            writeJson(response, 201, result);
+            return;
+        }
+
+        const keyId = decodeKeyId(encodedKeyId);
+        const audit = revokeKeySchema.safeParse(body.value);
+        if (!audit.success) throw new InvalidKeyInput("Invalid revoke request");
+        if (!keyId || !(await store.revoke(keyId, audit.data))) {
+            writeFailureJson(
+                response,
+                404,
+                "KEY_NOT_FOUND",
+                "Key is missing or already revoked",
+            );
+            return;
+        }
+        writeJson(response, 200, { revoked: true });
+    } catch (error) {
+        if (!(error instanceof InvalidKeyInput)) throw error;
+        writeFailureJson(
+            response,
+            400,
+            "INVALID_INPUT",
+            "Invalid caller key input",
+        );
+    }
+}
+
+function decodeKeyId(value: string): string | undefined {
+    try {
+        const keyId = decodeURIComponent(value);
+        return z.uuidv4().safeParse(keyId).success ? keyId : undefined;
+    } catch {
+        return undefined;
+    }
+}
+
+function isConsoleAction(request: IncomingMessage): boolean {
+    const site = request.headers["sec-fetch-site"];
+    if (
+        request.headers["x-pipipi-console-action"] !== "1" ||
+        (site !== undefined && site !== "same-origin" && site !== "none")
+    )
+        return false;
+
+    const origin = request.headers.origin;
+    if (origin === undefined) return true;
+    try {
+        const url = new URL(origin);
+        if (
+            (url.protocol !== "https:" && url.protocol !== "http:") ||
+            url.origin !== origin ||
+            request.headersDistinct.host?.length !== 1
+        )
+            return false;
+
+        const forwardedHost = request.headersDistinct["x-forwarded-host"];
+        if (forwardedHost && isLoopback(request.socket.remoteAddress)) {
+            return (
+                forwardedHost.length === 1 &&
+                !url.host.includes(",") &&
+                url.host === forwardedHost[0]
+            );
+        }
+        return url.host === request.headers.host;
+    } catch {
+        return false;
+    }
+}
+
+/** 分发运维控制台请求，并为其他入口保留原有路由。 */
 async function handleConsole(
     request: IncomingMessage,
     response: ServerResponse,
     options: ConsoleHttpOptions,
-    admission: ExecutionAdmissionController,
+    context: RequestHandlingContext,
 ): Promise<boolean> {
     const url = new URL(request.url ?? "/", "http://console.invalid");
     const path = url.pathname;
     const base = options.basePath;
     if (path !== base && !path.startsWith(`${base}/`)) return false;
-    if (options.revision) {
-        response.setHeader("x-pipipi-revision", options.revision);
+    if (options.callerKeys && path === request.url?.split("?", 1)[0]) {
+        const keysPath = `${base}/caller-keys`;
+        const revoke = path.startsWith(`${keysPath}/`)
+            ? /^([^/]+)\/revoke$/.exec(path.slice(keysPath.length + 1))
+            : null;
+        if (path === keysPath || (request.method === "POST" && revoke)) {
+            if (options.revision)
+                response.setHeader("x-pipipi-revision", options.revision);
+            await handleCallerKeys(
+                request,
+                response,
+                options.callerKeys,
+                url.searchParams,
+                revoke?.[1],
+                context,
+            );
+            return true;
+        }
     }
+    if (request.method !== "GET") return false;
+    if (options.revision)
+        response.setHeader("x-pipipi-revision", options.revision);
 
     if (path === base || path === `${base}/`) {
         await assetsFor(options).writeDocument(
@@ -1085,7 +1368,7 @@ async function handleConsole(
             ...(await options.stats.summarise({ since, until })),
             until,
             generatedAt: until,
-            concurrency: admission.occupancy(),
+            concurrency: context.admission.occupancy(),
         });
         return true;
     }
@@ -1510,6 +1793,7 @@ async function submitProcessRun(
     const retryAfter = retryAfterSeconds(asyncOptions);
     emitLog(context.logging, {
         event: "process_run_submission_accepted",
+        ...caller,
         timestamp: context.logging.clock.timestamp(),
         runId: submission.runId,
         process: submission.process,
@@ -1575,6 +1859,7 @@ async function findProcessRun(
     }
     emitLog(logging, {
         event: "process_run_observed",
+        ...caller,
         timestamp: logging.clock.timestamp(),
         runId: run.runId,
         status: run.status,
@@ -1723,6 +2008,7 @@ function parseCallerRequestId(
     if (typeof value !== "string") return undefined;
     const candidate = value.trim();
     if (
+        candidate.includes("ppk_") ||
         candidate.length === 0 ||
         candidate.length > maxCallerRequestIdLength ||
         !safeCallerRequestId.test(candidate)

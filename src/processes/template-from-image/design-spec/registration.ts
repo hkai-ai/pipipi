@@ -1,4 +1,4 @@
-/** 将批准图编译为印花语义 v4 候选，独立复核后才交付，旧编译流程保持独立。 */
+/** 将批准图编译为印花语义 v4 候选，首轮校验通过直接交付，违规则有界修正一次。 */
 import { agentDiagnostic } from "../../../agent-runtime/diagnostics.js";
 import { AgentExecutionFailure } from "../../../agent-runtime/failure.js";
 import { AgentJsonSyntaxError } from "../../../agent-runtime/pi.js";
@@ -12,13 +12,12 @@ import { templateInputSchema } from "../contract.js";
 import { loadTemplateImage, type TemplateImageLoader } from "../image.js";
 import type { PrintDesignAgent } from "./agent.js";
 import {
-    candidateIssues,
     compileResult,
     PrintDesignContractError,
     printDesignOutputSchema,
     readCandidate,
 } from "./contract.js";
-import { applyReview } from "./review.js";
+
 export function createPrintDesignRegistration(options: {
     agent: PrintDesignAgent;
     loadImage?: TemplateImageLoader;
@@ -33,8 +32,6 @@ export function createPrintDesignRegistration(options: {
             "template_image_loading",
             "template_compilation",
             "template_correction",
-            "template_review",
-            "template_validation",
         ],
         execute: async (input, context) => {
             let image: Awaited<ReturnType<TemplateImageLoader>>;
@@ -55,15 +52,15 @@ export function createPrintDesignRegistration(options: {
                 );
             }
             const request = { image, note: input.note, signal: context.signal };
-            let candidate: ReturnType<typeof readCandidate> | undefined;
             let correction:
                 | { previous: unknown; issues: readonly string[] }
                 | undefined;
+            let sawSyntaxFailure = false;
             for (let attempt = 0; attempt < 2; attempt++) {
                 context.signal.throwIfAborted();
                 let raw: unknown;
                 try {
-                    candidate = await context.runActivity(
+                    return await context.runActivity(
                         attempt
                             ? "template_correction"
                             : "template_compilation",
@@ -81,76 +78,49 @@ export function createPrintDesignRegistration(options: {
                                     code: "invalid_contract",
                                     issues: [{ path: "/", code: "too_big" }],
                                 });
-                            return readCandidate(raw);
+                            const candidate = readCandidate(raw);
+                            return compileResult(
+                                candidate,
+                                input.imageUrl,
+                                image,
+                            );
                         },
                         (error) =>
                             error instanceof PrintDesignContractError
                                 ? error.diagnostic
                                 : agentDiagnostic(error),
                     );
-                    break;
                 } catch (error) {
-                    if (error instanceof PrintDesignContractError)
+                    if (error instanceof PrintDesignContractError) {
+                        sawSyntaxFailure = false;
                         correction = { previous: raw, issues: error.issues };
-                    else if (
+                    } else if (
                         error instanceof AgentJsonSyntaxError &&
                         error.responseText.length <= 100000
-                    )
+                    ) {
+                        sawSyntaxFailure = true;
                         correction = {
                             previous: error.responseText,
                             issues: [
                                 "只修正 JSON 格式，返回完整 observation 与 draft",
                             ],
                         };
-                    else if (error instanceof AgentExecutionFailure)
+                    } else if (error instanceof AgentExecutionFailure) {
                         return failProcess(
                             "AGENT_FAILURE",
                             "印花模板编译未完成",
                         );
-                    else throw error;
+                    } else {
+                        throw error;
+                    }
                 }
             }
-            if (!candidate)
-                return failProcess("AGENT_FAILURE", "印花模板候选结构无法读取");
-            const accepted = candidate;
-            try {
-                const review = await context.runActivity(
-                    "template_review",
-                    () =>
-                        options.agent.review({
-                            ...request,
-                            candidate: structuredClone(accepted),
-                            issues: candidateIssues(accepted),
-                        }),
-                    agentDiagnostic,
-                );
-                return await context.runActivity(
-                    "template_validation",
-                    async () =>
-                        compileResult(
-                            applyReview(accepted, review),
-                            input.imageUrl,
-                            image,
-                        ),
-                    (error) =>
-                        error instanceof PrintDesignContractError
-                            ? error.diagnostic
-                            : { stage: "execution", code: "internal_failure" },
-                );
-            } catch (error) {
-                if (error instanceof PrintDesignContractError)
-                    return failProcess(
-                        "AGENT_FAILURE",
-                        "印花模板在独立复核后仍未通过校验",
-                    );
-                // 模型依赖异常由受控活动保留诊断；不追加调用。
-                if (error instanceof AgentExecutionFailure)
-                    return failProcess(
-                        "AGENT_FAILURE",
-                        "印花模板独立复核未完成",
-                    );
-                throw error;
-            }
+            return failProcess(
+                "AGENT_FAILURE",
+                sawSyntaxFailure
+                    ? "印花模板候选结构无法读取"
+                    : "印花模板候选未通过校验",
+            );
         },
     });
 }

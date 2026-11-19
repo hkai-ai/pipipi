@@ -50,12 +50,18 @@ docker compose -f compose.integration.yaml down
 发布人员还必须确认：
 
 - PostgreSQL 已完成备份与恢复验证；Redis 独立运行、只绑定 `127.0.0.1`、启用认证与 `noeviction`，并使用批准的持久化和高可用形状；
-- 网关删除外部同名身份头，再注入 `x-pipipi-caller-id` 与 `x-pipipi-gateway-token`；容器端口不能绕过网关访问；
+- 网关透传 Authorization 并删除外部身份头；过渡期只为已认证的旧调用方注入 `x-pipipi-caller-id` 与 `x-pipipi-gateway-token`；容器端口不能绕过网关访问；
 - `CONSOLE_DEVELOPMENT_GATEWAY_ENABLED` 必须在生产保持未设置或 `false`；Vite 开发 Gateway 固定测试身份且只允许 loopback upstream，不能承担生产调用方认证；
 - `WEBHOOK_SECRET_ENCRYPTION_KEY`、网关 Secret 和数据库/Redis 凭证通过 Secret 管理器注入，彼此最小授权；
 - Business Capability 已按 `runId` 支持幂等后，才能把 Registration 的最大 Attempt 从 1 提高；
 - 观测系统已经导入 [`ops/async-observability.json`](../ops/async-observability.json)，并能按 `runId`、`eventId` 和 `deliveryId` 检索单行 JSON 日志；
 - 已批准 accepted input、result、metadata 和 Delivery history 的期限与数据库容量预算。
+
+## 调用方认证迁移
+
+异步入口和 `/execute` 共用同一 Bearer API Key；发放、轮换、吊销与三档迁移见[调用方 API Key 管理](mvp-release-runbook.md#调用方-api-key-管理与迁移)。API 角色文件接受 `EXECUTE_AUTH_MODE` 与 `CALLER_AUTH_GATEWAY_FALLBACK`，首次生成从 shared 配置复制这两项到 API，不下发 Worker。关闭回落后不再要求 `ASYNC_GATEWAY_SHARED_SECRET`，仍必须保留 DATABASE_URL；同步基础形状也从顶层装配持久 Key Store。
+
+启用前先应用 `020_caller_api_keys.mjs` 并运行 `npm run test:integration:caller-keys`（仅隔离测试数据库；含 CLI 发放/吊销写入）。真实网关 smoke 的两份 Authorization 可使用不同 callerId 的 Pipipi Key。检查 OpenResty 允许 ppk_ Bearer 到达应用，原样透传 Authorization、剥离外部内部头；旧网关 Bearer 在默认回落期继续可用。控制台仍保持 Basic Auth，切 required 前按同步 Runbook 安排控制台调用过渡。
 
 ## 受控 internal 发布入口
 
@@ -88,7 +94,7 @@ Environment 只保存部署连接和非秘密 Queue identity，不保存应用�
 <REMOTE_PATH>/shared/retention-cleaner.env
 ```
 
-每份角色文件只包含[配置表](#配置与分阶段启用)中该角色拥有的值；Queue name/prefix 与 `ASYNC_RELEASE_STAGE` 由发布入口覆盖，不放在 Secret 文件里。API 文件必须包含 `ASYNC_GATEWAY_SHARED_SECRET`，Webhook 文件必须包含 `WEBHOOK_SECRET_ENCRYPTION_KEY`，需要 OpenAI 的 API 与 Process Worker 各自包含自己的 `OPENAI_API_KEY`。不要把 `.env` 复制成五份。
+每份角色文件只包含[配置表](#配置与分阶段启用)中该角色拥有的值；Queue name/prefix 与 `ASYNC_RELEASE_STAGE` 由发布入口覆盖，不放在 Secret 文件里。网关回落开启时 API 文件必须包含 `ASYNC_GATEWAY_SHARED_SECRET`，Webhook 文件必须包含 `WEBHOOK_SECRET_ENCRYPTION_KEY`，需要 OpenAI 的 API 与 Process Worker 各自包含自己的 `OPENAI_API_KEY`。不要把 `.env` 复制成五份。
 
 首次创建五份角色文件时，先手动运行受保护的 `.github/workflows/async-production-environment-provisioning.yml`，填写当前同步 revision、服务器已加载的候选 revision、`issue-<number>` 变更引用，并先选 `plan`。入口优先使用 `async-internal` Environment Secret 中非空的 `ASYNC_DATABASE_URL`、`ASYNC_REDIS_URL`；任一覆盖值为空时，改从服务器 `root:root 0600` 的 `shared/.env` 读取对应标准 `DATABASE_URL`、`REDIS_URL`。凭证不能放在 GitHub Environment Variable 中。Secret 覆盖值只通过标准输入发送给远端脚本；两种来源都不进入 SSH/SCP argv、日志或 artifact。入口要求两个同步容器正在运行、主 API 异步入口关闭、四个异步后台容器不存在，避免改写正在使用的角色配置。
 
@@ -238,7 +244,7 @@ docker compose \
 
 | 角色 | 必填环境变量 |
 | --- | --- |
-| `api` | `CRT_BUSINESS_API_BASE_URL`；`PI_PROVIDER=openai` 时还需 `OPENAI_API_KEY`；启用异步入口后还需 `DATABASE_URL`、`ASYNC_GATEWAY_SHARED_SECRET`、三个 `PROCESS_RUN_*_RETENTION_MS`、`ASYNC_RELEASE_STAGE`、`ASYNC_GLOBAL_BACKLOG_LIMIT`、`ASYNC_CALLER_BACKLOG_LIMIT`、`ASYNC_BACKLOG_RETRY_AFTER_SECONDS` |
+| `api` | `CRT_BUSINESS_API_BASE_URL`；`PI_PROVIDER=openai` 时还需 `OPENAI_API_KEY`；启用异步入口后还需 `DATABASE_URL`、回落开启时的 `ASYNC_GATEWAY_SHARED_SECRET`、三个 `PROCESS_RUN_*_RETENTION_MS`、`ASYNC_RELEASE_STAGE`、`ASYNC_GLOBAL_BACKLOG_LIMIT`、`ASYNC_CALLER_BACKLOG_LIMIT`、`ASYNC_BACKLOG_RETRY_AFTER_SECONDS` |
 | `process-dispatcher` | `DATABASE_URL`、`REDIS_URL` |
 | `process-worker` | `CRT_BUSINESS_API_BASE_URL`、`DATABASE_URL`、`REDIS_URL`、三个 `PROCESS_RUN_*_RETENTION_MS`、`PROCESS_RUN_RECORD_STORE`、`PROCESS_RUN_RECORD_CONTENT`；非生产文件存储还需 `PROCESS_RUN_RECORD_DIRECTORY`；生产固定为 `postgres` 与 `accepted-input-and-output`；`PI_PROVIDER=openai` 时还需 `OPENAI_API_KEY` |
 | `webhook-worker` | `DATABASE_URL`、`REDIS_URL`、`WEBHOOK_SECRET_ENCRYPTION_KEY` |
@@ -464,9 +470,21 @@ Redis 数据丢失的标准动作：
 
 异步 Worker 保存图片服务提交后的失败时，数据库需要迁移 `015_process_run_error_code.mjs` 扩展 `process_runs_error_code_check`。发布前按本文的备份、恢复验证及迁移步骤执行。应用回滚时保留扩展后的约束，已有失败记录可保留原错误码。
 
-迁移文件变化时，从 Production CI/CD 的运行摘要取得准确候选 SHA 和 CI Run ID。当前阶段为 `internal` 时，直接进入本手册的[受控 internal 发布入口](#受控-internal-发布入口)，复用已验证的 artifact，提供已核验的备份或恢复点。线上为其他阶段时，需按该阶段审查迁移。常规发布在独占锁内仍会校验镜像摘要，防止预检后线上版本发生变化。
+迁移文件变化时，`production-ci-cd.yml` 同样自动部署，不再停下等人工：`release-plan` 比较线上镜像与候选镜像的迁移摘要，路由为 `migration` 时 `deploy` 照常运行（超时 60 分钟）。`ops/update-async-release.sh` 在独占锁内停流并等待已接受的 Run 排空后，依次执行：
 
-该路径只允许迁移文件摘要不变的候选，不代替首次启用、带备份审查的数据库迁移、灰度提升或真实付费验收。旧 commit 的 smoke、演练与 promotion 证据不能改写成新 commit 的成功证据；后续阶段或流量调整仍须重新收集准确候选的证据，并核对 promotion 状态。
+1. **自动备份**：用 `postgres:18-alpine`（可用 `PIPIPI_PG_DUMP_IMAGE` 覆盖）的 `pg_dump -Fc` 导出到 `shared/db-backups/pipipi-pg-<UTC 时间戳>.dump`，目录 `0700`、文件 `0600`。备份前先查库大小，要求该文件系统可用空间不少于 3 倍库大小加 1 GiB。连接串只经 `--env-file` 进入容器，并强制 `sslmode=verify-ca` 与固定 CA `/etc/pipipi/pg-server.crt`，不出现在宿主机命令行、日志或证据中。
+2. **备份验证**：`pg_restore --list` 必须可读且清单含 `process_runs`；记录 sha256 与字节数。
+3. **数据库边界审计**与 **`migrate-and-verify.js`**：与手动 internal 入口同一套严格校验（`verificationCount` 必须为 0）。
+4. **证据**：写入 `shared/db-backups/<备份 ID>.json`（commit、上一 revision、新旧迁移摘要、备份 sha256 与字节数、已应用迁移数、起止时间；不含连接串、密码、主机）。只保留最近 14 份 `pipipi-pg-*.dump` 及其证据。备份 ID 与已应用迁移数写入工作流运行摘要。
+5. 再安装新 Compose、切换六个角色并验证。
+
+迁移放在排空之后：停流期间没有新的业务写入，备份与迁移面对同一份静止数据，且备份总在迁移之前。
+
+失败语义：备份、验证、审计、迁移任一步失败，都不切换，旧版本继续服务，停流标记由本次创建者移除；备份阶段失败不留半成品，迁移未成功时备份保留。迁移已应用但切换或健康检查失败时，应用回滚到上一版本，**数据库不执行 migration down**，新增 schema 依赖向前兼容；脚本在 stderr 提示可用本次备份恢复。
+
+用备份恢复（仅在新 schema 无法被旧版本使用时）：先暂停写入并保留现场，用同一版本的 `pg_restore --clean --if-exists --no-owner --dbname <目标库> <备份文件>` 恢复到确认过的目标库，核对 sha256 与证据 JSON，再按本手册重新验证再放流量；恢复会丢弃备份之后的写入。
+
+[受控 internal 发布入口](#受控-internal-发布入口)（`async-internal-release.yml` / `ops/deploy-async-internal.sh`）保留，用于首次启用异步部署、需要提供外部核验的备份或恢复点，以及需要完整 internal smoke 的发布。两者都不代替灰度提升或真实付费验收。旧 commit 的 smoke、演练与 promotion 证据不能改写成新 commit 的成功证据；后续阶段或流量调整仍须重新收集准确候选的证据，并核对 promotion 状态。
 
 ### Run 或 Process Queue 持续增长
 

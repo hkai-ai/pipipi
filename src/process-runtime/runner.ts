@@ -1,4 +1,4 @@
-/** 组合 Registry、Attempt Runner 与 Run Records，校验请求并派发执行，对外提供 execute/evaluate 入口 */
+/** 校验并执行版本化 Process，将调用方归属写入运行观测，对外提供执行和评测入口。 */
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { createProcessAttemptRunner } from "./attempt.js";
@@ -27,7 +27,13 @@ const requestIdentitySchema = z.object({
 });
 
 export type ProcessExecutor = Readonly<{
-    execute: (request: unknown) => Promise<ProcessRunResult>;
+    execute: (
+        request: unknown,
+        caller?: {
+            callerId?: string;
+            authMethod?: "api_key" | "gateway" | "anonymous";
+        },
+    ) => Promise<ProcessRunResult>;
     evaluate?: (request: unknown) => Promise<ProcessEvaluationResult>;
 }>;
 
@@ -61,12 +67,21 @@ export function createProcessRunner(options: {
     const execute = async (
         rawRequest: unknown,
         captureEvaluation?: (value: JsonValue) => void,
+        caller?: {
+            callerId?: string;
+            authMethod?: "api_key" | "gateway" | "anonymous";
+        },
     ): Promise<ProcessRunResult> => {
+        const complete = (
+            records: ProcessRunRecords,
+            result: ProcessRunResult,
+            acceptedRequest?: { input: unknown },
+        ) => completeProcessRun(records, result, acceptedRequest, caller);
         const runId = randomUUID();
         const requestResult = executeRequestSchema.safeParse(rawRequest);
         if (!requestResult.success) {
             const identity = requestIdentitySchema.safeParse(rawRequest);
-            return completeProcessRun(
+            return complete(
                 runRecords,
                 processFailure(
                     runId,
@@ -89,7 +104,7 @@ export function createProcessRunner(options: {
             version: request.version,
         });
         if (!registration) {
-            return completeProcessRun(
+            return complete(
                 runRecords,
                 processFailure(
                     runId,
@@ -104,7 +119,7 @@ export function createProcessRunner(options: {
         try {
             acceptance = registration.accept(request.input);
         } catch {
-            return completeProcessRun(
+            return complete(
                 runRecords,
                 processFailure(
                     runId,
@@ -116,7 +131,7 @@ export function createProcessRunner(options: {
         }
 
         if (!acceptance.accepted) {
-            return completeProcessRun(
+            return complete(
                 runRecords,
                 processFailure(
                     runId,
@@ -135,13 +150,13 @@ export function createProcessRunner(options: {
             ...(captureEvaluation ? { captureEvaluation } : {}),
         });
 
-        return completeProcessRun(runRecords, result, {
+        return complete(runRecords, result, {
             input: request.input,
         });
     };
 
     return Object.freeze({
-        execute: (request: unknown) => execute(request),
+        execute: (request, caller) => execute(request, undefined, caller),
         evaluate: async (
             request: unknown,
         ): Promise<ProcessEvaluationResult> => {
@@ -161,10 +176,15 @@ function completeProcessRun(
     runRecords: ProcessRunRecords,
     result: ProcessRunResult,
     acceptedRequest?: { input: unknown },
+    caller?: {
+        callerId?: string;
+        authMethod?: "api_key" | "gateway" | "anonymous";
+    },
 ): ProcessRunResult {
     try {
         const recording = runRecords.record({
             result,
+            ...caller,
             ...(acceptedRequest ? { acceptedRequest } : {}),
         });
         if (recording) void recording.catch(() => {});

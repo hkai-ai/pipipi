@@ -86,7 +86,7 @@ const codes = new Set(
     `invalid_type invalid_value invalid_format too_small too_big invalid_union
     unrecognized_keys invalid_key invalid_element not_multiple_of custom
     type required additionalProperties enum const minItems maxItems minLength maxLength
-    expected_text_element expected_accent_or_decoration expected_accent_element missing_default_color expected_color_role subject_count missing_subject source_word abstract_style transparency_word unknown_color_role inherent_color_conflict missing_edge max_image_slots patch_overlap invalid_json pattern format oneOf anyOf allOf minimum maximum contract draft_semantics analysis_contract review_evidence invalid_schema digest_mismatch unresolved_review check_failed missing_reference fixed_text_missing invalid_target_scope missing_visual_coverage selection_coverage omitted_fact_frozen duplicate_fact target_fact_unreferenced`
+    expected_text_element expected_accent_or_decoration expected_accent_element missing_default_color expected_color_role subject_count missing_subject source_word abstract_style transparency_word unknown_color_role inherent_color_conflict missing_edge max_image_slots patch_overlap patch_rejected invalid_json pattern format oneOf anyOf allOf minimum maximum contract draft_semantics analysis_contract review_evidence invalid_schema digest_mismatch unresolved_review check_failed missing_reference fixed_text_missing invalid_target_scope missing_visual_coverage selection_coverage omitted_fact_frozen duplicate_fact target_fact_unreferenced`
         .split(/\s+/)
         .concat(analysisRuleCodes),
 );

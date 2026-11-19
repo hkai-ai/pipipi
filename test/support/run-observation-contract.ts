@@ -218,6 +218,27 @@ export function describeRunObservationContract(
         });
     });
 
+    it("preserves caller ownership and authentication method across record reads and lists", async () => {
+        const { archive } = await createBackend();
+        await archive.store({
+            ...processRunRecord({ runId: "caller-record" }),
+            callerId: "memebuy",
+            authMethod: "api_key",
+        });
+        expect(await archive.find("caller-record")).toMatchObject({
+            callerId: "memebuy",
+            authMethod: "api_key",
+        });
+        expect((await archive.list()).records).toEqual(
+            expect.arrayContaining([
+                expect.objectContaining({
+                    callerId: "memebuy",
+                    authMethod: "api_key",
+                }),
+            ]),
+        );
+    });
+
     it("reports an unknown record as absent", async () => {
         const { archive } = await createBackend();
 
