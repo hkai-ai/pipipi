@@ -94,7 +94,16 @@ jobs:
           test -n "$SSH_PRIVATE_KEY"
           printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/deploy_key
           printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
-          printf '%s\n' 'Host *' '  IdentityFile ~/.ssh/deploy_key' '  IdentitiesOnly yes' > ~/.ssh/config
+          cat > ~/.ssh/config <<'EOF'
+          Host *
+            IdentityFile ~/.ssh/deploy_key
+            IdentitiesOnly yes
+            IPQoS none
+            ServerAliveInterval 15
+            ServerAliveCountMax 4
+            ConnectTimeout 15
+            TCPKeepAlive yes
+          EOF
           chmod 600 ~/.ssh/deploy_key ~/.ssh/known_hosts ~/.ssh/config
           test -s ~/.ssh/known_hosts
           test -s ~/.ssh/deploy_key
@@ -131,12 +140,89 @@ jobs:
           set -Eeuo pipefail
           [[ "$REMOTE_HOST" =~ ^[A-Za-z0-9.-]+$ ]]
           [[ "$REMOTE_USER" =~ ^[a-z][a-z0-9-]{0,31}$ ]]
-          scp -o BatchMode=yes -o StrictHostKeyChecking=yes \
-            "pipipi-${GITHUB_SHA}.image.tar.gz" \
-            "pipipi-${GITHUB_SHA}.compose.yaml" \
-            "pipipi-${GITHUB_SHA}.compose.async.yaml" \
-            "pipipi-${GITHUB_SHA}.update-async.sh" \
-            "$REMOTE_USER@$REMOTE_HOST:/tmp/"
+          [[ "$GITHUB_SHA" =~ ^[0-9a-f]{40}$ ]]
+
+          remote_target="$REMOTE_USER@$REMOTE_HOST"
+          image_archive="pipipi-${GITHUB_SHA}.image.tar.gz"
+          remote_chunks="/tmp/pipipi-${GITHUB_SHA}.chunks"
+          expected_sha="$(sha256sum "$image_archive" | awk '{print $1}')"
+          image_bytes="$(stat -c%s "$image_archive")"
+          echo "Uploading release metadata files and ${image_bytes} byte image (sha256=${expected_sha})"
+
+          # 先上传体积很小的 compose 与脚本文件
+          for attempt in 1 2 3; do
+            if timeout 60 scp -o BatchMode=yes -o StrictHostKeyChecking=yes \
+              "pipipi-${GITHUB_SHA}.compose.yaml" \
+              "pipipi-${GITHUB_SHA}.compose.async.yaml" \
+              "pipipi-${GITHUB_SHA}.update-async.sh" \
+              "$remote_target:/tmp/"; then
+              break
+            fi
+            [ "$attempt" -lt 3 ] || exit 1
+            echo "Metadata upload attempt ${attempt} failed; retrying..."
+            sleep 3
+          done
+
+          # 将镜像包切为 8MB 分片，4 路并发流式上传并逐片校验 SHA-256，支持断线重试且实时输出进度
+          chunk_dir="$(mktemp -d)"
+          trap 'rm -rf "$chunk_dir"' EXIT
+          split -b 8M -d -a 3 "$image_archive" "$chunk_dir/chunk-"
+          total_chunks="$(find "$chunk_dir" -maxdepth 1 -name 'chunk-*' | wc -l | tr -d ' ')"
+          echo "Split image into ${total_chunks} chunks (8MB each)"
+
+          existing_manifest="$(ssh -o BatchMode=yes -o StrictHostKeyChecking=yes "$remote_target" \
+            "mkdir -p '$remote_chunks' && cd '$remote_chunks' && sha256sum chunk-* 2>/dev/null || true")"
+
+          upload_chunk() {
+            set -Eeuo pipefail
+            local chunk_path="$1"
+            local chunk_name
+            chunk_name="$(basename "$chunk_path")"
+            local chunk_sha
+            chunk_sha="$(sha256sum "$chunk_path" | awk '{print $1}')"
+            local chunk_bytes
+            chunk_bytes="$(stat -c%s "$chunk_path")"
+
+            if printf '%s\n' "$existing_manifest" | grep -Fxq "${chunk_sha}  ${chunk_name}"; then
+              echo "Skipping ${chunk_name} (already verified on UAT server)"
+              return 0
+            fi
+
+            for attempt in 1 2 3 4 5; do
+              local started_at
+              started_at="$(date +%s)"
+              if timeout 180 ssh -o BatchMode=yes -o StrictHostKeyChecking=yes "$remote_target" \
+                "set -eu; dst='$remote_chunks/$chunk_name'; tmp=\"\$dst.part\"; cat > \"\$tmp\"; actual=\"\$(sha256sum \"\$tmp\" | awk '{print \$1}')\"; test \"\$actual\" = '$chunk_sha'; mv -f \"\$tmp\" \"\$dst\"" \
+                < "$chunk_path"; then
+                local elapsed=$(( $(date +%s) - started_at ))
+                echo "Uploaded ${chunk_name} (${chunk_bytes} bytes) in ${elapsed}s (attempt ${attempt})"
+                return 0
+              fi
+              echo "Chunk ${chunk_name} attempt ${attempt} failed; retrying..." >&2
+              sleep $(( attempt * 2 ))
+            done
+            echo "Chunk ${chunk_name} failed after 5 attempts" >&2
+            return 1
+          }
+          export -f upload_chunk
+          export remote_target remote_chunks existing_manifest
+
+          find "$chunk_dir" -maxdepth 1 -name 'chunk-*' -print0 \
+            | sort -z \
+            | xargs -0 -n 1 -P 4 bash -c 'upload_chunk "$1"' _
+
+          echo "All ${total_chunks} chunks uploaded; assembling and verifying sha256 on UAT server..."
+          ssh -o BatchMode=yes -o StrictHostKeyChecking=yes "$remote_target" "
+            set -eu
+            out='/tmp/pipipi-${GITHUB_SHA}.image.tar.gz'
+            tmp=\"\$out.part\"
+            cat '$remote_chunks'/chunk-* > \"\$tmp\"
+            actual=\"\$(sha256sum \"\$tmp\" | awk '{print \$1}')\"
+            test \"\$actual\" = '$expected_sha'
+            mv -f \"\$tmp\" \"\$out\"
+            rm -rf '$remote_chunks'
+          "
+          echo "Verified remote image sha256=${expected_sha}"
 
       - name: Configure template diagnostics for the API
         env:
