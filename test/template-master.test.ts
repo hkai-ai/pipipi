@@ -1,5 +1,9 @@
 /** 母版分档、色键、确定性校验、模型校验比较与重试升档状态机的单元测试，全部使用测试替身。 */
 import { readFileSync } from "node:fs";
+import {
+    type CreateAgentSessionResult,
+    ModelRuntime,
+} from "@earendil-works/pi-coding-agent";
 import sharp from "sharp";
 import { describe, expect, it, vi } from "vitest";
 import { draftSchema } from "../src/processes/template-from-image/design-spec/contract.js";
@@ -20,6 +24,7 @@ import {
     renderLightMaster,
 } from "../src/processes/template-master/light.js";
 import { createTemplateMasterRegistration } from "../src/processes/template-master/registration.js";
+import { createTemplateMasterSkillRefs } from "../src/processes/template-master/skills.js";
 import type { SourceCondition } from "../src/processes/template-master/tier.js";
 import {
     attemptPlan,
@@ -27,6 +32,7 @@ import {
 } from "../src/processes/template-master/tier.js";
 import {
     evaluateVerification,
+    PiMasterVerifier,
     type Verification,
 } from "../src/processes/template-master/verifier.js";
 
@@ -76,6 +82,82 @@ const alphaAt = async (png: Buffer, x: number, y: number) => {
     const image = await decodeRgba(png);
     return image.data[(y * image.width + x) * 4 + 3] as number;
 };
+
+it("母版视觉校验在供应商请求中声明完整的严格输出合同", async () => {
+    const verdict = {
+        texts: [],
+        otherTexts: [],
+        layout: { passed: true, offenders: [] },
+        watermarkRemaining: false,
+    };
+    const payloads: unknown[] = [];
+    const verifier = new PiMasterVerifier({
+        provider: "openai",
+        model: "gpt-5.4",
+        skills: createTemplateMasterSkillRefs(),
+        modelRuntime: await ModelRuntime.create({
+            modelsPath: null,
+            refreshOnCreate: false,
+        }),
+        sessionFactory: async () => {
+            const model = {
+                api: "openai-completions",
+                input: ["text", "image"],
+            };
+            const agent = {
+                onPayload: undefined as
+                    | undefined
+                    | ((payload: unknown, model: unknown) => Promise<unknown>),
+            };
+            return {
+                session: {
+                    model,
+                    agent,
+                    dispose() {},
+                    prompt: async () => {
+                        payloads.push(await agent.onPayload?.({}, model));
+                    },
+                    messages: [
+                        {
+                            role: "assistant",
+                            stopReason: "stop",
+                            content: [
+                                { type: "text", text: JSON.stringify(verdict) },
+                            ],
+                        },
+                    ],
+                },
+            } as unknown as CreateAgentSessionResult;
+        },
+    });
+    await expect(
+        verifier.verify({
+            image: await paint(8, 8, () => white),
+            spec,
+            marks: [],
+            transparent: false,
+            signal: new AbortController().signal,
+        }),
+    ).resolves.toEqual(verdict);
+    expect(payloads).toMatchObject([
+        {
+            response_format: {
+                type: "json_schema",
+                json_schema: {
+                    strict: true,
+                    schema: {
+                        additionalProperties: false,
+                        required: Object.keys(verdict),
+                        properties: {
+                            texts: { items: { required: ["id", "read"] } },
+                            layout: { required: ["passed", "offenders"] },
+                        },
+                    },
+                },
+            },
+        },
+    ]);
+});
 
 describe("合同", () => {
     const input = {

@@ -37,6 +37,7 @@ export const verificationSchema = z.strictObject({
     }),
     watermarkRemaining: z.boolean(),
 });
+const verificationJsonSchema = z.toJSONSchema(verificationSchema);
 export type Verification = z.infer<typeof verificationSchema>;
 
 export type MasterVerificationRequest = Readonly<{
@@ -143,7 +144,14 @@ export class PiMasterVerifier implements MasterVerifier {
         this.#options = {
             ...options,
             thinkingLevel: "low",
-            jsonMode: true,
+            ...(options.provider === "openai"
+                ? {
+                      jsonSchema: {
+                          name: "master_verification",
+                          schema: verificationJsonSchema,
+                      },
+                  }
+                : { jsonMode: true }),
             sessionFactory: async (sessionOptions) => {
                 const result = await (
                     options.sessionFactory ?? createAgentSession
@@ -190,7 +198,12 @@ export class PiMasterVerifier implements MasterVerifier {
             try {
                 const { output } = await new PiStructuredAgent({
                     ...this.#options,
-                    instructions: [VERIFIER_RULES],
+                    instructions: this.#options.jsonSchema
+                        ? [VERIFIER_RULES]
+                        : [
+                              VERIFIER_RULES,
+                              `输出须符合 JSON Schema：${JSON.stringify(verificationJsonSchema)}`,
+                          ],
                 }).run({
                     prompt: buildVerificationPrompt(
                         request.spec,

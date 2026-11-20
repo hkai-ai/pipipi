@@ -31,6 +31,8 @@
 
 每次产出后：确定性 `printable`、`palette`、`similarity`（重档为 null）；全部通过才调用一次多模态模型校验 `text`（逐字比较，归一化只做空白与大小写，清单外文字与残留水印也计入 text）与 `layout`。确定性项不过时不付模型校验费。阈值与来源见 `src/processes/template-master/thresholds.ts`；相似度阈值尚未用真实样本标定。
 
+OpenAI 校验请求使用与本地校验同源的严格 JSON Schema。校验活动记录脱敏的请求、响应、JSON 或字段错误分类。候选母版通过校验后才上传；校验中断的运行没有可恢复的母版文件。
+
 `palette` 只比较 `defaults.colors` 中能解析出 `#rrggbb` / `rgb()` 的颜色；全是颜色名时不判定。
 
 ## 预算与失败

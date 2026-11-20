@@ -1,5 +1,6 @@
 /** 母版分档生成：轻、中、重逐档出图并逐次对照校验，通过的母版上传后返回。 */
 import sharp from "sharp";
+import { agentDiagnostic } from "../../agent-runtime/diagnostics.js";
 import { downloadSourcePhoto } from "../../business-api/source-photo.js";
 import { currentCostLedger } from "../../process-runtime/cost.js";
 import {
@@ -300,6 +301,7 @@ export function createTemplateMasterRegistration(options: {
                                         marks,
                                         signal,
                                     }),
+                                agentDiagnostic,
                             );
                             verdict = evaluateVerification(
                                 spec,
