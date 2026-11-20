@@ -67,6 +67,7 @@ beforeAll(async () => {
 
 afterEach(async () => {
     await Promise.all(runningServices.splice(0).map((s) => s.close()));
+    vi.useRealTimers();
 });
 
 async function paintCleanArtwork(): Promise<Buffer> {
@@ -121,22 +122,23 @@ async function startHarness(
     const sourcePng = await paintCleanArtwork();
     const recordDir = await mkdtemp(join(tmpdir(), "pipipi-master-obs-"));
     const fixedDate = new Date("2026-11-19T09:16:07.000Z");
+    vi.useFakeTimers({ toFake: ["Date"], now: fixedDate });
     const archive = createJsonlProcessRunRecordArchive({
         directory: recordDir,
-        clock: () => fixedDate,
+        clock: () => new Date(),
     });
     const activities = createJsonlProcessRunActivityArchive({
         directory: recordDir,
-        clock: () => fixedDate,
+        clock: () => new Date(),
     });
     const stats = createJsonlRunObservationStats({
         directory: recordDir,
-        clock: () => fixedDate,
+        clock: () => new Date(),
     });
     const runRecords = createProcessRunRecords({
         adapter: archive,
         content: options.recordContent ?? "omit",
-        clock: () => fixedDate.toISOString(),
+        clock: () => new Date().toISOString(),
     });
 
     const edit = vi.fn(async () => sourcePng);
@@ -233,7 +235,7 @@ async function startHarness(
         registry,
         store,
         queue,
-        clock: () => fixedDate.toISOString(),
+        clock: () => new Date().toISOString(),
         createRunId: () =>
             `10000000-0000-4000-8000-${String(++runCounter).padStart(12, "0")}`,
         sourceRunLookup,
@@ -246,7 +248,7 @@ async function startHarness(
         store,
         attemptRunner,
         runRecords,
-        clock: () => fixedDate.toISOString(),
+        clock: () => new Date().toISOString(),
     });
     const executor = createProcessRunner({
         registry,
@@ -766,6 +768,8 @@ describe("template-master/v1 契约治理与 400 可观测性", () => {
         );
 
         // AC-9: 控制台「异常排查」（/console/stats）与「运行记录」（/console/runs）立即查到，无 unknown/unknown
+        // 统计窗口的上界不包含当前毫秒。
+        vi.setSystemTime(Date.now() + 1);
         const statsRes = await fetch(`${h.url}/console/stats?hours=24`);
         expect(statsRes.status).toBe(200);
         const statsBody = await statsRes.json();
