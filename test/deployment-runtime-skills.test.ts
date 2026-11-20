@@ -1,6 +1,7 @@
 import { spawnSync } from "node:child_process";
 import { describe, expect, it } from "vitest";
 import { createProductionSkillBindings } from "../src/app/runtime-skills.js";
+import { posterSkillVersion } from "../src/processes/poster/skills.js";
 
 const skillPathVariables = [
     "PI_SKILL_DIRECTORY",
@@ -59,7 +60,9 @@ describe("production Runtime Skill bindings", () => {
             "crayon-photo-poster": ["crayon-photo-poster-prompt@v1"],
             "monochrome-photo-poster": ["monochrome-photo-poster-prompt@v1"],
             "woodcut-photo-poster": ["woodcut-photo-poster-prompt@v1"],
-            "minimal-zine-poster": ["minimal-zine-poster-prompt@v1"],
+            "minimal-zine-poster": [
+                `minimal-zine-poster-prompt@${posterSkillVersion}`,
+            ],
             "crt-interface-image": ["tait-crt-interface-prompt@v1"],
             "news-image-pale-watercolor": [
                 "news-image-pale-watercolor-prompt@v1",

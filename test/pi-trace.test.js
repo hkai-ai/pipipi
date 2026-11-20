@@ -9,6 +9,7 @@ import {
     combineProcessRunLogSinks,
     createProcessAttemptRunner,
 } from "../src/process-runtime/index.ts";
+import { posterSkillVersion } from "../src/processes/poster/skills.ts";
 import { startDemoGateway } from "./fixtures/pi-trace-gateway.mjs";
 import { chromeExecutable } from "./support/chrome.js";
 
@@ -153,7 +154,10 @@ it.each([
             }
             if (scenario === "poster") {
                 expect(session.skills).toEqual([
-                    { name: "minimal-zine-poster-prompt", version: "v1" },
+                    {
+                        name: "minimal-zine-poster-prompt",
+                        version: posterSkillVersion,
+                    },
                 ]);
                 expect(session.rounds).toMatchObject([
                     {
@@ -175,7 +179,9 @@ it.each([
                             .getByText("Pi 会话 1", { exact: true })
                             .click();
                         await page
-                            .getByText("minimal-zine-poster-prompt · v1")
+                            .getByText(
+                                `minimal-zine-poster-prompt · ${posterSkillVersion}`,
+                            )
                             .waitFor();
                         await page
                             .getByText("未开放工具", { exact: true })

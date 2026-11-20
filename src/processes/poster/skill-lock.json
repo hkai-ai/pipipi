@@ -1,0 +1,8 @@
+{
+    "repository": "git@github.com:hkai-ai/skills.git",
+    "name": "minimal-zine-poster-prompt",
+    "version": "v1",
+    "commit": "e48823f4f86e06f681835b61a272a9b77635ef1e",
+    "tree": "981675befd9f18609c71263547b24ac1333245d2",
+    "sha256": "58aaaef1f0261ba68b47f3810f8357599f7e66298b11927bf9560df3f34f49eb"
+}

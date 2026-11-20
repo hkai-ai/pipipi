@@ -7,6 +7,7 @@ import type { ProcessingApplication } from "../src/api/application.js";
 import { constructProcessingService } from "../src/app/api.js";
 import type { ProcessRunRecord } from "../src/process-runtime/records.js";
 import { PiPosterAgent } from "../src/processes/poster/agent.pi.js";
+import { posterSkillVersion } from "../src/processes/poster/skills.js";
 
 const runningApplications: ProcessingApplication[] = [];
 const runningServers: Server[] = [];
@@ -141,7 +142,10 @@ describe("operator console construction", () => {
                     process: "minimal-zine-poster",
                     version: "v1",
                     skills: [
-                        { name: "minimal-zine-poster-prompt", version: "v1" },
+                        {
+                            name: "minimal-zine-poster-prompt",
+                            version: posterSkillVersion,
+                        },
                     ],
                 }),
                 expect.objectContaining({
@@ -206,7 +210,7 @@ describe("operator console construction", () => {
         });
 
         const cover = await fetch(
-            `${url}/console/skills/minimal-zine-poster-prompt@v1/cover`,
+            `${url}/console/skills/minimal-zine-poster-prompt@${posterSkillVersion}/cover`,
         );
         expect(cover.status).toBe(200);
         expect(cover.headers.get("content-type")).toBe("image/webp");

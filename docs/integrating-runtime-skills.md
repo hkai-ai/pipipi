@@ -154,7 +154,9 @@ CRT Runtime Skill 是 `TaiT-tt/tait-crt-interface-skill` 在 commit `972a99bc85f
 
 ## 更新与回滚
 
-Skill 更新按依赖升级处理：解析新的不可变版本，比较目录差异，重新做安全和能力审查，更新 `skills.ts` 中的版本与 SHA-256，运行确定性测试与明确需要的真实集成或业务验收，再发布新的应用制品。出现回归时回滚应用制品或恢复上一个固定快照；不要在运行实例上原地拉取旧分支。
+已迁入团队 Skills 仓库的 Runtime Skill，按[版本管理规则](runtime-skill-versioning.md)发布、同步和回退。
+
+其他 Skill 更新按依赖升级处理：解析新的不可变版本，比较目录差异，重新做安全和能力审查，更新 `skills.ts` 中的版本与 SHA-256，运行确定性测试与明确需要的真实集成或业务验收，再发布新的应用制品。出现回归时回滚应用制品或恢复上一个固定快照；不要在运行实例上原地拉取旧分支。
 
 业界实现与这一判断的官方资料摘要见 [`research/skill-source-patterns.md`](research/skill-source-patterns.md)。
 

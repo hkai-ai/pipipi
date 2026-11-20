@@ -21,7 +21,10 @@ import {
     type PiStructuredAgentSessionFactory,
 } from "../src/agent-runtime/structured.js";
 import { PiTooledAgent } from "../src/agent-runtime/tooled.js";
-import { createPosterSkillRefs } from "../src/processes/poster/skills.js";
+import {
+    createPosterSkillRefs,
+    posterSkillVersion,
+} from "../src/processes/poster/skills.js";
 
 describe("OpenAI-compatible provider configuration", () => {
     it("routes the selected model through Chat Completions with reasoning off", async () => {
@@ -601,7 +604,7 @@ describe("Pi session system prompt order and cache key", () => {
 
     it("derives deterministic <=64-char cache keys from bound Skill refs", () => {
         expect(skillPromptCacheKey(createPosterSkillRefs())).toBe(
-            "minimal-zine-poster-prompt:v1",
+            `minimal-zine-poster-prompt:${posterSkillVersion}`,
         );
         const longKey = skillPromptCacheKey([
             {

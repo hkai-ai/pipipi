@@ -308,3 +308,56 @@ Source locator 属于开发/运维 Interface，不应成为公共 `POST /execute
 默认验证至少覆盖：规范字段、名称与目录一致、引用资源存在、路径不越界、重复名、digest、
 兼容性、Tool allowlist、无凭证文件，以及 Process 预期输出 Schema。真实模型 A/B 或 smoke
 仍应作为独立、显式且可能产生费用的验证，不进入默认测试。
+
+## 私有 Skill Hub 与版本管理选型（2026-11-20 调研）
+
+对于维护 Pipipi 的团队，建议先在现有 Git 仓库管理自有 Skill，借用现成工具发现和导入第三方 Skill。Agent Skills 规范允许用 `metadata.version` 标记版本，具体的版本解析、内容固定与发布授权由宿主决定。开发者可以委托 Codex 编写候选版本、比较差异和准备评审。生产 Agent 继续按 Process Registration 读取随服务发布的本地快照。[Agent Skills 规范](https://agentskills.io/specification)、[Pipipi 的 Skill 接入约定](../integrating-runtime-skills.md)
+
+| 方案 | 已有能力 | 对 Pipipi 的意义 |
+| --- | --- | --- |
+| Git 私仓配合 Vercel `skills` CLI | CLI 使用已有 Git 凭证访问私仓，支持完整 commit 和指定 Skill，也能检查更新 | 适合多仓共享 Development Skill。导入 Runtime Skill 时，先在开发环境检查固定 commit 的完整目录，再按 Pipipi 的接入规则适配。[CLI 官方手册](https://github.com/vercel-labs/skills/blob/main/docs/commands.md) |
+| Vercel skills.sh Packs | 可以组合公开和私有来源。持链接者无需登录即可查看和安装，新安装获取当前内容，构建器会省略二进制文件和超过 2 MB 的单文件 | 适合按链接分享可转发的开发材料。公司私有方法需要成员鉴权，含图片等资产的 Skill 还需要完整交付目录。[Packs 官方说明](https://skills.sh/docs/packs) |
+| OpenClaw ClawHub | 托管服务公开发布文本 Skill，提供 SemVer、标签、变更说明和安装锁。MIT 源码可供自建，原项目使用 Convex 数据库与文件存储、GitHub OAuth 和向量搜索 | 可作公开候选来源。若多个独立团队确实需要网页检索、委托发布和独立分发，再评估自建实例的鉴权、存储和运维成本。[ClawHub 官方文档](https://docs.openclaw.ai/clawhub)、[ClawHub 源码与架构](https://github.com/openclaw/clawhub) |
+
+建议先用一个实际升级验证版本策略。同一 Skill 的候选版应能与上版逐文件比较，记录其来源 commit 和实际交付内容的摘要；本地适配会改变内容，需分别记录上游标识与适配后标识。评审通过后，将固定版本绑定到对应 Registration 并随镜像发布。公开契约可保持原 Process 版本，同时保留 Skill 版本的变化记录。回滚时应能据此取回先前适配后的原件，而非重新从上游分支生成。以上是管理提案，当前接入和校验范围以[项目开发文档](../integrating-runtime-skills.md)为准。
+
+### 用现有模板编译 Skill 验证提案
+
+本次对本地 production catalog 启用可选的 composed-task 并运行启动校验，26 个含 Skill 的 Process 条目共绑定 24 个不同的 `name@version`。模板图的两个 Registration 共用 `meme-template-json-compiler@v1.13`。如果只让其中一个试用下一版，应保留 v1.13 的本地快照，为候选版指定独立路径并只切换目标 Registration。控制台已能展示当前 Skill 与 Process ID；如需区分同一 ID 下的不同 Process 版本，可从 Registration 补齐准确版本。[生产绑定](../../src/app/runtime-skills.ts)、[模板绑定](../../src/processes/template-from-image/production.ts)、[当前 Skill 版本](../../src/processes/template-from-image/skills.ts)、[控制台目录](../../src/api/skill-catalog.ts)
+
+建议首先验证“已发布的同一名称和版本始终对应同一份执行内容”。现有启动校验比对本次发布提供的 `SKILL.md` SHA-256。可在 CI 中与前次已发布记录比较，防止一次修改同时覆盖旧正文和旧摘要。若 Schema 或其他文件参与执行，把这些文件纳入版本校验；封面等展示材料可独立更新。升级和退回都应验证已有异步任务能按受理时的约定继续执行。[加载与校验实现](../../src/agent-runtime/skills.ts)、[模板 Schema 摘要](../../src/processes/template-from-image/skills.ts)
+
+当第二个独立服务需要消费同一份 Runtime Skill 时，可以先按 Git commit 取固定目录；若消费方需要独立包发布和权限，再评估 GitHub Packages 的私有 npm 包。Pi 上游也有 Git 和 npm 的精确版本分发机制。接入 Pipipi 时可由构建流程取包、校验并归入镜像，沿用当前离线执行路径。[Pi Packages](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/packages.md)、[GitHub Packages 权限](https://docs.github.com/en/packages/learn-github-packages/about-permissions-for-github-packages)
+
+## 开源注册中心如何管理版本与来源
+
+本节供维护 Pipipi Skill 的开发者比较注册中心的数据模型。以下比较基于 2026-11-20 查阅的上游实现与官方手册。选型首先取决于注册中心保存原件还是保存外部引用，以及发布版本能否追溯到上游修订。
+
+### MLflow Skill Registry：版本记录绑定来源
+
+MLflow 在 workspace 中按可选组织和名称维护 Skill，单次注册会生成递增的整数版本。每个版本独立记录来源类型、来源、可选摘要、状态、标签、创建人和时间。别名指向版本，因此可以移动 `production`，也可以按固定版本取件。这个组件标为 experimental，采用时需评估接口变化。[版本实体源码](https://github.com/mlflow/mlflow/blob/e5c0deed79d4ef35039161d7f466b6a92b021640/mlflow/entities/skill_version.py)、[实体与生命周期](https://mlflow.org/docs/latest/genai/skill-registry/)
+
+本地上传由 MLflow 的 artifact store 留存。外部 Git、OCI、ZIP 默认保留来源引用，消费者拉取时仍需要能访问上游。Python 高层注册会验证内容并生成摘要，网页录入外部引用可以跳过取件；数据模型允许摘要为空。Git 来源可表达 URL、ref 和子目录。若用浮动 ref 且已记录摘要，来源漂移会导致后续拉取校验失败。需要历史回滚能力时，应保留可取得的原件。[来源注册与拉取规则](https://mlflow.org/docs/latest/genai/skill-registry/register-and-import-skills/)
+
+### 讯飞 SkillHub：来源导入与内部发布分别留档
+
+SkillHub 是 Apache-2.0 的自托管成品。PostgreSQL 保存元数据，文件内容由存储服务管理。核心关系是命名空间下的 Skill 拥有多个版本，每版对应一份文件清单，每个文件记录路径、大小、SHA-256 和存储位置。版本记录带发布人相关标识、状态、发布时间和变更说明，标签通过单独记录指向版本。团队可按命名空间管理权限与审核。[架构和部署](https://github.com/iflytek/skillhub/tree/b81af32f145c393c03051865031eae7bfbeaafa4)、[核心表与约束](https://github.com/iflytek/skillhub/blob/b81af32f145c393c03051865031eae7bfbeaafa4/server/skillhub-app/src/main/resources/db/migration/V2__phase2_skill_tables.sql)
+
+GitHub 同步入口单独记录仓库 ID、40 位 commit、Skill 子路径、归档摘要，另有内容摘要与许可依据字段；发布版本可回链到这条导入记录。普通上传的版本可以没有 GitHub 导入记录。这个区分让使用者看得出哪些来源由系统在导入时采集，哪些只能由发布者提供。[GitHub 导入记录](https://github.com/iflytek/skillhub/blob/b81af32f145c393c03051865031eae7bfbeaafa4/server/skillhub-app/src/main/resources/db/migration/V82__github_sync_package_ingestion.sql)、[发布版本回链](https://github.com/iflytek/skillhub/blob/b81af32f145c393c03051865031eae7bfbeaafa4/server/skillhub-app/src/main/resources/db/migration/V89__github_sync_publication.sql)
+
+### ClawHub：注册中心与消费方各自留存记录
+
+服务端用 Convex 保存 Skill、发布版本及文件索引，文件存储保存对应字节。Skill 的标签指向版本记录；发布时检查同一 Skill 是否已存在相同版本。GitHub 导入由服务端解析 ref，留下仓库、commit、子路径和导入时间。验证接口能区分经服务端解析的来源和缺少来源证据的版本。[版本表](https://github.com/openclaw/clawhub/blob/6896b557703a97e23a04d1a6d8ee23029ee8f2f6/convex/schema.ts#L1055-L1100)、[发布检查](https://github.com/openclaw/clawhub/blob/6896b557703a97e23a04d1a6d8ee23029ee8f2f6/convex/lib/skillPublish.ts#L174-L218)、[来源验证](https://github.com/openclaw/clawhub/blob/6896b557703a97e23a04d1a6d8ee23029ee8f2f6/convex/httpApiV1/skillsV1.ts#L2478-L2491)
+
+客户端安装完成后，工作区锁文件记录已装版本，还可记录是否固定；每个安装目录另存注册中心、版本和本地指纹。可由此区分中心当前推荐的版本和某个工作区上次实际安装的版本。[锁文件结构](https://github.com/openclaw/clawhub/blob/6896b557703a97e23a04d1a6d8ee23029ee8f2f6/packages/schema/src/schemas.ts#L14-L27)、[安装记录写入](https://github.com/openclaw/clawhub/blob/6896b557703a97e23a04d1a6d8ee23029ee8f2f6/packages/clawhub/src/cli/commands/skills.ts#L592-L615)
+
+### 在 Pipipi 应如何对应这些信息（提案）
+
+| 要回答的问题 | 应关联的信息 | 现有实例 |
+| --- | --- | --- |
+| 方法从哪里来，有权怎样使用？ | 仓库或原始包、准确修订、子路径或文件清单、许可 | 模板编译器的 [source-manifest.json](../../.pi/skills/print-design-template-compiler/source-manifest.json) 已记录上游修订和逐文件摘要 |
+| 我们发布了哪个版本，如何取回？ | 本地 Skill 名称和版本、适配记录、执行文件摘要、快照所在 commit 或制品地址 | 模板的 [SOURCE.md](../../.pi/skills/print-design-template-compiler/SOURCE.md) 解释了从原始资料到内部 v3 的裁剪 |
+| 当时由谁引入，为什么更新？ | 发布者、时间、变更说明及可追溯的评审记录 | Git 合并记录可作为依据，目录页面按需链接 |
+| 哪个消费者实际采用？ | 精确 Process 身份和版本、Skill 版本、部署修订；发布别名可独立移动 | [生产绑定](../../src/app/runtime-skills.ts) 和随镜像发布的本地文件决定实际装载内容 |
+
+上游 commit 标识仓库的历史，本地版本命名团队发布的适配结果，内容摘要校验交付字节，Process 绑定说明采用范围。即使同一上游 commit 经两次不同的裁剪生成两个内部版本，这四项仍能回答各自的问题。

@@ -18,6 +18,7 @@ import {
 import {
     createPosterSkillRefs,
     posterSkillName,
+    posterSkillVersion,
 } from "../src/processes/poster/skills.js";
 
 const temporaryRoots: string[] = [];
@@ -260,7 +261,7 @@ describe("Installed Runtime Skill catalog", () => {
         expect(
             catalog.list().map(({ name, version }) => `${name}@${version}`),
         ).toEqual([
-            "minimal-zine-poster-prompt@v1",
+            `minimal-zine-poster-prompt@${posterSkillVersion}`,
             "news-image-narrative-monument-prompt@v1",
             "news-image-pale-watercolor-prompt@v1",
             "news-image-raw-humanism-prompt@v1",

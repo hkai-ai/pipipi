@@ -4,6 +4,7 @@
     "private": true,
     "type": "module",
     "scripts": {
+        "skill:sync": "node --import tsx tools/sync-skill.mjs",
         "dev": "node --env-file-if-exists=.env --watch --import tsx src/bin/api.ts",
         "dev:api": "node --env-file-if-exists=.env --watch --import tsx src/bin/api.ts",
         "dev:agent": "node --env-file-if-exists=.env --watch --import tsx src/bin/local-agent.ts",

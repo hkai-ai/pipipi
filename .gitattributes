@@ -24,3 +24,8 @@
 .pi/skills/template-master-method/* text eol=lf
 .pi/skills/product-remix-method/* text eol=lf
 ops/deploy-uat-release.sh text eol=lf
+
+.pi/skills/minimal-zine-poster-prompt/SKILL.md text eol=lf
+.pi/skills/minimal-zine-poster-prompt/SOURCE.md text eol=lf
+.pi/skills/minimal-zine-poster-prompt/LICENSE text eol=lf
+.pi/skills/minimal-zine-poster-prompt/cover.webp binary
