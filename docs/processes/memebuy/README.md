@@ -43,3 +43,5 @@ Memebuy C 类采用通用 CRT 与照片海报 Process 的背景合同；背景�
 [`template-master/v1`](template-master/README.md) 由原图与解析结果分档出母版并逐次对照校验，通过后按成图同样的方式上传。
 
 批准图片可通过 Process v3 生成运行语义 V4 的[印花拆解候选](template-from-image/print-design-v4.md)，原方案和成图审批继续复用；旧 v1/v2、历史运行和冻结模板不切换。
+
+[`product-remix/v1`](product-remix/README.md) 面向 Memebuy「商品做同款」（`kind = "product.remix"`），推荐经异步 `/process-runs` 提交：以 `sourceImageUrl` 为单层视觉与版式基准，结合可选 `referenceImageUrl` 或 0–9 张有序 `referenceImageUrls` 与 `userText`，在 `budget: { maxAttempts, maxUsd }` 与 `660` 秒硬超时约束下自动分档（`light` / `medium` / `heavy`）、执行多图编辑与 VLM 质检闭环，并在通过后上传至受控对象存储。接口字段与 URL 红线见[商品做同款接口](../../api.md#商品做同款product-remixv1)。

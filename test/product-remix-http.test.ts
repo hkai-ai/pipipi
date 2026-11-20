@@ -341,6 +341,16 @@ describe("product-remix/v1 HTTP 与异步契约集成验收", () => {
                     budget: { maxAttempts: 3, maxUsd: 0 },
                 },
             ],
+            [
+                "同时传入 referenceImageUrl 与 referenceImageUrls",
+                {
+                    sourceImageUrl,
+                    referenceImageUrl,
+                    referenceImageUrls: [referenceImageUrl],
+                    userText: "改图",
+                    budget: { maxAttempts: 3, maxUsd: 1 },
+                },
+            ],
         ];
 
         for (const [index, [label, input]] of invalidInputs.entries()) {

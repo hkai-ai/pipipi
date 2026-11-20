@@ -190,6 +190,14 @@ describe("契约与 URL 红线校验", () => {
             "budget.maxUsd > 20",
             { ...validBase, budget: { maxAttempts: 3, maxUsd: 20.01 } },
         ],
+        [
+            "同时传入 referenceImageUrl 与 referenceImageUrls",
+            {
+                ...validBase,
+                referenceImageUrl,
+                referenceImageUrls: [referenceImageUrl],
+            },
+        ],
     ])("拒绝非法输入：%s", (_label, candidate) => {
         expect(productRemixInputSchema.safeParse(candidate).success).toBe(
             false,
@@ -748,6 +756,47 @@ describe("Process 执行闭环、重试与预算门禁", () => {
         expect(
             await registration.run(accepted.acceptedInput, {
                 runId: "run-echo-url",
+                signal: new AbortController().signal,
+            }),
+        ).toMatchObject({
+            status: "failed",
+            error: { code: "INVALID_OUTPUT" },
+        });
+
+        const secondReferenceUrl =
+            "https://private.example.com/user-uploads/cat.jpg?Expires=1800000000&Signature=xyz789";
+        const multiRefRegistration = createProductRemixRegistration({
+            capability: {
+                edit: async () => ({
+                    bytes: generatedPng,
+                    width: 1024,
+                    height: 1024,
+                    modelName: "gpt-image-2.5-flare",
+                }),
+                upload: async () => ({
+                    url: secondReferenceUrl,
+                    width: 1024,
+                    height: 1024,
+                }),
+            },
+            agent: {
+                plan: async () => makePlan(),
+                verify: async () => makeVerification(),
+            },
+            loadSource: async () => sourcePng,
+            spentUsd: () => 0,
+        });
+        const acceptedMulti = multiRefRegistration.accept({
+            sourceImageUrl,
+            referenceImageUrls: [referenceImageUrl, secondReferenceUrl],
+            userText: "改图",
+            budget: { maxAttempts: 2, maxUsd: 1 },
+        });
+        if (!acceptedMulti.accepted) throw new Error("rejected");
+
+        expect(
+            await multiRefRegistration.run(acceptedMulti.acceptedInput, {
+                runId: "run-echo-multi-ref",
                 signal: new AbortController().signal,
             }),
         ).toMatchObject({

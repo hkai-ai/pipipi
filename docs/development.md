@@ -153,12 +153,12 @@ curl -X POST http://127.0.0.1:4300/execute \
 | `src/release/` | 发布门禁逻辑：异步 internal smoke、付费 CRT 异步 smoke、新闻图片业务验收、smoke 状态审计、生产数据库身份审计和 migration 二次验证；只由 `bin/`、`examples/` 和 CI 调用，不进入请求路径 |
 | `src/process-runtime/` | 跨 Business Process 复用的 Registration、Registry、Runner、Attempt、结果和观测治理 |
 | `src/agent-runtime/` | 跨 Business Process 复用的 Pi provider 配置、请求级 Session 支撑、无 Tool 与带 Tool 两种 Structured Agent Session、Agent JSON 解析、Installed Skill Catalog 和 Runtime Skill 精确加载 |
-| `src/processes/` | production catalog 与生产装配契约，以及按 `poster/`、`crt/`、`news-image/`、`character-emoji/`、`composed/` 分组的具体 Business Process；不放通用 Runtime |
+| `src/processes/` | production catalog 与生产装配契约，以及按 `poster/`、`crt/`、`news-image/`、`character-emoji/`、`product-remix/`、`template-*`、`composed/` 分组的具体 Business Process；不放通用 Runtime |
 | `src/process-runs/` | Async Process Runs，以及按 `store/`、`queue/`、`outbox/`、`worker/`、`recovery/`、`retention/` 和 `ops/` 分组的内部 Module |
 | `src/webhooks/` | Webhook Delivery，以及按 `delivery/`、`store/`、`queue/`、`outbox/` 分组的内部 Module |
 | `src/availability/` | 一次性 Availability Monitor、HTTP/Redis Probe 和异常 Webhook Notifier |
 | `src/network/` | 跨 Adapter 复用的公网地址校验、DNS 解析与 IP-pinned HTTP transport；不拥有业务重试或 payload 语义 |
-| `src/business-api/` | CRT Business API、FAL、finalizer、证据和对象存储 Adapter |
+| `src/business-api/` | CRT Business API、图片编辑与上传（含 `product-remix.ts`）、FAL、finalizer、证据和对象存储 Adapter |
 | `migrations/` | 受版本和 advisory lock 管理的 PostgreSQL schema 变化 |
 | `test/` | 跨公开 Seam 的确定性行为验证 |
 | `examples/` | 本地依赖、真实集成、业务验收和可复现实验 |

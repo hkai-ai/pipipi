@@ -8,7 +8,7 @@
 
 图片预处理后的模板内容支持独立重编译：保留已确认成图，提交本轮模板修改要求，只生成新的 Gallery 草稿供人工审阅。
 
-生产 catalog 登记二十八个 Business Process，其中 `composed-task/v1` 默认关闭。文档先按产品场景分组，运行时仍通过统一的 Process identity 和 HTTP Interface 执行：
+生产 catalog 登记三十一个 Business Process，其中 `composed-task/v1` 默认关闭。文档先按产品场景分组，运行时仍通过统一的 Process identity 和 HTTP Interface 执行：
 
 | 场景 | Process | 输入 | 输出 |
 | --- | --- | --- | --- |
@@ -17,6 +17,7 @@
 | `memebuy` | `template-image-render/v1` | 方案批准 | 中转站成图的待审完整 PNG；历史 FAL 按原请求恢复 |
 | `memebuy` | `template-master/v1` | 原图、预算，及 `sourceRunId` 或兼容直传 v4 草稿与原图状况 | `{ preparedImage, master }` |
 | `memebuy` | `template-from-source/v1` | 成图批准 | 新图引用与模板草稿 |
+| `memebuy` | [`product-remix/v1`](docs/processes/memebuy/product-remix/README.md) | 原印花图、可选 0–9 张参考图、编辑意图、可选尺寸与预算 | `{ image, modelName, resolvedTier }` |
 | `common` | `minimal-zine-poster/v1` | `{ "brief": string, "text"?: string }` | `{ "prompt", "recipe", "interpretation", "image" }` |
 | `common` | `crt-interface-image/v1` | `{ "sourceImageUrl", "palette", "aspectRatio" }` | `{ "aspectRatio", "image" }` |
 | `memene` | `news-image-narrative-monument/v1` | `{ "title", "summary" }` | `{ "style", "image" }` |
@@ -67,7 +68,7 @@ Agent Conversations 框架提供多轮文本、owner-scoped 图片和受控 Proc
 | --- | --- | --- |
 | [`common`](docs/processes/common/) | 海报与 CRT 图片 | [`src/processes/`](src/processes) |
 | [`memene`](docs/processes/memene/) | 三个新闻图片 Process | [`src/processes/news-image/registration.ts`](src/processes/news-image/registration.ts) |
-| [`memebuy`](docs/processes/memebuy/) | 图片转可编辑模板 | [`src/processes/template-from-image/registration.ts`](src/processes/template-from-image/registration.ts) |
+| [`memebuy`](docs/processes/memebuy/) | 模板制作与商品做同款 | [`src/processes/template-from-image/`](src/processes/template-from-image) 与 [`src/processes/product-remix/`](src/processes/product-remix) |
 
 总目录和新 Process 的放置规则见 [`docs/processes/README.md`](docs/processes/README.md)。production catalog 的准确清单由 [`src/processes/catalog.ts`](src/processes/catalog.ts) 和 [`src/app/business-processes.ts`](src/app/business-processes.ts) 决定。
 
@@ -229,4 +230,4 @@ CRT 与七个照片海报支持可选背景参数，省略时保持原行为；�
 
 ## 商品做同款
 
-`product-remix/v1` 支持一张原印花和最多九张用户参考图。[接口说明](docs/api.md#商品做同款参考图)。
+`product-remix/v1` 支持一张原印花和最多九张用户参考图，经 `/process-runs` 异步提交，并在内部分档完成平面印花生成与 VLM 质检闭环。[接口说明](docs/api.md#商品做同款参考图) 与 [商品做同款文档](docs/processes/memebuy/product-remix/README.md)。

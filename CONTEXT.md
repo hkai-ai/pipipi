@@ -48,7 +48,7 @@ Pipipi 提供 Agent 运行环境（harness）和场景 skill。Process Registrat
 
 ## 当前能力
 
-生产 catalog 当前登记二十八个精确版本，其中 `composed-task/v1` 默认关闭：
+生产 catalog 当前登记三十一个精确版本，其中 `composed-task/v1` 默认关闭：
 
 | 场景 | Business Process | 输入 | 输出 | 实现选择 |
 | --- | --- | --- | --- | --- |
@@ -57,6 +57,7 @@ Pipipi 提供 Agent 运行环境（harness）和场景 skill。Process Registrat
 | `memebuy` | `template-image-render/v1` | 方案批准 | 待审 PNG | 固定单次中转站编辑；历史 FAL 按原请求恢复 |
 | `memebuy` | `template-master/v1` | 原图、预算，以及 `sourceRunId`（直读同 caller 上游产物）或兼容直传 v4 草稿与原图状况（二选一） | 母版 PNG 与校验报告 | 受理阶段按 caller 校验并快照上游产物；轻（色键）、中（修复）、重（重绘）分档，逐次确定性加模型对照校验 |
 | `memebuy` | `template-from-source/v1` | 成图批准 | 新图与 Gallery 草稿 | 不可变 OSS 与原编译器 |
+| `memebuy` | `product-remix/v1` | 原印花 URL、可选 0–9 张参考图 URL、编辑意图、可选尺寸与预算上限 | `{ image, modelName, resolvedTier }` | 单层视觉基准；无 Tool Agent 加载固定 Runtime Skill 自动分档（`light` / `medium` / `heavy`）、执行多图编辑与 VLM 质检闭环，硬超时 660 秒，严禁回显输入图 URL |
 | `common` | `minimal-zine-poster/v1` | `{ brief: string, text?: string }` | `{ prompt, recipe, interpretation, image }` | 无 Tool Agent 编译固定 Runtime Skill；Poster Rendering Capability 复用内部图片服务生成并持久化图片 |
 | `common` | `crt-interface-image/v1` | `{ sourceImageUrl, palette, aspectRatio }` | `{ aspectRatio, image }` | 无 Tool Agent 编译固定 Runtime Skill；CRT Rendering Capability 用公网 HTTPS 参考图执行 FAL GPT Image 2 编辑、后处理并持久化 PNG |
 | `memene` | `news-image-narrative-monument/v1` | `{ title, summary }` | `{ style, image }` | 固定人物叙事碑式封面 Runtime Skill |
@@ -258,4 +259,4 @@ Pi 会话轨迹属于实际执行的 Attempt 和活动实例。Skill 取自会�
 
 ## 商品做同款
 
-商品做同款保留一个原印花基准，最多接收九张用户参考图。规划、改图和质检均保留参考图顺序。
+`product-remix/v1` 面向 Memebuy「商品做同款」，坚持单层视觉基准、内部自动分档与预算受控的 VLM 质检闭环，保留一个原印花基准并最多按上传顺序接收九张用户参考图。契约与专项说明见 [API 文档](docs/api.md#商品做同款product-remixv1) 与 [商品做同款专题](docs/processes/memebuy/product-remix/README.md)。

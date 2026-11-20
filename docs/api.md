@@ -1,6 +1,6 @@
 # 业务接口文档
 
-本文面向业务调用方和调用 Agent，记录二十七个 Business Process（默认启用二十六个）、Agent Conversations、重试与通知契约，以及临时开放的内部评测接口。场景列帮助产品找到契约；请求仍只提交准确 Process 或 Agent 版本和业务输入。其中 `composed-task/v1` 随应用发布但默认关闭；production Agent catalog 当前为空（原 `design-assistant/v1` 已下线，待重新开发），因此四个 Agent Conversations 路由不能开启。
+本文面向业务调用方和调用 Agent，记录三十一个 Business Process（默认启用三十个）、Agent Conversations、重试与通知契约，以及临时开放的内部评测接口。场景列帮助产品找到契约；请求仍只提交准确 Process 或 Agent 版本和业务输入。其中 `composed-task/v1` 随应用发布但默认关闭；production Agent catalog 当前为空（原 `design-assistant/v1` 已下线，待重新开发），因此四个 Agent Conversations 路由不能开启。
 
 ## Agent 能力接入结论
 
@@ -302,7 +302,8 @@ Agent 先读取 [`https://pi.ganjiuwanshi.com/llms.txt`](https://pi.ganjiuwanshi
 | Base URL | `https://pi.ganjiuwanshi.com` |
 | Agent 入口 | `GET /llms.txt`；兼容 `GET /llm.txt` |
 | 完整 Markdown | `GET /docs/api.md` |
-| 业务入口 | `POST /execute`；部署启用后提供 `POST /agent-conversations`、`POST /agent-conversations/{id}/turns`、`GET/DELETE /agent-conversations/{id}` |
+| 流程发现入口 | `GET /processes`（返回当前已启用 Process 列表及输入输出 Schema；`Cache-Control: no-store`） |
+| 业务入口 | `POST /execute`、`POST /process-runs`、`GET /process-runs/{runId}`；部署启用后提供 `POST /agent-conversations`、`POST /agent-conversations/{id}/turns`、`GET/DELETE /agent-conversations/{id}` |
 | 内部评测入口 | `POST /internal/eval/execute`；当前生产已开启 |
 | Content-Type | `application/json` |
 | 鉴权 | 统一使用 Bearer API Key；`/execute` 档位与网关兼容策略见[调用方认证](#调用方认证) |
@@ -355,6 +356,7 @@ Content-Type: application/json
 | 场景 | process | 用途 |
 | --- | --- | --- |
 | `memebuy` | `template-master` | 原图与解析结果生成印花母版（轻、中、重分档，逐次对照校验） |
+| `memebuy` | `product-remix` | 商品做同款：以原印花为单层基准，结合可选参考图与用户意图自动分档改图并质检（推荐 `/process-runs` 异步调用） |
 | `memebuy` | `template-from-image` | 从参考图编译可编辑模板草稿；对接 Memebuy 素材箱提取 Worker，保留 Pipipi 本地测试，尚未部署 |
 | `common` | `minimal-zine-poster` | 生成极简 Zine 海报 |
 | `common` | `photo-doodle-collage` | 生成摄影剪贴与互动黑线小人海报 |
@@ -1284,6 +1286,80 @@ Memebuy 可在同步 `POST /execute` 请求中发送 `X-Pipipi-Template-Steps: 1
 
 返回与新回执相同的 `{runId, process, version, steps:[{scope, activity, status, durationMs, diagnostic?:{stage,code}}]}`。先列主流程，再列原运行的编译成员（`scope: "compile"`）；成员耗时包含在父步骤中，不能相加。只展示观测到的活动；归档不完整时不推测根因。历史读取使用既有活动归档，无需重跑；记录仍受服务保留期约束。未授权返回 401，未找到模板父运行返回 404，归档或凭证未配置返回 503。
 
-## 商品做同款参考图
+## 商品做同款（product-remix/v1）
 
-`product-remix/v1` 的 `sourceImageUrl` 指定原印花，`referenceImageUrls` 可按上传顺序传 0 至 9 个用户参考图地址。单图调用可继续使用 `referenceImageUrl`，两个字段互斥。
+供 Memebuy「商品做同款」（`kind = "product.remix"`）使用，支持在 `GET /processes` 列表中发现 `product-remix`（`v1`），推荐经异步 `POST /process-runs` 提交并轮询 `GET /process-runs/{runId}`。
+
+### 发现、幂等与执行时限
+
+- **提交与鉴权**：发送 `Authorization: Bearer <ppk_...>` 与 caller 作用域幂等键 `Idempotency-Key`（如 `product.remix:<taskId>:<attempt>`，可附带 `X-Request-Id`）。同一 `(callerId, idempotencyKey)` + 相同请求体放回原 `{ runId }`（200/202）；不同请求体返回 `409 IDEMPOTENCY_CONFLICT`。
+- **队列容量门禁**：caller 或全局待处理积压达到上限时，在写入幂等键记录前返回 `429 CALLER_BACKLOG_LIMIT_REACHED` 或 `503 ASYNC_SERVICE_CAPACITY_REACHED` 且零模型调用；调用方可使用同一 `Idempotency-Key` 安全重投。
+- **硬超时**：服务端单次运行硬超时固定为 `660` 秒（`660_000` ms，低于调用方侧 `900` 秒总超时），超时落受控 `failed` 终态及 `PROCESS_TIMEOUT`。
+
+### 商品做同款参考图
+
+`product-remix/v1` 采用严格输入校验（拒绝任何多余字段，不接收模型、Skill 或步骤配置）：
+
+```json
+{
+  "process": "product-remix",
+  "version": "v1",
+  "input": {
+    "sourceImageUrl": "https://assets.example.com/prints/original.png",
+    "referenceImageUrl": "https://private.example.com/uploads/ref.jpg?Expires=1800000000&Signature=sig",
+    "userText": "把主角换成参考图里的柯基犬，保留原图复古印花风格，文字改成 LUCKY DAY",
+    "imageSize": "896x1152",
+    "budget": {
+      "maxAttempts": 3,
+      "maxUsd": 1.0
+    }
+  }
+}
+```
+
+| 字段 | 类型 | 必填 | 约束 |
+| --- | --- | --- | --- |
+| `sourceImageUrl` | string | 是 | 图 1：当前商品印制面印花原图，唯一视觉风格与版式基准；须通过公网原图 HTTPS URL 红线校验 |
+| `referenceImageUrl` | string | 否 | 图 2（可选）：单张用户参考照片 URL（同样须满足 URL 红线），与 `referenceImageUrls` 互斥 |
+| `referenceImageUrls` | string[] | 否 | 0–9 张按上传顺序排列的用户参考图 URL（每项均须满足 URL 红线），与 `referenceImageUrl` 互斥；二者同时传入返回 `400 INVALID_INPUT` |
+| `userText` | string | 是 | 已过出站文本审核的用户编辑意图（去首尾空白后 `1..2000` 字符） |
+| `imageSize` | string | 否 | 可选目标尺寸 `WxH`（`64..8192` 像素，如 `1024x1024`、`896x1152`、`1152x896`、`768x1344`、`1344x768`），将匹配最接近的正典尺寸；省略时按原图宽高比选择 |
+| `budget.maxAttempts` | integer | 是 | 最大生成质检尝试次数，`1..10` |
+| `budget.maxUsd` | number | 是 | 本次运行 USD 费用上限，`> 0` 且 `<= 20` |
+
+### 成功输出、费用与 URL 红线
+
+异步终态 `succeeded` 时，`output` 严格符合：
+
+```json
+{
+  "image": {
+    "url": "https://assets.example.com/product-remix/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.png",
+    "width": 896,
+    "height": 1152
+  },
+  "modelName": "gpt-image-2.5-flare",
+  "resolvedTier": "medium"
+}
+```
+
+- `resolvedTier` 由服务端 Agent 自动分档并回传（`light | medium | heavy`）；`modelName` 为实际采纳成图的图像模型标识。
+- 顶层 `cost` 遵循 `/process-runs` [运行费用](#运行费用cost)口径（`currency: "USD"`、`amount`、`source`、`complete`）。
+- **成图 `output.image.url` 三条硬红线**：
+  1. `GET` 请求直取必须直接返回 `200 OK` 与图片字节，禁止任何 HTTP 重定向（301/302/307/308）；
+  2. 必须是合法公网原图 HTTPS URL：协议为 `https:`、长度 `<= 2048`、不含用户名密码或 `@`、不含显式端口号（含 `:443`）、不含 `#hash`、主机名含 `.` 且非 `localhost`/纯 IP、不含 `x-oss-process` 查询参数；
+  3. 严禁回显输入 URL：生成失败、质检未过或预算耗尽时直接落 `failed` 终态，绝不返回 `sourceImageUrl` 或任何参考图 URL（服务端亦会比较 SHA-256，命中则判 `INVALID_OUTPUT`）。
+
+### 受控错误码映射
+
+| error.code | 含义 |
+| --- | --- |
+| `INVALID_INPUT` | 入参未通过严格 Schema 校验（HTTP `400`，在入队与模型调用前拦截且不占 `Idempotency-Key`），或输入图片读取/解码失败 |
+| `PROCESS_NOT_FOUND` | 未注册的 `process` 或 `version`（HTTP `404`） |
+| `PROCESS_TIMEOUT` | 流程执行超过 `660` 秒硬超时 |
+| `AGENT_FAILURE` | 规划/质检输出无效，或 `maxAttempts`/`maxUsd` 耗尽仍未产出合格平面印花图 |
+| `DEPENDENCY_FAILURE` | 上游多模态模型或内部生图/对象存储服务异常 |
+| `INVALID_OUTPUT` | 生成产物非合法 PNG 字节，或上传结果违反公网原图 URL 红线 / 回显输入 URL |
+| `INTERNAL_ERROR` | 未预期内部错误 |
+
+内部单层基准创作守则、分档策略、VLM 质检闭环与代码/测试入口见[商品做同款专项文档](processes/memebuy/product-remix/README.md)。
