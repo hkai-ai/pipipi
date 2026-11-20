@@ -38,6 +38,7 @@ describe("production Runtime Skill bindings", () => {
         ).toEqual({
             "template-image-plan": ["template-image-preparer@v3"],
             "template-master": ["template-master-method@v1"],
+            "product-remix": ["product-remix-method@v1"],
             "dopamine-photo-poster": ["dopamine-photo-poster-prompt@v1"],
             "photo-doodle-collage": ["photo-doodle-collage-prompt@v1"],
             "photo-fashion-manga": ["photo-fashion-manga-prompt@v1"],

@@ -36,6 +36,7 @@ import {
     woodcutProduction,
 } from "./photo-poster/production.js";
 import { posterProduction } from "./poster/production.js";
+import { productRemixProduction } from "./product-remix/production.js";
 import type { ProductionProcess } from "./production.js";
 import { printDesignProduction } from "./template-from-image/design-spec/production.js";
 import {
@@ -76,6 +77,7 @@ export const productionCatalog: readonly ProductionProcess[] = Object.freeze([
     mangaPanelsProduction,
     memoryChecklistProduction,
     risographAlbumProduction,
+    productRemixProduction,
     characterEmojiProduction,
     characterEmojiV3Production,
     characterEmojiV4Production,

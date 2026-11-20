@@ -22,4 +22,5 @@
 
 .pi/skills/print-design-template-compiler/* text eol=lf
 .pi/skills/template-master-method/* text eol=lf
+.pi/skills/product-remix-method/* text eol=lf
 ops/deploy-uat-release.sh text eol=lf

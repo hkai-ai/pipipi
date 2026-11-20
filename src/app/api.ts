@@ -171,12 +171,19 @@ export function constructProcessingService(
         runtime.registry,
         agentIdentity,
     );
-    const consoleOptions = constructConsole(environment, archive, runtime, {
-        store: keys,
-        persistent: Boolean(keyPool),
-        executeAuthMode: auth.mode,
-        gatewayFallbackEnabled: auth.isGatewayFallbackEnabled,
-    });
+    const processCatalog = describeProcessCatalog(runtime.registry);
+    const consoleOptions = constructConsole(
+        environment,
+        archive,
+        runtime,
+        processCatalog,
+        {
+            store: keys,
+            persistent: Boolean(keyPool),
+            executeAuthMode: auth.mode,
+            gatewayFallbackEnabled: auth.isGatewayFallbackEnabled,
+        },
+    );
 
     return {
         application: createProcessingApplication({
@@ -186,6 +193,7 @@ export function constructProcessingService(
                 executeAuthMode: auth.mode,
                 callerIdentity,
                 templateDiagnostics,
+                processes: processCatalog,
                 ...(archive ? { runRecords: archive.records } : {}),
                 ...(asyncProcessRuns
                     ? { asyncProcessRuns: asyncProcessRuns.http }
@@ -247,6 +255,9 @@ function constructConsole(
     environment: StartupEnvironment,
     archive: ConstructedProcessRunObservation | undefined,
     runtime: ProcessRuntime,
+    processCatalog: readonly ReturnType<
+        typeof describeProcessCatalog
+    >[number][],
     callerKeys: ConsoleCallerKeysOptions,
 ): NonNullable<ProcessingHttpOptions["console"]> | undefined {
     if (!parseFeatureFlag(environment.CONSOLE_ENABLED, "CONSOLE_ENABLED")) {
@@ -273,7 +284,7 @@ function constructConsole(
         }),
         activities: archive.activities,
         ...(archive.queueState ? { queueState: archive.queueState } : {}),
-        processes: describeProcessCatalog(runtime.registry),
+        processes: processCatalog,
         skills: describeSkillCatalog(runtime.registry.list()),
         stats: Object.freeze({ summarise: archive.stats.summarise }),
     });
@@ -303,6 +314,7 @@ function parseConsoleBasePath(value: string | undefined): string {
         candidate.startsWith("/internal/eval/execute") ||
         "/internal/eval/execute".startsWith(`${candidate}/`) ||
         candidate.startsWith("/process-runs") ||
+        candidate.startsWith("/processes") ||
         candidate === "/llms.txt" ||
         candidate === "/llm.txt" ||
         candidate === "/docs/api.md" ||

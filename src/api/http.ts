@@ -82,6 +82,7 @@ export type ProcessingHttpOptions = {
     asyncProcessRuns?: AsyncProcessRunsHttpOptions;
     agentConversations?: AgentConversationsHttpOptions;
     templateDiagnostics?: TemplateDiagnostics;
+    processes?: readonly ConsoleProcessDescription[];
     console?: ConsoleHttpOptions;
 };
 
@@ -303,6 +304,7 @@ type RequestHandlingContext = {
     asyncProcessRuns?: AsyncProcessRunsHttpOptions;
     agentConversations?: AgentConversationsHttpOptions;
     templateDiagnostics?: TemplateDiagnostics;
+    processes?: readonly ConsoleProcessDescription[];
     console?: ConsoleHttpOptions;
 };
 
@@ -368,6 +370,7 @@ export function createProcessingRequestListener(
             runRecords: options.runRecords,
             asyncProcessRuns: options.asyncProcessRuns,
             agentConversations: options.agentConversations,
+            processes: options.processes,
             console: options.console,
             templateDiagnostics: options.templateDiagnostics,
         };
@@ -437,6 +440,16 @@ async function handleRequest(
     }
 
     if (await handlePublicDocumentation(request, response)) return;
+
+    if (
+        context.processes &&
+        request.method === "GET" &&
+        request.url === "/processes"
+    ) {
+        response.setHeader("cache-control", "no-store");
+        writeJson(response, 200, { processes: context.processes });
+        return;
+    }
 
     if (
         context.console &&

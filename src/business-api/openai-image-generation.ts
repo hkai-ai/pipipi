@@ -50,14 +50,31 @@ type SourceImage = {
 export type EditImageRequest = GenerateImageRequest & {
     idempotencyKey?: string;
 } & (
-        | { image: SourceImage; imageUrl?: never; imageUrls?: never }
+        | {
+              image: SourceImage;
+              images?: never;
+              imageUrl?: never;
+              imageUrls?: never;
+          }
+        | {
+              images: readonly SourceImage[];
+              image?: never;
+              imageUrl?: never;
+              imageUrls?: never;
+          }
         | {
               imageUrl: string;
               sourceImageSha256?: string;
               image?: never;
+              images?: never;
               imageUrls?: never;
           }
-        | { imageUrls: readonly string[]; image?: never; imageUrl?: never }
+        | {
+              imageUrls: readonly string[];
+              image?: never;
+              images?: never;
+              imageUrl?: never;
+          }
     );
 
 export type OpenAIImageGenerationClientOptions = {
@@ -216,9 +233,11 @@ export class OpenAIImageGenerationClient {
                   this.#referenceReader,
                   signal,
               )
-            : request.image
-              ? [request.image]
-              : [];
+            : request.images
+              ? request.images
+              : request.image
+                ? [request.image]
+                : [];
         if (images.length === 0)
             throw new Error("GPT image edit requires source image data");
         const body = new FormData();

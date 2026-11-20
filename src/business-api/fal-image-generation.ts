@@ -239,6 +239,17 @@ function resolveSourceImageUrls(request: EditImageRequest): string[] {
             throw new Error("FAL image edit requires a source image URL");
         return [value];
     }
+    if ("images" in request && request.images !== undefined) {
+        if (request.images.length === 0) {
+            throw new Error("FAL image edit requires source image bytes");
+        }
+        return request.images.map((item) => {
+            if (item.bytes.byteLength === 0) {
+                throw new Error("FAL image edit requires source image bytes");
+            }
+            return dataUri(item.bytes, item.mimeType);
+        });
+    }
     if (request.image.bytes.byteLength === 0) {
         throw new Error("FAL image edit requires source image bytes");
     }

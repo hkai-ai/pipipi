@@ -60,6 +60,7 @@ COPY --chown=node:node .pi/skills/template-image-preparer ./.pi/skills/template-
 
 COPY --chown=node:node .pi/skills/print-design-template-compiler ./.pi/skills/print-design-template-compiler
 COPY --chown=node:node .pi/skills/template-master-method ./.pi/skills/template-master-method
+COPY --chown=node:node .pi/skills/product-remix-method ./.pi/skills/product-remix-method
 
 USER node
 # 在成品镜像内校验全部固定 Skill（含可选 Process），不访问外部服务。

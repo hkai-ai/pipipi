@@ -11,12 +11,19 @@ import {
     receiptSchema,
 } from "./template-gateway-receipt.js";
 import { TemplateImageSubmissionError } from "./template-image-submission.js";
+export const templateImageEditorModel = "gpt-image-2.5-flare";
+
+export type TemplateImageEditorSource = Readonly<{
+    bytes: Buffer;
+    mimeType: "image/png" | "image/jpeg" | "image/webp";
+    filename?: string;
+}>;
+
 export type TemplateImageEditor = {
+    readonly modelName?: string;
     edit(request: {
-        image: {
-            bytes: Buffer;
-            mimeType: "image/png" | "image/jpeg" | "image/webp";
-        };
+        image?: TemplateImageEditorSource;
+        images?: readonly TemplateImageEditorSource[];
         prompt: string;
         size: string;
         background?: ImageBackground;
@@ -38,8 +45,10 @@ export function createTemplateImageEditor(
         ...options,
     });
     return {
+        modelName: templateImageEditorModel,
         async edit({
             image,
+            images,
             prompt,
             size,
             background,
@@ -47,16 +56,25 @@ export function createTemplateImageEditor(
             onReceipt,
             signal,
         }) {
+            const sourceImages =
+                images && images.length > 0
+                    ? { images }
+                    : image
+                      ? { image }
+                      : undefined;
+            if (!sourceImages) {
+                throw new Error("编辑请求缺少输入图片");
+            }
             try {
                 const result = await client.edit(
                     {
-                        image,
+                        ...sourceImages,
                         prompt,
                         size,
                         background,
                         idempotencyKey,
                         signal,
-                        model: "gpt-image-2.5-flare",
+                        model: templateImageEditorModel,
                         quality: "low",
                         outputFormat: "png",
                     },

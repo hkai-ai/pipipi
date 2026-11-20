@@ -77,6 +77,11 @@ const validInputs: Readonly<Record<string, Record<string, unknown>>> = {
     "risograph-album": {
         sourceImageUrl: "https://assets.example.com/source.png",
     },
+    "product-remix": {
+        sourceImageUrl: "https://assets.example.com/source.png",
+        userText: "把文字改成 HAPPY BIRTHDAY",
+        budget: { maxAttempts: 3, maxUsd: 1 },
+    },
     "photo-fashion-manga": {
         sourceImageUrl: "https://assets.example.com/source.png",
     },
@@ -146,6 +151,7 @@ describe("Process catalog description", () => {
             "news-image-raw-humanism/v1",
             "photo-doodle-collage/v1",
             "photo-fashion-manga/v1",
+            "product-remix/v1",
             "risograph-album/v1",
             "template-from-image/v1",
             "template-from-image/v2",

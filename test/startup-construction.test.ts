@@ -338,7 +338,7 @@ describe("Startup Construction", () => {
         const identity = { id: "composed-task", version: "v1" };
 
         expect(off.registry.find(identity)).toBeUndefined();
-        expect(off.registry.list()).toHaveLength(29);
+        expect(off.registry.list()).toHaveLength(30);
         const registration = on.registry.find(identity);
         expect(registration?.identity).toEqual(identity);
         expect(registration?.timeoutMs).toBe(600_000);
@@ -354,7 +354,28 @@ describe("Startup Construction", () => {
                 skills: ["anything"],
             }),
         ).toMatchObject({ accepted: false });
-        expect(on.registry.list()).toHaveLength(30);
+        expect(on.registry.list()).toHaveLength(31);
+    });
+
+    it("exposes GET /processes including product-remix/v1", async () => {
+        const constructed = constructProcessingService({
+            CRT_BUSINESS_API_BASE_URL: "https://business.example",
+        });
+        runningApplications.push(constructed.application);
+        const { url } = await constructed.application.listen();
+
+        const response = await fetch(`${url}/processes`);
+        expect(response.status).toBe(200);
+        expect(response.headers.get("cache-control")).toBe("no-store");
+        const body = (await response.json()) as {
+            processes: Array<{ process: string; version: string }>;
+        };
+        expect(body.processes).toContainEqual(
+            expect.objectContaining({
+                process: "product-remix",
+                version: "v1",
+            }),
+        );
     });
 
     it("validates the Planner Skill only when composed-task/v1 is enabled", () => {

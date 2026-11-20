@@ -74,6 +74,10 @@ import {
     OpenAIImageGenerationError,
 } from "./openai-image-generation.js";
 import { finalizeTravelPhoto } from "./photo-poster.js";
+import {
+    ProductRemixService,
+    ProductRemixServiceError,
+} from "./product-remix.js";
 import type { TemplateImageEditor } from "./template-image-editor.js";
 import type { TemplateImageRenderer } from "./template-image-fal.js";
 import { TemplateImageProduction } from "./template-image-production.js";
@@ -189,6 +193,10 @@ export async function startCrtBusinessApi(
     const templateMaster = new TemplateMasterService({
         editor: options.templateEditor,
         storage: options.templateStorage,
+    });
+    const productRemix = new ProductRemixService({
+        editor: options.templateEditor,
+        storage: options.storage ?? options.templateStorage,
     });
     const outputDirectory = join(directory, "images");
     const resultDirectory = join(directory, "results");
@@ -352,6 +360,40 @@ export async function startCrtBusinessApi(
                         code: "TEMPLATE_MASTER_INCOMPLETE",
                         reason:
                             error instanceof TemplateMasterError
+                                ? error.reason
+                                : "unknown",
+                    },
+                });
+            }
+            return;
+        }
+        if (
+            request.method === "POST" &&
+            request.url?.startsWith("/product-remix/")
+        ) {
+            const controller = new AbortController();
+            response.once("close", () => {
+                if (!response.writableEnded) controller.abort();
+            });
+            try {
+                const input = JSON.parse(
+                    (await readBody(request, 45_000_000)).toString("utf8"),
+                );
+                writeJson(
+                    response,
+                    200,
+                    await productRemix.execute(
+                        request.url.slice("/product-remix/".length),
+                        input,
+                        controller.signal,
+                    ),
+                );
+            } catch (error) {
+                writeJson(response, 503, {
+                    error: {
+                        code: "PRODUCT_REMIX_INCOMPLETE",
+                        reason:
+                            error instanceof ProductRemixServiceError
                                 ? error.reason
                                 : "unknown",
                     },

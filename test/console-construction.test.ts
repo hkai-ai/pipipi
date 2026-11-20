@@ -188,6 +188,7 @@ describe("operator console construction", () => {
             "photo-doodle-collage-prompt",
             "photo-fashion-manga-prompt",
             "print-design-template-compiler",
+            "product-remix-method",
             "risograph-album-prompt",
             "tait-crt-interface-prompt",
             "template-image-preparer",
