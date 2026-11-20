@@ -42,7 +42,7 @@ Agent 只收到卡片 ID、名称、短摘要与适用范围；来源链接和�
 
 流程使用专用 Pi Session，默认无 Tool，满足服务端搜索条件时仅暴露 `search_memes`。固定 Runtime Skill 分为公共 `character-emoji-planner@v18`、单图 `character-emoji-single@v4` 与漫画 `character-emoji-comic@v6`；每次仅加载公共和当前模式。模式由已校验的业务输入决定，调用方不能选择 Skill。
 
-`tools/build-character-emoji-skill.ts` 从 `scene-prompt.ts` 的公共、单图和漫画规则生成完整快照和摘要，所有快照纳入 production catalog、镜像与 LF 校验。修改后运行生成器，再用 `--check` 核对。当前规则基于移植的 Memebuy 业务合同精简，不宣称逐字对齐。失败样本保留在验收材料中，不逐个追加到通用规则。
+团队 Skills 仓库的 `authoring/character-emoji.json` 维护公共、单图和漫画规则；在该仓库生成快照、发布标签，再按[版本管理规则](../../../runtime-skill-versioning.md)同步。当前规则基于移植的 Memebuy 业务合同精简，不宣称逐字对齐。失败样本保留在验收材料中，不逐个追加到通用规则。
 
 | 阶段 | 固定模型 | 权限 |
 | --- | --- | --- |

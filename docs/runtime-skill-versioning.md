@@ -2,7 +2,9 @@
 
 本文供维护团队 Skill 和 Pipipi 的开发者使用。团队在独立仓库修改、发布 Skill，Pipipi 为每个使用它的 Process 选择版本。发布新版只让它可供选择；Pipipi 同步快照并完成部署后，新版才在线上生效。
 
-目前这套流程已接入极简海报 `minimal-zine-poster-prompt`。其余 Runtime Skill 继续按各自的接入文档维护。
+全部生产 Runtime Skill（含可选流程）均从团队私仓同步。完整名称、所选版本、来源提交和快照摘要见[生产版本清单](../src/agent-runtime/skill-lock.json)。共享同一 Skill 的 Process 随绑定一起升级，例如双色油墨的 v1 和 v2。Codex 使用的 Development Skill 仍按原方式维护。
+
+手写 Skill 直接编辑团队仓库的 `skills/<name>/`；生成型 Skill 在该仓库修改规则或运行生成器，验证后发布。详情见[团队仓库维护说明](https://github.com/hkai-ai/skills#readme)。Pipipi 负责执行接口、模型、工具权限、业务校验器和宿主侧提示词。原来源许可和使用范围继续适用。
 
 ## 在哪里改，在哪里选
 
@@ -25,7 +27,7 @@ Process 版本和 Skill 版本独立。例如，调整海报构图规则可以�
 
 3. **核对并发布 Pipipi。** 查看快照和绑定记录的 Git 差异，核对变更是否符合该 Process 的预期。若文件清单或所需权限变化，先按接入规则重新审查。运行仓库检查与受影响的 Process 测试，再随 Pipipi 发布。[Skill 接入与审查](integrating-runtime-skills.md)
 
-同步命令会记录团队仓库地址、Skill 名称和版本、标签解析到的 commit、完整目录的 Git tree，以及 `SKILL.md` 的 SHA-256。重复同步同一版本应没有差异；若本地快照已有改动，命令会停止，保留现场。以海报为例，可以直接对照[版本绑定记录](../src/processes/poster/skill-lock.json)和[随服务发布的快照](../.pi/skills/minimal-zine-poster-prompt/)。
+同步命令会记录团队仓库地址、Skill 名称和版本、标签解析到的 commit、完整目录的 Git tree，以及 `SKILL.md` 的 SHA-256。重复同步同一版本应没有差异；若本地快照已有改动，命令会停止，保留现场。以海报为例，可以直接对照[版本绑定记录](../src/agent-runtime/skill-lock.json)和[随服务发布的快照](../.pi/skills/minimal-zine-poster-prompt/)。
 
 ## 查询与回退
 

@@ -45,4 +45,4 @@ Registration 预算 2400 秒：轻档 1 次校验加中、重档各 3 次（改�
 
 ## 部署
 
-先发布新增 `018`（process_runs 错误码约束）与 `021`（process_run_records `source_run_id` / `failure_detail` 观测列）迁移，再发布 API、Worker 与 Business API；Business API 新增 `/template-master/edit`、`/template-master/upload`，复用已配置的图片编辑与模板公读存储。Skill `template-master-method@v1` 由 `tools/build-template-master-skill.ts` 生成，`--check` 核验快照与绑定。
+先发布新增 `018`（process_runs 错误码约束）与 `021`（process_run_records `source_run_id` / `failure_detail` 观测列）迁移，再发布 API、Worker 与 Business API；Business API 新增 `/template-master/edit`、`/template-master/upload`，复用已配置的图片编辑与模板公读存储。Skill `template-master-method@v1` 由团队 Skills 仓库生成并按[准确版本](../../../runtime-skill-versioning.md)同步。

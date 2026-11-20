@@ -1,5 +1,7 @@
 # Business Processing Service
 
+生产 Runtime Skill 由团队私仓独立发布，Pipipi 选版后随镜像装载本地快照。参见[Runtime Skill 版本管理](docs/runtime-skill-versioning.md)。
+
 一个轻量的版本化业务处理服务。产品调用方只提交 Business Process、准确版本和业务输入；服务端用代码绑定 Schema、业务行为、获准依赖和稳定策略。流程内部可以使用本地逻辑、远程 Business Capability 或受限 Agent，产品契约不随实现方式变化。
 
 ## 当前能力

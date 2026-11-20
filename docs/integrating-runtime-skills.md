@@ -32,7 +32,7 @@ Pi SDK 固定为 `@earendil-works/pi-coding-agent@1.5.2`，依赖树由 `package
 | Memene 的三个新闻图片 Process | [`news-image/`](../src/processes/news-image) | [`news-image/agent.pi.ts`](../src/processes/news-image/agent.pi.ts) | `news-image-narrative-monument-prompt`、`news-image-pale-watercolor-prompt`、`news-image-raw-humanism-prompt` | 复用 [`news-image/capability.ts`](../src/processes/news-image/capability.ts) 与 [`news-image/capability.http.ts`](../src/processes/news-image/capability.http.ts) | [`processes/memene/`](processes/memene/)、[`api.md`](api.md) |
 | `composed-task/v1`（默认关闭） | [`composed/registration.ts`](../src/processes/composed/registration.ts) | [`composed/agent.ts`](../src/processes/composed/agent.ts)、[`composed/agent.pi.ts`](../src/processes/composed/agent.pi.ts) | [`composed/skills.ts`](../src/processes/composed/skills.ts)、[`composed-task-planner`](../.pi/skills/composed-task-planner/SKILL.md) | 无自己的 Capability；Tool 是 [`composed/members.ts`](../src/processes/composed/members.ts) 中其他 Process 的 Step Tool | [`processes/common/composed-task/`](processes/common/composed-task/)、[`test/composed-process.test.ts`](../test/composed-process.test.ts) |
 
-要修改流程顺序、校验、失败或副作用，先编辑 `registration.ts`；要修改模型交互或 Tool 暴露，编辑 `agent.ts` 和具体 Adapter；要修改获准 Skill 名称、版本、SHA-256、顺序或路径，编辑 `skills.ts` 和生产 Composition Root；要修改模型任务说明，编辑对应 `.pi/skills/<name>/SKILL.md`，并同步更新固定哈希。新增 Process 还必须更新显式 production catalog。
+流程顺序、校验和副作用由 `registration.ts` 定义；模型交互和 Tool 权限由 Agent Adapter 与服务端组装定义。Process 显式选择所用 Skill 和顺序。修改任务说明时，在团队 Skills 仓库更新正本并发布，再按[版本管理规则](runtime-skill-versioning.md)同步。新增 Process 还必须更新显式 production catalog。
 
 ## 两类 Skill
 
@@ -114,7 +114,7 @@ Codex 会扫描仓库根目录的 `.agents/skills/`。安装后可以用 `$skill
 
 Runtime Skill 必须服务于一个明确的 Process Registration。集成步骤是：
 
-1. 把审查后的固定快照放入 `.pi/skills/<name>/`，并在流程 `skills.ts` 中固定名称、版本和 `SKILL.md` SHA-256；
+1. 在团队私仓发布审查后的快照，将准确标签、提交、目录 tree 与正文 SHA-256 登记到生产版本清单，提交一致的本地快照并由 Process 按名称绑定；
 2. 确认 Runtime 能加载 Skill 需要的全部资源；
 3. 为该任务建立或复用受限 Agent Runtime；只授予必要的窄 Business Capability Tool，不需要 Tool 时保持空集合；
 4. 在流程 Module 中定义一个经过整体评审的本地 Skill/Tool 集合，并由 Registration factory 绑定 Agent、Schema、调用 invariant 和稳定策略；
@@ -124,7 +124,7 @@ Runtime Skill 必须服务于一个明确的 Process Registration。集成步骤
 8. 记录来源、不可变 ref、内容哈希、适配改动和回滚版本；
 9. 可选：在快照目录放一张 `cover.png`/`cover.jpg`/`cover.webp`（建议用该 Skill 的真实验收产出、宽 640–800 px），运维控制台的 Skill 目录会把它作为封面快速预览。封面不参与 `SKILL.md` 的 SHA-256 校验，Agent 也读不到它；更换封面不需要重新固定版本。
 
-当前 Pi Agent 路径接受非空 `SkillRef[]`。具体 Process 的 `skills.ts` 固定 Skill 名称、版本、`SKILL.md` SHA-256、顺序、默认本地路径和 Tool 名称。生产 Composition Root 用 [`src/agent-runtime/catalog.ts`](../src/agent-runtime/catalog.ts) 构造只读 Installed Skill Catalog；Catalog 在监听端口前校验全部安装项，并且只解析准确的 `name@version`，不回退到其他版本。启用运维控制台时，[`src/api/skill-catalog.ts`](../src/api/skill-catalog.ts) 从同一组已解析绑定推导只读的 Skill 目录视图（描述、绑定 Process、指令正文、文件清单、封面与来源记录），供运维人员核对本次发布实际装载的内容；它不是安装入口，详见 [同步 Runbook 的运维控制台一节](mvp-release-runbook.md#运维控制台)。通用 [`src/agent-runtime/skills.ts`](../src/agent-runtime/skills.ts) 负责精确加载和再次校验内容完整性。名称必须唯一，并且必须精确解析一次。Runtime 按声明顺序读取所有 `SKILL.md`，把正文作为一个经过评审的指令集交给 Agent，同时只暴露 Registration 已授权的 Tool。海报、CRT 与新闻图片 Adapter 还复用 [`src/agent-runtime/structured.ts`](../src/agent-runtime/structured.ts)，由该 Module 统一创建无 Tool、请求级隔离的 Pi Session，并处理模型选择、取消、释放和 JSON 解析；流程 Adapter 仍拥有业务指令、用户 Prompt 和流程专属结果约束。`content-processing/v1` 最多让一次 Tool 调用触达 Business Capability，并要求成功输出与 Tool 结果一致。`minimal-zine-poster/v1`、`crt-interface-image/v1` 与三个新闻图片流程都不给 Agent Tool；Registration 先验证 Agent 编译结果，再自行调用对应 Rendering Capability。`content-processing/v1` 的 Agent 与 `composed-task/v1` 的 Planner Agent 复用 [`src/agent-runtime/tooled.ts`](../src/agent-runtime/tooled.ts)：前者只挂一个 Business Capability Tool 且最多调用一次，后者只挂载 allow-list 中其他 Process 的 Step Tool；Skill 仍只是任务说明，Tool 权限由 `members.ts` 与 Registration 决定。Runtime 不自动发现目录、下载或更新 Skill，也不读取附加 reference、运行 Skill script 或连接 MCP。需要这些能力的 Skill 不能直接接入；应先设计窄 Runtime Interface、权限和测试，再扩展实现。当前限制和真实验证方法见 [`experiments.md`](experiments.md)。
+当前 Pi Agent 路径接受非空 `SkillRef[]`。具体 Process 指定所用 Skill 及顺序，版本和摘要来自[生产版本清单](../src/agent-runtime/skill-lock.json)。生产 Composition Root 用 [`src/agent-runtime/catalog.ts`](../src/agent-runtime/catalog.ts) 构造只读 Installed Skill Catalog；Catalog 在监听端口前校验全部安装项，并且只解析准确的 `name@version`，不回退到其他版本。启用运维控制台时，[`src/api/skill-catalog.ts`](../src/api/skill-catalog.ts) 从同一组已解析绑定推导只读的 Skill 目录视图（描述、绑定 Process、指令正文、文件清单、封面与来源记录），供运维人员核对本次发布实际装载的内容；它不是安装入口，详见 [同步 Runbook 的运维控制台一节](mvp-release-runbook.md#运维控制台)。通用 [`src/agent-runtime/skills.ts`](../src/agent-runtime/skills.ts) 负责精确加载和再次校验内容完整性。名称必须唯一，并且必须精确解析一次。Runtime 按声明顺序读取所有 `SKILL.md`，把正文作为一个经过评审的指令集交给 Agent，同时只暴露 Registration 已授权的 Tool。海报、CRT 与新闻图片 Adapter 还复用 [`src/agent-runtime/structured.ts`](../src/agent-runtime/structured.ts)，由该 Module 统一创建无 Tool、请求级隔离的 Pi Session，并处理模型选择、取消、释放和 JSON 解析；流程 Adapter 仍拥有业务指令、用户 Prompt 和流程专属结果约束。`content-processing/v1` 最多让一次 Tool 调用触达 Business Capability，并要求成功输出与 Tool 结果一致。`minimal-zine-poster/v1`、`crt-interface-image/v1` 与三个新闻图片流程都不给 Agent Tool；Registration 先验证 Agent 编译结果，再自行调用对应 Rendering Capability。`content-processing/v1` 的 Agent 与 `composed-task/v1` 的 Planner Agent 复用 [`src/agent-runtime/tooled.ts`](../src/agent-runtime/tooled.ts)：前者只挂一个 Business Capability Tool 且最多调用一次，后者只挂载 allow-list 中其他 Process 的 Step Tool；Skill 仍只是任务说明，Tool 权限由 `members.ts` 与 Registration 决定。Runtime 不自动发现目录、下载或更新 Skill，也不读取附加 reference、运行 Skill script 或连接 MCP。需要这些能力的 Skill 不能直接接入；应先设计窄 Runtime Interface、权限和测试，再扩展实现。当前限制和真实验证方法见 [`experiments.md`](experiments.md)。
 
 ## 线上边界
 
@@ -154,9 +154,7 @@ CRT Runtime Skill 是 `TaiT-tt/tait-crt-interface-skill` 在 commit `972a99bc85f
 
 ## 更新与回滚
 
-已迁入团队 Skills 仓库的 Runtime Skill，按[版本管理规则](runtime-skill-versioning.md)发布、同步和回退。
-
-其他 Skill 更新按依赖升级处理：解析新的不可变版本，比较目录差异，重新做安全和能力审查，更新 `skills.ts` 中的版本与 SHA-256，运行确定性测试与明确需要的真实集成或业务验收，再发布新的应用制品。出现回归时回滚应用制品或恢复上一个固定快照；不要在运行实例上原地拉取旧分支。
+所有生产 Runtime Skill 从团队私仓按精确标签同步，操作步骤见[版本管理规则](runtime-skill-versioning.md)。回退使用旧标签准备快照，或恢复已验收的应用制品。
 
 业界实现与这一判断的官方资料摘要见 [`research/skill-source-patterns.md`](research/skill-source-patterns.md)。
 
@@ -168,11 +166,11 @@ CRT Runtime Skill 是 `TaiT-tt/tait-crt-interface-skill` 在 commit `972a99bc85f
 
 ## 图片生产策略快照
 
-`template-image-preparer@v1` 绑定固定来源提交的五份完整业务文档，来源目录清单与摘要保存在同目录 manifest，许可证记录为 NOASSERTION。更新时运行：
+`template-image-preparer@v1` 绑定固定来源提交的五份完整业务文档，来源目录清单与摘要保存在同目录 manifest，许可证记录为 NOASSERTION。更新时在团队 Skills 仓库根目录运行：
 
 ```powershell
-npx tsx tools/build-template-image-skill.ts E:/Deployment/meme-template-production/skills/meme-template-image-producer
-npx tsx tools/build-template-image-skill.ts E:/Deployment/meme-template-production/skills/meme-template-image-producer --check
+node tools/build-template-image-skill.ts E:/Deployment/meme-template-production/skills/meme-template-image-producer
+node tools/build-template-image-skill.ts E:/Deployment/meme-template-production/skills/meme-template-image-producer --check
 ```
 
 来源变化须先审查清单，重建版本与 production SHA-256；不要手改打包正文。两次原人工确认迁至 Memebuy 页面，Runtime Agent 仅规划；受控 Adapter 生图与上传。单项与原批量工具的差异记录在 SOURCE.md。

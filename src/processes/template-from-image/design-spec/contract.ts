@@ -1,10 +1,12 @@
 /** 固定运行语义 v4 作者合同并校验拆解数据、默认值与输入绑定，展示提示词由服务端投影。 */
+
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import type { ErrorObject } from "ajv";
 import { Ajv2020 } from "ajv/dist/2020.js";
 import { fullFormats } from "ajv-formats/dist/formats.js";
 import { z } from "zod";
+import { lockedSkill } from "../../../agent-runtime/locked-skill.js";
 import { validationDiagnostics } from "../../../process-runtime/template-diagnostics.js";
 import { type TemplateImage, templateImageSize } from "../image.js";
 import { designFindings } from "./design-findings.js";
@@ -14,12 +16,7 @@ import {
     designSpecSchema,
 } from "./vendor/design-spec-schema.js";
 
-export const skillRef = Object.freeze({
-    name: "print-design-template-compiler",
-    version: "v3",
-    sha256: "f373a22b93be426661727ae382048b703db7e23136ca04a2bd8404652dedd45d",
-    path: ".pi/skills/print-design-template-compiler",
-});
+export const skillRef = lockedSkill("print-design-template-compiler");
 const bytes = readFileSync(
     new URL(
         "../../../../.pi/skills/print-design-template-compiler/gallery.schema.json",

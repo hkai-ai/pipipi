@@ -1,5 +1,7 @@
 import { spawnSync } from "node:child_process";
+import { readdirSync } from "node:fs";
 import { describe, expect, it } from "vitest";
+import lock from "../src/agent-runtime/skill-lock.json" with { type: "json" };
 import { createProductionSkillBindings } from "../src/app/runtime-skills.js";
 import { posterSkillVersion } from "../src/processes/poster/skills.js";
 
@@ -43,7 +45,9 @@ describe("production Runtime Skill bindings", () => {
             "dopamine-photo-poster": ["dopamine-photo-poster-prompt@v1"],
             "photo-doodle-collage": ["photo-doodle-collage-prompt@v1"],
             "photo-fashion-manga": ["photo-fashion-manga-prompt@v1"],
-            "manga-panels": ["manga-panels-prompt@v1"],
+            "manga-panels": [
+                `manga-panels-prompt@${lock.skills["manga-panels-prompt"].version}`,
+            ],
             "memory-checklist-photo-poster": [
                 "memory-checklist-photo-poster-prompt@v1",
             ],
@@ -53,7 +57,9 @@ describe("production Runtime Skill bindings", () => {
                 "character-emoji-single@v4",
                 "character-emoji-comic@v6",
             ],
-            "mono-color-photo-poster": ["mono-color-photo-poster-prompt@v1"],
+            "mono-color-photo-poster": [
+                `mono-color-photo-poster-prompt@${lock.skills["mono-color-photo-poster-prompt"].version}`,
+            ],
             "travel-abstraction-photo-poster": [
                 "travel-abstraction-photo-poster-prompt@v1",
             ],
@@ -72,6 +78,17 @@ describe("production Runtime Skill bindings", () => {
                 "news-image-narrative-monument-prompt@v1",
             ],
         });
+    });
+
+    it("ships every locked Skill and binds it in the full production catalog", () => {
+        const bindings = createProductionSkillBindings({
+            COMPOSED_TASK_ENABLED: "true",
+        });
+        const installed = new Set(
+            [...bindings.values()].flat().map((ref) => ref.name),
+        );
+        expect([...installed].sort()).toEqual(Object.keys(lock.skills).sort());
+        expect(readdirSync(".pi/skills").sort()).toEqual([...installed].sort());
     });
 
     it("makes API deployment preflight fail safely on an invalid Skill override", () => {

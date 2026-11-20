@@ -86,7 +86,7 @@ Pipipi 提供 Agent 运行环境（harness）和场景 skill。Process Registrat
 
 Mono Color v2 由产品侧展开预设，Pipipi 按输入色值和版式编译绘图规则；v1 支持五个按配色与版式命名的可编辑预设，旧标识在输入处兼容转换，供 Memebuy 的五个固定预设 C 类模板复用，保留旧调用行为；服务端在 Agent 编译前解析标题用色、分行、穿插与印刷约束，并在最终图片指令中重申，默认近白纸底与细网点。油墨分工跟随最终版式与配色，用户原文优先于分行，参考主体动作不变。用户原图、文字和补充说明不进入文本 Agent。参数契约见 [API 文档](docs/api.md#mono-color-可编辑预设)。
 
-生产 Composition Root 通过 Installed Skill Catalog 校验默认启用的 Runtime Skill 的准确名称、版本和 SHA-256。Process 只绑定通过校验的准确版本；Catalog 不发现、下载或更新 Skill。
+全部生产 Runtime Skill 的可编辑正本位于团队私仓，Pipipi 按[版本管理规则](docs/runtime-skill-versioning.md)选择标签并随镜像保留快照。生产 Composition Root 通过 Installed Skill Catalog 校验默认启用的 Runtime Skill 的准确名称、版本和 SHA-256。Process 只绑定通过校验的准确版本；Catalog 不发现、下载或更新 Skill。
 
 默认 HTTP Interface 提供健康检查和同步 `POST /execute`。异步提交、owner 查询、PostgreSQL Store、BullMQ Worker、Webhook、恢复和保留已经实现，但入口默认关闭。精确行为见 [异步设计](docs/async-process-runs-design.md)。
 

@@ -1,5 +1,7 @@
 /** 装配三个固定图片生产阶段，绑定原业务规则、内部持久化和既有编译成员。 */
+
 import pino from "pino";
+import { lockedSkill } from "../../agent-runtime/locked-skill.js";
 import { parseCrtBusinessApiBaseUrl } from "../crt/production.js";
 import {
     defineProductionProcess,
@@ -20,14 +22,7 @@ const environment = ["CRT_BUSINESS_API_BASE_URL"] as const;
 export const templatePlanProduction = defineProductionProcess({
     id: "template-image-plan",
     environment: [...environment, "TEMPLATE_MODEL"],
-    installedSkills: () => [
-        {
-            name: "template-image-preparer",
-            version: "v3",
-            sha256: "916f547308b56d4487728b4e12d693e0ae3acbc33bd2b145a7169bbfbba125ba",
-            path: ".pi/skills/template-image-preparer",
-        },
-    ],
+    installedSkills: () => [lockedSkill("template-image-preparer")],
     build: (context) =>
         createTemplatePlanRegistration({
             onDiagnostic: (record) => logger.warn(record, record.event),

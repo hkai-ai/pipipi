@@ -1,0 +1,155 @@
+{
+    "repository": "git@github.com:hkai-ai/skills.git",
+    "skills": {
+        "character-emoji-comic": {
+            "version": "v6",
+            "commit": "811ca0322903aaed42a839876b4c499cbd807f25",
+            "tree": "54c5effcd50488a1f50d0e664241c3729a8daf59",
+            "sha256": "8e04fb034a099735735ca704fa2b5437b3538934d6671ef212b81201bb6b51bf"
+        },
+        "character-emoji-planner": {
+            "version": "v18",
+            "commit": "811ca0322903aaed42a839876b4c499cbd807f25",
+            "tree": "66135625854796f983c7fd78e4ce01802cc40bcd",
+            "sha256": "d083e253c6c63df90fea561ab20dc018fe7ee0759caeba99f0fe9d0637acf0d9"
+        },
+        "character-emoji-single": {
+            "version": "v4",
+            "commit": "811ca0322903aaed42a839876b4c499cbd807f25",
+            "tree": "fd8e6dc72b916eccacd8edcec8c743b4788cd5cc",
+            "sha256": "5310966ba4c7f772bcad21f3ddf285cf813e592074596a564b017c3160f6f6dc"
+        },
+        "composed-task-planner": {
+            "version": "v1",
+            "commit": "811ca0322903aaed42a839876b4c499cbd807f25",
+            "tree": "5d89ebd96f56bf5861a1c85a7332f7c68188c720",
+            "sha256": "0f64ffbce67f6c75176234c9d59beaf126d55a6124e360282b898f05427d6103"
+        },
+        "crayon-photo-poster-prompt": {
+            "version": "v1",
+            "commit": "811ca0322903aaed42a839876b4c499cbd807f25",
+            "tree": "1cc7e9624947e77940e4cb67371aab9658485dea",
+            "sha256": "19d3978b0bca2dd0d98bea773c635ff5b42ab36c20f19311b10a251eb0f85de0"
+        },
+        "dopamine-photo-poster-prompt": {
+            "version": "v1",
+            "commit": "811ca0322903aaed42a839876b4c499cbd807f25",
+            "tree": "91fb47c2392daeacbded43dd44edbc7c21110ef0",
+            "sha256": "f70a9298b01ea5c088b164b4463f07611cd29fcb5f01974517720a111600ab5e"
+        },
+        "manga-panels-prompt": {
+            "version": "v1",
+            "commit": "c93c3e14d3f93a955df8733be1cfdbe2e3055c47",
+            "tree": "181441717ccd1dde3ef98c5cff2710ddd4e53921",
+            "sha256": "4d4d7ef60a761c757f9a8cca8a4dc6fdec834cbde1fc6539f9c98ccbca218dc1"
+        },
+        "meme-template-json-compiler": {
+            "version": "v1.13",
+            "commit": "811ca0322903aaed42a839876b4c499cbd807f25",
+            "tree": "a5b0ab7118c0eb1a7ad1235027895457b2fcad9a",
+            "sha256": "bd77585e3ec6021d255210390205f1a53f1a15f850384f821c3c3e562b67d1d3"
+        },
+        "memory-checklist-photo-poster-prompt": {
+            "version": "v1",
+            "commit": "811ca0322903aaed42a839876b4c499cbd807f25",
+            "tree": "71b68ab6305c8a49c6143968b0d99b1fee87dc70",
+            "sha256": "f53db28a8602c338262dba228128c9a50bf57b69a5c1a4641394f512407dc17b"
+        },
+        "minimal-zine-poster-prompt": {
+            "version": "v1",
+            "commit": "e48823f4f86e06f681835b61a272a9b77635ef1e",
+            "tree": "981675befd9f18609c71263547b24ac1333245d2",
+            "sha256": "58aaaef1f0261ba68b47f3810f8357599f7e66298b11927bf9560df3f34f49eb"
+        },
+        "mono-color-photo-poster-prompt": {
+            "version": "v1",
+            "commit": "c93c3e14d3f93a955df8733be1cfdbe2e3055c47",
+            "tree": "88d016bfaa7e5969a8bd1673fbb19970717b3037",
+            "sha256": "4efba752b8e0574d3a8196727667b5db63f569b641f3a4746d9863b477da9a91"
+        },
+        "monochrome-photo-poster-prompt": {
+            "version": "v1",
+            "commit": "811ca0322903aaed42a839876b4c499cbd807f25",
+            "tree": "1e026ed98341d524127f74254697c624df2985ff",
+            "sha256": "dc21fd4205704fe4ff0619db503a6683b7ef70921829496ff37d15c3889949d1"
+        },
+        "news-image-narrative-monument-prompt": {
+            "version": "v1",
+            "commit": "811ca0322903aaed42a839876b4c499cbd807f25",
+            "tree": "2a283ce0c889d2cb5bf3077d0c6cdd15e3a53ebd",
+            "sha256": "7875fdb725a4255ee971622bd75f4acb55af4030071bc2ae354ba3b611a1e0d1"
+        },
+        "news-image-pale-watercolor-prompt": {
+            "version": "v1",
+            "commit": "811ca0322903aaed42a839876b4c499cbd807f25",
+            "tree": "bf6c06c188ed1dc59532bddd77f3cbcd987a3ae4",
+            "sha256": "2dc347c87a0ddbdcff9624637b9ae4d07013b2554117ddc3eec3ad4736304816"
+        },
+        "news-image-raw-humanism-prompt": {
+            "version": "v1",
+            "commit": "811ca0322903aaed42a839876b4c499cbd807f25",
+            "tree": "f609b017453eac0c4bbe102e667d2ff6569af458",
+            "sha256": "8b273f73a35dde38b6621ea832032b6d27d2045c2f93dadd9dfb8bd86d61c2dd"
+        },
+        "photo-doodle-collage-prompt": {
+            "version": "v1",
+            "commit": "811ca0322903aaed42a839876b4c499cbd807f25",
+            "tree": "a11f740dd00879cbee1d80931063183c16612780",
+            "sha256": "3205dae9d148a5187b97b13cede3c3364313eca2299193e94b2d65a936aa9009"
+        },
+        "photo-fashion-manga-prompt": {
+            "version": "v1",
+            "commit": "811ca0322903aaed42a839876b4c499cbd807f25",
+            "tree": "c8e7f88e19388779495ef73bf6f35578f9633081",
+            "sha256": "56f4b2bc5874905d492f76e2f513bd2666d57af0ee4a833382ff8ea080dc8333"
+        },
+        "print-design-template-compiler": {
+            "version": "v3",
+            "commit": "811ca0322903aaed42a839876b4c499cbd807f25",
+            "tree": "142f34ff0147e08a1acd050d2164073a816f5c72",
+            "sha256": "f373a22b93be426661727ae382048b703db7e23136ca04a2bd8404652dedd45d"
+        },
+        "product-remix-method": {
+            "version": "v1",
+            "commit": "811ca0322903aaed42a839876b4c499cbd807f25",
+            "tree": "fe51c54f6453f23249354ea7b4683e5a5e62bbcc",
+            "sha256": "b579251f81b7b4fbbb84b6c4ecf759b655353dca0e74e57320cc6b42d9b7f74f"
+        },
+        "risograph-album-prompt": {
+            "version": "v1",
+            "commit": "811ca0322903aaed42a839876b4c499cbd807f25",
+            "tree": "876e50c9f187200ce1b10e988e8f9125c669e1de",
+            "sha256": "59ae8d5477ddc3106951c0e592947e8b1e46d2de8898a8729058226a7d082560"
+        },
+        "tait-crt-interface-prompt": {
+            "version": "v1",
+            "commit": "811ca0322903aaed42a839876b4c499cbd807f25",
+            "tree": "fd8077ce612cd9c812030b0e6811a5f3746b7d55",
+            "sha256": "6565e143c5bc5bc67909387fd00689748aaa2640c907ff85f6731885f2927910"
+        },
+        "template-image-preparer": {
+            "version": "v3",
+            "commit": "811ca0322903aaed42a839876b4c499cbd807f25",
+            "tree": "6ea676e18a37bf5373f80c2250171e9bd3a364e0",
+            "sha256": "916f547308b56d4487728b4e12d693e0ae3acbc33bd2b145a7169bbfbba125ba"
+        },
+        "template-master-method": {
+            "version": "v1",
+            "commit": "811ca0322903aaed42a839876b4c499cbd807f25",
+            "tree": "01844a9c4947847625737a358fd308d75d61c819",
+            "sha256": "0520914d0926e5341ac2832ef0102a8ac9737d1f09c5d5786f0e2f2ed98b8198"
+        },
+        "travel-abstraction-photo-poster-prompt": {
+            "version": "v1",
+            "commit": "811ca0322903aaed42a839876b4c499cbd807f25",
+            "tree": "edb6533b7dc23da10442814b60e6db2f7a1cb44b",
+            "sha256": "5cc7d1f2364178b94c85c008e7d6315efd2a97e2a2ab5b5a091790b3a1f19528"
+        },
+        "woodcut-photo-poster-prompt": {
+            "version": "v1",
+            "commit": "811ca0322903aaed42a839876b4c499cbd807f25",
+            "tree": "60011855d96bced8bba0f5eef8d3bc7870c0f93c",
+            "sha256": "fbfb6593a8133a64159a9e0423f214c6a99ffc0d62e43eeeecc6b84bb31f04f3"
+        }
+    }
+}

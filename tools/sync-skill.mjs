@@ -6,20 +6,21 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createSkillSet } from "../src/agent-runtime/skills.ts";
 
+const lockPath = "src/agent-runtime/skill-lock.json";
+const initialLock = readFileSync(lockPath, "utf8");
+const lock = JSON.parse(initialLock);
 const [name, version, ...extra] = process.argv.slice(2);
+
 if (
-    name !== "minimal-zine-poster-prompt" ||
+    !Object.hasOwn(lock.skills, name) ||
     !/^v(?:0|[1-9]\d*)(?:\.(?:0|[1-9]\d*)){0,2}$/.test(version ?? "") ||
     extra.length
 ) {
-    throw new Error(
-        "用法：npm run skill:sync -- minimal-zine-poster-prompt v1",
-    );
+    throw new Error("用法：npm run skill:sync -- <已接入的 Skill 名称> <版本>");
 }
 
-const repository = "git@github.com:hkai-ai/skills.git";
+const repository = lock.repository;
 const snapshot = `.pi/skills/${name}`;
-const lockPath = "src/processes/poster/skill-lock.json";
 const tag = `${name}/${version}`;
 const ref = `refs/pipipi-skill-sync/${randomUUID()}`;
 const temp = mkdtempSync(join(tmpdir(), "pipipi-skill-"));
@@ -41,49 +42,48 @@ try {
     const tree = git(["rev-parse", `${commit}:skills/${name}`])
         .toString()
         .trim();
-    const files = git(["ls-tree", tree]).toString().trimEnd().split("\n");
-    const entries = files.map((line) => {
-        const match =
-            /^100644 blob ([a-f0-9]{40})\t(LICENSE|SKILL\.md|SOURCE\.md|cover\.webp)$/.exec(
-                line,
-            );
-        if (!match)
-            throw new Error("海报 Skill 的文件清单已变化，请先审查新文件");
-        return { oid: match[1], file: match[2] };
-    });
-    if (entries.length !== 4) throw new Error("海报 Skill 缺少已登记文件");
-    const skill = entries.find((entry) => entry.file === "SKILL.md");
-    const sha256 = createHash("sha256")
-        .update(git(["cat-file", "blob", skill.oid]))
-        .digest("hex");
-    const lock = { repository, name, version, commit, tree, sha256 };
-    let previous;
-    try {
-        previous = JSON.parse(readFileSync(lockPath, "utf8"));
-    } catch (error) {
-        if (error.code !== "ENOENT") throw error;
-    }
-    if (previous?.version === version && previous.commit !== commit)
+    const previous = lock.skills[name];
+    if (previous.version === version && previous.commit !== commit)
         throw new Error("已选版本的标签指向发生变化");
-
     // 用临时索引生成一份补丁，文件和锁记录一起应用，不碰开发者的暂存区。
     git(["read-tree", "--empty"]);
     git(["add", "-f", "--", snapshot]);
-    if (previous) git(["add", "-f", "--", lockPath]);
+    git(["add", "-f", "--", lockPath]);
     const before = git(["write-tree"]).toString().trim();
+    if (
+        git(["show", `${before}:${lockPath}`]).toString() !==
+        initialLock.replaceAll("\r\n", "\n")
+    )
+        throw new Error("版本清单已变化，请重新同步");
     const localTree = git(["rev-parse", `${before}:${snapshot}`])
         .toString()
         .trim();
-    if (localTree !== (previous?.tree ?? tree))
+    if (localTree !== previous.tree)
         throw new Error("本地快照有差异，请先保存并核对修改");
-    for (const { oid, file } of entries) {
+    // 文件清单或模式变化需要单独审核；同步只替换已登记的普通文件。
+    const inventory = (treeId) =>
+        git(["ls-tree", "-r", treeId]).toString().trimEnd().split("\n");
+    const files = inventory(tree);
+    const shape = (rows) =>
+        rows.map((row) => row.replace(/ [0-9a-f]{40}\t/, "\t")).join("\n");
+    if (shape(files) !== shape(inventory(localTree)))
+        throw new Error("文件清单或模式发生变化，请先审查");
+    for (const row of files) {
+        const match = /^100644 blob ([0-9a-f]{40})\t([a-zA-Z0-9_.-]+)$/.exec(
+            row,
+        );
+        if (!match) throw new Error("快照包含未登记的文件类型或路径");
         git([
             "update-index",
             "--add",
             "--cacheinfo",
-            `100644,${oid},${snapshot}/${file}`,
+            `100644,${match[1]},${snapshot}/${match[2]}`,
         ]);
     }
+    const sha256 = createHash("sha256")
+        .update(git(["cat-file", "blob", `${tree}:SKILL.md`]))
+        .digest("hex");
+    lock.skills[name] = { version, commit, tree, sha256 };
     const oid = git(
         ["hash-object", "-w", "--stdin"],
         JSON.stringify(lock, null, 4) + "\n",

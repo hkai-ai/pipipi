@@ -25,6 +25,7 @@ Pipipi 控制台运行表和详情并列展示流程版本与实际交付的模�
 同一 Process ID 的多个版本可以声明不同 Skill。安装集合保留各版规则，构造每个 Registration 时只解析它声明的准确规则；缺失即拒绝启动，不能让新版本覆盖旧版规则或把两套规则混给 Agent。
 
 ```sh
+# Pipipi 校验宿主检查器；Skill 和 Schema 在团队 Skills 仓库生成。
 node --import tsx tools/build-template-v4-contract.ts /path/to/memebuy-merchant-management --check
 npx vitest run test/template-v4.test.ts test/template-agent.test.ts test/production-catalog.test.ts
 PIPIPI_V4_CONTRACT_OUTPUT=/tmp/pipipi-v4-output.json npx vitest run test/template-v4.test.ts

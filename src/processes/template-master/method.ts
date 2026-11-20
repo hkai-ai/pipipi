@@ -1,4 +1,4 @@
-/** 母版中档修复、重档重绘与对照校验的方法文案；同时是 Runtime Skill 快照的生成来源。 */
+/** 按本次设计说明组装母版修复、重绘与对照校验的服务端提示词。 */
 import { displayPrompt } from "../template-from-image/design-spec/contract.js";
 import type { DesignSpec } from "../template-from-image/design-spec/vendor/design-spec-schema.js";
 import type { PrintForm } from "./light.js";
