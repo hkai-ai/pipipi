@@ -56,10 +56,10 @@
             "sha256": "f53db28a8602c338262dba228128c9a50bf57b69a5c1a4641394f512407dc17b"
         },
         "minimal-zine-poster-prompt": {
-            "version": "v2",
-            "commit": "fa783fd03cc491470908c1950a622bfa273c4b0e",
-            "tree": "10ea0f50cf603c6d9ea6b5ff07f9fe95ad7e387b",
-            "sha256": "c9a00fc5984a8ee08f592c2813cb3e71d0b9132aaae3c9ac3029caeb2ea1e2b7"
+            "version": "v1",
+            "commit": "e48823f4f86e06f681835b61a272a9b77635ef1e",
+            "tree": "981675befd9f18609c71263547b24ac1333245d2",
+            "sha256": "58aaaef1f0261ba68b47f3810f8357599f7e66298b11927bf9560df3f34f49eb"
         },
         "mono-color-photo-poster-prompt": {
             "version": "v1",
