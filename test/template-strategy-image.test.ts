@@ -69,3 +69,35 @@ it("小图不额外放大，取消后不进入模型请求", async () => {
         prepareStrategyImages(image, AbortSignal.abort()),
     ).rejects.toThrow();
 });
+
+it("高细节参考图的六个观察区域共同遵守模型请求的附件预算", async () => {
+    const pixels = Buffer.alloc(768 * 768 * 3);
+    let state = 37;
+    for (let i = 0; i < pixels.length; i++) {
+        state = (Math.imul(state, 1664525) + 1013904223) >>> 0;
+        pixels[i] = state >>> 24;
+    }
+    const bytes = await sharp(pixels, {
+        raw: { width: 768, height: 768, channels: 3 },
+    })
+        .png()
+        .toBuffer();
+    const result = await prepareStrategyImages(
+        {
+            data: bytes.toString("base64"),
+            mimeType: "image/png",
+            width: 768,
+            height: 768,
+        },
+        new AbortController().signal,
+    );
+    expect(result.images).toHaveLength(6);
+    expect(
+        result.images.reduce((size, image) => size + image.data.length, 0),
+    ).toBeLessThanOrEqual(768 * 1024);
+    for (const image of result.images) {
+        expect(
+            (await sharp(Buffer.from(image.data, "base64")).metadata()).format,
+        ).toBe(image.mimeType.split("/")[1]);
+    }
+});
