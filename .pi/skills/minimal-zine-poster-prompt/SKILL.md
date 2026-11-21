@@ -12,7 +12,7 @@ Compile the supplied text brief into the exact structured prompt plan requested 
 - Accept a text brief and optional exact in-image text from the host message.
 - Use Standard Mode only.
 - Extract one central imageable idea from a complex brief; do not illustrate every detail.
-- If exact text is supplied, reproduce it verbatim inside the final prompt.
+- If exact text is supplied, reproduce it verbatim inside the final prompt. Preserve capitalization and punctuation even when the chosen typography suggests a different treatment.
 - If no exact text is supplied, choose one short poetic English or Chinese phrase.
 - Write the rendering instructions in English. Exact in-image text may use the supplied language.
 - Return only the JSON shape requested by the host. Do not add keys or commentary.
