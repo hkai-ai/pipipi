@@ -59,6 +59,30 @@ export class PiTemplateStrategyAgent implements TemplateStrategyAgent {
         note?: string,
     ) {
         const observation = await prepareStrategyImages(image, signal);
+        const parsed = issues.some(
+            (issue) => issue.code === "operation_coverage",
+        )
+            ? replacementStrategySchema.safeParse(candidate)
+            : undefined;
+        let operationCoverage:
+            | { missingFromOperations: string[]; unknownInOperations: string[] }
+            | undefined;
+        if (parsed?.success) {
+            const expected = new Set(
+                parsed.data.dependencyClosure.map((c) => c.componentId),
+            );
+            const referenced = new Set(
+                parsed.data.operations.flatMap((op) => op.targetComponentIds),
+            );
+            operationCoverage = {
+                missingFromOperations: [...expected].filter(
+                    (id) => !referenced.has(id),
+                ),
+                unknownInOperations: [...referenced].filter(
+                    (id) => !expected.has(id),
+                ),
+            };
+        }
         const agent = new PiStructuredAgent({
             ...this.#options,
             instructions: [
@@ -66,6 +90,7 @@ export class PiTemplateStrategyAgent implements TemplateStrategyAgent {
                 "只返回请求 Schema 允许字段的必要补丁；valueJson 为该字段完整值的 JSON 编码。保留其余方案及替换方向，不放宽身份、文字权限或审批规则。",
                 "核对全部相关引用、画布排除范围与冻结项的一致性。十二段指令由服务端生成。不生图、不上传、不代替人工批准。",
                 "刻意缺陷只在 visualFeatures.intentionalImperfections 描述；印花排除载体和环境，逐区文字明确 originalText 与最终 exactText。组件、成员和连续性证据必须按标识完整对应。",
+                "operationCoverage 给出实际缺失和多余的引用；保留合法组件和其特征权限，逐项在合适的操作中补全精确 ID，删除或修正不存在的引用。",
                 "连续性字段修正保持 source 的观察事实，将角色功能、年龄阶段和性别呈现的同一表述沿用到对应 target；不因换了文案或身份重新解释其角色。",
             ],
             jsonSchema: {
@@ -78,6 +103,7 @@ export class PiTemplateStrategyAgent implements TemplateStrategyAgent {
                 prompt: JSON.stringify({
                     candidate,
                     issues,
+                    operationCoverage,
                     fieldSchemas: Object.fromEntries(
                         [
                             ...new Set(issues.flatMap((issue) => issue.fields)),

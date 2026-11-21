@@ -206,7 +206,9 @@ export const replacementStrategySchema = z.strictObject({
                 ]),
                 targetRegion: text,
                 clearOldContent: z.literal(true),
-                targetComponentIds: nonempty,
+                targetComponentIds: nonempty.describe(
+                    "引用 dependencyClosure 的精确 componentId。所有操作的引用并集须恰好覆盖全部组件，保持特征的组件仍依 featureAuthority 保留其设计。",
+                ),
                 stableAnchors: texts,
             }),
         )

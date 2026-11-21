@@ -155,11 +155,12 @@ it("真实 Agent 修正请求使用严格字段 Schema、原图和无 Tool 会�
             const skillIndex = systemPrompt.indexOf(
                 '<runtime-skill name="template-image-preparer">',
             );
-            const instructionIndex = prompts.length
-                ? systemPrompt.indexOf(
-                      "按固定来源规则分析真实图片并输出完整替换策略。",
-                  )
-                : systemPrompt.indexOf("依据固定来源规则和原图修正策略。");
+            const instructionIndex =
+                prompts.length === 2
+                    ? systemPrompt.indexOf(
+                          "按固定来源规则分析真实图片并输出完整替换策略。",
+                      )
+                    : systemPrompt.indexOf("依据固定来源规则和原图修正策略。");
             expect(skillIndex).toBeGreaterThanOrEqual(0);
             expect(skillIndex).toBeLessThan(instructionIndex);
             const control = {
@@ -239,11 +240,30 @@ it("真实 Agent 修正请求使用严格字段 Schema、原图和无 Tool 会�
     expect(
         strategyCorrectionSchema(issues).safeParse({ changes }).success,
     ).toBe(true);
+    const candidate = imageStrategy();
+    candidate.operations[0].targetComponentIds = ["unknown"];
+    await agent.repair(
+        image,
+        candidate,
+        [
+            {
+                code: "operation_coverage",
+                fields: ["operations", "dependencyClosure"],
+            },
+        ],
+        new AbortController().signal,
+    );
+    expect(
+        JSON.parse((prompts[1] as { text: string }).text).operationCoverage,
+    ).toEqual({
+        missingFromOperations: ["body"],
+        unknownInOperations: ["unknown"],
+    });
     await agent.plan(image, new AbortController().signal);
-    expect(payloads[1]).toMatchObject({
+    expect(payloads[2]).toMatchObject({
         prompt_cache_key: "template-image-preparer:v3",
     });
-    const planPayload = payloads[1] as {
+    const planPayload = payloads[2] as {
         response_format: {
             json_schema: { schema: { properties: Record<string, unknown> } };
         };
@@ -306,8 +326,8 @@ it("真实 Agent 修正请求使用严格字段 Schema、原图和无 Tool 会�
     expect(fieldOrder.indexOf("visualFeatures")).toBeLessThan(
         fieldOrder.indexOf("replacementValue"),
     );
-    expect(prompts[1]).toMatchObject({
+    expect(prompts[2]).toMatchObject({
         input: { images: [{ type: "image", data: image.data }] },
     });
-    expect(dispose).toHaveBeenCalledTimes(2);
+    expect(dispose).toHaveBeenCalledTimes(3);
 });
