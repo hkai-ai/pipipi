@@ -32,7 +32,7 @@
 
 1. Registration 规范化 brief，并保留可选 `text`。
 2. 无 Tool Agent 只加载固定的 `minimal-zine-poster-prompt` Runtime Skill，编译四段 Prompt、六轴 recipe 和 interpretation。
-3. Registration 验证结构、枚举值、核心视觉约束和可选原文；失败时不调用图片服务。
+3. Registration 验证结构、枚举值、核心视觉约束和可选原文；失败时不调用图片服务。留白可以写成 `80% negative space` 或 `80% plain paper`，比例须在 70%–90% 之间。
 4. Registration 以 Process `runId` 作为幂等键，只调用一次 Poster Rendering Capability，画幅固定为 `3:5`。
 5. Registration 验证图片 URL、媒体类型、尺寸和比例，再返回公开输出。
 

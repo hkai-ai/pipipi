@@ -224,8 +224,7 @@ function hasFourParagraphs(value: string): boolean {
 function hasCoreVisualRules(value: string): boolean {
     return (
         /3:5/u.test(value) &&
-        /(?:7\d|8\d|90)%/u.test(value) &&
-        /negative space/iu.test(value) &&
+        hasNegativeSpace(value) &&
         /aged[- ]paper|old[- ]paper|paper canvas/iu.test(value) &&
         /saturated|high-chroma|opaque|vivid|clean/iu.test(value) &&
         /cobalt|ultramarine|cyan|violet|magenta|yellow|green|orange|red/iu.test(
@@ -233,5 +232,13 @@ function hasCoreVisualRules(value: string): boolean {
         ) &&
         /scan/iu.test(value) &&
         /avoid/iu.test(value)
+    );
+}
+
+function hasNegativeSpace(value: string): boolean {
+    // Skill 也用「80% plain paper」表达留白；纸张材质本身不能证明留白。
+    return (
+        (/\b(?:7\d|8\d|90)%/u.test(value) && /negative space/iu.test(value)) ||
+        /\b(?:7\d|8\d|90)%\s+plain paper\b/iu.test(value)
     );
 }

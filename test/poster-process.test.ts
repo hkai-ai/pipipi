@@ -266,6 +266,32 @@ describe("minimal-zine-poster/v1", () => {
         expect(renderCalls).toBe(0);
     });
 
+    it.each([
+        ["80% plain paper", "succeeded"],
+        ["20% plain paper", "failed"],
+        ["80% dense illustration on plain paper", "failed"],
+    ])("checks the share of blank paper in %s", async (description, status) => {
+        const executor = createPosterExecutor(
+            {
+                compile: async () => ({
+                    ...compiledPoster,
+                    prompt: compiledPoster.prompt.replace(
+                        "82% negative space",
+                        description,
+                    ),
+                }),
+            },
+            { render: async () => posterImage },
+        );
+
+        const result = await executor.execute({
+            process: "minimal-zine-poster",
+            version: "v1",
+            input: { brief: "Bookstore" },
+        });
+        expect(result.status).toBe(status);
+    });
+
     it("rejects a prompt that does not follow the four-paragraph contract", async () => {
         const executor = createPosterExecutor(
             {
