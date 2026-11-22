@@ -7,7 +7,6 @@ import {
     textModes,
 } from "../template-from-image/design-spec/contract.js";
 import { designSpecSchema } from "../template-from-image/design-spec/vendor/design-spec-schema.js";
-import { preparedTemplateImageSchema } from "../template-from-source/capability.js";
 
 export const masterTiers = ["light", "medium", "heavy"] as const;
 export type MasterTier = (typeof masterTiers)[number];
@@ -136,8 +135,17 @@ const failureSchema = z.strictObject({
 export type MasterFailure = z.infer<typeof failureSchema>;
 const tierSchema = z.enum(masterTiers);
 
+/** 母版成图上传后的内容寻址描述；sha256 同时是对象键与校验摘要。 */
+export const preparedImageSchema = z.strictObject({
+    url: sourcePhotoSchema,
+    sha256: z.string().regex(/^[a-f0-9]{64}$/),
+    width: z.int().min(64).max(4096),
+    height: z.int().min(64).max(4096),
+    contentType: z.literal("image/png"),
+});
+
 export const masterOutputSchema = z.strictObject({
-    preparedImage: preparedTemplateImageSchema,
+    preparedImage: preparedImageSchema,
     master: z.strictObject({
         tier: tierSchema,
         redrawn: z.boolean(),

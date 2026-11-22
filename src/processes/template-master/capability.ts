@@ -1,6 +1,6 @@
 /** 定义母版改图与上传的 Business Capability 接口及受控失败分类。 */
 import { z } from "zod";
-import type { preparedTemplateImageSchema } from "../template-from-source/capability.js";
+import type { preparedImageSchema } from "./contract.js";
 
 export const masterEditSizes = [
     "1024x1024",
@@ -66,9 +66,9 @@ export type MasterEditRequest = Readonly<{
 export type TemplateMasterCapability = {
     /** 单次派发的改图，返回 PNG 字节；失败抛 MasterCapabilityError。 */
     edit(request: MasterEditRequest): Promise<Buffer>;
-    /** 与 template-from-source/v3 相同的内容寻址上传。 */
+    /** 按内容寻址上传到模板公读存储。 */
     upload(
         image: Buffer,
         signal: AbortSignal,
-    ): Promise<z.infer<typeof preparedTemplateImageSchema>>;
+    ): Promise<z.infer<typeof preparedImageSchema>>;
 };

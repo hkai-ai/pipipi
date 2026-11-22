@@ -1,11 +1,11 @@
 /** 母版改图与上传的内部服务：单次派发改图并校验 PNG 尺寸，内容寻址上传到模板公读存储。 */
 import { createHash } from "node:crypto";
 import sharp from "sharp";
-import { preparedTemplateImageSchema } from "../processes/template-from-source/capability.js";
 import {
     masterEditRequestSchema,
     masterUploadRequestSchema,
 } from "../processes/template-master/capability.js";
+import { preparedImageSchema } from "../processes/template-master/contract.js";
 import type { ObjectStorageCapability } from "./object-storage.js";
 import type { TemplateImageEditor } from "./template-image-editor.js";
 import { TemplateImageSubmissionError } from "./template-image-submission.js";
@@ -100,7 +100,7 @@ export class TemplateMasterService {
                 stored.url !== `https://assets.memebuy.cn/${key}`
             )
                 throw new Error("地址不符");
-            return preparedTemplateImageSchema.parse({
+            return preparedImageSchema.parse({
                 url: stored.url,
                 sha256: digest,
                 width: meta.width,

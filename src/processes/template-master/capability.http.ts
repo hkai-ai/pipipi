@@ -1,12 +1,12 @@
 /** 调用内部 Business API 完成母版改图与上传，费用经账本头并入本次运行。 */
 import { fetchBilled } from "../../process-runtime/cost.js";
-import { preparedTemplateImageSchema } from "../template-from-source/capability.js";
 import {
     MasterCapabilityError,
     type MasterEditRequest,
     masterEditResponseSchema,
     type TemplateMasterCapability,
 } from "./capability.js";
+import { preparedImageSchema } from "./contract.js";
 import { EDIT_TIMEOUT_MS, UPLOAD_TIMEOUT_MS } from "./thresholds.js";
 
 export class HttpTemplateMasterCapability implements TemplateMasterCapability {
@@ -38,7 +38,7 @@ export class HttpTemplateMasterCapability implements TemplateMasterCapability {
             UPLOAD_TIMEOUT_MS,
             "upload",
         );
-        const parsed = preparedTemplateImageSchema.safeParse(body);
+        const parsed = preparedImageSchema.safeParse(body);
         if (!parsed.success) throw new MasterCapabilityError("upload");
         return parsed.data;
     }
