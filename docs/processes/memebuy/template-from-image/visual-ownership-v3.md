@@ -14,7 +14,7 @@ Process v2 输出带目标归属的运行语义 v3；输入合同仍是 v2。旧
 
 ## 两端发布顺序
 
-1. 先发布 Pipipi，确认准确注册 `template-from-image/v1,v2` 与 `template-from-source/v1,v2`，模板图片规划及生图仍使用原版本。
+1. 先发布 Pipipi，确认准确注册 `template-from-image/v1,v2`。
 2. Memebuy 部署 v3 读取、编译与审核升级功能，并应用新增审核草稿字段的数据库迁移。新提取请求目录切为 Process v2；已经存在的 ExternalRun 按原 runId 取回，不重新提交。
 3. 新输出直接按 v3 入库。存量模板只能经归属草稿、运营审核和新模板版本升级；不更改冻结任务或旧版本内容。
 4. 回滚调用目录可恢复新请求使用 v1，Pipipi 同时保留两版；已产生的 v3 模板仍要求支持 v3 的 Memebuy 读取端，不能回滚为不识别 v3 的消费者。

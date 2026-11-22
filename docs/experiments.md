@@ -279,12 +279,6 @@ npm run accept:photo-poster-business
 
 本轮按原始 Skill 收敛：取消固定裁腿、强制颗粒与重复字形限制，恢复人物局部遮挡首行文字；保留自然手绘感与不透明印色。上面的实测对应历史规则，不能作为收敛后版本的视觉验收；新版需另行真实生图核验。
 
-## 两次审批的模板图片生产验收
-
-先运行 `npx vitest run test/template-image-production.test.ts test/aliyun-oss-storage.test.ts test/async-runtime-construction.test.ts`；这些测试走本地 HTTP 和替身，不产生模型、图片生成或 OSS 费用。
-
-真实验收按 Memebuy 页面逐次执行：提交一张原图 → 核对完整替换策略 → 人工通过 → 对照原图检查完整成图 → 人工通过 → 检查草稿的 cover/referenceImage 都是内容寻址的新图片。第一次通过会调用付费图片服务，第二次通过才写 OSS 并调用编译模型。不得用脚本自动批准两步；供应商提交未知时对账，不另建生成请求。
-
 ## 漫画分镜验收
 
 真实验收会调用文本模型、FAL 和 OSS，产生费用与外部写入。设置参考图地址、`PHOTO_POSTER_ACCEPTANCE_STYLES=manga-panels`，通过 `PHOTO_POSTER_MANGA_PRESET` 分别选择 `three-panel-details` 与 `sketchy-mixed-panels`，每次执行 `npm run accept:photo-poster-business` 只测试一个预设。该选择变量仅属于本地验收程序，不是生产启动配置。

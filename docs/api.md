@@ -1,6 +1,6 @@
 # 业务接口文档
 
-本文面向业务调用方和调用 Agent，记录三十一个 Business Process（默认启用三十个）、Agent Conversations、重试与通知契约，以及临时开放的内部评测接口。场景列帮助产品找到契约；请求仍只提交准确 Process 或 Agent 版本和业务输入。其中 `composed-task/v1` 随应用发布但默认关闭；production Agent catalog 当前为空（原 `design-assistant/v1` 已下线，待重新开发），因此四个 Agent Conversations 路由不能开启。
+本文面向业务调用方和调用 Agent，记录二十六个 Business Process（默认启用二十五个）、Agent Conversations、重试与通知契约，以及临时开放的内部评测接口。场景列帮助产品找到契约；请求仍只提交准确 Process 或 Agent 版本和业务输入。其中 `composed-task/v1` 随应用发布但默认关闭；production Agent catalog 当前为空（原 `design-assistant/v1` 已下线，待重新开发），因此四个 Agent Conversations 路由不能开启。
 
 ## Agent 能力接入结论
 
@@ -894,7 +894,7 @@ Webhook 是至少一次投递，不保证跨 Run 的全局顺序。网络错误�
 | `source` | string | `provider`：全部来自供应商回报；`estimate`：全部是估算；`mixed`：两者都有 |
 | `complete` | boolean | 本次运行所有模型与图片调用的费用都已知为 `true`；有任何一次未知为 `false` |
 
-- 累计范围是一次 Process 运行内的全部模型调用与图片生成，含主流程、修正、复核和子流程（`template-from-source` 内部的 `template-from-image`）。失败、超时、取消的运行同样返回已发生的费用；超时与取消时在途调用可能事后计费，`complete` 固定为 `false`。
+- 累计范围是一次 Process 运行内的全部模型调用与图片生成，含主流程、修正、复核和子流程。失败、超时、取消的运行同样返回已发生的费用；超时与取消时在途调用可能事后计费，`complete` 固定为 `false`。
 - 供应商回报的 0 按 0 计入。没有任何一次调用的费用已知时整个 `cost` 省略，不以 `amount: 0` 冒充免费。
 - 费用未知的调用不估算：LiteLLM 网关图片请求缺少 `x-litellm-response-cost` 响应头、FAL 与 Magikaru 通道（响应不含费用字段）、已派发却没有响应的请求，以及后台仍在处理（HTTP `202`）的图片任务，都记为未知。
 - 恢复同一成图（已有回执或已保存结果）没有新的出站调用，不重复计费；首次派发的费用只出现在当时那次响应。
@@ -1210,58 +1210,24 @@ Memebuy 可将两个模板分别绑定同一 Process 与固定 preset，用户�
 
 内部图片服务 `POST /photo-posters` 是受控 Capability 协议，不供产品直连；使用 `CRT_BUSINESS_API_BASE_URL`，连接超时由服务端 `PHOTO_POSTER_API_TIMEOUT_MS` 配置，默认 180000 ms。
 
-## 模板图片生产与两次审核
-
-以下三个固定 Process 仅供受信任的 Memebuy 后台调用，均使用既有 `/execute` 或 `/process-runs` Interface。不得向普通用户开放可自行填写 reviewerRef 的调用入口。Process 身份、模型、Skill、存储与执行指令均由服务端固定；浏览器只提交候选 ID、当前摘要和审核决定。
-
-| Process / version | input | output | Process 预算 |
-| --- | --- | --- | --- |
-| `template-image-plan/v1` | `{ imageUrl, note? }`，沿用原图片编译输入限制 | `{ productionId, sourceImageSha256, strategySha256, strategy }` | 240 秒 |
-| `template-image-render/v1` | `{ productionId, objectSha256, reviewerRef }`，objectSha256 为方案摘要 | `{ productionId, imageSha256, reviewPackageSha256, width, height, imageDataUrl }` | 270 秒 |
-| `template-from-source/v1` | `{ productionId, objectSha256, reviewPackageSha256, reviewerRef, note? }`，objectSha256 为成图摘要，note 为本轮模板编译要求 | `{ template, coverImageUrl, preparedImage }` | 570 秒 |
-
-模板内容不满意时，调用方可用原成图审批发起新的编译轮次，并提交可选 `note`（去首尾空白后 1–500 字符）。新要求只覆盖本次编译的备注，不修改方案、生图指令或成图批准；省略时沿用原方案备注。已经上传的审核图片复用内容寻址对象，不重新生图或上传，返回的图片摘要保持不变。新轮次仍须人工审阅模板草稿；异步调用使用新轮次的幂等键，技术失败恢复沿用原运行。
-
-方案校验失败时可在原 240 秒预算内进行一次受限字段修正，仍不通过则返回 `AGENT_FAILURE`；不会自动生图或批准方案。
-
-productionId 为 UUID；摘要为小写 64 位 SHA-256；reviewerRef 为 1–191 字符的服务端审核者引用。字段闭合，不接受额外运行配置。strategy 是待人审阅的完整业务方案，包含替换目标、类别判断、组件分组、依赖与特征权限、文字/标记动作、冻结项、风险；准确结构由 `GET /processes` 的输出 Schema 给出，调用方不能用策略正文替代已持久化 productionId。新输出另含 execution：`{ version: "v2", prompt, promptSha256 }`，精确十二段指令由服务端从策略生成，与源图及策略一起纳入 strategySha256。原审批入参保持不变。
-
-新方案的可选字段 `strategy.outputBackground` 记录已确定的成图背景（`transparent` 或 `opaque`）。原件含透明像素时默认匹配透明，备注明确指定背景时按其要求。该字段绑定方案摘要，审核后传入生图请求；缺失时沿用原有供应商默认值，历史审批不重新推断。新成图默认走服务端固定中转站；同一成图绑定原渠道，恢复不会跨渠道重新付费。
-
-targetCanvas 增加 carrierRole（none/apparel/device/mechanism）、reason、excludedScopes；frozenSet 改为 `{ scope: "design" | "carrier" | "environment", regionId, instruction }[]`；文字项增加 originalText、componentId，exactText 表示最终文字，删除为空串。replacementComponentIds 关联闭包中实际替换的组件。审核端应展示这些业务要求，旧记录缺失字段标记“未记录”。完整场景需显示依据并显式勾选确认。
-
-已保存的旧方案不自动转换：尚未提交生成的方案必须重新规划和确认；已知 requestId 继续恢复，已有成图继续原审批。明确拒绝、未知提交和需要重新批准的提示沿用现有公开错误分类。明确非重试 4xx 不恢复批准；未知提交禁止重投。
-
-imageDataUrl 是完整 PNG 的 Base64 Data URL，原 PNG 至多 20,000,000 字节，整个成图审核输出至多 28,000,000 字节。该特例只属于固定 render Registration，其他输出仍受默认上限约束。审核方必须保存交接结果并等待人工批准，不因收到图片而自动调用下一步。
-
-preparedImage 为 `{ url, sha256, width, height, contentType: "image/png" }`；url 固定为 `https://assets.memebuy.cn/gallery/template-images/<sha256>.png`。template.cover、template.referenceImage 和 coverImageUrl 均引用该图片。公开输出不包含原始策略、两次审批或业务备注。
-
-方案需要重新批准，或旧图片模型在派发前发现不支持已批准的透明背景时，返回 `DEPENDENCY_FAILURE`，本次未提交生图。方案失败返回 `AGENT_FAILURE`；生图或上传编译不能确定完成时返回 `DEPENDENCY_FAILURE_AFTER_COMMIT`。这些错误不授权重新付费生图：人工恢复必须提交原 productionId 与原批准摘要。已知供应商请求继续查询，未知生成提交需要对账。重试编译可能重新调用编译模型，但不会再生成图片。
-
-## 可重复制作与成图版本
-
-Memebuy 分步工作台可保留同一替换方案反复生图。`template-image-render/v1` 兼容可选 UUID `renderId`；同一 `productionId + renderId` 恢复原成图，不同 `renderId` 表示人工明确的新生图。缺省保持旧单图语义。成图审核包摘要包含 `renderId`，`template-from-source/v1` 的图片审批须原样携带该字段，不能跨版本采用审批。每个成图独立保留 attempt、图片、审核与上传记录，提交未知时复用原身份仍禁止重投。模板重编译继续复用同一图片和审批，返回新候选；草稿身份、版本、采用和真实测试由 Memebuy 管理。
-
-先发布支持此字段的 Pi API 与内部图片 Business API，再发布 Memebuy Web 和 Worker；旧方案与旧成图文件原样兼容。
-
 ## 模板目标视觉归属（Process v2）
 
-`template-from-image/v2` 与 `template-from-source/v2` 分别沿用同名 v1 的输入、审批、错误和图片交付合同，输出模板的 `runtimeSemantics.version` 固定为 `3`，`inputSchema.version` 仍为 `2`。目标增加可选 `appearance: string[]` 与 `pose: string[]`，每类最多 40 条，每条最多 500 字符；正式事实不截断。全局 `visualContract` 仅包含不依附具体目标的视觉规则，拆分后数组可以为空。输出结构或归属复核不通过仍失败，不以 v1 结果兜底。
+`template-from-image/v2` 沿用 v1 的输入、错误和图片合同，输出模板的 `runtimeSemantics.version` 固定为 `3`，`inputSchema.version` 仍为 `2`。目标增加可选 `appearance: string[]` 与 `pose: string[]`，每类最多 40 条，每条最多 500 字符；正式事实不截断。全局 `visualContract` 仅包含不依附具体目标的视觉规则，拆分后数组可以为空。输出结构或归属复核不通过仍失败，不以 v1 结果兜底。
 
-`template-from-source/v2` 精确依赖 `template-from-image/v2`。两项 v1 接口仍输出运行语义 v2；调用方必须显式提交版本，不支持 latest 或自动回退。发布顺序及历史任务恢复见 [视觉归属升级](processes/memebuy/template-from-image/visual-ownership-v3.md)。
+`template-from-image/v1` 仍输出运行语义 v2；调用方必须显式提交版本，不支持 latest 或自动回退。发布顺序及历史任务恢复见 [视觉归属升级](processes/memebuy/template-from-image/visual-ownership-v3.md)。
 
 
 ## 印花拆解模板（Process v3）
 
-`template-from-image/v3` 沿用图片编译入参，`template-from-source/v3` 沿用成图审批及可选 note，精确依赖前者。两者输出 `inputSchema.version=2`、`runtimeSemantics.version=4`，流程号与语义号分别管理。旧 Process v1/v2 分别继续输出运行语义 v2/v3，不回退或升级已有运行。
+`template-from-image/v3` 沿用图片编译入参，输出 `inputSchema.version=2`、`runtimeSemantics.version=4`，流程号与语义号分别管理。旧 Process v1/v2 分别继续输出运行语义 v2/v3，不回退或升级已有运行。
 
 V4 模板包含 `targetInstances`、`inputBindings` 与 `designSpec`，不得包含 `visualContract`。完整字段由目录 Schema 与固定作者合同定义；designSpec 保存整体、元素、版面、印花形态、配色角色、印花适配及作者默认迁移。`promptTemplate` 是服务端从默认迁移单向生成的展示文本，不是生成权威；状态、图片与尺寸仍由宿主决定。
 
 输入为 1–12 个可选槽，主体支持文字及一张私有主体照片，其他槽只开放文字；准确文字、指定内容和配色分别绑定同名元素或配色角色。每个槽默认值须与被绑定的 designSpec.defaults 一致。不接受图片内容替换、reference_only 或请求指定运行配置。
 
-成功输出在 `template` 之外附带 `source`（加法，`template` 不变；旧部署不返回，调用方须视为可选）：`source.texts` 为复核后的原图逐字文字 `[{text, elementId}]`（最多 40 项，只含设计本身的文字，不含水印与署名）；`source.condition` 为原图状况 `{marks, carrier, sharpness, compressionArtifacts, notes}`。`marks` 最多 5 项 `{kind: watermark | signature | platform_logo, text?}`，无则空数组；`carrier` 取 `flat_artwork | garment_photo | product_photo | scene_photo`；`sharpness` 取 `clear | slightly_blurry | severely_blurry`；`notes` 最多 5 条。二者由独立复核后的候选确定性投影，模型判断不代替人工核对；像素清晰度（如 150dpi）不由模型判断。`template-from-source/v3` 因复用同一输出 Schema，其编译成员的 `source` 同样随成功回包透传。
+成功输出在 `template` 之外附带 `source`（加法，`template` 不变；旧部署不返回，调用方须视为可选）：`source.texts` 为复核后的原图逐字文字 `[{text, elementId}]`（最多 40 项，只含设计本身的文字，不含水印与署名）；`source.condition` 为原图状况 `{marks, carrier, sharpness, compressionArtifacts, notes}`。`marks` 最多 5 项 `{kind: watermark | signature | platform_logo, text?}`，无则空数组；`carrier` 取 `flat_artwork | garment_photo | product_photo | scene_photo`；`sharpness` 取 `clear | slightly_blurry | severely_blurry`；`notes` 最多 5 条。二者由独立复核后的候选确定性投影，模型判断不代替人工核对；像素清晰度（如 150dpi）不由模型判断。
 
-编译最长 480 秒，审核后上传与编译最长 570 秒；正常两次独立视觉请求，结构无法读取时最多补一次编译，其后仍须独立复核。复核只修当前字段并完整复验，不重写整份候选、追加生图或自动采用。错误沿图片编译合同；审核后成员失败仍为 `DEPENDENCY_FAILURE_AFTER_COMMIT`，重试复用同一图片，未知提交不自动重投。成功不代表人工视觉或印刷验收通过。部署、来源与验证见 [印花拆解候选](processes/memebuy/template-from-image/print-design-v4.md)。
+编译最长 480 秒；正常两次独立视觉请求，结构无法读取时最多补一次编译，其后仍须独立复核。复核只修当前字段并完整复验，不重写整份候选、追加生图或自动采用。错误沿图片编译合同。成功不代表人工视觉或印刷验收通过。部署、来源与验证见 [印花拆解候选](processes/memebuy/template-from-image/print-design-v4.md)。
 
 ## 母版生成（template-master/v1）
 
@@ -1272,7 +1238,7 @@ V4 模板包含 `targetInstances`、`inputBindings` 与 `designSpec`，不得包
 - **模式 A（推荐，`sourceRunId` 直读）**：`{ imageUrl, sourceRunId, budget: { maxAttempts: 1..10, maxUsd: 0..20 } }`。服务端在受理阶段按当前 `callerId` 读取同一调用方已成功的 `template-from-image` 运行产物（`output.template` 与 `output.source.condition`）。若上游运行不存在、不属于当前 `callerId`、非 `template-from-image` 流程、未到 `succeeded`、产物已过期或缺少合法 v4 `template`/`source.condition`，在入队前返回 `400` 及对应 `SOURCE_RUN_*` 错误码，零费用且不占用 `Idempotency-Key`。
 - **模式 B（兼容直传）**：`{ imageUrl, template, condition, budget: { maxAttempts: 1..10, maxUsd: 0..20 } }`。`imageUrl` 为私有原图当次短期签名公网 HTTPS 地址；`template` 兼容原样透传的 `template-from-image/v3` 完整产物与业务扩展键（`template` 与 `template.metadata` 允许并忽略未知字段，`title` 为 1–80 字，`description` 允许 `string | null` 或省略且至多 300 字，`metadata` 与 `metadata.tags` 可选且不限条数与单标签长度），保留 `key`、`inputSchema`（`version: 2`）与 `runtimeSemantics`（`version: 4`）核心校验；`condition` 为其 `source.condition`。
 
-成功输出：`{ preparedImage, master }`。`preparedImage` 与 `template-from-source/v3` 同形状、同上传方式（`https://assets.memebuy.cn/gallery/template-images/<sha256>.png`）。`master` 含最终档 `tier`、`redrawn`（仅重档为 true）、按时间排列的 `attempts[{ tier, passed, failures[{ check, detail }] }]`（最多 `maxAttempts` 条）与最终 `checks`（`text` 含 `expected` / `read`、`palette`、`layout`、`printable`、`similarity` 重档为 null）。`failures[].check` 取 `text | palette | layout | printable | similarity | generation`。
+成功输出：`{ preparedImage, master }`。`preparedImage` 为 `{ url, sha256, width, height, contentType: "image/png" }`，按内容寻址上传，`url` 固定为 `https://assets.memebuy.cn/gallery/template-images/<sha256>.png`。`master` 含最终档 `tier`、`redrawn`（仅重档为 true）、按时间排列的 `attempts[{ tier, passed, failures[{ check, detail }] }]`（最多 `maxAttempts` 条）与最终 `checks`（`text` 含 `expected` / `read`、`palette`、`layout`、`printable`、`similarity` 重档为 null）。`failures[].check` 取 `text | palette | layout | printable | similarity | generation`。
 
 失败：`MASTER_NOT_ACCEPTED`（全部档位用尽）与 `MASTER_BUDGET_EXHAUSTED`（次数或已知费用用尽），HTTP 502，message 带各档尝试次数与最后失败项，不返回未通过的图；改图已付费后上传失败为 `DEPENDENCY_FAILURE_AFTER_COMMIT`。费用沿用 `cost`，未知费用不计入 `maxUsd`。分档、校验与阈值见 [模板母版](processes/memebuy/template-master/README.md)。
 
@@ -1280,11 +1246,9 @@ V4 模板包含 `targetInstances`、`inputBindings` 与 `designSpec`，不得包
 
 Memebuy 可在同步 `POST /execute` 请求中发送 `X-Pipipi-Template-Steps: 1`，取得本次模板执行已结束的步骤；未请求、旧服务或没有可用步骤时保持原回执。可选的 `diagnostics` 与 `output/error` 同级，不改变执行状态、费用或重试规则。
 
-成图步骤的只读历史查询按归档中的原审批读取同一成图回执，可附带 `gateway`：状态、结果文件是否已保存、受控失败原因及已记录的 HTTP 状态、供应商错误码与请求 ID。字段缺失表示未记录；接口不返回供应商原始消息，不恢复或派发生图。
+历史查询：`GET /memebuy/template-runs/{runId}/diagnostics`，使用独立的 `Authorization: Bearer <token>`。模板校验失败的步骤可包含 diagnostic.issues（最多 8 个已净化字段路径与规则码），新回执和可用历史归档共用投影。没有归档的字段不补写。这是给 Memebuy 后端的产品级只读凭证（Pipipi API 角色配置 `MEMEBUY_TEMPLATE_DIAGNOSTICS_TOKEN`，至少 32 字节），可读取本部署中 `template-from-image` 运行的脱敏步骤，不提供列表、其他流程、业务输入输出或控制台访问。部署时仅将该 GET 路径代理到 API 并保留 Authorization；控制台继续使用原有鉴权。Memebuy 在服务端验证内容运营权限及本地候选与运行归属，再按保存的外部编号查询。
 
-历史查询：`GET /memebuy/template-runs/{runId}/diagnostics`，使用独立的 `Authorization: Bearer <token>`。模板校验失败的步骤可包含 diagnostic.issues（最多 8 个已净化字段路径与规则码），新回执和可用历史归档共用投影。没有归档的字段不补写。这是给 Memebuy 后端的产品级只读凭证（Pipipi API 角色配置 `MEMEBUY_TEMPLATE_DIAGNOSTICS_TOKEN`，至少 32 字节），可读取本部署中该产品四个模板流程的脱敏步骤，不提供列表、其他流程、业务输入输出或控制台访问。部署时仅将该 GET 路径代理到 API 并保留 Authorization；控制台继续使用原有鉴权。Memebuy 在服务端验证内容运营权限及本地候选与运行归属，再按保存的外部编号查询。
-
-返回与新回执相同的 `{runId, process, version, steps:[{scope, activity, status, durationMs, diagnostic?:{stage,code}}]}`。先列主流程，再列原运行的编译成员（`scope: "compile"`）；成员耗时包含在父步骤中，不能相加。只展示观测到的活动；归档不完整时不推测根因。历史读取使用既有活动归档，无需重跑；记录仍受服务保留期约束。未授权返回 401，未找到模板父运行返回 404，归档或凭证未配置返回 503。
+返回与新回执相同的 `{runId, process, version, steps:[{scope, activity, status, durationMs, diagnostic?:{stage,code}}]}`。步骤的 `scope` 固定为 `"main"`。只展示观测到的活动；归档不完整时不推测根因。历史读取使用既有活动归档，无需重跑；记录仍受服务保留期约束。未授权返回 401，未找到模板运行（含已下线的旧模板流程历史运行）返回 404，归档或凭证未配置返回 503。
 
 ## 商品做同款（product-remix/v1）
 

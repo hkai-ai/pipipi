@@ -18,17 +18,7 @@ Memebuy 的角色表情任务在创建时确定本站或 Pipipi 执行。v12 新
 
 图片转模板按原 Skill 保留逐区文字分类、布局、位置和路由依据，原始观察与选定稳定规则分开保存；共同语义模型生成正式草稿，由独立复核核对。保留完整来源业务规则，槽位取舍直接复用来源原文并复核未入选候选，重复事实由服务端引用投影，内部执行“生成分析与草稿 → 独立看图复核并返回必要补丁 → 程序投影与完整校验”。正常两次模型调用；首轮 JSON 或候选结构不可读可重新编译一次，v2 最终校验发现可修正问题时，可对上次已修订计划追加一次独立看图修正，并重新执行完整校验；独立复核不重写完整候选，也不默认追加模型复核，部分分析采用紧凑行，特征权限及复核报告采用具名对象；九轴权限只要求身份替换槽位提供，其他槽位为 null。证据按来源要求非空且具体，不额外设置四字符下限。修正上下文直接读取引用计划，程序展开后执行完整校验。公开 Gallery v2 草稿合同保持不变；执行失败区分编译、独立复核和本地校验阶段，仅返回安全归类提示。实现与边界见 [图片转模板](template-from-image/README.md)。
 
-模板制作的新方案默认保留原图的透明区域，明确指定的背景要求优先。背景随方案批准固定，旧方案需重新规划才能匹配原图。
-
-图片预处理新增 [方案规划](template-image-plan/README.md)、[审核后生图](template-image-render/README.md)、[审核后上传与编译](template-from-source/README.md) 三个固定入口。沿用来源强制替换设计，两次人工确认均在 Memebuy 页面，旧 template-from-image 直接编译行为保留。
-
-成图满意、模板内容不满意时，可从审核后编译入口提交本轮要求，复用原成图审批和图片，仅生成新的模板草稿；不重新规划或生图。
-
-图片替换方案在原 240 秒预算内允许一次字段补丁修正，完整复验后才交给人工确认；失败阶段和固定规则可诊断。详见 [方案校验与修正](template-image-plan/README.md)。
-
-图片预处理在同一次请求中结合原图总览与有界局部细节，先逐区观察文字几何再决定替换；按原 Producer 的排版、冻结与特征权限生成并固定十二段简洁生图指令，字段修正携带目标 Schema，保留两次人工审核；明确拒绝与未知提交分别保存，批准不可复用。旧方案兼容与审核展示见 [模板图片预处理](template-from-source/README.md)。
-
-Memebuy 模板分步制作支持同方案多个成图版本：新 `renderId` 明确重做，同一身份仅恢复；新成图默认走中转站，历史 FAL 按原请求恢复；图片审批绑定实际版本，旧单图合同兼容。接口见 [业务 API](../../api.md)。
+旧「方案 → 生图 → 编译」三阶段链路已于 2026-11-17 随 Memebuy「生成方案」入口下线：`template-image-plan/v1`、`template-image-render/v1` 与 `template-from-source/v1,v2,v3` 不再注册，调用按未知 Process 拒绝；在途候选直接放弃，不恢复、不对账、不迁移。新模板任务使用 `template-from-image/v3` → `template-master/v1`。历史 Run Record 与活动归档在保留期内仍可在控制台查看。
 
 模板编译的原始观察、视觉取舍、像素辅助依据与语义投影边界统一见 [来源合同对齐](template-from-image/source-alignment.md)。
 
@@ -36,12 +26,12 @@ Memebuy C 类采用通用 CRT 与照片海报 Process 的背景合同；背景�
 
 `gallery.memory_checklist` 绑定 `memory-checklist-photo-poster/v1`，`gallery.risograph_album` 绑定 `risograph-album/v1`。两者都只接收一张私有参考图；标题、caption 和唱片文字由 Pipipi 固定，不作为用户槽位。封面导入和上架另行完成。
 
-模板新提取使用 `template-from-image/v2`、`template-from-source/v2`，交付带目标归属的运行语义 v3；保留两项 v1 精确版本。字段、复核与发布顺序见 [视觉归属升级](template-from-image/visual-ownership-v3.md)。
+`template-from-image/v2` 交付带目标归属的运行语义 v3；v1 精确版本保留。字段、复核与发布顺序见 [视觉归属升级](template-from-image/visual-ownership-v3.md)。
 
-模板制作工作台可随同步回执保存脱敏步骤，也可按原运行查询保留期内的父流程与编译成员记录；见[模板执行步骤](../../api.md#模板执行步骤)。
+模板制作工作台可随同步回执保存脱敏步骤，也可按原运行查询保留期内的 `template-from-image` 步骤记录；见[模板执行步骤](../../api.md#模板执行步骤)。
 
-[`template-master/v1`](template-master/README.md) 由原图与解析结果分档出母版并逐次对照校验，通过后按成图同样的方式上传。
+[`template-master/v1`](template-master/README.md) 由原图与 `template-from-image/v3` 解析结果分档出母版并逐次对照校验，通过后按内容寻址上传到模板公读存储。
 
-批准图片可通过 Process v3 生成运行语义 V4 的[印花拆解候选](template-from-image/print-design-v4.md)，原方案和成图审批继续复用；旧 v1/v2、历史运行和冻结模板不切换。
+`template-from-image/v3` 生成运行语义 V4 的[印花拆解候选](template-from-image/print-design-v4.md)；旧 v1/v2、历史运行和冻结模板不切换。
 
 [`product-remix/v1`](product-remix/README.md) 面向 Memebuy「商品做同款」（`kind = "product.remix"`），推荐经异步 `/process-runs` 提交：以 `sourceImageUrl` 为单层视觉与版式基准，结合可选 `referenceImageUrl` 或 0–9 张有序 `referenceImageUrls` 与 `userText`，在 `budget: { maxAttempts, maxUsd }` 与 `660` 秒硬超时约束下自动分档（`light` / `medium` / `heavy`）、执行多图编辑与 VLM 质检闭环，并在通过后上传至受控对象存储。接口字段与 URL 红线见[商品做同款接口](../../api.md#商品做同款product-remixv1)。

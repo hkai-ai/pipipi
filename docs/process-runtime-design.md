@@ -352,9 +352,9 @@ Interface 提供足够 Depth。
 
 图片转模板保留完整来源业务规则，内部执行“生成分析与草稿 → 独立看图复核并返回必要补丁 → 程序投影与完整校验”。正常两次模型调用；仅首轮 JSON 或候选结构无法读取时允许一次重新编译，最多三次，不追加模型复核。公开 Gallery v2 草稿合同保持不变。实现与边界见 [图片转模板](processes/memebuy/template-from-image/README.md)。
 
-### 有界审核图片交接
+### 有界输出大小
 
-Registration 可在构造时固定 `outputMaxBytes`，默认 262,144 字节，最大 28,000,000 字节。当前仅 `template-image-render/v1` 使用特例，供受限运营审核完整 PNG。此参数不进入产品输入；其他 Process 的输出大小与错误行为不变。
+Registration 可在构造时固定 `outputMaxBytes`，默认 262,144 字节，最大 28,000,000 字节。当前生产目录没有 Process 使用该特例。此参数不进入产品输入；未设置时输出大小与错误行为不变。
 
 角色表情包 v2 的每格动作、位置、道具与可见反差由唯一 scene 字段拥有，图片编译只投影一次；准确文字与角色绑定独立保留。在同一次 Planning Activity 内由一个 Pi Agent 搜梗、构思及自检，搜索失败直接原创；不启动独立复核。JSON格式、可定位结构或配字错误共用一次修正机会，并共享 Registration 截止时间和调用预算；通过完整业务校验后进入 Rendering Activity。请求级观测只记录搜索结果、净化原因码、耗时与调用次数，Sink 失败不改变执行。v4 的可恢复连接错误和有限字段修正共享原模型预算；结果未知的生图绑定 runId，仅查询原图或已受理的 Job。精确合同见 [角色表情包](processes/common/character-emoji/README.md)。
 

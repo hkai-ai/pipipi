@@ -48,11 +48,11 @@
 ## 保留的服务边界
 
 - 原 Skill 的同轮 self-review 由已有第二个无 Tool 会话承担，保留十九项检查、输入计划摘要和有界补丁；正常两次调用，首轮不可读取时最多一次重新编译。这是运行适配，不是来源指定的模型调用次数。
-- 使用现有模板模型、思考配置、单图 Process、公开 Gallery JSON、两次图片人工审批与费用边界。
-- 已批准图片的身份与上传由 `template-from-source` 服务控制；通用 `template-from-image/v1` 仍接受 PNG/JPEG/WebP HTTPS 图片。分析 sidecar 不由模型重复声明服务端图片身份。
-- `imageSize` 在通用输入上沿用公开合同的最接近画幅选择。预处理输出的固定合法尺寸精确匹配；不借此次内部对齐破坏已有任意尺寸输入。
+- 使用现有模板模型、思考配置、单图 Process、公开 Gallery JSON 与费用边界。
+- 通用 `template-from-image/v1` 接受 PNG/JPEG/WebP HTTPS 图片。分析 sidecar 不由模型重复声明服务端图片身份。
+- `imageSize` 在通用输入上沿用公开合同的最接近画幅选择。固定合法尺寸精确匹配；不借此次内部对齐破坏已有任意尺寸输入。
 - key 注册表、落库、revision 文件和工作台读回归调用方。原 Python、Shell 与网络权限不交给 Agent。
-- `note` 表示按同一批准图重新编译；当前公开接口没有原 `compile_json_revision` 的旧 JSON、摘要和预声明 scope，不能宣称是原 Skill 的局部返修。批量交付与工作台操作不在此单图服务中。
+- `note` 表示按同一图片重新编译；当前公开接口没有原 `compile_json_revision` 的旧 JSON、摘要和预声明 scope，不能宣称是原 Skill 的局部返修。批量交付与工作台操作不在此单图服务中。
 
 ## 验证
 

@@ -24,9 +24,7 @@ Pipipi 提供 Agent 运行环境（harness）和场景 skill。Process Registrat
 
 模板图的原始附件始终是视觉依据。单一背景上可分离的内容带可附加像素轮廓测量；测量只辅助同次观察，不能代替视觉判断或成为公开模板字段。
 
-模板制作的新方案默认保留原图的透明区域，明确指定的背景要求优先。背景随方案批准固定，旧方案需重新规划才能匹配原图。
-
-图片处理与模板编译的人工重试按阶段区分：模板内容调整复用已批准成图，以新编译轮次保存结果；图片调整才重新进入方案与成图审核。编译要求不改写既有图片审批。
+模板任务由 Memebuy 决定何时需要人工确认；Pipipi 只执行单次解析（`template-from-image/v3`）或母版生成（`template-master/v1`），不保存候选、审核者或批准状态。旧「方案 → 生图 → 编译」三阶段链路已于 2026-11-17 下线，`template-image-plan`、`template-image-render` 与 `template-from-source` 不再注册，在途候选直接放弃。
 
 调用方必须知道：
 
@@ -48,15 +46,12 @@ Pipipi 提供 Agent 运行环境（harness）和场景 skill。Process Registrat
 
 ## 当前能力
 
-生产 catalog 当前登记三十一个精确版本，其中 `composed-task/v1` 默认关闭：
+生产 catalog 当前登记二十六个精确版本，其中 `composed-task/v1` 默认关闭：
 
 | 场景 | Business Process | 输入 | 输出 | 实现选择 |
 | --- | --- | --- | --- | --- |
 | `memebuy` | `template-from-image/v1` | `{ imageUrl, note? }` | `{ template }` | 受控下载与真实视觉附件；无 Tool Agent 编译并验证 Gallery v2 草稿，不生图、不入库 |
-| `memebuy` | `template-image-plan/v1` | 原图与备注 | 待审替换方案 | 固定来源规则，无 Tool |
-| `memebuy` | `template-image-render/v1` | 方案批准 | 待审 PNG | 固定单次中转站编辑；历史 FAL 按原请求恢复 |
 | `memebuy` | `template-master/v1` | 原图、预算，以及 `sourceRunId`（直读同 caller 上游产物）或兼容直传 v4 草稿与原图状况（二选一） | 母版 PNG 与校验报告 | 受理阶段按 caller 校验并快照上游产物；轻（色键）、中（修复）、重（重绘）分档，逐次确定性加模型对照校验 |
-| `memebuy` | `template-from-source/v1` | 成图批准 | 新图与 Gallery 草稿 | 不可变 OSS 与原编译器 |
 | `memebuy` | `product-remix/v1` | 原印花 URL、可选 0–9 张参考图 URL、编辑意图、可选尺寸与预算上限 | `{ image, modelName, resolvedTier }` | 单层视觉基准；无 Tool Agent 加载固定 Runtime Skill 自动分档（`light` / `medium` / `heavy`）、执行多图编辑与 VLM 质检闭环，硬超时 660 秒，严禁回显输入图 URL |
 | `common` | `minimal-zine-poster/v1` | `{ brief: string, text?: string }` | `{ prompt, recipe, interpretation, image }` | 无 Tool Agent 编译固定 Runtime Skill；Poster Rendering Capability 复用内部图片服务生成并持久化图片 |
 | `common` | `crt-interface-image/v1` | `{ sourceImageUrl, palette, aspectRatio }` | `{ aspectRatio, image }` | 无 Tool Agent 编译固定 Runtime Skill；CRT Rendering Capability 用公网 HTTPS 参考图执行 FAL GPT Image 2 编辑、后处理并持久化 PNG |
@@ -225,14 +220,6 @@ Startup Construction 是生产组装 Seam；Process Executor 是同步传输与 
 
 图片转模板按原 Skill 保留逐区文字分类、布局、位置和路由依据，原始观察与选定稳定规则分开保存；共同语义模型生成正式草稿，由独立复核核对。保留完整来源业务规则，槽位取舍直接复用来源原文并复核未入选候选，重复事实由服务端引用投影，内部执行“生成分析与草稿 → 独立看图复核并返回必要补丁 → 程序投影与完整校验”。正常两次模型调用；首轮 JSON 或候选结构不可读可重新编译一次，v2 最终校验发现可修正问题时，可对上次已修订计划追加一次独立看图修正，并重新执行完整校验；独立复核不重写完整候选，也不默认追加模型复核，部分分析采用紧凑行，特征权限及复核报告采用具名对象；九轴权限只要求身份替换槽位提供，其他槽位为 null。证据按来源要求非空且具体，不额外设置四字符下限。修正上下文直接读取引用计划，程序展开后执行完整校验。公开 Gallery v2 草稿合同保持不变；执行失败区分编译、独立复核和本地校验阶段，仅返回安全归类提示。实现与边界见 [图片转模板](docs/processes/memebuy/template-from-image/README.md)。
 
-图片替换方案在原 240 秒预算内允许一次字段补丁修正，完整复验后才交给人工确认；失败阶段和固定规则可诊断。详见 [方案校验与修正](docs/processes/memebuy/template-image-plan/README.md)。
-
-图片预处理按原 Producer 的观察、排版、冻结与特征权限语义生成并固定生图指令，字段修正携带目标 Schema，保留两次人工审核；明确拒绝与未知提交分别保存，批准不可复用。旧方案兼容与审核展示见 [模板图片预处理](docs/processes/memebuy/template-from-source/README.md)。
-
-图片预处理的同次模型请求用总览与最多五张固定区域细节，先逐区观察文字几何再决定替换，观察直接投影到既有 layout 字段；裁片不参与生产图片与审批摘要。Runtime Skill v3 包含原入口及五份完整引用，服务端把批准字段投影为十二段简洁语句。持久化字段顺序与既有 execution v2 合同保持兼容。结构校验和视觉观察质量分别验收，不以人工补充特征后的成图代替自动方案验收。
-
-Memebuy 模板分步制作支持同方案多个成图版本：新 `renderId` 明确重做，同一身份仅恢复；图片审批绑定实际版本，旧单图合同兼容。接口见 [业务 API](docs/api.md)。
-
 CRT 与照片海报将背景模式作为可选业务参数；省略时保持原行为，透明成品需通过透明与可见像素校验。公开合同见 [图片背景参数](docs/api.md#图片背景参数)。
 
 角色表情包由同一个 DeepSeek 4.1 Flash Pi Agent 调用 DeepSeek 搜梗，从最多两个候选中按行为关系选材，以 low 推理预算构思、自检并提交，不启动独立复核会话。搜索资料由服务端生成同次 ID，可用原生摘要直接绑定，缺失时标为未核验灵感；搜索调用失败直接原创，用户取消与整体截止仍停止。初稿及修正均校验同次材料身份。Agent 创作的构图、笑点细节和连续性保留，程序按角色 ID 绑定参考图、生成编号并保留 Agent 的自由布局，接受角色错序；JSON格式错误、可定位的画面字段结构错误与台词错误共用一次原会话修正机会；可读取候选冻结未报错字段，JSON重交则重新检查完整合同。来源错误或角色不匹配仍停止。搜索采用独立上限和有界资料，兜底原因与调用耗时通过不含正文的请求级观测记录。台词与标识保持准确，场景辅助文字交由 Agent 与绘图模型适量处理，明确无字要求优先；单图白底贴纸为默认风格。内部候选与来源不持久化、不进入公开输出，结构及引用通过不代表事实或画面语义正确。 构思及修正采用上游默认输出额度，不发送输出 token 上限，仍保留120秒共享截止时间。
@@ -243,17 +230,17 @@ CRT 与照片海报将背景模式作为可选业务参数；省略时保持原�
 
 ## 模板视觉归属 v3
 
-新增 `template-from-image/v2` 与 `template-from-source/v2`，输出 `runtimeSemantics.version=3`；`inputSchema.version` 仍为 2。目标外观写入 `targetInstances[].appearance`，姿势与位置写入 `pose`，全局视觉合同只保留非目标事实。旧 v1 接口继续输出运行语义 v2，恢复既有运行不切换版本。两端发布与验收见 [模板归属升级](docs/processes/memebuy/template-from-image/visual-ownership-v3.md)。
+`template-from-image/v2` 输出 `runtimeSemantics.version=3`；`inputSchema.version` 仍为 2。目标外观写入 `targetInstances[].appearance`，姿势与位置写入 `pose`，全局视觉合同只保留非目标事实。旧 v1 接口继续输出运行语义 v2，恢复既有运行不切换版本。两端发布与验收见 [模板归属升级](docs/processes/memebuy/template-from-image/visual-ownership-v3.md)。
 
 ## 模型网关配置
 
 文本模型网关由 Composition Root 统一解析：优先使用完整的 `MODEL_GATEWAY_BASE_URL` / `MODEL_GATEWAY_API_KEY`，两者都未配置才依次兼容 TEXT_MODEL、CHARACTER_EMOJI、OPENAI 旧网关整对配置。表情包构思与搜梗也复用同一对；旧 PLANNER 网关覆盖不再生效。模型、协议与调用预算保持各 Registration 原定义，共享网关也作为图片默认凭证；图片渠道启用与主备策略独立，详见配置说明。
 
-模板制作工作台可随同步回执保存脱敏步骤，也可按原运行查询保留期内的父流程与编译成员记录；见[模板执行步骤](docs/api.md#模板执行步骤)。
+模板制作工作台可随同步回执保存脱敏步骤，也可按原运行查询保留期内的 `template-from-image` 步骤记录；见[模板执行步骤](docs/api.md#模板执行步骤)。
 
 Pi 会话轨迹属于实际执行的 Attempt 和活动实例。Skill 取自会话加载结果，工具权限取自当轮最终请求，调用结果按标识归属。模型输入输出及工具参数不进入轨迹归档。
 
-批准图片的印花拆解使用 `template-from-image/v3` 与 `template-from-source/v3`，交付运行语义 V4；复用原成图审批、人工采用与模板版本，v1/v2 和冻结历史不迁移。同一 Process 各版在生产装配时精确选择自己的固定 Skill，不能覆盖旧版规则。见 [印花拆解候选](docs/processes/memebuy/template-from-image/print-design-v4.md)。
+印花拆解使用 `template-from-image/v3`，交付运行语义 V4；复用人工采用与模板版本，v1/v2 和冻结历史不迁移。同一 Process 各版在生产装配时精确选择自己的固定 Skill，不能覆盖旧版规则。见 [印花拆解候选](docs/processes/memebuy/template-from-image/print-design-v4.md)。
 
 控制台用首次 Attempt 事件发现近期执行，父 runId 在模板编译与复核期间即可查询。活动归档只用于观测。`POST /process-runs` 与 `POST /execute` 的 HTTP 400 入参/上游引用拒收返回统一字段级 `error.details`，并在不入队、零费用、不占用 `Idempotency-Key` 的前提下写入脱敏观测记录（保留独立解析出的 `process`/`version`、`callerId`、`Idempotency-Key`、`traceId` 与失败字段路径，剥离 URL 签名查询参数与凭证），供控制台「异常排查」与「运行详情」定位；由 `sourceRunId` 发起的 `template-master/v1` 运行在详情页展示并链接上游运行。
 

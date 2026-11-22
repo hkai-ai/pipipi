@@ -81,7 +81,7 @@ curl -X POST http://127.0.0.1:4300/execute \
 
 `constructProcessingService` 是生产启动的唯一 Construction Seam。它在监听端口前完成配置解析、跨字段校验、Adapter 选择和 Application 组装。启动失败时先修正配置，不要把校验移到请求路径。
 
-模板新成图在内部图片服务复用 `resolveModelGateway(..., "image")` 与 OpenAI 文件表单编辑 Adapter，固定模型、质量和 PNG，不受 CRT 的 FAL 开关影响。历史 FAL 请求仍按原 requestId 查询；确定性出站、透明校验与恢复测试见 `test/template-image-production.test.ts`，付费验证须单独执行。
+母版改图与商品做同款在内部图片服务复用 `resolveModelGateway(..., "image")` 与 OpenAI 文件表单编辑 Adapter（`src/business-api/template-image-editor.ts`），固定模型、质量和 PNG，不受 CRT 的 FAL 开关影响；确定性测试见 `test/template-master-service.test.ts` 与 `test/product-remix-service.test.ts`，付费验证须单独执行。
 
 联调极简海报时，内部图片服务提供正式 `POST /posters`，复用现有 FAL 与 OSS 配置；文本编译仍需 Pi 模型凭证。图片服务启动不生图，实际图片请求会产生费用与外部写入。配置说明见 [发布手册](mvp-release-runbook.md)，不付费的完整 HTTP 链路验证见 `test/poster-process.test.ts`。
 
@@ -446,6 +446,8 @@ npm run check:deployment-env -- api
 - `.env.example` 把 `PROCESS_TIMEOUT_MS` 设为 `240000`，用于同时容纳 CRT edit 和 finalizer 的受控发布形状；未设置变量时，代码默认值仍为 `30000`。
 - Secret 只由本地 `.env` 或部署平台注入。日志和错误响应不得包含凭证、Base URL、远端正文或模型错误。
 
+`defineProcessRegistration` 的 `outputMaxBytes` 是服务端构造选项，默认 262,144 字节，上限 28,000,000；当前生产目录没有 Process 使用大输出。不得让产品请求覆盖该预算。新增大输出同时检查 HTTP、持久化、调用方加密交接与列表加载；完整目录 Worker 租约须超过最长 Process。
+
 ## 测试策略
 
 按风险从窄到宽验证：
@@ -494,17 +496,13 @@ Pi Adapter 保留会话、请求和响应阶段，`runActivity` 的可选诊断�
 图片转模板保留完整来源业务规则，内部执行“生成分析与草稿 → 独立看图复核并返回必要补丁 → 程序投影与完整校验”。正常两次模型调用；仅首轮 JSON 或候选结构无法读取时允许一次重新编译，最多三次，不追加模型复核。公开 Gallery v2 草稿合同保持不变。实现与边界见 [图片转模板](processes/memebuy/template-from-image/README.md)。
 
 模板可用服务端启动变量 `TEMPLATE_MODEL` 独立指定模型；未设置时 OpenAI 模板默认使用 `gpt-5.4`，其他供应商沿用 `PI_MODEL`。模板复用共享供应商与凭证，不改变其他 Process 的模型。
-异步部署的 API、Process Worker 环境预检允许该变量，角色环境生成脚本将它从共享配置传入这两个角色。模板时限为 480 秒；未显式配置租约时，Worker 按已启用目录的最长时限加 30 秒计算，显式租约必须严格大于最长时限。
-
-## 模板图片生产
-
-三个审核阶段共用 `src/processes/template-from-source/`；内部持久化与固定 FAL 协议在 `src/business-api/template-image-production.ts`、`template-image-fal.ts`。图像生产与 JSON 编译分离，后者复用原 Registration。
-
-`defineProcessRegistration` 的 `outputMaxBytes` 是服务端构造选项，默认 262,144 字节，上限 28,000,000；仅成图审核的完整 PNG 交接使用大输出。不得让产品请求覆盖该预算。新增大输出同时检查 HTTP、持久化、调用方加密交接与列表加载；完整目录 Worker 租约须超过最长 Process。
+异步部署的 API、Process Worker 环境预检允许该变量，角色环境生成脚本将它从共享配置传入这两个角色。模板解析时限为 480 秒；完整目录当前最长的是 `template-master/v1` 的 2400 秒。未显式配置租约时，Worker 按已启用目录的最长时限加 30 秒计算，显式租约必须严格大于最长时限。
 
 `manga-panels/v1` 复用照片海报链路；`manga-panels.ts` 拥有严格输入与两个固定预设，解析后的约束同时用于 Agent 编译及最终图片指令。分镜允许三个重绘画格，不沿用其他风格的禁止分屏指令；不改变其他风格默认文字行为。
 
 `memory-checklist-photo-poster/v1` 与 `risograph-album/v1` 复用同一 Registration。画幅在 `style.ts`：记忆清单为 1200×1600 且上半保留原片，唱片封面为 1200×1200。两者不接收用户文字，固定文案写在服务端画幅指令里。其他风格仍禁止原图区域，并保持 1200×1600。
+
+## 角色表情包实现
 
 表情包构思 Skill 在团队 Skills 仓库生成并发布，Pipipi 按[版本管理规则](runtime-skill-versioning.md)同步。专用 Pi Adapter 移除专用网关不支持的 OpenAI prompt-cache 参数，模型与 HTTP 重试均受本次 Registration 预算限制。
 

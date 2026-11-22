@@ -599,20 +599,48 @@ npm run accept:crt-business
 
 本批照片海报 Process 尚未部署。发布前核对全部固定 Skill 的 LICENSE/SOURCE，包括摄影剪贴与涂鸦小人的来源授权；镜像预检必须包含新增 Runtime Skill。主 API 与内部图片服务使用同一镜像，`PHOTO_POSTER_API_TIMEOUT_MS` 默认 180000；图片服务需要供应商出站连接和工作目录容量。回滚恢复上一镜像及对应 catalog。真实验收见 [照片海报实验](experiments.md#照片海报业务验收)。
 
-#### 模板图片生产的部署与恢复
+#### 模板解析、母版与模板存储
 
-新链路最长的 `template-from-source/v1` 为 570 秒。启用该能力的同步 `location = /execute` 使用 `proxy_read_timeout 600s;`，Memebuy 等待 660 秒；原图直接编译仍为 480 秒。不要把两次人工等待放进一个 HTTP 请求。网关修改保留原 Basic Auth、调用方身份头、精确 location 与其他路由；语法检查、匿名拒绝和鉴权访问均通过后再 reload。
-
-发布次序：先审查并执行 Memebuy 的 `20260915090000_template_image_preparation` 迁移（两个状态与 preparation JSONB）；再发布包含三个 Process 的 Pi API、Worker 和内部 Business API；最后发布 Memebuy API 与提取 Worker。旧候选无 preparation 时继续旧链路。迁移未执行时不得运行新 Memebuy 代码。回滚应用可保留新增可空字段和枚举，已进入新审核阶段的项留待兼容版本恢复，勿强改旧状态。
+同步模板请求中最长的是 480 秒的 `template-from-image`，网关超时按上文 `proxy_read_timeout 540s;` 的要求核对；为已下线的 570 秒 `template-from-source` 设置过 600 秒的网关仍有余量，本次下线无需调整。`template-master/v1` 的 Registration 预算为 2400 秒，只经 `/process-runs` 调用，不放进同步网关。网关修改保留原 Basic Auth、调用方身份头、精确 location 与其他路由；语法检查、匿名拒绝和鉴权访问均通过后再 reload。
 
 模板历史步骤查询使用独立只读凭证。将与 Memebuy 配置中心一致的值（32–512 个 Base64 或 URL 安全字符）保存在 GitHub `production` Environment 的 `MEMEBUY_TEMPLATE_DIAGNOSTICS_TOKEN`。常规部署经 SSH 原子写入 API 专用的 `shared/template-diagnostics.env`（0600）；同步和异步模式都只挂到 API。更新凭证后重新部署并用原运行号执行只读验收。
 
-内部图片服务的新模板成图复用既有图片网关配置（`OPENAI_IMAGE_*` 优先于 `MODEL_GATEWAY_*`，再兼容 `OPENAI_*`）；仅内部图片服务读取图片专用凭证，启动前须检查整对配置。FAL_KEY 继续服务 CRT 与历史模板请求恢复。模板存储仅在 `OSS_PUBLIC_BASE_URL=https://assets.memebuy.cn` 时装配为公读地址，不改变其他图片业务的访问策略。先核验 bucket/CDN 的公读映射与权限，再允许付费生图。缺少模板存储时 render 在提交前拒绝。模板成图模型与单次派发由服务端固定，见[成图实现](processes/memebuy/template-image-render/README.md)，不由环境或请求覆盖。
+母版改图与商品做同款在内部图片服务复用既有图片网关配置（`OPENAI_IMAGE_*` 优先于 `MODEL_GATEWAY_*`，再兼容 `OPENAI_*`）；仅内部图片服务读取图片专用凭证，启动前须检查整对配置。FAL_KEY 继续服务 CRT 等 FAL 图片通道。模板存储仅在 `OSS_PUBLIC_BASE_URL=https://assets.memebuy.cn` 时装配为公读地址，不改变其他图片业务的访问策略；先核验 bucket/CDN 的公读映射与权限，再允许付费改图。缺少模板存储时母版上传失败，改图模型与单次派发由服务端固定，不由环境或请求覆盖。
 
-`CRT_IMAGE_WORK_DIRECTORY/template-productions` 必须位于持久卷（生产 Compose 已挂载），包含未公开源图、审核图片与批准记录。保护目录权限并纳入备份与容量检查，不用 CRT 临时结果清理任务删除这些生产项。异步 Worker 的 lease 必须严格大于 570000ms，推荐 600000ms；不填写时由完整目录推导。
+异步 Worker 租约不填写时由完整目录推导：当前最长为 `template-master/v1` 的 2400000ms，默认租约 2430000ms；显式 `PROCESS_RUN_CLAIM_LEASE_MS` 必须严格大于该值。
 
-重启后若存在 `operation.lock`：先停止该内部服务并确认没有旧容器处理该目录，备份单项目录，然后核对 attempt.json 与供应商记录。无 provider 字段的历史已提交记录按 FAL 处理，provider_pending 有 requestId 时可移除该项锁后恢复同一请求；完成结果的 400/422 会保存为 provider_rejected，不再轮询或转中转站。openai 渠道已保存 provider-result.png 时只重读该结果并校验；没有本地结果的 submission_unknown 不得改回 approved 或再次生成，应人工对账。已确认失败的人工重做使用新的 renderId，保留原 attempt。恢复运行前只处理精确 productionId 的锁，不批量删除目录。已上传的同摘要对象只校验复用，不覆盖；缺少真实批准记录时不能人工补“通过”。
+#### 旧模板三阶段链路下线
 
-上线验收必须从 Memebuy 页面走完两次真实人工确认，再检查最终草稿封面、参考图和供应商单次请求。确定性测试通过不代表真实图片质量、OSS 公读或上线成功。
+Memebuy 已于 2026-11-17 下线「生成方案」入口。`template-image-plan/v1`、`template-image-render/v1` 与 `template-from-source/v1,v2,v3` 不再注册，内部 Business API 的 `/template-productions/*` 与 Runtime Skill `template-image-preparer` 同时移除。在途候选直接放弃：不恢复、不对账、不迁移，也不再查询历史 FAL 请求或核对未知提交。
+
+发布前：
+
+1. 确认 Memebuy 已关闭剩余的生图和编译入口（hkai-ai/memebuy_monorepo#1151）。若 Pipipi 先发布，残余调用会因 `PROCESS_NOT_FOUND` 被拒绝，不产生费用。
+2. 在 Process Run Store 确认这 5 个 Process 没有未结束的运行。Memebuy 对它们只用同步 `/execute`，预期结果为空：
+
+```sql
+SELECT process, version, status, count(*)
+FROM process_runs
+WHERE process IN ('template-image-plan', 'template-image-render', 'template-from-source')
+  AND status IN ('queued', 'running')
+GROUP BY process, version, status;
+```
+
+发布后按标准流程先在 UAT 核对 `GET /processes`：不再列出上述 5 个版本，`template-from-image/v3` 与 `template-master/v1` 仍在。需要费用的 `template-master` 真实回归单独执行，不混入确定性验证。历史 Run Record 与活动归档留在控制台，保留期内可查看，不补写也不迁移。
+
+`CRT_IMAGE_WORK_DIRECTORY/template-productions`（宿主机为 `REMOTE_PATH/shared/crt-business-api/template-productions`）不再被任何代码读写，但仍含未公开源图、审核图片与批准记录。由运维在生产服务器手动处理，本仓库与 CI 不执行：
+
+1. 新版本发布并通过验收后，以 root 打包备份到与数据库备份同等权限的独立目录（目录 `0700`、文件 `0600`）。不要放进 `shared/db-backups`，避免被 `pipipi-pg-*` 的 14 份保留策略混淆：
+
+```sh
+shared=/opt/pipipi/shared # 替换为实际的 REMOTE_PATH/shared
+umask 077
+mkdir -p "$shared/retired-backups"
+tar -C "$shared/crt-business-api" -czf "$shared/retired-backups/template-productions-$(date -u +%Y%m%dT%H%M%SZ).tar.gz" template-productions
+sha256sum "$shared"/retired-backups/template-productions-*.tar.gz
+```
+
+2. 用 `tar -tzf` 抽查归档可读，记录备份文件名、sha256 与日期。
+3. 30 天后删除该备份与原目录 `template-productions`。删除不可恢复；先确认没有新的恢复需求，只删除这两个精确路径，不批量清理 CRT 工作目录的其他子目录。
 
 共享模型网关配置与渠道启用分开迁移：MODEL_GATEWAY 整对同时用于文本与已启用图片主用，API/Worker 和内部 CRT Business API 可读取同一凭证。内部图片服务继续使用 shared/.env，独立图片供应商与 OSS 密钥不得复制到 API/Worker 角色文件。Flare 开关缺省保留旧 image key 启用行为；旧主用部署先设置 `CHARACTER_EMOJI_IMAGE_ENABLED=true` 再移除旧图片 key，Magikaru-only 不开启该开关。通用 OpenAI 图片覆盖优先于共享对，FAL 和 Magikaru 的选择及凭证不变。
