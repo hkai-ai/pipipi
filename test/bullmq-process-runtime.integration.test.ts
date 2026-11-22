@@ -59,9 +59,10 @@ import { createPostgresWebhookDeliveryStore } from "../src/webhooks/store/postgr
 import { createWebhookSecretCipher } from "../src/webhooks/store/secret-cipher.js";
 
 import {
-    renderApproval,
-    startTemplateRenderApi,
-} from "./support/template-render-api.js";
+    posterBrief,
+    posterInterpretation,
+    startPosterBusinessApi,
+} from "./support/poster-business-api.js";
 
 const databaseUrl = process.env.POSTGRES_TEST_DATABASE_URL;
 const redisUrl = process.env.REDIS_TEST_URL;
@@ -1130,10 +1131,10 @@ integrationDescribe("BullMQ Process Runtime", () => {
                 rm(intakeDirectory, { recursive: true, force: true }),
             );
             const intakeMarker = path.join(intakeDirectory, "intake-disabled");
-            const businessApi = await startTemplateRenderApi();
+            const businessApi = await startPosterBusinessApi();
             closeResources.push(businessApi.close);
             const sharedEnvironment = {
-                CRT_BUSINESS_API_BASE_URL: businessApi.url,
+                ...businessApi.environment,
                 DATABASE_URL: databaseUrl,
                 REDIS_URL: redisUrl,
                 PROCESS_QUEUE_PREFIX: "pipipi-role-integration",
@@ -1228,12 +1229,11 @@ integrationDescribe("BullMQ Process Runtime", () => {
             const queued = new Promise<void>((resolveQueued) => {
                 observedQueued = resolveQueued;
             });
-            const successApproval = renderApproval("role success");
             const execution = client.execute(
                 {
-                    process: "template-image-render",
+                    process: "minimal-zine-poster",
                     version: "v1",
-                    input: successApproval,
+                    input: posterBrief("role success"),
                 },
                 {
                     timeoutMs: 10_000,
@@ -1272,9 +1272,11 @@ integrationDescribe("BullMQ Process Runtime", () => {
             const success = await execution;
             expect(success).toMatchObject({
                 status: "succeeded",
-                process: "template-image-render",
+                process: "minimal-zine-poster",
                 version: "v1",
-                output: { productionId: successApproval.productionId },
+                output: {
+                    interpretation: posterInterpretation("role success"),
+                },
             });
             expect(progress).toEqual(
                 expect.arrayContaining([
@@ -1318,9 +1320,9 @@ integrationDescribe("BullMQ Process Runtime", () => {
                 },
             );
             const responseLossRequest = {
-                process: "template-image-render",
+                process: "minimal-zine-poster",
                 version: "v1",
-                input: renderApproval("response lost"),
+                input: posterBrief("response lost"),
             } as const;
             await expect(
                 recoveredClient.execute(responseLossRequest),
@@ -1336,7 +1338,7 @@ integrationDescribe("BullMQ Process Runtime", () => {
                 status: "succeeded",
                 runId: droppedRunId,
                 output: {
-                    productionId: responseLossRequest.input.productionId,
+                    interpretation: posterInterpretation("response lost"),
                 },
             });
             expect(replayedKeys).toEqual([
@@ -1353,17 +1355,17 @@ integrationDescribe("BullMQ Process Runtime", () => {
             await expect(
                 failureClient.execute(
                     {
-                        process: "template-image-render",
+                        process: "minimal-zine-poster",
                         version: "v1",
-                        input: renderApproval("fail-dependency"),
+                        input: posterBrief("fail-dependency"),
                     },
                     { timeoutMs: 10_000 },
                 ),
             ).resolves.toMatchObject({
                 status: "failed",
                 error: {
-                    code: "DEPENDENCY_FAILURE_AFTER_COMMIT",
-                    message: "成图未完成；请恢复同一生产项，不自动重新付费",
+                    code: "DEPENDENCY_FAILURE",
+                    message: "海报图片依赖暂时不可用",
                 },
             });
 
@@ -1380,9 +1382,9 @@ integrationDescribe("BullMQ Process Runtime", () => {
                 },
             );
             const timeoutRequest = {
-                process: "template-image-render",
+                process: "minimal-zine-poster",
                 version: "v1",
-                input: renderApproval("continue after timeout"),
+                input: posterBrief("continue after timeout"),
             } as const;
             const timedOut = await timeoutClient.execute(timeoutRequest, {
                 timeoutMs: 50,
@@ -1401,7 +1403,11 @@ integrationDescribe("BullMQ Process Runtime", () => {
             expect(continued).toMatchObject({
                 status: "succeeded",
                 runId: timedOut.runId,
-                output: { productionId: timeoutRequest.input.productionId },
+                output: {
+                    interpretation: posterInterpretation(
+                        "continue after timeout",
+                    ),
+                },
             });
             expect(timeoutSubmissionCount).toBe(1);
             expect(businessApi.effectCount("continue after timeout")).toBe(1);
@@ -1435,9 +1441,9 @@ integrationDescribe("BullMQ Process Runtime", () => {
                     "idempotency-key": "must-not-be-accepted-during-rollback",
                 },
                 body: JSON.stringify({
-                    process: "template-image-render",
+                    process: "minimal-zine-poster",
                     version: "v1",
-                    input: renderApproval("must not run"),
+                    input: posterBrief("must not run"),
                 }),
             });
             expect(closedIntake.status).toBe(503);
@@ -1453,20 +1459,23 @@ integrationDescribe("BullMQ Process Runtime", () => {
                 status: "succeeded",
             });
 
-            const syncApproval = renderApproval("sync remains enabled");
             const synchronous = await fetch(`${apiListening.url}/execute`, {
                 method: "POST",
                 headers: { "content-type": "application/json" },
                 body: JSON.stringify({
-                    process: "template-image-render",
+                    process: "minimal-zine-poster",
                     version: "v1",
-                    input: syncApproval,
+                    input: posterBrief("sync remains enabled"),
                 }),
             });
             expect(synchronous.status).toBe(200);
             expect(await synchronous.json()).toMatchObject({
                 status: "succeeded",
-                output: { productionId: syncApproval.productionId },
+                output: {
+                    interpretation: posterInterpretation(
+                        "sync remains enabled",
+                    ),
+                },
             });
         } finally {
             await Promise.allSettled(

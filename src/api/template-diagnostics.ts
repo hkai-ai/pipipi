@@ -1,7 +1,6 @@
-/** 为 Memebuy 模板执行回执与只读历史查询投影同一组脱敏父子步骤。 */
+/** 为 Memebuy 模板解析执行回执与只读历史查询投影同一组脱敏步骤。 */
 import { AsyncLocalStorage } from "node:async_hooks";
 import { createHash, timingSafeEqual } from "node:crypto";
-import { attemptReceiptSchema } from "../business-api/template-gateway-receipt.js";
 import { sanitizeActivityDiagnostic } from "../process-runtime/diagnostics.js";
 import type {
     ProcessRunLogRecord,
@@ -9,18 +8,6 @@ import type {
 } from "../process-runtime/index.js";
 
 const activities = {
-    "template-image-plan": [
-        "source_loading",
-        "replacement_planning",
-        "plan_validation",
-        "plan_correction",
-        "plan_persistence",
-    ],
-    "template-image-render": ["approved_image_rendering"],
-    "template-from-source": [
-        "approved_image_upload",
-        "approved_image_compilation",
-    ],
     "template-from-image": [
         "template_image_loading",
         "template_compilation",
@@ -39,7 +26,6 @@ function project(
     runId: string,
     process: TemplateProcess,
     version: string,
-    scope: "main" | "compile",
 ) {
     const allowed: readonly string[] = activities[process];
     return rows.flatMap((row) => {
@@ -56,7 +42,7 @@ function project(
         const diagnostic = sanitizeActivityDiagnostic(row.diagnostic);
         return [
             {
-                scope,
+                scope: "main",
                 activity: row.activity,
                 status: row.outcome,
                 durationMs: row.durationMs,
@@ -81,31 +67,18 @@ function timeline(
     runId: string,
     process: TemplateProcess,
     version: string,
-    root: readonly ProcessRunLogRecord[],
-    child: readonly ProcessRunLogRecord[],
+    rows: readonly ProcessRunLogRecord[],
 ) {
     return {
         runId,
         process,
         version,
-        steps: [
-            ...project(root, runId, process, version, "main"),
-            ...(process === "template-from-source"
-                ? project(
-                      child,
-                      `${runId}:compile`,
-                      "template-from-image",
-                      version,
-                      "compile",
-                  )
-                : []),
-        ],
+        steps: project(rows, runId, process, version),
     };
 }
 
 export function createTemplateDiagnostics(options: {
     secret?: string;
-    inspectRender?: (runId: string) => Promise<unknown>;
     findByRun?: (id: string) => Promise<readonly ProcessRunLogRecord[]>;
 }) {
     const storage = new AsyncLocalStorage<ProcessRunLogRecord[]>();
@@ -146,7 +119,6 @@ export function createTemplateDiagnostics(options: {
                 result.process,
                 result.version,
                 rows,
-                rows,
             );
             return diagnostics.steps.length
                 ? { ...result, diagnostics }
@@ -159,44 +131,16 @@ export function createTemplateDiagnostics(options: {
                 !timingSafeEqual(expected, digest(authorization))
             )
                 return { status: 401 };
-            const root = await options.findByRun(runId);
-            const identity = root.find(
+            const rows = await options.findByRun(runId);
+            const identity = rows.find(
                 (row) => row.runId === runId && isTemplate(row.process),
             );
             if (!identity || !isTemplate(identity.process))
                 return { status: 404 };
-            const child =
-                identity.process === "template-from-source"
-                    ? await options.findByRun(`${runId}:compile`)
-                    : [];
-            const body = timeline(
-                runId,
-                identity.process,
-                identity.version,
-                root,
-                child,
-            );
-            if (
-                identity.process === "template-image-render" &&
-                options.inspectRender &&
-                body.steps.length
-            ) {
-                const receipt = attemptReceiptSchema.safeParse(
-                    await options.inspectRender(runId).catch(() => undefined),
-                );
-                if (receipt.success)
-                    return {
-                        status: 200,
-                        body: {
-                            ...body,
-                            steps: body.steps.map((step) => ({
-                                ...step,
-                                gateway: receipt.data,
-                            })),
-                        },
-                    };
-            }
-            return { status: 200, body };
+            return {
+                status: 200,
+                body: timeline(runId, identity.process, identity.version, rows),
+            };
         },
     };
 }

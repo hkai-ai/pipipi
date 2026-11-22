@@ -56,8 +56,6 @@ COPY --chown=node:node .pi/skills/character-emoji-planner ./.pi/skills/character
 COPY --chown=node:node .pi/skills/character-emoji-single ./.pi/skills/character-emoji-single
 COPY --chown=node:node .pi/skills/character-emoji-comic ./.pi/skills/character-emoji-comic
 COPY --chown=node:node .pi/skills/meme-template-json-compiler ./.pi/skills/meme-template-json-compiler
-COPY --chown=node:node .pi/skills/template-image-preparer ./.pi/skills/template-image-preparer
-
 COPY --chown=node:node .pi/skills/print-design-template-compiler ./.pi/skills/print-design-template-compiler
 COPY --chown=node:node .pi/skills/template-master-method ./.pi/skills/template-master-method
 COPY --chown=node:node .pi/skills/product-remix-method ./.pi/skills/product-remix-method

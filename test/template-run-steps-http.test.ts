@@ -17,14 +17,6 @@ const base = {
 const root = {
     ...base,
     runId: id,
-    process: "template-from-source",
-    activity: "approved_image_compilation",
-    durationMs: 11730,
-    outcome: "failed",
-} as const;
-const child = {
-    ...base,
-    runId: `${id}:compile`,
     process: "template-from-image",
     activity: "template_compilation",
     durationMs: 11421,
@@ -36,26 +28,34 @@ const child = {
         private: "do not share",
     },
 } as const;
+const retired = "00000000-0000-4000-8000-000000000003";
 const servers: ReturnType<typeof createServer>[] = [];
 afterEach(async () => {
     for (const server of servers.splice(0))
         await new Promise<void>((resolve) => server.close(() => resolve()));
 });
 
-it("读取旧父子记录与新回执一致，过滤其他运行、流程、动态字段和未授权读取", async () => {
+it("读取历史记录与新回执一致，过滤其他运行、流程、动态字段和未授权读取", async () => {
     const reads: string[] = [];
     const diag = createTemplateDiagnostics({
         secret,
         findByRun: async (runId) => {
             reads.push(runId);
             return runId === id
-                ? [root]
-                : runId === `${id}:compile`
+                ? [
+                      root,
+                      { ...root, activity: "do not share" },
+                      { ...root, version: "v1" },
+                      { ...root, runId: "unrelated" },
+                  ]
+                : runId === retired
                   ? [
-                        child,
-                        { ...child, activity: "do not share" },
-                        { ...child, version: "v1" },
-                        { ...child, runId: "unrelated" },
+                        {
+                            ...root,
+                            runId,
+                            process: "template-from-source",
+                            activity: "approved_image_compilation",
+                        },
                     ]
                   : [{ ...root, runId, process: "news-image" }];
         },
@@ -66,7 +66,7 @@ it("读取旧父子记录与新回执一致，过滤其他运行、流程、动�
             {
                 execute: async () => {
                     calls++;
-                    for (const row of [root, child]) diag.record(row);
+                    diag.record(root);
                     return {
                         runId: id,
                         process: root.process,
@@ -94,23 +94,19 @@ it("读取旧父子记录与新回执一致，过滤其他运行、流程、动�
     expect(reads).toEqual([]);
     const headers = { Authorization: `Bearer ${secret}` };
     expect((await fetch(path(`${id}:compile`), { headers })).status).toBe(404);
+    // 已下线的 template-from-source 历史运行不再投影步骤。
+    expect((await fetch(path(retired), { headers })).status).toBe(404);
     expect(
         (await fetch(path("00000000-0000-4000-8000-000000000002"), { headers }))
             .status,
     ).toBe(404);
-    const old = await fetch(path(id), { headers });
-    expect(old.status).toBe(200);
-    const timeline = await old.json();
+    const history = await fetch(path(id), { headers });
+    expect(history.status).toBe(200);
+    const timeline = await history.json();
     expect(timeline.steps).toEqual([
         {
             scope: "main",
             activity: root.activity,
-            status: "failed",
-            durationMs: 11730,
-        },
-        {
-            scope: "compile",
-            activity: child.activity,
             status: "failed",
             durationMs: 11421,
             diagnostic: {

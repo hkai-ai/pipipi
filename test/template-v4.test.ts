@@ -21,7 +21,6 @@ import { printDesignProduction } from "../src/processes/template-from-image/desi
 import { createPrintDesignRegistration } from "../src/processes/template-from-image/design-spec/registration.js";
 import { toTemplatePlan } from "../src/processes/template-from-image/projection.js";
 import { createTemplateRegistration } from "../src/processes/template-from-image/registration.js";
-import { createTemplateSourceRegistration } from "../src/processes/template-from-source/registration.js";
 import { candidate, reviewFor } from "./fixtures/template-candidate.js";
 
 const fixture = () =>
@@ -66,7 +65,7 @@ async function run(deps = dependencies()) {
         acceptedInput: accepted.acceptedInput,
     });
 }
-it("源图批准入口 v3 首轮合规直接单次返回，回包可交给 Memebuy；旧 v1 仍精确执行", async () => {
+it("v3 首轮合规直接单次返回，回包可交给 Memebuy；旧 v1 仍精确执行", async () => {
     const deps = dependencies();
     const compiler = createPrintDesignRegistration(deps);
     const old = candidate();
@@ -78,45 +77,20 @@ it("源图批准入口 v3 首轮合规直接单次返回，回包可交给 Memeb
             review: async () => ({ ...old, review: reviewFor(old) }),
         },
     });
-    const preparation = {
-        savePlan: vi.fn(),
-        render: vi.fn(),
-        finalize: vi.fn(async () => ({
-            url: imageUrl,
-            sha256: "c".repeat(64),
-            width: 1024,
-            height: 1024,
-            contentType: "image/png" as const,
-            note: "原始要求",
-        })),
-    };
-    const source = createTemplateSourceRegistration({
-        runtimeVersion: 4,
-        compiler,
-        attemptRunner: createProcessAttemptRunner(),
-        preparation,
-    });
     const app = createProcessingApplication({
         executor: createProcessExecutor({
-            registrations: [compiler, source, legacy],
+            registrations: [compiler, legacy],
         }),
     });
     applications.push(app);
     const { url } = await app.listen({ host: "127.0.0.1", port: 0 });
-    const approval = {
-        productionId: "10000000-0000-4000-8000-000000000001",
-        renderId: "20000000-0000-4000-8000-000000000001",
-        objectSha256: "c".repeat(64),
-        reviewPackageSha256: "d".repeat(64),
-        reviewerRef: "operator",
-    };
     const response = await fetch(`${url}/execute`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
-            process: "template-from-source",
+            process: "template-from-image",
             version: "v3",
-            input: { ...approval, note: "本轮编译要求" },
+            input: { imageUrl, note: "本轮编译要求" },
         }),
     });
     const result = await response.json();
@@ -127,12 +101,6 @@ it("源图批准入口 v3 首轮合规直接单次返回，回包可交给 Memeb
     ).toBeUndefined();
     expect(result.output.template.cover).toBe(imageUrl);
     expect(result.output.template.referenceImage).toBe(imageUrl);
-    expect(result.output.preparedImage.sha256).toBe(approval.objectSha256);
-    expect(preparation.finalize).toHaveBeenCalledWith(
-        approval,
-        expect.any(AbortSignal),
-    );
-    expect(preparation.render).not.toHaveBeenCalled();
     expect(deps.agent.compile).toHaveBeenCalledWith(
         expect.objectContaining({ note: "本轮编译要求" }),
     );

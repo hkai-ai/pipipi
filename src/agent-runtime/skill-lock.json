@@ -127,12 +127,6 @@
             "tree": "fd8077ce612cd9c812030b0e6811a5f3746b7d55",
             "sha256": "6565e143c5bc5bc67909387fd00689748aaa2640c907ff85f6731885f2927910"
         },
-        "template-image-preparer": {
-            "version": "v3",
-            "commit": "811ca0322903aaed42a839876b4c499cbd807f25",
-            "tree": "6ea676e18a37bf5373f80c2250171e9bd3a364e0",
-            "sha256": "916f547308b56d4487728b4e12d693e0ae3acbc33bd2b145a7169bbfbba125ba"
-        },
         "template-master-method": {
             "version": "v1",
             "commit": "811ca0322903aaed42a839876b4c499cbd807f25",

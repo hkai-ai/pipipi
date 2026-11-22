@@ -29,7 +29,6 @@ import { createPostgresProcessRunStore } from "../process-runs/store/postgres.js
 import type { ProcessRegistry } from "../process-runtime/index.js";
 import { createLocalTrace } from "../process-runtime/local-trace.js";
 import type { ProcessRuntime } from "../processes/catalog.js";
-import { renderInputSchema } from "../processes/template-from-source/capability.js";
 import type { TemplateMasterSourceRunLookup } from "../processes/template-master/source-run.js";
 import { constructAgentConversationsApi } from "./agent-conversations.js";
 import { createProductionRuntime } from "./business-processes.js";
@@ -62,32 +61,6 @@ export function constructProcessingService(
     const templateDiagnostics = createTemplateDiagnostics({
         secret: environment.MEMEBUY_TEMPLATE_DIAGNOSTICS_TOKEN,
         findByRun: archive?.activities.findByRun,
-        inspectRender: async (runId) => {
-            const record = await archive?.records.find(runId);
-            if (
-                record?.runId !== runId ||
-                record.process !== "template-image-render" ||
-                record.version !== "v1" ||
-                !environment.CRT_BUSINESS_API_BASE_URL
-            )
-                return;
-            const approval = renderInputSchema.safeParse(record.content?.input);
-            if (!approval.success) return;
-            const response = await fetch(
-                new URL(
-                    "/template-productions/inspect",
-                    environment.CRT_BUSINESS_API_BASE_URL,
-                ),
-                {
-                    method: "POST",
-                    headers: { "content-type": "application/json" },
-                    body: JSON.stringify(approval.data),
-                    redirect: "error",
-                    signal: AbortSignal.timeout(1500),
-                },
-            );
-            if (response.ok) return response.json();
-        },
     });
     let asyncStoreFindById:
         | ((runId: string) => Promise<StoredProcessRun | undefined>)

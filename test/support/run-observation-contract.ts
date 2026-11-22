@@ -54,7 +54,7 @@ export function processRunActivity(
 export function describeRunObservationContract(
     createBackend: () => Promise<ObservationBackend>,
 ): void {
-    it.each(["template-from-image", "template-from-source"])(
+    it.each(["template-from-image"])(
         "archives the actual %s template version with business content omitted",
         async (process) => {
             const { archive } = await createBackend();

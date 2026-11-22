@@ -120,7 +120,7 @@ export function parseProcessRunRecordCursor(
     }
 }
 
-/** 归档保留审批身份与图片摘要，省略成图字节，净化 CRT 来源地址并剥离签名 URL 查询参数。 */
+/** 归档净化失败详情与 CRT 来源地址，并剥离签名 URL 查询参数。 */
 export function redactProcessRunRecord(
     record: ProcessRunRecord,
 ): ProcessRunRecord {
@@ -145,18 +145,6 @@ export function redactProcessRunRecord(
     let input = content.input;
     let output = content.output;
     let changed = false;
-
-    if (
-        next.process === "template-image-render" &&
-        next.version === "v1" &&
-        typeof output === "object" &&
-        output !== null &&
-        "imageDataUrl" in output
-    ) {
-        const { imageDataUrl: _imageDataUrl, ...metadata } = output;
-        output = metadata;
-        changed = true;
-    }
 
     if (
         next.process === "crt-interface-image" &&

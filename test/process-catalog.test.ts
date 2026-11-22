@@ -31,20 +31,6 @@ const validInputs: Readonly<Record<string, Record<string, unknown>>> = {
         cast: [{ character: "DeepSeek", appearance: "Chibi" }],
         idea: "用一卷长代码表达只改一行",
     },
-    "template-image-plan": {
-        imageUrl: "https://assets.example.com/source.png",
-    },
-    "template-image-render": {
-        productionId: "00000000-0000-4000-8000-000000000001",
-        objectSha256: "a".repeat(64),
-        reviewerRef: "reviewer",
-    },
-    "template-from-source": {
-        productionId: "00000000-0000-4000-8000-000000000001",
-        objectSha256: "a".repeat(64),
-        reviewerRef: "reviewer",
-        reviewPackageSha256: "b".repeat(64),
-    },
     "template-from-image": {
         imageUrl: "https://assets.example.com/source.png",
     },
@@ -156,11 +142,6 @@ describe("Process catalog description", () => {
             "template-from-image/v1",
             "template-from-image/v2",
             "template-from-image/v3",
-            "template-from-source/v1",
-            "template-from-source/v2",
-            "template-from-source/v3",
-            "template-image-plan/v1",
-            "template-image-render/v1",
             "template-master/v1",
             "travel-abstraction-photo-poster/v1",
             "woodcut-photo-poster/v1",

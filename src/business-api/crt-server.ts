@@ -55,7 +55,6 @@ import {
     parsePosterImage,
     posterRenderInputSchema,
 } from "../processes/poster/capability.js";
-import { TemplateImagePreparationError } from "../processes/template-from-source/capability.js";
 import {
     type CrtEvidencePolicy,
     type CrtEvidenceResult,
@@ -79,8 +78,6 @@ import {
     ProductRemixServiceError,
 } from "./product-remix.js";
 import type { TemplateImageEditor } from "./template-image-editor.js";
-import type { TemplateImageRenderer } from "./template-image-fal.js";
-import { TemplateImageProduction } from "./template-image-production.js";
 import {
     TemplateMasterError,
     TemplateMasterService,
@@ -164,7 +161,6 @@ export async function startCrtBusinessApi(
             ): Promise<GeneratedImage | undefined>;
         };
         generationClient?: ImageGenerationClient;
-        templateRenderer?: TemplateImageRenderer;
         templateEditor?: TemplateImageEditor;
         templateStorage?: ObjectStorageCapability;
         provider?: string;
@@ -184,12 +180,6 @@ export async function startCrtBusinessApi(
     const activeEmojiRuns = new Set<string>();
     const emojiOutputDirectory = join(directory, "character-emojis");
     const emojiResultDirectory = join(directory, "character-emoji-results");
-    const templateProduction = new TemplateImageProduction({
-        directory: join(directory, "template-productions"),
-        renderer: options.templateRenderer,
-        editor: options.templateEditor,
-        storage: options.templateStorage,
-    });
     const templateMaster = new TemplateMasterService({
         editor: options.templateEditor,
         storage: options.templateStorage,
@@ -300,37 +290,6 @@ export async function startCrtBusinessApi(
                 request.url === "/character-emojis/v4/result")
         ) {
             await generateCharacterEmoji(request, response);
-            return;
-        }
-        if (
-            request.method === "POST" &&
-            request.url?.startsWith("/template-productions/")
-        ) {
-            const controller = new AbortController();
-            response.once("close", () => {
-                if (!response.writableEnded) controller.abort();
-            });
-            try {
-                const input = JSON.parse(
-                    (await readBody(request, 262144)).toString("utf8"),
-                );
-                const result = await templateProduction.execute(
-                    request.url.slice("/template-productions/".length),
-                    input,
-                    controller.signal,
-                );
-                writeJson(response, 200, result);
-            } catch (error) {
-                writeJson(response, 503, {
-                    error: {
-                        code: "TEMPLATE_PRODUCTION_INCOMPLETE",
-                        reason:
-                            error instanceof TemplateImagePreparationError
-                                ? error.reason
-                                : "incomplete",
-                    },
-                });
-            }
             return;
         }
         if (

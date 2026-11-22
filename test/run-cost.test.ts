@@ -21,7 +21,7 @@ import {
     createProcessAttemptRunner,
     defineProcessRegistration,
 } from "../src/process-runtime/index.js";
-import { HttpTemplateImagePreparation } from "../src/processes/template-from-source/capability.http.js";
+import { HttpTemplateMasterCapability } from "../src/processes/template-master/capability.http.js";
 
 const runId = "00000000-0000-4000-8000-0000000000c0";
 function definition(
@@ -432,7 +432,7 @@ describe("内部 Business API 费用回传", () => {
         }
     });
 
-    it("成图经内部服务返回的费用进入 Process 结果，失败响应同样带费用", async () => {
+    it("母版改图经内部服务返回的费用进入 Process 结果，失败响应同样带费用", async () => {
         const ledgerHeader = (usd: number, provider: number) =>
             JSON.stringify({ usd, provider, estimate: 0, unknown: 0 });
         const server = createServer((request, response) => {
@@ -453,24 +453,22 @@ describe("内部 Business API 费用回传", () => {
         const address = server.address();
         if (!address || typeof address === "string") throw new Error("addr");
         try {
-            const preparation = new HttpTemplateImagePreparation(
+            const capability = new HttpTemplateMasterCapability(
                 `http://127.0.0.1:${address.port}`,
             );
             const registration = defineProcessRegistration({
-                id: "template-image-render",
+                id: "template-master",
                 version: "v1",
                 inputSchema: z.strictObject({}),
                 outputSchema: z.strictObject({}),
                 execute: async (_input, context) => {
-                    await preparation.render(
-                        {
-                            productionId:
-                                "00000000-0000-4000-8000-000000000001",
-                            objectSha256: "a".repeat(64),
-                            reviewerRef: "operator",
-                        },
-                        context.signal,
-                    );
+                    await capability.edit({
+                        image: Buffer.from("png"),
+                        prompt: "保留版式",
+                        size: "1024x1024",
+                        idempotencyKey: "master-cost",
+                        signal: context.signal,
+                    });
                     return {};
                 },
             });

@@ -40,15 +40,3 @@ export const receiptSchema = z.object({
         .catch(undefined),
 });
 export type GatewayReceipt = z.infer<typeof receiptSchema>;
-
-export const attemptReceiptSchema = receiptSchema.extend({
-    hasSavedImage: z.boolean(),
-    state: z.enum([
-        "provider_rejected",
-        "approved",
-        "submission_unknown",
-        "provider_pending",
-        "provider_complete",
-        "image_ready",
-    ]),
-});

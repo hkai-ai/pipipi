@@ -148,11 +148,6 @@ describe("operator console construction", () => {
                         },
                     ],
                 }),
-                expect.objectContaining({
-                    process: "template-image-render",
-                    version: "v1",
-                    skills: [],
-                }),
             ]),
         );
     });
@@ -195,7 +190,6 @@ describe("operator console construction", () => {
             "product-remix-method",
             "risograph-album-prompt",
             "tait-crt-interface-prompt",
-            "template-image-preparer",
             "template-master-method",
             "travel-abstraction-photo-poster-prompt",
             "woodcut-photo-poster-prompt",

@@ -145,8 +145,7 @@ export function templateSemanticsVersion(
     process: string | undefined,
     output: unknown,
 ): number | undefined {
-    if (process !== "template-from-image" && process !== "template-from-source")
-        return undefined;
+    if (process !== "template-from-image") return undefined;
     const template = objectField(output, "template");
     const version = objectField(
         objectField(template, "runtimeSemantics"),

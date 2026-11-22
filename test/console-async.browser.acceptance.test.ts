@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import { chromeExecutable } from "./support/chrome.js";
 import { startConsoleAsyncAcceptanceEnvironment } from "./support/console-async-acceptance-environment.js";
 
-import { renderApproval } from "./support/template-render-api.js";
+import { posterBrief } from "./support/poster-business-api.js";
 
 const databaseUrl = process.env.POSTGRES_TEST_DATABASE_URL;
 const redisUrl = process.env.REDIS_TEST_URL;
@@ -43,7 +43,7 @@ acceptanceDescribe("built Console async browser acceptance", () => {
                     });
 
                     await page.goto(`${environment.url}/console/#/submit`);
-                    const approval = await fillApproval(
+                    const input = await fillPosterBrief(
                         page,
                         "browser acceptance",
                     );
@@ -76,9 +76,9 @@ acceptanceDescribe("built Console async browser acceptance", () => {
                     );
                     expect(submissions).toHaveLength(1);
                     expect(submissions[0]?.postDataJSON()).toEqual({
-                        process: "template-image-render",
+                        process: "minimal-zine-poster",
                         version: "v1",
-                        input: approval,
+                        input,
                     });
 
                     await page.reload();
@@ -118,7 +118,7 @@ acceptanceDescribe("built Console async browser acceptance", () => {
                     expect(await terminal.innerText()).toContain("succeeded");
                     await page
                         .getByText(
-                            `"productionId": "${approval.productionId}"`,
+                            '"url": "https://assets.example.test/posters/offline.png"',
                             { exact: false },
                         )
                         .waitFor({ timeout: 5_000 });
@@ -147,7 +147,7 @@ acceptanceDescribe("built Console async browser acceptance", () => {
                     );
 
                     await page.goto(`${environment.url}/console/#/submit`);
-                    await fillApproval(page, "fail-dependency");
+                    await fillPosterBrief(page, "fail-dependency");
                     await page
                         .getByRole("button", { name: "提交", exact: true })
                         .click({ noWaitAfter: true });
@@ -163,13 +163,11 @@ acceptanceDescribe("built Console async browser acceptance", () => {
                         .getByRole("combobox", { name: "业务", exact: true })
                         .click();
                     await page
-                        .getByRole("option", { name: /template-image-render$/ })
+                        .getByRole("option", { name: /minimal-zine-poster$/ })
                         .click();
                     await page.getByRole("combobox", { name: "状态" }).click();
                     await page.getByRole("option", { name: "失败" }).click();
-                    await page
-                        .getByLabel("错误码")
-                        .fill("DEPENDENCY_FAILURE_AFTER_COMMIT");
+                    await page.getByLabel("错误码").fill("DEPENDENCY_FAILURE");
                     await page
                         .getByLabel("开始时间（含，本地时间）")
                         .fill("2020-01-01T00:00");
@@ -200,7 +198,9 @@ acceptanceDescribe("built Console async browser acceptance", () => {
                         .getByText("技术详情：原始事件与步骤标识")
                         .click();
                     await page
-                        .getByText(/流程声明的步骤：approved_image_rendering/)
+                        .getByText(
+                            /流程声明的步骤：poster_prompt_compilation → poster_rendering/,
+                        )
                         .waitFor({ timeout: 5_000 });
                     await page.getByText(/顺序一致，不代表执行成功/).waitFor();
                 } finally {
@@ -215,14 +215,12 @@ acceptanceDescribe("built Console async browser acceptance", () => {
     }, 60_000);
 });
 
-async function fillApproval(page: Page, reviewer: string) {
-    const input = renderApproval(reviewer);
+async function fillPosterBrief(page: Page, label: string) {
+    const input = posterBrief(label);
     await page.getByRole("combobox", { name: "Business Process" }).click();
     await page
-        .getByRole("option", { name: "template-image-render / v1" })
+        .getByRole("option", { name: "minimal-zine-poster / v1" })
         .click();
-    for (const [name, value] of Object.entries(input)) {
-        await page.getByLabel(`${name} *`, { exact: true }).fill(value);
-    }
+    await page.getByLabel("brief *", { exact: true }).fill(input.brief);
     return input;
 }

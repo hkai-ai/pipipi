@@ -9,18 +9,18 @@ import { constructProcessingService } from "../../src/app/api.js";
 import { constructProcessDispatcherService } from "../../src/app/process-dispatcher.js";
 import { constructProcessWorkerService } from "../../src/app/process-worker.js";
 
-import { startTemplateRenderApi } from "./template-render-api.js";
+import { startPosterBusinessApi } from "./poster-business-api.js";
 
 export type ConsoleAsyncAcceptanceEnvironment = Readonly<{
     url: string;
-    effectCount: (reviewerRef: string) => number;
+    effectCount: (label: string) => number;
     startWorker: () => Promise<void>;
     close: () => Promise<void>;
 }>;
 
 /**
  * Starts the exact public browser path against isolated durable infrastructure.
- * The free local Business Capability records effects but makes no provider call.
+ * The free local model and poster Capability record effects but make no provider call.
  */
 export async function startConsoleAsyncAcceptanceEnvironment(
     options: Readonly<{
@@ -36,22 +36,21 @@ export async function startConsoleAsyncAcceptanceEnvironment(
 
     const closeResources: (() => Promise<void>)[] = [];
     try {
-        const businessApi = await startTemplateRenderApi();
+        const businessApi = await startPosterBusinessApi();
         closeResources.push(businessApi.close);
 
         const gatewaySecret =
             "browser-acceptance-gateway-secret-at-least-32-bytes";
         const sharedEnvironment = {
-            CRT_BUSINESS_API_BASE_URL:
-                options.modelGatewayUrl ?? businessApi.url,
             ...(options.modelGatewayUrl
                 ? {
+                      CRT_BUSINESS_API_BASE_URL: options.modelGatewayUrl,
                       MODEL_GATEWAY_BASE_URL: `${options.modelGatewayUrl}/v1`,
                       MODEL_GATEWAY_API_KEY: "offline-test-key",
                       PI_PROVIDER: "openai",
                       PI_MODEL: "gpt-5.4",
                   }
-                : {}),
+                : businessApi.environment),
             PROCESS_RUN_RECORD_STORE: "postgres",
             PROCESS_RUN_RECORD_CONTENT: "accepted-input-and-output",
             DATABASE_URL: options.databaseUrl,
