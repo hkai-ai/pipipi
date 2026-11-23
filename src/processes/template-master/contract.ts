@@ -156,6 +156,7 @@ export const masterOutputSchema = z.strictObject({
     master: z.strictObject({
         tier: tierSchema,
         redrawn: z.boolean(),
+        backgroundKept: z.boolean().optional(),
         attempts: z
             .array(
                 z.strictObject({

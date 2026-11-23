@@ -51,7 +51,7 @@ Pipipi 提供 Agent 运行环境（harness）和场景 skill。Process Registrat
 | 场景 | Business Process | 输入 | 输出 | 实现选择 |
 | --- | --- | --- | --- | --- |
 | `memebuy` | `template-from-image/v1` | `{ imageUrl, note? }` | `{ template }` | 受控下载与真实视觉附件；无 Tool Agent 编译并验证 Gallery v2 草稿，不生图、不入库 |
-| `memebuy` | `template-master/v1` | 原图、预算，以及 `sourceRunId`（直读同 caller 上游产物）或兼容直传 v4 草稿与原图状况（二选一） | 母版 PNG 与校验报告 | 受理阶段按 caller 校验并快照上游产物；轻（色键）、中（修复）、重（重绘）分档，逐次确定性加模型对照校验；预算耗尽时可返回文字差异类别 |
+| `memebuy` | `template-master/v1` | 原图、预算，以及 `sourceRunId`（直读同 caller 上游产物）或兼容直传 v4 草稿与原图状况（二选一） | 母版 PNG 与校验报告 | 受理阶段按 caller 校验并快照上游产物；干净且默认值与原图记录一致的平面稿直接用原图，轻档零模型调用，抠底失败可保留背景。中档修复、重档重绘后执行模型校验；预算耗尽时可返回文字差异类别 |
 | `memebuy` | `product-remix/v1` | 原印花 URL、可选 0–9 张参考图 URL、编辑意图、可选尺寸与预算上限 | `{ image, modelName, resolvedTier }` | 单层视觉基准；无 Tool Agent 加载固定 Runtime Skill 自动分档（`light` / `medium` / `heavy`）、执行多图编辑与 VLM 质检闭环，硬超时 660 秒，严禁回显输入图 URL |
 | `common` | `minimal-zine-poster/v1` | `{ brief: string, text?: string }` | `{ prompt, recipe, interpretation, image }` | 无 Tool Agent 编译固定 Runtime Skill；Poster Rendering Capability 复用内部图片服务生成并持久化图片 |
 | `common` | `crt-interface-image/v1` | `{ sourceImageUrl, palette, aspectRatio }` | `{ aspectRatio, image }` | 无 Tool Agent 编译固定 Runtime Skill；CRT Rendering Capability 用公网 HTTPS 参考图执行 FAL GPT Image 2 编辑、后处理并持久化 PNG |

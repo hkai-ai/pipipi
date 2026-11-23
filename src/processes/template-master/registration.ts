@@ -39,7 +39,7 @@ import {
     type PrintForm,
     renderLightMaster,
 } from "./light.js";
-import { buildEditInstruction } from "./method.js";
+import { buildEditInstruction, textElements } from "./method.js";
 import { EDIT_REFERENCE_MAX_SIDE } from "./thresholds.js";
 import { attemptPlan, redrawReason, startingTier } from "./tier.js";
 import { evaluateVerification, type MasterVerifier } from "./verifier.js";
@@ -93,8 +93,8 @@ export function createTemplateMasterRegistration(options: {
     return defineProcessRegistration({
         id: "template-master",
         version: "v1",
-        // 最坏：轻档 1 次校验 + 中、重各 3 次（改图 200s + 校验 90s + 加工）+ 读图与上传；
-        // 上限 7 次尝试与 maxAttempts 无关，见 docs/api.md。
+        // 最坏：中、重各 3 次（改图 200s + 校验 90s + 加工）+ 读图与上传；
+        // 生成档上限 6 次尝试与 maxAttempts 无关，见 docs/api.md。
         timeoutMs: 2_400_000,
         inputSchema: masterInputSchema,
         outputSchema: masterOutputSchema,
@@ -197,7 +197,7 @@ export function createTemplateMasterRegistration(options: {
                             true,
                         ),
                     );
-                // 轻档失败直接升档，中、重档带上一次失败原因重试。
+                // 中、重档带上一次失败原因重试。
                 const last = attempts.at(-1);
                 const retry =
                     last && last.tier === tier
@@ -205,12 +205,16 @@ export function createTemplateMasterRegistration(options: {
                         : undefined;
                 const failures: MasterFailure[] = [];
                 let master: Buffer | undefined;
+                let keyAttempted = false;
+                let backgroundKept = false;
                 try {
                     if (tier === "light") {
-                        master = await context.runActivity(
+                        const rendered = await context.runActivity(
                             "master_light_rendering",
                             () => renderLightMaster(source, form),
                         );
+                        master = rendered.png;
+                        keyAttempted = rendered.keyAttempted;
                     } else {
                         master = await context.runActivity(
                             "master_generation",
@@ -299,15 +303,36 @@ export function createTemplateMasterRegistration(options: {
                 let similarity: Awaited<ReturnType<typeof checkSimilarity>> =
                     null;
                 if (master && !failures.length) {
-                    const printableResult = await checkPrintable(master, form);
-                    const paletteResult = await checkPalette(master, spec);
-                    similarity = await checkSimilarity(master, source, tier);
+                    const inspect = async (
+                        png: Buffer,
+                        printForm: PrintForm,
+                    ) => ({
+                        printableResult: await checkPrintable(png, printForm),
+                        paletteResult: await checkPalette(png, spec),
+                        similarity: await checkSimilarity(png, source, tier),
+                    });
+                    let checked = await inspect(master, form);
+                    // 轻档像素来自原图：配色不符只说明解析的默认颜色有误，不能据此改图或判失败。
+                    const paletteCounts = tier !== "light";
+                    if (
+                        keyAttempted &&
+                        (!checked.printableResult.passed ||
+                            (paletteCounts && !checked.paletteResult.passed) ||
+                            checked.similarity?.passed === false)
+                    ) {
+                        master = await encodePng(await decodeRgba(source));
+                        // 保留不透明底时仍检查 PNG、尺寸、色板及与原图的相似度。
+                        checked = await inspect(master, "rect_patch");
+                        backgroundKept = true;
+                    }
+                    const { printableResult, paletteResult } = checked;
+                    similarity = checked.similarity;
                     if (!printableResult.passed)
                         failures.push({
                             check: "printable",
                             detail: printableResult.detail ?? "不可印",
                         });
-                    if (!paletteResult.passed)
+                    if (paletteCounts && !paletteResult.passed)
                         failures.push({
                             check: "palette",
                             detail: paletteResult.detail ?? "配色不符",
@@ -318,7 +343,16 @@ export function createTemplateMasterRegistration(options: {
                             detail: `${similarity.detail ?? "相似度不足"}（${similarity.score}）`,
                         });
                     // 确定性项已不过时不再付模型校验费，本次尝试已判失败。
-                    if (!failures.length) {
+                    if (tier === "light") {
+                        const expected = textElements(spec).map(
+                            ({ text }) => text,
+                        );
+                        verdict = {
+                            text: { passed: true, expected, read: expected },
+                            layout: { passed: true },
+                            failures: [],
+                        };
+                    } else if (!failures.length) {
                         try {
                             const response = await context.runActivity(
                                 "master_verification",
@@ -353,7 +387,15 @@ export function createTemplateMasterRegistration(options: {
                     tier,
                     passed: failures.length === 0,
                     failures,
-                    ...(reason && attempts.length === 0 ? { reason } : {}),
+                    ...(tier === "light" && !failures.length
+                        ? {
+                              reason: backgroundKept
+                                  ? "背景未去除，保留原图背景；原图像素，未调用模型读字"
+                                  : "原图像素，未调用模型读字",
+                          }
+                        : reason && attempts.length === 0
+                          ? { reason }
+                          : {}),
                 });
                 if (failures.length || !master || !verdict) continue;
 
@@ -374,12 +416,13 @@ export function createTemplateMasterRegistration(options: {
                     master: {
                         tier,
                         redrawn: tier === "heavy",
+                        ...(backgroundKept ? { backgroundKept: true } : {}),
                         attempts,
                         checks: {
                             text: verdict.text,
                             palette: { passed: true },
                             layout: verdict.layout,
-                            printable: { passed: true },
+                            printable: { passed: !backgroundKept },
                             similarity: similarity
                                 ? { passed: true, score: similarity.score }
                                 : null,

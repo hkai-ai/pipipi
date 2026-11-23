@@ -111,7 +111,7 @@ export function edgeColor(image: Rgba): {
 
 /**
  * 四边连通色键：从画布四边出发，沿四邻接扩散，去掉与边缘相连且接近边缘主色的像素；
- * 被框线围住、不与边缘相连的同色区保留。底不均匀（照片、渐变）时不处理，由校验拦下后升档。
+ * 被框线围住、不与边缘相连的同色区保留。底不均匀（照片、渐变）时不处理，保留原图像素。
  * 返回新像素与是否改动；不改动输入。
  */
 export function keyOutEdgeBackground(image: Rgba): {
@@ -169,13 +169,13 @@ export function keyOutEdgeBackground(image: Rgba): {
     return { image: { data, width, height }, removed: count };
 }
 
-/** 轻档成品：独立图形且原图无透明时做色键，其余原样转 PNG。去不掉底时照常返回，由可印校验拦下并升档。 */
-export async function renderLightMaster(
-    source: Buffer,
-    form: PrintForm,
-): Promise<Buffer> {
+/** 轻档成品：独立图形且原图无透明时做色键，其余原样转 PNG。记录是否尝试去底，供校验失败时恢复原图。 */
+export async function renderLightMaster(source: Buffer, form: PrintForm) {
     const image = await decodeRgba(source);
     if (form !== "standalone" || hasTransparentPixel(image))
-        return encodePng(image);
-    return encodePng(keyOutEdgeBackground(image).image);
+        return { png: await encodePng(image), keyAttempted: false };
+    return {
+        png: await encodePng(keyOutEdgeBackground(image).image),
+        keyAttempted: true,
+    };
 }

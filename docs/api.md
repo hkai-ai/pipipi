@@ -355,7 +355,7 @@ Content-Type: application/json
 
 | 场景 | process | 用途 |
 | --- | --- | --- |
-| `memebuy` | `template-master` | 原图与解析结果生成印花母版（轻、中、重分档，逐次对照校验） |
+| `memebuy` | `template-master` | 原图与解析结果生成印花母版（轻档直接用原图，中重档对照校验） |
 | `memebuy` | `product-remix` | 商品做同款：以原印花为单层基准，结合可选参考图与用户意图自动分档改图并质检（推荐 `/process-runs` 异步调用） |
 | `memebuy` | `template-from-image` | 从参考图编译可编辑模板草稿；对接 Memebuy 素材箱提取 Worker，保留 Pipipi 本地测试，尚未部署 |
 | `common` | `minimal-zine-poster` | 生成极简 Zine 海报 |
@@ -1231,7 +1231,7 @@ V4 模板包含 `targetInstances`、`inputBindings` 与 `designSpec`，不得包
 
 ## 母版生成（template-master/v1）
 
-供 Memebuy 在原图解析之后调用，使用 `/process-runs`（最坏约 2020 秒，Registration 预算 2400 秒，不适合经 540 秒网关的同步请求）。
+供 Memebuy 在原图解析之后调用，使用 `/process-runs`（Registration 预算 2400 秒，不适合经 540 秒网关的同步请求）。
 
 输入支持两种二选一模式（同时提供或均缺失返回 `400 INVALID_INPUT`），均不接受步骤、Skill、模型字段：
 
@@ -1239,6 +1239,8 @@ V4 模板包含 `targetInstances`、`inputBindings` 与 `designSpec`，不得包
 - **模式 B（兼容直传）**：`{ imageUrl, template, condition, budget: { maxAttempts: 1..10, maxUsd: 0..20 } }`。`imageUrl` 为私有原图当次短期签名公网 HTTPS 地址；`template` 兼容原样透传的 `template-from-image/v3` 完整产物与业务扩展键（`template` 与 `template.metadata` 允许并忽略未知字段，`title` 为 1–80 字，`description` 允许 `string | null` 或省略且至多 300 字，`metadata` 与 `metadata.tags` 可选且不限条数与单标签长度），保留 `key`、`inputSchema`（`version: 2`）与 `runtimeSemantics`（`version: 4`）核心校验；`condition` 为其 `source.condition`。
 
 成功输出：`{ preparedImage, master }`。`preparedImage` 为 `{ url, sha256, width, height, contentType: "image/png" }`，按内容寻址上传，`url` 固定为 `https://assets.memebuy.cn/gallery/template-images/<sha256>.png`。`master` 含最终档 `tier`、`redrawn`（仅重档为 true）、按时间排列的 `attempts[{ tier, passed, failures[{ check, detail }], reason? }]`（最多 `maxAttempts` 条）与最终 `checks`（`text` 含 `expected` / `read`、`palette`、`layout`、`printable`、`similarity` 重档为 null）。`failures[].check` 取 `text | palette | layout | printable | similarity | generation`。检测到历史或直传模板的默认文字或主体描述与原图记录不一致时，轻、中档直接跳到重档，首条重档尝试可含字符串 `reason`，跳档不消耗尝试次数。重档在同一次模型校验中对照原图判定设计保真，失败时沿用 `similarity`，详情为「重档母版未通过原图设计保真校验」。
+
+轻档使用原图像素，`checks.text.expected` 与 `checks.text.read` 都取模板默认文字，`text` 与 `layout` 记为通过，`attempts[].reason` 注明未调用模型读字。仅在独立图形抠底未通过、改用带背景原图成功交付时，`master.backgroundKept`（可选 boolean）为 true，Memebuy 可提示「背景未去除，保留原图背景」。此时轻档尝试的 `passed` 为 true，`checks.printable.passed` 为 false，表示成品仍带背景。其他成功结果省略 `backgroundKept`。
 
 失败：`MASTER_NOT_ACCEPTED`（全部档位用尽）与 `MASTER_BUDGET_EXHAUSTED`（次数或已知费用用尽），HTTP 502，message 带各档尝试次数与最后失败项，不返回未通过的图；改图已付费后上传失败为 `DEPENDENCY_FAILURE_AFTER_COMMIT`。费用沿用 `cost`，未知费用不计入 `maxUsd`。分档、校验与阈值见 [模板母版](processes/memebuy/template-master/README.md)。
 

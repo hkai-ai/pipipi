@@ -9,7 +9,7 @@ export type SourceCondition = z.infer<typeof sourceConditionSchema>;
 
 /**
  * 重：载体是实拍（衣服、商品、场景）或严重模糊；轻：无标记、清晰、无压缩痕迹的平面稿；其余为中。
- * 该档位同时是起始档：轻档不过再升中、重，中档不过升重，重档只在本档重试。
+ * 该档位同时是起始档：轻档只用原图，中档不过升重，重档只在本档重试。
  */
 export function startingTier(condition: SourceCondition): MasterTier {
     if (
@@ -65,7 +65,7 @@ export function redrawReason(input: ResolvedMasterInput): string | undefined {
 /** 按顺序列出所有计划内的尝试；轻档确定性，只试一次。 */
 export function attemptPlan(start: MasterTier): readonly MasterTier[] {
     const plan: MasterTier[] = [];
-    if (start === "light") plan.push("light");
+    if (start === "light") return ["light"];
     if (start !== "heavy")
         for (let i = 0; i < GENERATED_TIER_TRIES; i++) plan.push("medium");
     for (let i = 0; i < GENERATED_TIER_TRIES; i++) plan.push("heavy");

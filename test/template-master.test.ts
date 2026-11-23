@@ -6,6 +6,10 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import sharp from "sharp";
 import { describe, expect, it, vi } from "vitest";
+import {
+    createCostLedger,
+    withCostLedger,
+} from "../src/process-runtime/cost.js";
 import { draftSchema } from "../src/processes/template-from-image/design-spec/contract.js";
 import { MasterCapabilityError } from "../src/processes/template-master/capability.js";
 import {
@@ -305,15 +309,7 @@ describe("分档判据", () => {
         ).toBe("heavy");
     });
     it("轻档只试一次，生成档各三次", () => {
-        expect(attemptPlan("light")).toEqual([
-            "light",
-            "medium",
-            "medium",
-            "medium",
-            "heavy",
-            "heavy",
-            "heavy",
-        ]);
+        expect(attemptPlan("light")).toEqual(["light"]);
         expect(attemptPlan("medium")).toHaveLength(6);
         expect(attemptPlan("heavy")).toEqual(["heavy", "heavy", "heavy"]);
     });
@@ -327,7 +323,7 @@ describe("四边连通色键", () => {
             if (d > 100 && d <= 120) return [INK.r, INK.g, INK.b, 255];
             return white;
         });
-        const keyed = await renderLightMaster(source, "standalone");
+        const { png: keyed } = await renderLightMaster(source, "standalone");
         expect(await alphaAt(keyed, 2, 2)).toBe(0);
         expect(await alphaAt(keyed, 150, 150)).toBe(255);
         expect(await alphaAt(keyed, 150, 150 - 110)).toBe(255);
@@ -335,13 +331,13 @@ describe("四边连通色键", () => {
     it("已有透明则保留，非单色底不处理，矩形贴片原样转 PNG", async () => {
         const transparent = await paint(300, 300, circle(300, 90, clear));
         const kept = await decodeRgba(
-            await renderLightMaster(transparent, "standalone"),
+            (await renderLightMaster(transparent, "standalone")).png,
         );
         expect(kept.data[3]).toBe(0);
         const gradient = await paint(300, 300, (x) => [x % 256, 120, 40, 255]);
         const image = await decodeRgba(gradient);
         expect(keyOutEdgeBackground(image).removed).toBe(0);
-        const patch = await renderLightMaster(
+        const { png: patch } = await renderLightMaster(
             await paint(300, 300, circle(300, 90, white)),
             "rect_patch",
         );
@@ -454,7 +450,7 @@ describe("色板与相似度", () => {
     });
     it("轻中档比相似度，重档不比", async () => {
         const source = await paint(400, 400, circle(400, 120, white));
-        const keyed = await renderLightMaster(source, "standalone");
+        const { png: keyed } = await renderLightMaster(source, "standalone");
         expect(
             (await checkSimilarity(keyed, source, "light"))?.score,
         ).toBeGreaterThanOrEqual(0.95);
@@ -567,6 +563,7 @@ describe("重试、升档与预算", () => {
         sourceFidelity: true,
     };
     async function run(options: {
+        source?: Buffer;
         cond?: typeof condition;
         budget?: { maxAttempts: number; maxUsd: number };
         design?: typeof spec;
@@ -574,7 +571,8 @@ describe("重试、升档与预算", () => {
         verify?: (call: number) => Verification;
         spent?: () => number;
     }) {
-        const source = await paint(400, 400, circle(400, 116, white));
+        const source =
+            options.source ?? (await paint(400, 400, circle(400, 116, white)));
         let editCalls = 0;
         let verifyCalls = 0;
         const edit = vi.fn(async (request: { size: string }) => {
@@ -584,7 +582,7 @@ describe("重试、升档与预算", () => {
                 request.size,
             );
         });
-        const upload = vi.fn(async () => ({
+        const upload = vi.fn(async (_png: Buffer) => ({
             url: `https://assets.memebuy.cn/gallery/template-images/${"b".repeat(64)}.png`,
             sha256: "b".repeat(64),
             width: 1024,
@@ -625,22 +623,115 @@ describe("重试、升档与预算", () => {
         marks: [{ kind: "watermark" as const, text: "WM" }],
     };
 
-    it("轻档一次通过，不调改图模型", async () => {
-        const { completion, edit, upload } = await run({});
+    it("轻档一次通过，沿用默认文字，零模型调用与费用", async () => {
+        const ledger = createCostLedger();
+        const { completion, edit, upload, verify } = await withCostLedger(
+            ledger,
+            () => run({}),
+        );
+        expect(verify).not.toHaveBeenCalled();
+        expect(ledger.snapshot()).toEqual({
+            usd: 0,
+            provider: 0,
+            estimate: 0,
+            unknown: 0,
+        });
         expect(completion.status).toBe("succeeded");
         if (completion.status !== "succeeded") return;
         const output = masterOutputSchema.parse(completion.output);
         expect(output.master.tier).toBe("light");
         expect(output.master.redrawn).toBe(false);
+        expect(output.master.backgroundKept).toBeUndefined();
+        expect(output.master.checks.text).toEqual({
+            passed: true,
+            expected: ["LOOK GOOD"],
+            read: ["LOOK GOOD"],
+        });
+        expect(output.master.checks.layout.passed).toBe(true);
         expect(output.master.attempts).toEqual([
-            { tier: "light", passed: true, failures: [] },
+            {
+                tier: "light",
+                passed: true,
+                failures: [],
+                reason: "原图像素，未调用模型读字",
+            },
         ]);
         expect(output.master.checks.similarity?.passed).toBe(true);
         expect(edit).not.toHaveBeenCalled();
         expect(upload).toHaveBeenCalledOnce();
     });
-    it("轻档校验失败直接升中档，中档首次失败带原因重试后通过", async () => {
-        const { completion, edit } = await run({
+    it("轻档不按解析的默认颜色判失败，原图像素直接交付", async () => {
+        const roles = spec.whole.colorRoles.map((role) => role.id);
+        const design = {
+            ...spec,
+            defaults: {
+                ...spec.defaults,
+                colors: Object.fromEntries(roles.map((id) => [id, "#00ff00"])),
+            },
+        };
+        const { completion, edit, verify } = await run({ design });
+        expect(completion.status).toBe("succeeded");
+        if (completion.status !== "succeeded") return;
+        const output = masterOutputSchema.parse(completion.output);
+        expect(output.master.tier).toBe("light");
+        expect(output.master.attempts).toHaveLength(1);
+        expect(output.master.attempts[0]?.passed).toBe(true);
+        expect(edit).not.toHaveBeenCalled();
+        expect(verify).not.toHaveBeenCalled();
+    });
+    it.each(["四边渐变", "色键后图案贴边"])(
+        "%s 时上传带底原图，一次通过",
+        async (sample) => {
+            const source = await paint(400, 400, (x, y) =>
+                sample === "四边渐变"
+                    ? circle(400, 116, [x % 256, 120, 40, 255])(x, y)
+                    : x < 80 && y < 240
+                      ? [INK.r, INK.g, INK.b, 255]
+                      : white,
+            );
+            const { completion, upload, verify, edit } = await run({
+                source,
+                budget: { maxAttempts: 1, maxUsd: 1 },
+            });
+            expect(completion).toMatchObject({
+                status: "succeeded",
+                output: {
+                    master: {
+                        tier: "light",
+                        backgroundKept: true,
+                        attempts: [
+                            { tier: "light", passed: true, failures: [] },
+                        ],
+                        checks: {
+                            printable: { passed: false },
+                            similarity: { passed: true, score: 1 },
+                        },
+                    },
+                },
+            });
+            expect(upload).toHaveBeenCalledExactlyOnceWith(
+                source,
+                expect.any(AbortSignal),
+            );
+            expect(edit).not.toHaveBeenCalled();
+            expect(verify).not.toHaveBeenCalled();
+        },
+    );
+    it("原图尺寸不可印时失败，不升档", async () => {
+        const { completion, edit, verify, upload } = await run({
+            source: await paint(128, 128, circle(128, 40, white)),
+        });
+        expect(completion).toMatchObject({
+            status: "failed",
+            error: { code: "MASTER_NOT_ACCEPTED" },
+        });
+        expect(edit).not.toHaveBeenCalled();
+        expect(verify).not.toHaveBeenCalled();
+        expect(upload).not.toHaveBeenCalled();
+    });
+    it("水印从中档开始，模型读字失败后在中档重试", async () => {
+        const { completion, edit, verify } = await run({
+            cond: marked,
             verify: (call) =>
                 call === 1
                     ? {
@@ -655,11 +746,12 @@ describe("重试、升档与预算", () => {
         expect(output.master.tier).toBe("medium");
         expect(
             output.master.attempts.map((a) => `${a.tier}:${a.passed}`),
-        ).toEqual(["light:false", "medium:true"]);
+        ).toEqual(["medium:false", "medium:true"]);
         expect(output.master.attempts[0]?.failures).toEqual([
             { check: "text", detail: "headline：缺字" },
         ]);
-        expect(edit).toHaveBeenCalledOnce();
+        expect(edit).toHaveBeenCalledTimes(2);
+        expect(verify).toHaveBeenCalledTimes(2);
     });
     it("确定性校验不过时不付模型校验费，重试提示含上次失败原因", async () => {
         const { completion, verify } = await run({
@@ -877,13 +969,14 @@ describe("重试、升档与预算", () => {
         ]);
         const { completion } = await run({
             design,
+            cond: marked,
             budget: { maxAttempts: 1, maxUsd: 5 },
             verify,
         });
         if (completion.status !== "failed") throw new Error("expected failure");
         expect(completion.error.publicMessage.length).toBeLessThanOrEqual(200);
         expect(completion.error.publicMessage).toBe(
-            `母版预算已用尽（次数上限 1、金额上限 5 USD）：已尝试 light×1，最后失败项：text（${ids[0]}：文字内容不同…）`,
+            `母版预算已用尽（次数上限 1、金额上限 5 USD）：已尝试 medium×1，最后失败项：text（${ids[0]}：文字内容不同…）`,
         );
     });
     it("通过后上传失败：已付费改图为 AFTER_COMMIT，轻档为 DEPENDENCY_FAILURE", async () => {

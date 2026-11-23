@@ -426,7 +426,9 @@ describe("template-master/v1 契约治理与 400 可观测性", () => {
             expect(executedActivities).toContain(
                 mismatch ? "master_generation" : "master_light_rendering",
             );
-            expect(executedActivities).toContain("master_verification");
+            expect(executedActivities.includes("master_verification")).toBe(
+                mismatch,
+            );
             expect(executedActivities).toContain("master_upload");
         },
     );
