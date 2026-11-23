@@ -7,3 +7,9 @@
 模型默认使用 `gpt-6.1-terra` 单次看图拆解：首轮同时完成结构校验、Memebuy 拆解词表检查与绑定一致性校验，零错直接返回；结构或业务合同报错时最多触发一次同缓存前缀的有界修正，不额外开启独立看图复核会话。通过结构检查不证明视觉或实际印刷质量。候选观察不进入公开模板、日志或 Run Record。bbox 仍须人工叠图核对；缺少的像素统计保持未知。
 
 回退新请求可恢复 Process v2。v1/v2 的旧 Skill、Schema 和恢复路径不改；已保存 V4 模板仍需支持 V4 的消费者。更新来源时先审查、更新 manifest，再重建快照和固定摘要；`--check` 逐文件核验，不按请求下载来源。
+
+## v4（2026-11-23）
+
+只改作者规则：新拆解的 `designSpec.defaults` 保留原图内容（原图主体、逐字原文、原图配色），不再做作者默认迁移；可替换性仍由输入槽与 `followsSubject` 表达。原因：母版同时是模板封面与生成参考图，默认值改动原图时，母版会只改字不改图或无法通过对照（UAT 实例：DOGTOR 被迁移为橘猫与 CATCTOR）。
+
+来源仍固定在 Memebuy `4838accfee73821c038689ba1bfa60eaa2c57324`，仅在 `print-design-preparation.md` 与 `agent-template-json-runtime-contract.md` 两份文件上叠加与 Memebuy `2fe81071c`（feat/print-design-keep-original）等价的默认值规则；生成器前言同步改写同一句规则。Memebuy 自该修订以来的 schema 与检查器演进未纳入本版，`gallery.schema.json` 与 v3 逐字节相同。`docs/gallery/template-import/schema.json` 在 Memebuy `e59e3e90ef` 后改为按需生成，本版沿用上述修订中的已审查文件。

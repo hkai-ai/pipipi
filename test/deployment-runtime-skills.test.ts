@@ -27,7 +27,7 @@ describe("production Runtime Skill bindings", () => {
         ).toEqual([
             ["meme-template-json-compiler@v1.13"],
             ["meme-template-json-compiler@v1.13"],
-            ["print-design-template-compiler@v3"],
+            ["print-design-template-compiler@v4"],
         ]);
         expect(
             Object.fromEntries(

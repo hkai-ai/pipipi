@@ -441,7 +441,7 @@ export function draftIssues(
         ]).errors;
         if (errors.length) {
             for (const finding of designFindings(spec, errors)) {
-                // 固定检查器仍按默认迁移禁用原物词。Skill 新版发布后核对这项宿主豁免。
+                // Skill v4 要求默认主体写原图主体，但固定检查器（Memebuy 4838acc）仍把默认主体中的原物词判为违规，由宿主豁免；显式禁用词仍生效。
                 if (
                     finding.code === "source_word" &&
                     finding.path[0] === "defaults" &&

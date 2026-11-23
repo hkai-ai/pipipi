@@ -9,7 +9,7 @@ description: 从批准图片拆解印花结构与输入绑定，输出 Gallery �
 无 Tool 环境：不执行文档内脚本、文件、网络、后台、导入或生成操作；像素测量仅使用宿主本次提供的证据，未测量的统计不得编造。
 流程版本 v3 与运行语义 v4 分别管理。只输出 inputSchema.version=2 与 runtimeSemantics.version=4；没有 visualContract、promptEnhancement 或 preprocessSteps。
 先看真实附件，记录整体、文字、颜色、层次和印花风险，再编写 designSpec。默认 same_design；输入绑定只开放当前引擎能消费的主体照片（全模板最多一个且 maxCount=1，使用 text+image+image_over_text，binding 固定 one_to_one）及文本、配色（固定 replace_as_unit；不支持 same_source_repeated、preserve_group、内容图或 reference_only 输入）。槽位 label 描述稳定的用户编辑意图（如“主角”“主标题”），不写原图默认答案。
-将原物与外形词留在 instance/originalObject/shapeFeatures 作为证据，defaults 写可执行的作者默认迁移；不得为通过检查伪造原始观察，执行描述不得混入原物外形。可替换默认答案不写入 technique、purpose、layout.role 或固定关系。正向写看得见的特征，不写元语言（“标志特征”“锁定”）或抽象风格词（Q 版/Q版/满版风格/糖果/小幽默/萌系）；非 lightIsMood 时描述不用半透明或发光词（光晕/发光/辉光/光雾/烟雾/雾气/薄雾/朦胧/柔焦/虚化/景深/半透明/透明感/透光/光束/霓虹光/淡出/渐渐透明/逐渐透明/渐隐成透明/柔光/投影）；standalone 不用贴边词（撑满画面/占满画面/铺满画布/撑满画布/顶到画布边/贴着画布边）。描述可用 @元素id 与 {色:角色名} 引用，点缀色写具体色名或附色值。版面框为候选，必须人审叠图核对。
+将原物与外形词留在 instance/originalObject/shapeFeatures 作为证据；defaults 写原图内容：subject/subjectName 为原图主体，texts 按元素与 observation.texts 逐字一致（含 followsSubject 文字），colors 取原图实际配色，不做作者默认迁移，可替换性只由输入槽和 followsSubject 表达；不得为通过检查伪造原始观察，执行描述不得混入原物外形。可替换默认答案不写入 technique、purpose、layout.role 或固定关系。正向写看得见的特征，不写元语言（“标志特征”“锁定”）或抽象风格词（Q 版/Q版/满版风格/糖果/小幽默/萌系）；非 lightIsMood 时描述不用半透明或发光词（光晕/发光/辉光/光雾/烟雾/雾气/薄雾/朦胧/柔焦/虚化/景深/半透明/透明感/透光/光束/霓虹光/淡出/渐渐透明/逐渐透明/渐隐成透明/柔光/投影）；standalone 不用贴边词（撑满画面/占满画面/铺满画布/撑满画布/顶到画布边/贴着画布边）。描述可用 @元素id 与 {色:角色名} 引用，点缀色写具体色名或附色值。版面框为候选，必须人审叠图核对。
 每个文字元素都有 defaults.texts，随主体的名字/释义标 followsSubject；固定口号保持默认字。配色角色有默认颜色。所有开放槽的文字默认值必须与绑定目标的 defaults 一致；主体可以 text+image，文字与配色只用 text。promptTemplate 由服务端从 defaults 单向生成，模型不得维护第二份提示词。
 印花形态按已批准图片选一个：完整图形 standalone；场景/海报 rect_patch 且要有真实设计边框的 edge 元素；切开主体 bleed_crop。不能凭空声称审批图已有边框或已适合印刷；有缺陷如实标 needs_prep/not_for_apparel，运营可退回图片步骤重做。表达机制是推断，保留给人工确认。被文字或画布遮挡的部位只按可见范围描述（如“展示头部与上身”），不脑补不可见的下半身姿态；画法、配色总述与元素可执行描述引用颜色统一用 {色:角色名}，不写死原图具体色名。
 observation 包含 texts（逐字记录设计内可读文字 {text,elementId}，无文字则空数组）与必填 sourceCondition（记录原图自身状况，不属于设计：{marks,carrier,sharpness,compressionArtifacts,notes}）。marks 只记非设计本身的附加标记，kind 取 watermark（水印）、signature（署名）、platform_logo（平台标识），可带逐字 text，无则空数组，最多 5 项；设计里的文字照旧逐字进 observation.texts，不进 marks，水印与署名文字也不进 texts。carrier 判画面载体：flat_artwork 平面设计稿、garment_photo 印在衣服上的实拍、product_photo 印在其他商品上的实拍、scene_photo 场景照片。sharpness 判原图画质：clear、slightly_blurry、severely_blurry；compressionArtifacts 为是否可见明显压缩块或振铃。notes 最多 5 条短说明，无特殊异常传空数组。只据附件如实判断，不据此改变 designSpec。
@@ -408,7 +408,16 @@ observation 包含 texts（逐字记录设计内可读文字 {text,elementId}，
 
 不透明底封面上与底色相同的元素（纸色镂空字、留底的浪花）称为留底元素。生成图是透明底，它们必须当一种颜色来画，因此拆解时给它们一个颜色角色。
 
-**迁移条目**每个新题材一条，只填会随题材变化的值：新主体（身份与外形）、主体外形、姿态、主体固有色、场景伴生点缀的来源、指定内容（用户指定的非文字内容，按元素填写，原样画出）、每个文字元素的新文字、每个颜色角色的具体颜色（可附色值）、需要重建的趣味。
+#### 新拆解的默认值
+
+`designSpec.defaults` 是用户什么都不填时的取值。新拆解将原图内容写入 `迁移` 首条（`id: "default"`），转换时用它作为 `defaults`。
+
+- `主体`、`主体名`（`defaults.subject`、`defaults.subjectName`）写原图主体的身份和名称。原图是狗，默认主体和主体名都写狗。`禁用词` 只收所有条目都禁止的词。用于防止替换时带入原主体的词记在主体元素的“原物”和“外形特征”里。
+- `文字`（`defaults.texts`）按文字元素 ID 逐字抄录原图设计文字，与 `observation.texts` / `source.texts` 中同一元素的文本完全一致，保留大小写、标点和换行。标了“跟随主体”的文字也照抄。原文涉及 IP、品牌时由素材风险标出交人工决定。
+- `配色`（`defaults.colors`）按配色角色记录原图实际颜色。默认条目中填写的指定内容和点缀也取自原图。
+- 可替换内容仍通过输入槽表达。用户换了主体且未填写跟随主体的文字时，文字仍可随新主体变化。换题材、改字、换色的试验另写迁移条目，作为模板默认值的始终是原图条目。
+
+**模拟用户输入的迁移条目**每个新题材一条，只填会随题材变化的值：新主体（身份与外形）、主体外形、姿态、主体固有色、场景伴生点缀的来源、指定内容（用户指定的非文字内容，按元素填写，原样画出）、每个文字元素的新文字、每个颜色角色的具体颜色（可附色值）、需要重建的趣味。
 
 每一项按三个问题归位：
 
@@ -518,7 +527,7 @@ v4 保留 v3 的绑定权威，视觉权威由 `designSpec` 承担：
 - `elements`（元素层）：按 `category` 区分 `subject`（主体：`originalObject`、`shapeFeatures`、`genericShape`、`inherentColorPolicy: keep | follow_palette`、`pose`）、`accent`（点缀）、`decoration`（装饰）、`text`（文字：`role`、`letterform`，可选 `followsSubject: true`）、`edge`（收形）；共有 `id`、`purpose`（作用）、`instance`（实例，只作证据）。
 - `signatureFeatures`（标志特征）、`lockedInstances`（锁定实例）、`bannedWords`（禁用词）。
 - `printFit`（印花适配）：`verdict: direct | needs_prep | not_for_apparel`、`lightIsMood`、`recommendedMethod`。
-- `defaults`（作者默认迁移条目）：`subject`、`subjectName`、`texts`、`specifiedContent`、`accentSources`、`colors`（键为配色角色 `id`）等，即用户什么都不填时的取值。
+- `defaults`（用户什么都不填时的取值）：新拆解的 `subject`、`subjectName` 填原图主体，`colors` 按配色角色 `id` 填原图实际配色。填写 `specifiedContent`、`accentSources` 时也使用原图内容。按文字元素 `id` 填写 `texts`，每处与 `observation.texts` / `source.texts` 对应的原文逐字一致，保留大小写、标点和换行，包含 `followsSubject` 文字。原文涉及 IP、品牌时由素材风险标出交人工决定。可替换性通过输入槽和 `followsSubject` 表达。
 
 **文字跟随主体（`followsSubject`）**：文字元素的内容是“关于主体的”（词典页的词头、音标、释义，人物卡的名字）时标 `followsSubject: true`，只能写在 `category: text` 元素上（写在其他类别导入即拒绝）。用户换了主体（文字或照片）却没填这一处文字时，编译器不写默认字，改写成“按新主体来写”（只约束角色与字形，具体词由模型按新主体写），版面 JSON 里的文字也换成占位描述，旧主体的词不会留在提示词里；用户填了就逐字照写；没换主体时默认字照旧逐字照写。没标的文字（品牌词、固定口号）无论换不换主体都保留默认字。
 

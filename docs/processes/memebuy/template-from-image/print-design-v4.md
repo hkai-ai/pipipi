@@ -20,7 +20,7 @@ Pipipi 控制台运行表和详情并列展示流程版本与实际交付的模�
 
 ## 固定来源与运行边界
 
-`print-design-template-compiler@v3` 从固定 Memebuy 方法正本及作者合同确定性裁剪出六层拆解、数据格式与 v4 运行语义/输入绑定章节（剔除实验复盘、下游印厂验收、CLI 导入及旧 v1～v3 `visualContract` 背景）。来源修订、许可与逐文件摘要在 Skill 的 `source-manifest.json` 和 `SOURCE.md`。纯检查器从同一审查来源生成；不执行开发 Skill 的 Shell、网络、凭证、导入或生图脚本。Docker 成品包含固定快照，启动期验证准确摘要。
+`print-design-template-compiler@v4` 从固定 Memebuy 方法正本及作者合同确定性裁剪出六层拆解、数据格式与 v4 运行语义/输入绑定章节（剔除实验复盘、下游印厂验收、CLI 导入及旧 v1～v3 `visualContract` 背景）。来源修订、许可与逐文件摘要在 Skill 的 `source-manifest.json` 和 `SOURCE.md`。纯检查器从同一审查来源生成；不执行开发 Skill 的 Shell、网络、凭证、导入或生图脚本。v4 只把作者规则改为新拆解的 `defaults` 保留原图内容（2026-11-23 方案 A），来源修订与 schema 与 v3 相同；固定检查器仍会把默认主体中的原物词判为违规，宿主对此豁免，显式禁用词照常生效。Docker 成品包含固定快照，启动期验证准确摘要。
 
 同一 Process ID 的多个版本可以声明不同 Skill。安装集合保留各版规则，构造每个 Registration 时只解析它声明的准确规则；缺失即拒绝启动，不能让新版本覆盖旧版规则或把两套规则混给 Agent。
 

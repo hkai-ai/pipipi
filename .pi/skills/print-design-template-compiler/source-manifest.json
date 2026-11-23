@@ -5,11 +5,11 @@
   "files": [
     {
       "path": "docs/gallery/print-design-preparation.md",
-      "sha256": "1628d7df59ff59a4b53ad14be9452d860fe1097e0600bd572bd3d90c76b25bc9"
+      "sha256": "b426a03e04dd19198a3148841faf6c2572e002af276bcb6aac5f6191ae3d9901"
     },
     {
       "path": "docs/gallery/agent-template-json-runtime-contract.md",
-      "sha256": "28a86eaf2023bbcc41f85d6c13ae9b9b7646581400e385736064eaf77fb495c3"
+      "sha256": "52dcbcc4e3ac370b7f10cb1a3ac718c2944e43e12f3e511b1b4123421fbcd057"
     },
     {
       "path": "docs/gallery/template-import/schema.json",
