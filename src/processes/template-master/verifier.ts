@@ -1,4 +1,4 @@
-/** 母版的模型对照校验：一次多模态调用读字、核版面与水印，并由代码按设计默认值逐字比较。 */
+/** 一次多模态调用核对母版文字、版面、水印及重档原图保真，并由代码逐字比较。 */
 import {
     createAgentSession,
     SettingsManager,
@@ -10,12 +10,14 @@ import {
     PiStructuredAgent,
     type PiStructuredAgentOptions,
 } from "../../agent-runtime/structured.js";
+import { normalizePrintText } from "../print-text.js";
 import type { DesignSpec } from "../template-from-image/design-spec/vendor/design-spec-schema.js";
 import type { MasterFailure } from "./contract.js";
 import {
     buildVerificationPrompt,
     layoutBoxes,
     type MarkInput,
+    SOURCE_FIDELITY_RULE,
     textElements,
     VERIFIER_RULES,
 } from "./method.js";
@@ -38,10 +40,17 @@ export const verificationSchema = z.strictObject({
     watermarkRemaining: z.boolean(),
 });
 const verificationJsonSchema = z.toJSONSchema(verificationSchema);
-export type Verification = z.infer<typeof verificationSchema>;
+const redrawVerificationSchema = verificationSchema.extend({
+    sourceFidelity: z.boolean(),
+});
+const redrawVerificationJsonSchema = z.toJSONSchema(redrawVerificationSchema);
+export type Verification = z.infer<typeof verificationSchema> & {
+    sourceFidelity?: boolean;
+};
 
 export type MasterVerificationRequest = Readonly<{
     image: Buffer;
+    source?: Buffer;
     transparent: boolean;
     spec: DesignSpec;
     marks: readonly MarkInput[];
@@ -50,17 +59,6 @@ export type MasterVerificationRequest = Readonly<{
 export interface MasterVerifier {
     verify(request: MasterVerificationRequest): Promise<Verification>;
 }
-
-/** 统一排版等价字符后逐字比较。重音符号须在 NFKC 将其展开前转成撇号。 */
-export const normalizeText = (text: string) =>
-    text
-        .replace(/´/gu, "'")
-        .normalize("NFKC")
-        .replace(/[’‘‛`]/gu, "'")
-        .replace(/[“”]/gu, '"')
-        .replace(/[‐‑‒–—]/gu, "-")
-        .replace(/\s+/gu, "")
-        .toLowerCase();
 
 function isSubsequence(shorter: string[], longer: string[]): boolean {
     let index = 0;
@@ -101,6 +99,7 @@ export function evaluateVerification(
     spec: DesignSpec,
     marks: readonly MarkInput[],
     response: Verification,
+    requireSourceFidelity = false,
 ) {
     const expected = textElements(spec);
     const reads: string[] = [];
@@ -110,8 +109,8 @@ export function evaluateVerification(
             response.texts.find((item) => item.id === element.id)?.read ?? "";
         reads.push(read);
         const difference = textDifference(
-            normalizeText(element.text),
-            normalizeText(read),
+            normalizePrintText(element.text),
+            normalizePrintText(read),
         );
         if (difference)
             failures.push({
@@ -141,6 +140,11 @@ export function evaluateVerification(
                 ? `主要元素偏出版面框：${offenders.join("、")}`.slice(0, 200)
                 : "主要元素未落在版面框内",
         });
+    if (requireSourceFidelity && response.sourceFidelity !== true)
+        failures.push({
+            check: "similarity",
+            detail: "重档母版未通过原图设计保真校验",
+        });
     return {
         text: {
             passed: textPassed,
@@ -154,7 +158,7 @@ export function evaluateVerification(
 
 async function encodeView(bytes: Buffer, background?: string) {
     for (let side = 1280; side >= 100; side = Math.floor(side * 0.75)) {
-        const view = sharp(bytes).resize({
+        const view = sharp(bytes).autoOrient().resize({
             width: side,
             height: side,
             fit: "inside",
@@ -179,14 +183,6 @@ export class PiMasterVerifier implements MasterVerifier {
         this.#options = {
             ...options,
             thinkingLevel: "low",
-            ...(options.provider === "openai"
-                ? {
-                      jsonSchema: {
-                          name: "master_verification",
-                          schema: verificationJsonSchema,
-                      },
-                  }
-                : { jsonMode: true }),
             sessionFactory: async (sessionOptions) => {
                 const result = await (
                     options.sessionFactory ?? createAgentSession
@@ -228,26 +224,45 @@ export class PiMasterVerifier implements MasterVerifier {
                   await encodeView(request.image, "#101010"),
               ]
             : [await encodeView(request.image)];
+        if (request.source) images.push(await encodeView(request.source));
+        const schema = request.source
+            ? redrawVerificationJsonSchema
+            : verificationJsonSchema;
+        const instructions = [VERIFIER_RULES];
+        if (request.source) instructions.push(SOURCE_FIDELITY_RULE);
+        const openai = this.#options.provider === "openai";
+        if (!openai)
+            instructions.push(
+                `输出须符合 JSON Schema：${JSON.stringify(schema)}`,
+            );
         // 响应不是合法 JSON 或不符合形状时，对同一张图再问一次；核对是只读且便宜的。
         for (let attempt = 0; ; attempt++) {
             try {
                 const { output } = await new PiStructuredAgent({
                     ...this.#options,
-                    instructions: this.#options.jsonSchema
-                        ? [VERIFIER_RULES]
-                        : [
-                              VERIFIER_RULES,
-                              `输出须符合 JSON Schema：${JSON.stringify(verificationJsonSchema)}`,
-                          ],
+                    // 重档宿主规则补充固定 Skill 的三项校验，原图仅用于保真对照。
+                    ...(request.source ? { skillFirst: true } : {}),
+                    ...(openai
+                        ? {
+                              jsonSchema: {
+                                  name: "master_verification",
+                                  schema,
+                              },
+                          }
+                        : { jsonMode: true }),
+                    instructions,
                 }).run({
                     prompt: buildVerificationPrompt(
                         request.spec,
                         request.marks,
+                        request.source !== undefined,
                     ),
                     images,
                     signal: request.signal,
                 });
-                return verificationSchema.parse(output);
+                return request.source
+                    ? redrawVerificationSchema.parse(output)
+                    : verificationSchema.parse(output);
             } catch (error) {
                 request.signal.throwIfAborted();
                 const recoverable =

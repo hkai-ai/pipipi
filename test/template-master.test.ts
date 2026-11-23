@@ -33,6 +33,7 @@ import {
 } from "../src/processes/template-master/tier.js";
 import {
     evaluateVerification,
+    type MasterVerificationRequest,
     PiMasterVerifier,
     type Verification,
 } from "../src/processes/template-master/verifier.js";
@@ -84,84 +85,115 @@ const alphaAt = async (png: Buffer, x: number, y: number) => {
     return image.data[(y * image.width + x) * 4 + 3] as number;
 };
 
-it("母版视觉校验在供应商请求中声明完整的严格输出合同", async () => {
-    const verdict = {
-        texts: [],
-        otherTexts: [],
-        layout: { passed: true, offenders: [] },
-        watermarkRemaining: false,
-    };
-    const payloads: unknown[] = [];
-    const verifier = new PiMasterVerifier({
-        provider: "openai",
-        model: "gpt-5.4",
-        skills: createTemplateMasterSkillRefs(),
-        modelRuntime: await ModelRuntime.create({
-            modelsPath: null,
-            refreshOnCreate: false,
-        }),
-        sessionFactory: async ({ resourceLoader }) => {
-            expect(resourceLoader?.getSystemPrompt()).toMatch(
-                /弧线、圆环或波浪.*阅读起点和方向.*一整段.*对应.*id.*otherTexts/u,
-            );
-            const model = {
-                api: "openai-completions",
-                input: ["text", "image"],
-            };
-            const agent = {
-                onPayload: undefined as
-                    | undefined
-                    | ((payload: unknown, model: unknown) => Promise<unknown>),
-            };
-            return {
-                session: {
-                    model,
-                    agent,
-                    dispose() {},
-                    prompt: async () => {
-                        payloads.push(await agent.onPayload?.({}, model));
-                    },
-                    messages: [
-                        {
-                            role: "assistant",
-                            stopReason: "stop",
-                            content: [
-                                { type: "text", text: JSON.stringify(verdict) },
-                            ],
+it.each([false, true])(
+    "母版视觉校验声明严格输出合同并按需附原图（重档 %s）",
+    async (heavy) => {
+        const verdict = {
+            texts: [],
+            otherTexts: [],
+            layout: { passed: true, offenders: [] },
+            watermarkRemaining: false,
+            ...(heavy ? { sourceFidelity: true } : {}),
+        };
+        const payloads: unknown[] = [];
+        const verifier = new PiMasterVerifier({
+            provider: "openai",
+            model: "gpt-5.4",
+            skills: createTemplateMasterSkillRefs(),
+            modelRuntime: await ModelRuntime.create({
+                modelsPath: null,
+                refreshOnCreate: false,
+            }),
+            sessionFactory: async ({ resourceLoader }) => {
+                expect(resourceLoader?.getSystemPrompt()).toMatch(
+                    /弧线、圆环或波浪.*阅读起点和方向.*一整段.*对应.*id.*otherTexts/u,
+                );
+                const model = {
+                    api: "openai-completions",
+                    input: ["text", "image"],
+                };
+                const agent = {
+                    onPayload: undefined as
+                        | undefined
+                        | ((
+                              payload: unknown,
+                              model: unknown,
+                          ) => Promise<unknown>),
+                };
+                return {
+                    session: {
+                        model,
+                        agent,
+                        dispose() {},
+                        prompt: async (
+                            prompt: string,
+                            options: { images: { data: string }[] },
+                        ) => {
+                            expect(options.images).toHaveLength(heavy ? 2 : 1);
+                            expect(JSON.parse(prompt).defaultSubject).toBe(
+                                heavy ? spec.defaults.subject : undefined,
+                            );
+                            if (heavy) {
+                                const reference = await sharp(
+                                    Buffer.from(
+                                        options.images[1].data,
+                                        "base64",
+                                    ),
+                                ).metadata();
+                                expect(reference).toMatchObject({
+                                    format: "webp",
+                                    width: 16,
+                                    height: 8,
+                                });
+                            }
+                            payloads.push(await agent.onPayload?.({}, model));
                         },
-                    ],
-                },
-            } as unknown as CreateAgentSessionResult;
-        },
-    });
-    await expect(
-        verifier.verify({
-            image: await paint(8, 8, () => white),
-            spec,
-            marks: [],
-            transparent: false,
-            signal: new AbortController().signal,
-        }),
-    ).resolves.toEqual(verdict);
-    expect(payloads).toMatchObject([
-        {
-            response_format: {
-                type: "json_schema",
-                json_schema: {
-                    strict: true,
-                    schema: {
-                        additionalProperties: false,
-                        required: Object.keys(verdict),
-                        properties: {
-                            texts: { items: { required: ["id", "read"] } },
-                            layout: { required: ["passed", "offenders"] },
+                        messages: [
+                            {
+                                role: "assistant",
+                                stopReason: "stop",
+                                content: [
+                                    {
+                                        type: "text",
+                                        text: JSON.stringify(verdict),
+                                    },
+                                ],
+                            },
+                        ],
+                    },
+                } as unknown as CreateAgentSessionResult;
+            },
+        });
+        await expect(
+            verifier.verify({
+                image: await paint(8, 8, () => white),
+                ...(heavy ? { source: await paint(16, 8, () => white) } : {}),
+                spec,
+                marks: [],
+                transparent: false,
+                signal: new AbortController().signal,
+            }),
+        ).resolves.toEqual(verdict);
+        expect(payloads).toMatchObject([
+            {
+                response_format: {
+                    type: "json_schema",
+                    json_schema: {
+                        strict: true,
+                        schema: {
+                            additionalProperties: false,
+                            required: Object.keys(verdict),
+                            properties: {
+                                texts: { items: { required: ["id", "read"] } },
+                                layout: { required: ["passed", "offenders"] },
+                            },
                         },
                     },
                 },
             },
-        },
-    ]);
-});
+        ]);
+    },
+);
 
 describe("合同", () => {
     const input = {
@@ -532,6 +564,7 @@ describe("重试、升档与预算", () => {
         otherTexts: [],
         layout: { passed: true, offenders: [] },
         watermarkRemaining: false,
+        sourceFidelity: true,
     };
     async function run(options: {
         cond?: typeof condition;
@@ -558,7 +591,7 @@ describe("重试、升档与预算", () => {
             height: 1024,
             contentType: "image/png" as const,
         }));
-        const verify = vi.fn(async () => {
+        const verify = vi.fn(async (_request: MasterVerificationRequest) => {
             verifyCalls++;
             return (options.verify ?? (() => okVerification))(verifyCalls);
         });
@@ -585,7 +618,7 @@ describe("重试、升档与预算", () => {
             runId: "run-1",
             signal: new AbortController().signal,
         });
-        return { completion, edit, upload, verify };
+        return { completion, edit, upload, verify, source };
     }
     const marked = {
         ...condition,
@@ -641,7 +674,7 @@ describe("重试、升档与预算", () => {
         expect(verify).toHaveBeenCalledOnce();
     });
     it("中档三次用尽升重档，重档通过且相似度为 null", async () => {
-        const { completion } = await run({
+        const { completion, verify, source } = await run({
             cond: marked,
             verify: (call) =>
                 call <= 3
@@ -655,13 +688,105 @@ describe("重试、升档与预算", () => {
         expect(output.master.redrawn).toBe(true);
         expect(output.master.checks.similarity).toBeNull();
         expect(output.master.attempts).toHaveLength(4);
+        expect(verify).toHaveBeenCalledTimes(4);
+        expect(verify.mock.calls.map(([request]) => request.source)).toEqual([
+            undefined,
+            undefined,
+            undefined,
+            source,
+        ]);
+    });
+    it.each(["文字", "主体"])(
+        "直传模板默认%s与原图记录不一致时直接重绘，跳档不消耗预算",
+        async (field) => {
+            const design = structuredClone(spec);
+            if (field === "主体") {
+                design.defaults.subject = "一只灰色短毛兔";
+            } else {
+                const text = design.elements.find(
+                    (element) => element.id === "headline",
+                );
+                if (!text) throw new Error("夹具缺少文字元素");
+                text.instance = "CATCTOR.";
+            }
+            const { completion, edit, verify, source } = await run({
+                design,
+                cond: field === "主体" ? marked : condition,
+                budget: { maxAttempts: 1, maxUsd: 5 },
+            });
+            expect(completion).toMatchObject({
+                status: "succeeded",
+                output: {
+                    master: {
+                        attempts: [
+                            {
+                                tier: "heavy",
+                                passed: true,
+                                failures: [],
+                                reason: `默认${field}与原图记录不一致，跳过轻档和中档`,
+                            },
+                        ],
+                    },
+                },
+            });
+            expect(edit).toHaveBeenCalledOnce();
+            expect(verify).toHaveBeenCalledExactlyOnceWith(
+                expect.objectContaining({ source }),
+            );
+        },
+    );
+    it("直传文字排版等价且主体证据缺失时沿用原档位", async () => {
+        const design = structuredClone(spec);
+        for (const element of design.elements) {
+            if (element.category === "text")
+                element.instance = "Ｌｏｏｋ\ngood";
+            if (element.category === "subject") {
+                delete element.originalObject;
+                delete element.instance;
+            }
+        }
+        const { completion, edit } = await run({ design });
+        expect(completion).toMatchObject({
+            status: "succeeded",
+            output: { master: { tier: "light" } },
+        });
+        expect(edit).not.toHaveBeenCalled();
+    });
+    it("重档保真失败用 similarity 记录并重试，只上传通过的母版", async () => {
+        const { completion, verify, upload } = await run({
+            cond: { ...condition, carrier: "garment_photo" },
+            verify: (call) => ({ ...okVerification, sourceFidelity: call > 1 }),
+        });
+        expect(completion).toMatchObject({
+            status: "succeeded",
+            output: {
+                master: {
+                    attempts: [
+                        {
+                            tier: "heavy",
+                            passed: false,
+                            failures: [
+                                {
+                                    check: "similarity",
+                                    detail: "重档母版未通过原图设计保真校验",
+                                },
+                            ],
+                        },
+                        { tier: "heavy", passed: true, failures: [] },
+                    ],
+                },
+            },
+        });
+        expect(verify).toHaveBeenCalledTimes(2);
+        expect(upload).toHaveBeenCalledOnce();
     });
     it("重档直接起步，三次用尽返回 MASTER_NOT_ACCEPTED", async () => {
-        const { completion, edit } = await run({
+        const { completion, edit, upload } = await run({
             cond: { ...condition, carrier: "garment_photo" },
-            verify: () => ({ ...okVerification, otherTexts: ["x"] }),
+            verify: () => ({ ...okVerification, sourceFidelity: false }),
         });
         expect(edit).toHaveBeenCalledTimes(3);
+        expect(upload).not.toHaveBeenCalled();
         expect(completion).toMatchObject({
             status: "failed",
             error: { code: "MASTER_NOT_ACCEPTED" },

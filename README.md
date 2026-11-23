@@ -6,7 +6,7 @@
 
 ## 当前能力
 
-Memebuy 新模板任务走 `template-from-image/v3` → `template-master/v1`。旧「方案 → 生图 → 编译」三阶段链路（`template-image-plan`、`template-image-render`、`template-from-source`）已于 2026-11-17 下线，调用按未知 Process 拒绝。
+Memebuy 新模板任务走 `template-from-image/v3` → `template-master/v1`。解析保留原图主体、文字与配色作为模板默认值，重绘母版与原图对照校验。旧「方案 → 生图 → 编译」三阶段链路（`template-image-plan`、`template-image-render`、`template-from-source`）已于 2026-11-17 下线，调用按未知 Process 拒绝。
 
 生产 catalog 登记二十六个 Business Process，其中 `composed-task/v1` 默认关闭。文档先按产品场景分组，运行时仍通过统一的 Process identity 和 HTTP Interface 执行：
 

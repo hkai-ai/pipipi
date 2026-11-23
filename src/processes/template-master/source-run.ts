@@ -9,7 +9,11 @@ import {
 } from "../../process-runtime/registration.js";
 import type { SourceRunErrorCode } from "../../process-runtime/result.js";
 import { sourceConditionSchema } from "../template-from-image/design-spec/contract.js";
-import { isSourceRunMasterInput, masterTemplateSchema } from "./contract.js";
+import {
+    isSourceRunMasterInput,
+    masterTemplateSchema,
+    sourceTextsSchema,
+} from "./contract.js";
 
 export type TemplateMasterSourceRunRecord = Readonly<{
     runId: string;
@@ -127,13 +131,14 @@ export async function resolveTemplateMasterAcceptedInput(
     const outputRecord = output as Record<string, unknown>;
     const rawTemplate = outputRecord.template;
     const rawSource = outputRecord.source;
-    const rawCondition =
+    const source =
         rawSource && typeof rawSource === "object" && !Array.isArray(rawSource)
-            ? (rawSource as Record<string, unknown>).condition
+            ? (rawSource as Record<string, unknown>)
             : undefined;
 
     const parsedTemplate = masterTemplateSchema.safeParse(rawTemplate);
-    const parsedCondition = sourceConditionSchema.safeParse(rawCondition);
+    const parsedCondition = sourceConditionSchema.safeParse(source?.condition);
+    const parsedTexts = sourceTextsSchema.safeParse(source?.texts);
     if (!parsedTemplate.success || !parsedCondition.success) {
         return failure(
             "SOURCE_RUN_MISSING_CONDITION",
@@ -149,6 +154,7 @@ export async function resolveTemplateMasterAcceptedInput(
             sourceRunId,
             template: parsedTemplate.data,
             condition: parsedCondition.data,
+            ...(parsedTexts.success ? { sourceTexts: parsedTexts.data } : {}),
             budget: input.budget,
         },
     );

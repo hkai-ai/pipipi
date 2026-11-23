@@ -6,18 +6,20 @@
 
 支持两种互斥输入模式（`z.union`）：
 
-- **`sourceRunId` 模式（推荐）**：仅提交 `{ imageUrl, sourceRunId, budget }`。受理阶段在入队前按当前 `callerId` 校验上游运行归属、流程类型（`template-from-image`）、终态（`succeeded`）、未过期及输出含合法 v4 `template` 与 `source.condition`，解析完成后写入不可变 `acceptedInput` 快照并保留 `sourceRunId` 供控制台一键回溯；校验失败返回 HTTP 400（`SOURCE_RUN_*`），零计费且不占用 `Idempotency-Key`。
+- **`sourceRunId` 模式（推荐）**：仅提交 `{ imageUrl, sourceRunId, budget }`。受理阶段在入队前按当前 `callerId` 校验上游运行归属、流程类型（`template-from-image`）、终态（`succeeded`）、未过期及输出含合法 v4 `template` 与 `source.condition`，解析完成后将模板、原图状况和可用的 `source.texts` 写入不可变 `acceptedInput` 快照并保留 `sourceRunId` 供控制台一键回溯；校验失败返回 HTTP 400（`SOURCE_RUN_*`），零计费且不占用 `Idempotency-Key`。
 - **兼容直传模式**：提交 `{ imageUrl, template, condition, budget }`。`template` 与 `template.metadata` 允许并忽略未知扩展字段，`title`（1–80 字）、`description`（`string | null` / 可选，0–300 字）与 `metadata.tags`（可选、不限条数与单标签长度）对齐上游 `template-from-image/v3` 输出；仍强制校验 `imageUrl`、`condition`、`budget`、`template.key`、`template.inputSchema`（`version: 2`）与 `template.runtimeSemantics`（`version: 4`）。
 
 ## 分档
 
-起始档由 `condition` 推出，像素清晰度不参与：
+先按 `condition` 选择起始档。
 
 | 档 | 判据 | 做法 |
 | --- | --- | --- |
 | 轻 | `marks` 为空、`sharpness=clear`、无压缩痕迹、`carrier=flat_artwork` | 纯确定性（sharp），不调模型 |
 | 重 | `carrier` 为实拍类，或 `sharpness=severely_blurry` | 按 designSpec 默认值重绘，原图完整附上 |
 | 中 | 其余 | 以原图为参考修复，只去 `marks` 与修复画质 |
+
+轻档或中档候选若存在默认值与原图记录的差异，直接从重档开始，首条实际尝试的 `reason` 记录跳档原因。文字按元素 ID 优先取上游 `source.texts`，缺失时取文字元素的 `instance`，使用下节的同一套归一化。仅在有单一主体和明确的 `originalObject` 时比较主体描述，接受字面包含关系或与主体 `instance` 字面相同的描述。缺少可比较证据时沿用状况分档。主体比较基于已有描述，别名和不同措辞可能触发跳档。跳过的档位不计尝试次数。
 
 轻档不过升中，中档用尽升重，重档用尽失败。生成档首次加最多 2 次带原因重试；轻档失败直接升档。
 
@@ -31,7 +33,9 @@
 
 ## 对照校验
 
-每次产出后先做确定性 `printable`、`palette`、`similarity` 检查（重档的 `similarity` 为 null）。全部通过才调用多模态模型校验 `text` 和 `layout`。确定性项不过时不付模型校验费。阈值与来源见 `src/processes/template-master/thresholds.ts`，相似度阈值尚未用真实样本标定。
+每次产出后先检查 `printable` 和 `palette`。轻档和中档还检查像素 `similarity`。确定性检查全部通过后，才调用多模态模型校验文字、版面和残留标记。阈值与来源见 `src/processes/template-master/thresholds.ts`，相似度阈值尚未用真实样本标定。
+
+重档在同一次多模态校验中追加原图参考，比较主体身份、构图和主要元素、设计文字内容及主要配色，同时核对主体身份是否符合模板默认主体。允许移除载体、褶皱、透视、场景背景和应去掉的标记。无法确认保真时按失败处理，记录 `check: "similarity"`，详情为「重档母版未通过原图设计保真校验」。重档成功的 `checks.similarity` 仍为 null，表示未计算像素分数。历史默认文字或主体与原图有实质冲突时，重绘仍可能失败。
 
 校验模型沿原设计的起点和方向读取弯曲文字，把整段归入对应元素。程序以 `designSpec.defaults.texts` 为准，统一 NFKC、大小写、空白、等价引号和横线后逐字比较。归一化后相同即通过。
 

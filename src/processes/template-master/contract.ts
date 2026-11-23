@@ -3,6 +3,7 @@ import { z } from "zod";
 import { sourcePhotoSchema } from "../photo-poster/capability.js";
 import {
     bindingSchema,
+    printDesignOutputSchema,
     sourceConditionSchema,
     textModes,
 } from "../template-from-image/design-spec/contract.js";
@@ -112,9 +113,15 @@ export const masterInputSchema = z.union([
 ]);
 export type MasterInput = z.infer<typeof masterInputSchema>;
 
+export const sourceTextsSchema =
+    printDesignOutputSchema.shape.source.shape.texts;
+
 /** 服务端受理阶段解析完成后的执行输入（可选保留 sourceRunId 供控制台溯源）。 */
 export type ResolvedMasterInput = MasterDirectInput &
-    Readonly<{ sourceRunId?: string }>;
+    Readonly<{
+        sourceRunId?: string;
+        sourceTexts?: z.infer<typeof sourceTextsSchema>;
+    }>;
 
 export function isSourceRunMasterInput(
     input: unknown,
@@ -155,6 +162,7 @@ export const masterOutputSchema = z.strictObject({
                     tier: tierSchema,
                     passed: z.boolean(),
                     failures: z.array(failureSchema),
+                    reason: z.string().max(200).optional(),
                 }),
             )
             .min(1)

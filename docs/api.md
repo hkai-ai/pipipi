@@ -1221,13 +1221,13 @@ Memebuy 可将两个模板分别绑定同一 Process 与固定 preset，用户�
 
 `template-from-image/v3` 沿用图片编译入参，输出 `inputSchema.version=2`、`runtimeSemantics.version=4`，流程号与语义号分别管理。旧 Process v1/v2 分别继续输出运行语义 v2/v3，不回退或升级已有运行。
 
-V4 模板包含 `targetInstances`、`inputBindings` 与 `designSpec`，不得包含 `visualContract`。完整字段由目录 Schema 与固定作者合同定义；designSpec 保存整体、元素、版面、印花形态、配色角色、印花适配及作者默认迁移。`promptTemplate` 是服务端从默认迁移单向生成的展示文本，不是生成权威；状态、图片与尺寸仍由宿主决定。
+V4 模板包含 `targetInstances`、`inputBindings` 与 `designSpec`，不得包含 `visualContract`。完整字段由目录 Schema 与固定作者合同定义；`designSpec` 保存整体、元素、版面、印花形态、配色角色、印花适配及原图默认值。宿主要求默认主体、文字和配色保留原图。输入槽与 `followsSubject` 表达可替换性。`promptTemplate` 是服务端从默认值单向生成的展示文本，状态、图片与尺寸也由宿主决定。
 
 输入为 1–12 个可选槽，主体支持文字及一张私有主体照片，其他槽只开放文字；准确文字、指定内容和配色分别绑定同名元素或配色角色。每个槽默认值须与被绑定的 designSpec.defaults 一致。不接受图片内容替换、reference_only 或请求指定运行配置。
 
-成功输出在 `template` 之外附带 `source`（加法，`template` 不变；旧部署不返回，调用方须视为可选）：`source.texts` 为复核后的原图逐字文字 `[{text, elementId}]`（最多 40 项，只含设计本身的文字，不含水印与署名）；`source.condition` 为原图状况 `{marks, carrier, sharpness, compressionArtifacts, notes}`。`marks` 最多 5 项 `{kind: watermark | signature | platform_logo, text?}`，无则空数组；`carrier` 取 `flat_artwork | garment_photo | product_photo | scene_photo`；`sharpness` 取 `clear | slightly_blurry | severely_blurry`；`notes` 最多 5 条。二者由独立复核后的候选确定性投影，模型判断不代替人工核对；像素清晰度（如 150dpi）不由模型判断。
+成功输出在 `template` 之外附带 `source`（加法，`template` 不变；旧部署不返回，调用方须视为可选）：`source.texts` 为原图逐字文字 `[{text, elementId}]`（最多 40 项，只含设计本身的文字，不含水印与署名）；`source.condition` 为原图状况 `{marks, carrier, sharpness, compressionArtifacts, notes}`。`marks` 最多 5 项 `{kind: watermark | signature | platform_logo, text?}`，无则空数组；`carrier` 取 `flat_artwork | garment_photo | product_photo | scene_photo`；`sharpness` 取 `clear | slightly_blurry | severely_blurry`；`notes` 最多 5 条。二者从校验通过的候选投影。宿主按元素 ID 比较 `designSpec.defaults.texts` 与 `source.texts`，允许大小写、空白、全半角及等价引号和横线的排版差异。像素清晰度（如 150dpi）不由模型判断。
 
-编译最长 480 秒；正常两次独立视觉请求，结构无法读取时最多补一次编译，其后仍须独立复核。复核只修当前字段并完整复验，不重写整份候选、追加生图或自动采用。错误沿图片编译合同。成功不代表人工视觉或印刷验收通过。部署、来源与验证见 [印花拆解候选](processes/memebuy/template-from-image/print-design-v4.md)。
+编译最长 480 秒。正常只需一次视觉请求。JSON、结构或业务校验失败时最多追加一次修正，修正结果须通过完整校验。错误沿图片编译合同。成功不代表人工视觉或印刷验收通过。部署、来源与验证见 [印花拆解候选](processes/memebuy/template-from-image/print-design-v4.md)。
 
 ## 母版生成（template-master/v1）
 
@@ -1235,10 +1235,10 @@ V4 模板包含 `targetInstances`、`inputBindings` 与 `designSpec`，不得包
 
 输入支持两种二选一模式（同时提供或均缺失返回 `400 INVALID_INPUT`），均不接受步骤、Skill、模型字段：
 
-- **模式 A（推荐，`sourceRunId` 直读）**：`{ imageUrl, sourceRunId, budget: { maxAttempts: 1..10, maxUsd: 0..20 } }`。服务端在受理阶段按当前 `callerId` 读取同一调用方已成功的 `template-from-image` 运行产物（`output.template` 与 `output.source.condition`）。若上游运行不存在、不属于当前 `callerId`、非 `template-from-image` 流程、未到 `succeeded`、产物已过期或缺少合法 v4 `template`/`source.condition`，在入队前返回 `400` 及对应 `SOURCE_RUN_*` 错误码，零费用且不占用 `Idempotency-Key`。
+- **模式 A（推荐，`sourceRunId` 直读）**：`{ imageUrl, sourceRunId, budget: { maxAttempts: 1..10, maxUsd: 0..20 } }`。服务端在受理阶段按当前 `callerId` 读取同一调用方已成功的 `template-from-image` 运行产物（`output.template`、`output.source.condition` 及可用的 `output.source.texts`）。若上游运行不存在、不属于当前 `callerId`、非 `template-from-image` 流程、未到 `succeeded`、产物已过期或缺少合法 v4 `template`/`source.condition`，在入队前返回 `400` 及对应 `SOURCE_RUN_*` 错误码，零费用且不占用 `Idempotency-Key`。
 - **模式 B（兼容直传）**：`{ imageUrl, template, condition, budget: { maxAttempts: 1..10, maxUsd: 0..20 } }`。`imageUrl` 为私有原图当次短期签名公网 HTTPS 地址；`template` 兼容原样透传的 `template-from-image/v3` 完整产物与业务扩展键（`template` 与 `template.metadata` 允许并忽略未知字段，`title` 为 1–80 字，`description` 允许 `string | null` 或省略且至多 300 字，`metadata` 与 `metadata.tags` 可选且不限条数与单标签长度），保留 `key`、`inputSchema`（`version: 2`）与 `runtimeSemantics`（`version: 4`）核心校验；`condition` 为其 `source.condition`。
 
-成功输出：`{ preparedImage, master }`。`preparedImage` 为 `{ url, sha256, width, height, contentType: "image/png" }`，按内容寻址上传，`url` 固定为 `https://assets.memebuy.cn/gallery/template-images/<sha256>.png`。`master` 含最终档 `tier`、`redrawn`（仅重档为 true）、按时间排列的 `attempts[{ tier, passed, failures[{ check, detail }] }]`（最多 `maxAttempts` 条）与最终 `checks`（`text` 含 `expected` / `read`、`palette`、`layout`、`printable`、`similarity` 重档为 null）。`failures[].check` 取 `text | palette | layout | printable | similarity | generation`。
+成功输出：`{ preparedImage, master }`。`preparedImage` 为 `{ url, sha256, width, height, contentType: "image/png" }`，按内容寻址上传，`url` 固定为 `https://assets.memebuy.cn/gallery/template-images/<sha256>.png`。`master` 含最终档 `tier`、`redrawn`（仅重档为 true）、按时间排列的 `attempts[{ tier, passed, failures[{ check, detail }], reason? }]`（最多 `maxAttempts` 条）与最终 `checks`（`text` 含 `expected` / `read`、`palette`、`layout`、`printable`、`similarity` 重档为 null）。`failures[].check` 取 `text | palette | layout | printable | similarity | generation`。检测到历史或直传模板的默认文字或主体描述与原图记录不一致时，轻、中档直接跳到重档，首条重档尝试可含字符串 `reason`，跳档不消耗尝试次数。重档在同一次模型校验中对照原图判定设计保真，失败时沿用 `similarity`，详情为「重档母版未通过原图设计保真校验」。
 
 失败：`MASTER_NOT_ACCEPTED`（全部档位用尽）与 `MASTER_BUDGET_EXHAUSTED`（次数或已知费用用尽），HTTP 502，message 带各档尝试次数与最后失败项，不返回未通过的图；改图已付费后上传失败为 `DEPENDENCY_FAILURE_AFTER_COMMIT`。费用沿用 `cost`，未知费用不计入 `maxUsd`。分档、校验与阈值见 [模板母版](processes/memebuy/template-master/README.md)。
 

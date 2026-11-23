@@ -8,6 +8,7 @@ import { fullFormats } from "ajv-formats/dist/formats.js";
 import { z } from "zod";
 import { lockedSkill } from "../../../agent-runtime/locked-skill.js";
 import { validationDiagnostics } from "../../../process-runtime/template-diagnostics.js";
+import { normalizePrintText } from "../../print-text.js";
 import { type TemplateImage, templateImageSize } from "../image.js";
 import { designFindings } from "./design-findings.js";
 import { checkDesignSpec } from "./vendor/checks.js";
@@ -440,6 +441,25 @@ export function draftIssues(
         ]).errors;
         if (errors.length) {
             for (const finding of designFindings(spec, errors)) {
+                // 固定检查器仍按默认迁移禁用原物词。Skill 新版发布后核对这项宿主豁免。
+                if (
+                    finding.code === "source_word" &&
+                    finding.path[0] === "defaults" &&
+                    [
+                        "subject",
+                        "subjectName",
+                        "subjectShape",
+                        "subjectInherentColor",
+                    ].includes(String(finding.path[1])) &&
+                    !spec.bannedWords.some(
+                        (word) =>
+                            word &&
+                            finding.message.startsWith(
+                                `原物词「${word}」出现在：`,
+                            ),
+                    )
+                )
+                    continue;
                 add(
                     false,
                     `${[...root, ...finding.path].join(".")}: ${finding.message}`,
@@ -637,10 +657,26 @@ export function candidateIssues(
                 path: ["observation", "texts", index, "elementId"],
                 code: "expected_text_element",
             });
+            continue;
         }
-        // observation.texts 是原图原文，defaults.texts 是默认迁移文字，两者允许不同：
-        // 随主体迁移的标题、姓名在默认值里换成新题材，原文仍须逐字回传给调用方。
-        // 槽默认值与 defaults 的一致性由 draftIssues 的 value_mismatch 保证。
+        const expected = spec.defaults.texts[text.elementId];
+        if (
+            expected === undefined ||
+            normalizePrintText(expected) !== normalizePrintText(text.text)
+        ) {
+            const path = [
+                "draft",
+                "runtimeSemantics",
+                "designSpec",
+                "defaults",
+                "texts",
+                text.elementId,
+            ];
+            issues.push(
+                `${path.join(".")}: 默认文字必须与 observation.texts[${index}].text 的原图原文一致，并同步对应槽默认值`,
+            );
+            findings.push({ path, code: "value_mismatch" });
+        }
     }
     return issues;
 }

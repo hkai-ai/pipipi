@@ -251,14 +251,15 @@ it("原物词命中可执行字段与关系行时记录叶子路径与规则，�
         }),
     );
 });
-it("原文观察与默认迁移文字可以不同，文字元素引用错误仍被拒绝", () => {
+it("默认文字允许排版等价，原文逐字回传，错误的文字元素引用仍被拒绝", () => {
     const value = fixture();
     const original = value.observation.texts[0].text;
     const element = value.observation.texts[0].elementId;
-    value.observation.texts[0].text = `${original}!`;
+    const observed = "Ｌｏｏｋ\ngood";
+    value.observation.texts[0].text = observed;
     expect(candidateIssues(value)).toEqual([]);
     expect(compileResult(value, imageUrl, image).source.texts[0].text).toBe(
-        `${original}!`,
+        observed,
     );
     expect(
         value.draft.runtimeSemantics.designSpec.defaults.texts[element],
@@ -281,20 +282,55 @@ const fixtureFile = (name: string) =>
     JSON.parse(
         readFileSync(new URL(`./fixtures/${name}`, import.meta.url), "utf8"),
     );
-it("#1092 重档真实候选：原文与迁移默认字不同仍通过，原文逐字回传", () => {
+it("#1092 重档历史候选的迁移文字即使与槽默认值一致也须修正", () => {
     const value = readCandidate(
         fixtureFile("template-v4-1092-heavy-candidate.json"),
     );
-    expect(candidateIssues(value)).toEqual([]);
-    const result = compileResult(value, imageUrl, image);
-    const spec = value.draft.runtimeSemantics.designSpec;
-    expect(result.source.texts[1]).toEqual({
-        text: "MACROSS",
-        elementId: "main_title",
+    expect(candidateIssues(value)).toEqual(
+        expect.arrayContaining([
+            expect.stringContaining(
+                "defaults.texts.main_title: 默认文字必须与 observation.texts[1].text 的原图原文一致",
+            ),
+        ]),
+    );
+});
+it("默认文字与原文不一致时只修正一次，修正候选同时保留原图主体和原文", async () => {
+    const broken = fixture();
+    const spec = broken.draft.runtimeSemantics.designSpec;
+    spec.defaults.texts.headline = "CATCTOR.";
+    const slot = broken.draft.inputSchema.slots.find(
+        ({ id }) => id === "headline",
+    );
+    if (!slot) throw new Error("夹具缺少 headline 槽");
+    slot.text.defaultValue = "CATCTOR.";
+
+    const deps = dependencies();
+    deps.agent.compile
+        .mockResolvedValueOnce(broken)
+        .mockResolvedValueOnce(fixture());
+    const result = await run(deps);
+    expect(deps.agent.compile).toHaveBeenCalledTimes(2);
+    expect(deps.agent.compile.mock.calls[1][0].correction?.issues).toEqual([
+        expect.stringContaining(
+            "defaults.texts.headline: 默认文字必须与 observation.texts[0].text 的原图原文一致",
+        ),
+    ]);
+    expect(result).toMatchObject({
+        status: "succeeded",
+        output: {
+            source: { texts: [{ elementId: "headline", text: "LOOK GOOD" }] },
+            template: {
+                runtimeSemantics: {
+                    designSpec: {
+                        defaults: {
+                            subject: "一只橘色短毛猫",
+                            texts: { headline: "LOOK GOOD" },
+                        },
+                    },
+                },
+            },
+        },
     });
-    expect(spec.defaults.texts.main_title).toBe("NOCTURNE");
-    expect(result.template.promptTemplate).toContain("NOCTURNE");
-    expect(result.template.promptTemplate).not.toContain("MACROSS");
 });
 it("#1092 重档真实候选：槽默认值与迁移默认字不一致仍被拒绝", () => {
     const value = readCandidate(

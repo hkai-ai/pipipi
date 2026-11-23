@@ -12,7 +12,7 @@ v3 Process 交付运行语义 V4，二者分别版本化。编译器独立位于
 
 OpenAI 协议下未显式设置 `TEMPLATE_MODEL` 时，`template-from-image/v3` 默认使用高性价比的 `gpt-6.1-terra`（若服务器环境曾配置旧 `TEMPLATE_MODEL`，更新该变量或留空即可生效）。系统提示由约 76KB 的固定 Skill 正文在前、精简候选 Schema 与任务指令在后（`skillFirst`），并按绑定版本固定 `prompt_cache_key`（`print-design-template-compiler:v3`），使 `compile`、按需 `correction` 及跨运行请求共享同一前缀缓存（系统提示已移除冗余的旧版 `$defs` Schema，输出省略会被丢弃的 `overview` 与 `printRisks`）。非 OpenAI 协议或显式禁用 cache key 的模型不附加该字段。`cacheWarming` 保持 `off`。命中情况看运行日志活动 `sessions[].rounds[].usage.cacheRead`；费用以网关 `x-litellm-response-cost` 或模型费率账本为准。模型观察副本采用 WebP（最长边 1024px、每张最多 96 KiB）：不透明图发送 1 张总览，透明图发送白底与深黑底 2 张总览；原图本身与摘要不变。没有提供的像素统计不编造；版面 bbox 是待人审候选。
 
-作者校验包括完整 designSpec Schema、元素/配色引用、默认迁移、主体数量、模板编译器词表检查与输入接管关系。当前生成引擎只支持一张私有主体照片；其余内容、准确文字和配色仅开放文本，不交付内容图片或 reference_only 输入。每处准确文字保留原始观察和 defaults；主体相关的文字标 followsSubject。`observation.texts` 逐字记录原图文字并原样作为 `source.texts` 回传，`defaults.texts` 是默认迁移文字，二者允许不同（#1092）；`defaults.texts` 与对应槽的 `defaultValue` 仍须一致。输入绑定中只有唯一合法取值的字段（策略、渲染模式、分发方式）写错时服务端按合同改回，`valueKind` 按目标类型推断，推断不出仍按合同报错。rect_patch 必须包含新设计的 `edge` 边框元素且不得声称原图已有边框。
+作者校验包括完整 designSpec Schema、元素与配色引用、默认值一致性、主体数量、模板编译器词表检查与输入接管关系。当前生成引擎只支持一张私有主体照片；其余内容、准确文字和配色仅开放文本，不交付内容图片或 reference_only 输入。`observation.texts` 逐字记录原图设计文字并原样作为 `source.texts` 回传。`defaults.texts` 按元素 ID 保留原文，宿主按母版同一套排版等价规则比较，内容不同触发一次按需修正。槽的 `defaultValue` 与绑定到的默认值逐字一致。宿主提示要求 `defaults.subject` 保留原图主体及其可见外形，`defaults.colors` 取原图设计配色。输入槽和 `followsSubject` 表达用户填写后的可替换性。固定 Skill 仍包含旧迁移规则时，以宿主要求为准。宿主允许原物词出现在默认主体、名称、外形和固有色，继续检查可复用的设计描述。输入绑定中只有唯一合法取值的字段（策略、渲染模式、分发方式）写错时服务端按合同改回，`valueKind` 按目标类型推断，推断不出仍按合同报错。rect_patch 必须包含新设计的 `edge` 边框元素且不得声称原图已有边框。
 
 内部观察、模型与规则不会进入公开草稿或运行日志。
 
@@ -31,7 +31,7 @@ npx vitest run test/template-v4.test.ts test/template-agent.test.ts test/product
 PIPIPI_V4_CONTRACT_OUTPUT=/tmp/pipipi-v4-output.json npx vitest run test/template-v4.test.ts
 ```
 
-最后一条把正式 HTTP 路径的受控模型回包写到显式本地路径，供 Memebuy 的 `pipipi-v4-contract.test.ts` 用同名环境变量校验。它验证正式路由和校验实现，不证明真实模型的看图质量。
+最后一条把正式 HTTP 路径的受控模型回包写到指定本地路径。Memebuy 当前使用 `gallery.template_source_parse` 接收该回包，并在母版成功后将 `preparedImage` 设置为草稿封面和参考图。可通过 `buildTemplateParseResult`、`validateMasterOutput` 和 `validateTransferItem` 验证交接。旧编译回包测试直接从编译结果读取 `preparedImage`，适用于旧链路。
 
 真实模型验收单独运行，会产生文字模型费用，只读取本地批准图，不生图、不上传、不写模板库：
 

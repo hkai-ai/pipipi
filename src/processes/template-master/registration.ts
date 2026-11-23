@@ -26,7 +26,6 @@ import {
     isSourceRunMasterInput,
     type MasterFailure,
     type MasterOutput,
-    type MasterTier,
     masterInputSchema,
     masterOutputSchema,
     type ResolvedMasterInput,
@@ -42,10 +41,10 @@ import {
 } from "./light.js";
 import { buildEditInstruction } from "./method.js";
 import { EDIT_REFERENCE_MAX_SIDE } from "./thresholds.js";
-import { attemptPlan, startingTier } from "./tier.js";
+import { attemptPlan, redrawReason, startingTier } from "./tier.js";
 import { evaluateVerification, type MasterVerifier } from "./verifier.js";
 
-type Attempt = { tier: MasterTier; passed: boolean; failures: MasterFailure[] };
+type Attempt = MasterOutput["master"]["attempts"][number];
 
 const BUDGET_MESSAGE_MAX_LENGTH = 200;
 
@@ -182,7 +181,10 @@ export function createTemplateMasterRegistration(options: {
                 return `${message}${details}${cost}`;
             };
 
-            for (const tier of attemptPlan(startingTier(input.condition))) {
+            const initialTier = startingTier(input.condition);
+            const reason =
+                initialTier === "heavy" ? undefined : redrawReason(input);
+            for (const tier of attemptPlan(reason ? "heavy" : initialTier)) {
                 signal.throwIfAborted();
                 if (
                     attempts.length >= input.budget.maxAttempts ||
@@ -323,6 +325,7 @@ export function createTemplateMasterRegistration(options: {
                                 () =>
                                     options.verifier.verify({
                                         image: master as Buffer,
+                                        ...(tier === "heavy" ? { source } : {}),
                                         transparent: form === "standalone",
                                         spec,
                                         marks,
@@ -334,6 +337,7 @@ export function createTemplateMasterRegistration(options: {
                                 spec,
                                 marks,
                                 response,
+                                tier === "heavy",
                             );
                             failures.push(...verdict.failures);
                         } catch {
@@ -349,6 +353,7 @@ export function createTemplateMasterRegistration(options: {
                     tier,
                     passed: failures.length === 0,
                     failures,
+                    ...(reason && attempts.length === 0 ? { reason } : {}),
                 });
                 if (failures.length || !master || !verdict) continue;
 

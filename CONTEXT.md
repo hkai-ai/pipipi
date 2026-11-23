@@ -22,7 +22,7 @@ Pipipi 提供 Agent 运行环境（harness）和场景 skill。Process Registrat
 
 ## 产品契约
 
-模板图的原始附件始终是视觉依据。单一背景上可分离的内容带可附加像素轮廓测量；测量只辅助同次观察，不能代替视觉判断或成为公开模板字段。
+模板图的原始附件始终是视觉依据。`template-from-image/v3` 的默认主体、文字与配色保留原图，输入槽和 `followsSubject` 表达后续替换。`template-master/v1` 重绘时对照原图校验印花设计保真。单一背景上可分离的内容带可附加像素轮廓测量；测量只辅助同次观察，不能代替视觉判断或成为公开模板字段。
 
 模板任务由 Memebuy 决定何时需要人工确认；Pipipi 只执行单次解析（`template-from-image/v3`）或母版生成（`template-master/v1`），不保存候选、审核者或批准状态。旧「方案 → 生图 → 编译」三阶段链路已于 2026-11-17 下线，`template-image-plan`、`template-image-render` 与 `template-from-source` 不再注册，在途候选直接放弃。
 

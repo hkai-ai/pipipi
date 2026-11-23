@@ -154,6 +154,7 @@ async function startHarness(
         otherTexts: [],
         layout: { passed: true, offenders: [] },
         watermarkRemaining: false,
+        sourceFidelity: true,
     }));
 
     const templateMaster = createTemplateMasterRegistration({
@@ -341,77 +342,94 @@ function seededSourceRun(
 }
 
 describe("template-master/v1 契约治理与 400 可观测性", () => {
-    it("AC-1 & AC-2：通过 sourceRunId 直读上游产物完整跑通母版，并在控制台记录可溯源 sourceRunId", async () => {
-        const sourceRunId = "bdf8bd32-4349-4c6f-abe1-b4bb514339a9";
-        const h = await startHarness({
-            recordContent: "omit",
-            seededRuns: [seededSourceRun({ runId: sourceRunId })],
-        });
+    it.each([false, true])(
+        "通过 sourceRunId 直读上游产物，保留溯源并按原图文字分档（差异 %s）",
+        async (mismatch) => {
+            const sourceRunId = "bdf8bd32-4349-4c6f-abe1-b4bb514339a9";
+            const output = fullV3Output();
+            if (mismatch) output.source.texts[0].text = "DOGTOR";
+            const h = await startHarness({
+                recordContent: "omit",
+                seededRuns: [seededSourceRun({ runId: sourceRunId, output })],
+            });
 
-        const submitRes = await fetch(`${h.url}/process-runs`, {
-            method: "POST",
-            headers: {
-                "content-type": "application/json",
-                "x-test-caller": "memebuy-uat",
-                "idempotency-key": "master-source-run-1",
-            },
-            body: JSON.stringify({
+            const submitRes = await fetch(`${h.url}/process-runs`, {
+                method: "POST",
+                headers: {
+                    "content-type": "application/json",
+                    "x-test-caller": "memebuy-uat",
+                    "idempotency-key": "master-source-run-1",
+                },
+                body: JSON.stringify({
+                    process: "template-master",
+                    version: "v1",
+                    input: {
+                        imageUrl,
+                        sourceRunId,
+                        budget: { maxAttempts: 5, maxUsd: 1 },
+                    },
+                }),
+            });
+            expect(submitRes.status).toBe(202);
+            const accepted = (await submitRes.json()) as { runId: string };
+            expect(accepted.runId).toBeTruthy();
+
+            await expect(h.drain.drainOne()).resolves.toBe("processed");
+            await h.activities.flush();
+
+            const runRes = await fetch(
+                `${h.url}/process-runs/${accepted.runId}`,
+                {
+                    headers: { "x-test-caller": "memebuy-uat" },
+                },
+            );
+            expect(runRes.status).toBe(200);
+            const runView = (await runRes.json()) as {
+                status: string;
+                output: { master: { tier: string; attempts: unknown[] } };
+            };
+            expect(runView.status).toBe("succeeded");
+            expect(runView.output.master.tier).toBe(
+                mismatch ? "heavy" : "light",
+            );
+            if (mismatch) {
+                expect(runView.output.master.attempts).toMatchObject([
+                    { reason: "默认文字与原图记录不一致，跳过轻档和中档" },
+                ]);
+            }
+
+            // 控制台运行记录即使关闭 content 正文，仍携带 callerId 与 sourceRunId 供回溯
+            const consoleRunRes = await fetch(
+                `${h.url}/console/runs/${accepted.runId}`,
+            );
+            expect(consoleRunRes.status).toBe(200);
+            const consoleRecord = await consoleRunRes.json();
+            expect(consoleRecord).toMatchObject({
+                runId: accepted.runId,
                 process: "template-master",
                 version: "v1",
-                input: {
-                    imageUrl,
-                    sourceRunId,
-                    budget: { maxAttempts: 5, maxUsd: 1 },
-                },
-            }),
-        });
-        expect(submitRes.status).toBe(202);
-        const accepted = (await submitRes.json()) as { runId: string };
-        expect(accepted.runId).toBeTruthy();
+                callerId: "memebuy-uat",
+                sourceRunId,
+                status: "succeeded",
+            });
 
-        await expect(h.drain.drainOne()).resolves.toBe("processed");
-        await h.activities.flush();
-
-        const runRes = await fetch(`${h.url}/process-runs/${accepted.runId}`, {
-            headers: { "x-test-caller": "memebuy-uat" },
-        });
-        expect(runRes.status).toBe(200);
-        const runView = (await runRes.json()) as {
-            status: string;
-            output: { master: { tier: string } };
-        };
-        expect(runView.status).toBe("succeeded");
-        expect(runView.output.master.tier).toBe("light");
-
-        // 控制台运行记录即使关闭 content 正文，仍携带 callerId 与 sourceRunId 供回溯
-        const consoleRunRes = await fetch(
-            `${h.url}/console/runs/${accepted.runId}`,
-        );
-        expect(consoleRunRes.status).toBe(200);
-        const consoleRecord = await consoleRunRes.json();
-        expect(consoleRecord).toMatchObject({
-            runId: accepted.runId,
-            process: "template-master",
-            version: "v1",
-            callerId: "memebuy-uat",
-            sourceRunId,
-            status: "succeeded",
-        });
-
-        const timelineRes = await fetch(
-            `${h.url}/console/runs/${accepted.runId}/activities`,
-        );
-        const timeline = (await timelineRes.json()) as {
-            activities: Array<{ activity?: string }>;
-        };
-        const executedActivities = timeline.activities
-            .map((a) => a.activity)
-            .filter(Boolean);
-        expect(executedActivities).toContain("master_source_loading");
-        expect(executedActivities).toContain("master_light_rendering");
-        expect(executedActivities).toContain("master_verification");
-        expect(executedActivities).toContain("master_upload");
-    });
+            const timelineRes = await fetch(
+                `${h.url}/console/runs/${accepted.runId}/activities`,
+            );
+            const timeline = (await timelineRes.json()) as {
+                activities: Array<{ activity?: string }>;
+            };
+            const executedActivities = timeline.activities
+                .map((a) => a.activity)
+                .filter(Boolean);
+            expect(executedActivities).toContain("master_source_loading");
+            expect(executedActivities).toContain(
+                mismatch ? "master_generation" : "master_light_rendering",
+            );
+            expect(executedActivities).toContain("master_verification");
+            expect(executedActivities).toContain("master_upload");
+        },
+    );
 
     it("AC-3：拦截越权、不存在、非解析流程、未成功、已过期、缺 condition 以及二选一冲突的 sourceRunId", async () => {
         const ownedV3 = "00000000-0000-4000-8000-000000000001";

@@ -31,7 +31,7 @@
                         "presentation": "free_text",
                         "allowCustom": true,
                         "placeholder": "输入主体，或上传 1 张清晰主体图",
-                        "defaultValue": "一只灰色短毛兔"
+                        "defaultValue": "一只橘色短毛猫"
                     },
                     "image": {
                         "promptValue": "图片中的主体",
@@ -280,16 +280,16 @@
                     "纯白高调棚拍的写实质感"
                 ],
                 "lockedInstances": ["仰头"],
-                "bannedWords": ["猫", "小花"],
+                "bannedWords": ["小花"],
                 "printFit": {
                     "verdict": "direct",
                     "lightIsMood": false
                 },
                 "defaults": {
-                    "subject": "一只灰色短毛兔",
-                    "subjectName": "一只灰色短毛兔",
-                    "subjectShape": "一对长耳朵从头巾顶部伸出、竖着，圆润的脸，短而密的毛",
-                    "subjectInherentColor": "灰色短毛，耳朵内侧和鼻头浅粉色",
+                    "subject": "一只橘色短毛猫",
+                    "subjectName": "橘色短毛猫",
+                    "subjectShape": "圆胖的大脸盘，三角耳一只露在头巾外",
+                    "subjectInherentColor": "橘色虎斑条纹",
                     "texts": {
                         "headline": "LOOK GOOD"
                     },
