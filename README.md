@@ -13,7 +13,7 @@ Memebuy 新模板任务走 `template-from-image/v3` → `template-master/v1`。�
 | 场景 | Process | 输入 | 输出 |
 | --- | --- | --- | --- |
 | `memebuy` | `template-from-image/v1` | `{ imageUrl, note? }` | `{ template }`，Gallery v2 草稿 |
-| `memebuy` | `template-master/v1` | 原图、预算，及 `sourceRunId` 或兼容直传 v4 草稿与原图状况 | `{ preparedImage, master }` |
+| `memebuy` | [`template-master/v1`](docs/api.md#母版生成template-masterv1) | 原图、预算，及 `sourceRunId` 或兼容直传 v4 草稿与原图状况 | `{ preparedImage, master }`，预算耗尽时提供有界的文字差异说明 |
 | `memebuy` | [`product-remix/v1`](docs/processes/memebuy/product-remix/README.md) | 原印花图、可选 0–9 张参考图、编辑意图、可选尺寸与预算 | `{ image, modelName, resolvedTier }` |
 | `common` | `minimal-zine-poster/v1` | `{ "brief": string, "text"?: string }` | `{ "prompt", "recipe", "interpretation", "image" }` |
 | `common` | `crt-interface-image/v1` | `{ "sourceImageUrl", "palette", "aspectRatio" }` | `{ "aspectRatio", "image" }` |

@@ -47,6 +47,21 @@ import { evaluateVerification, type MasterVerifier } from "./verifier.js";
 
 type Attempt = { tier: MasterTier; passed: boolean; failures: MasterFailure[] };
 
+const BUDGET_MESSAGE_MAX_LENGTH = 200;
+
+/** 公开错误只附完整的文字差异说明，留足括号与省略号的位置。 */
+function textSummary(failures: readonly MasterFailure[], maxLength: number) {
+    let details = "";
+    for (const { check, detail } of failures) {
+        if (check !== "text") continue;
+        const next = details ? `${details}、${detail}` : detail;
+        if (next.length + 3 > maxLength)
+            return details ? `（${details}…）` : "（文字差异说明已省略）";
+        details = next;
+    }
+    return details ? `（${details}）` : "";
+}
+
 const hex = (rgb: readonly number[]) =>
     `#${rgb
         .map((v) => v.toString(16).padStart(2, "0"))
@@ -138,7 +153,7 @@ export function createTemplateMasterRegistration(options: {
                     paidEdits > 0 ? "DEPENDENCY_FAILURE_AFTER_COMMIT" : code,
                     message,
                 );
-            const summary = () => {
+            const summary = (prefix: string, includeTextDetails = false) => {
                 const counts = (["light", "medium", "heavy"] as const)
                     .map(
                         (t) =>
@@ -150,12 +165,21 @@ export function createTemplateMasterRegistration(options: {
                     .filter(([, n]) => n > 0)
                     .map(([t, n]) => `${t}×${n}`)
                     .join("、");
-                const last = attempts.at(-1)?.failures.map((f) => f.check);
-                return `已尝试 ${counts || "无"}${
-                    last?.length
-                        ? `，最后失败项：${[...new Set(last)].join("、")}`
-                        : ""
-                }${unknownCost ? "；含费用未知的调用" : ""}`;
+                const failures = attempts.at(-1)?.failures ?? [];
+                const checks = [...new Set(failures.map((f) => f.check))];
+                const message = `${prefix}已尝试 ${counts || "无"}${
+                    checks.length ? `，最后失败项：${checks.join("、")}` : ""
+                }`;
+                const cost = unknownCost ? "；含费用未知的调用" : "";
+                const details = includeTextDetails
+                    ? textSummary(
+                          failures,
+                          BUDGET_MESSAGE_MAX_LENGTH -
+                              message.length -
+                              cost.length,
+                      )
+                    : "";
+                return `${message}${details}${cost}`;
             };
 
             for (const tier of attemptPlan(startingTier(input.condition))) {
@@ -166,7 +190,10 @@ export function createTemplateMasterRegistration(options: {
                 )
                     return failProcess(
                         "MASTER_BUDGET_EXHAUSTED",
-                        `母版预算已用尽（次数上限 ${input.budget.maxAttempts}、金额上限 ${input.budget.maxUsd} USD）：${summary()}`,
+                        summary(
+                            `母版预算已用尽（次数上限 ${input.budget.maxAttempts}、金额上限 ${input.budget.maxUsd} USD）：`,
+                            true,
+                        ),
                     );
                 // 轻档失败直接升档，中、重档带上一次失败原因重试。
                 const last = attempts.at(-1);
@@ -357,7 +384,7 @@ export function createTemplateMasterRegistration(options: {
             }
             return failProcess(
                 "MASTER_NOT_ACCEPTED",
-                `全部档位用尽仍未得到通过校验的母版：${summary()}`,
+                summary("全部档位用尽仍未得到通过校验的母版："),
             );
         },
     });

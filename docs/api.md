@@ -1242,6 +1242,8 @@ V4 模板包含 `targetInstances`、`inputBindings` 与 `designSpec`，不得包
 
 失败：`MASTER_NOT_ACCEPTED`（全部档位用尽）与 `MASTER_BUDGET_EXHAUSTED`（次数或已知费用用尽），HTTP 502，message 带各档尝试次数与最后失败项，不返回未通过的图；改图已付费后上传失败为 `DEPENDENCY_FAILURE_AFTER_COMMIT`。费用沿用 `cost`，未知费用不计入 `maxUsd`。分档、校验与阈值见 [模板母版](processes/memebuy/template-master/README.md)。
 
+`MASTER_BUDGET_EXHAUSTED` 的 `error.message` 在最后一次尝试有文字失败时追加括号说明，例如 `最后失败项：text（caption：文字顺序不同）`。说明仅包含元素 ID、差异类别或清单外文字数量。消息最多 200 字符，超长时按条目省略。这个加法扩展兼容旧格式，括号说明可省略。Memebuy 按 `error.code` 判定失败和选择工作台提示，Pipipi 的 `message` 可供排查。
+
 ## 模板执行步骤
 
 Memebuy 可在同步 `POST /execute` 请求中发送 `X-Pipipi-Template-Steps: 1`，取得本次模板执行已结束的步骤；未请求、旧服务或没有可用步骤时保持原回执。可选的 `diagnostics` 与 `output/error` 同级，不改变执行状态、费用或重试规则。

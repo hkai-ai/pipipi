@@ -23,6 +23,7 @@ import {
     keyOutEdgeBackground,
     renderLightMaster,
 } from "../src/processes/template-master/light.js";
+import { buildEditInstruction } from "../src/processes/template-master/method.js";
 import { createTemplateMasterRegistration } from "../src/processes/template-master/registration.js";
 import { createTemplateMasterSkillRefs } from "../src/processes/template-master/skills.js";
 import type { SourceCondition } from "../src/processes/template-master/tier.js";
@@ -99,7 +100,10 @@ it("母版视觉校验在供应商请求中声明完整的严格输出合同", a
             modelsPath: null,
             refreshOnCreate: false,
         }),
-        sessionFactory: async () => {
+        sessionFactory: async ({ resourceLoader }) => {
+            expect(resourceLoader?.getSystemPrompt()).toMatch(
+                /弧线、圆环或波浪.*阅读起点和方向.*一整段.*对应.*id.*otherTexts/u,
+            );
             const model = {
                 api: "openai-completions",
                 input: ["text", "image"],
@@ -439,20 +443,52 @@ describe("模型校验比较", () => {
         layout: { passed: true, offenders: [] },
         watermarkRemaining: false,
     };
-    it("归一化只忽略空白与大小写", () => {
-        expect(evaluateVerification(spec, [], base).text.passed).toBe(true);
+    function compare(expected: string, read: string | null) {
+        return evaluateVerification(
+            {
+                ...spec,
+                defaults: { ...spec.defaults, texts: { headline: expected } },
+            },
+            [],
+            { ...base, texts: read === null ? [] : [{ id: "headline", read }] },
+        );
+    }
+    it.each([..."’‘‛＇`´"])("撇号 %s 等价于 ASCII 撇号", (apostrophe) => {
+        const result = compare("I'm sweet", `I${apostrophe}m sweet`);
+        expect(result.text.passed).toBe(true);
+        expect(result.failures).toEqual([]);
+    });
+    it.each([..."‐‑‒–—－"])("连字符或破折号 %s 等价于 ASCII 连字符", (dash) => {
+        expect(compare("A-B", `a${dash}b`).text.passed).toBe(true);
+    });
+    it("忽略排版等价的引号、全半角、大小写和空白差异", () => {
         expect(
-            evaluateVerification(spec, [], {
-                ...base,
-                texts: [{ id: "headline", read: "LOOK GOD" }],
-            }).text.passed,
-        ).toBe(false);
-        expect(
-            evaluateVerification(spec, [], {
-                ...base,
-                texts: [{ id: "headline", read: "LOOK GOOD!" }],
-            }).text.passed,
-        ).toBe(false);
+            compare(
+                '"Look good",印花(2)!?',
+                "“ＬＯＯＫ　ｇｏｏｄ”，印花（２）！？",
+            ).failures,
+        ).toEqual([]);
+        expect(compare('"Look good"', "＂Look good＂").failures).toEqual([]);
+    });
+    it.each([
+        ["LOOK GOOD", null, "读取为空"],
+        ["LOOK GOOD", "　 ", "读取为空"],
+        ["LOOK GOOD", "LOOK GOD", "缺字"],
+        ["LOOK GOOD", "LOOK GOOOD", "多字"],
+        ["LOOK GOOD", "GOOD LOOK", "文字顺序不同"],
+        ["LOOK GOOD", "LOOK GOOD!", "仅标点或空白差异"],
+        ["花样2", "花樣3", "文字内容不同"],
+        [
+            "I'm sweet like peaches",
+            "I’m sweet like strawberries",
+            "文字内容不同",
+        ],
+    ])("把 %s 与 %s 的差异分类为 %s", (expected, read, reason) => {
+        const result = compare(expected, read);
+        expect(result.text.passed).toBe(false);
+        expect(result.failures).toEqual([
+            { check: "text", detail: `headline：${reason}` },
+        ]);
     });
     it("清单外文字、残留水印、版面偏离分别产生失败项且不回显读到的文字", () => {
         const result = evaluateVerification(
@@ -460,7 +496,7 @@ describe("模型校验比较", () => {
             [{ kind: "watermark", text: "WM" }],
             {
                 ...base,
-                otherTexts: ["SECRET"],
+                otherTexts: ["SECRET", " ", "ALSO SECRET"],
                 watermarkRemaining: true,
                 layout: { passed: false, offenders: ["headline"] },
             },
@@ -471,8 +507,19 @@ describe("模型校验比较", () => {
             "layout",
         ]);
         expect(JSON.stringify(result.failures)).not.toContain("SECRET");
+        expect(result.failures[0]?.detail).toBe("出现清单外文字 2 处");
         expect(result.text.read).toContain("SECRET");
     });
+});
+
+it.each(["medium", "heavy"] as const)("%s 生成提示保留弯曲文字排布", (tier) => {
+    const prompt = buildEditInstruction({
+        tier,
+        spec,
+        form: "standalone",
+        marks: [],
+    });
+    expect(prompt).toMatch(/弧线、圆环或波浪.*阅读起点和方向.*直线/u);
 });
 
 describe("重试、升档与预算", () => {
@@ -489,6 +536,7 @@ describe("重试、升档与预算", () => {
     async function run(options: {
         cond?: typeof condition;
         budget?: { maxAttempts: number; maxUsd: number };
+        design?: typeof spec;
         edit?: (call: number, size: string) => Promise<Buffer>;
         verify?: (call: number) => Verification;
         spent?: () => number;
@@ -522,7 +570,13 @@ describe("重试、升档与预算", () => {
         });
         const accepted = registration.accept({
             imageUrl,
-            template,
+            template: {
+                ...template,
+                runtimeSemantics: {
+                    ...template.runtimeSemantics,
+                    designSpec: options.design ?? spec,
+                },
+            },
             condition: options.cond ?? condition,
             budget: options.budget ?? { maxAttempts: 10, maxUsd: 5 },
         });
@@ -569,6 +623,9 @@ describe("重试、升档与预算", () => {
         expect(
             output.master.attempts.map((a) => `${a.tier}:${a.passed}`),
         ).toEqual(["light:false", "medium:true"]);
+        expect(output.master.attempts[0]?.failures).toEqual([
+            { check: "text", detail: "headline：缺字" },
+        ]);
         expect(edit).toHaveBeenCalledOnce();
     });
     it("确定性校验不过时不付模型校验费，重试提示含上次失败原因", async () => {
@@ -631,12 +688,22 @@ describe("重试、升档与预算", () => {
         const { completion, edit } = await run({
             cond: marked,
             budget: { maxAttempts: 2, maxUsd: 5 },
-            verify: () => ({ ...okVerification, watermarkRemaining: true }),
+            verify: (call) => ({
+                ...okVerification,
+                texts: [
+                    { id: "headline", read: call === 1 ? "" : "GOOD LOOK" },
+                ],
+                otherTexts: call === 1 ? [] : ["SECRET"],
+            }),
         });
         expect(edit).toHaveBeenCalledTimes(2);
         expect(completion).toMatchObject({
             status: "failed",
-            error: { code: "MASTER_BUDGET_EXHAUSTED" },
+            error: {
+                code: "MASTER_BUDGET_EXHAUSTED",
+                publicMessage:
+                    "母版预算已用尽（次数上限 2、金额上限 5 USD）：已尝试 medium×2，最后失败项：text（headline：文字顺序不同、出现清单外文字 1 处）",
+            },
         });
     });
     it("已知费用达到上限即停止，不再改图", async () => {
@@ -648,8 +715,51 @@ describe("重试、升档与预算", () => {
         expect(edit).not.toHaveBeenCalled();
         expect(completion).toMatchObject({
             status: "failed",
-            error: { code: "MASTER_BUDGET_EXHAUSTED" },
+            error: {
+                code: "MASTER_BUDGET_EXHAUSTED",
+                publicMessage:
+                    "母版预算已用尽（次数上限 10、金额上限 0.5 USD）：已尝试 无",
+            },
         });
+    });
+    it("逐元素保留差异，公开消息过长时省略后续完整条目", async () => {
+        const headline = spec.elements.find(({ id }) => id === "headline");
+        if (!headline) throw new Error("fixture headline missing");
+        const firstId = "a".repeat(80);
+        const ids = [firstId, "b".repeat(80), "c".repeat(80)];
+        const design = {
+            ...spec,
+            elements: [
+                ...spec.elements,
+                ...ids.map((id) => ({ ...headline, id })),
+            ],
+            defaults: {
+                ...spec.defaults,
+                texts: {
+                    ...spec.defaults.texts,
+                    ...Object.fromEntries(ids.map((id) => [id, "EXPECTED"])),
+                },
+            },
+        };
+        const verify = () => ({
+            ...okVerification,
+            texts: [...okVerification.texts, { id: firstId, read: "SECRET" }],
+        });
+        expect(evaluateVerification(design, [], verify()).failures).toEqual([
+            { check: "text", detail: `${ids[0]}：文字内容不同` },
+            { check: "text", detail: `${ids[1]}：读取为空` },
+            { check: "text", detail: `${ids[2]}：读取为空` },
+        ]);
+        const { completion } = await run({
+            design,
+            budget: { maxAttempts: 1, maxUsd: 5 },
+            verify,
+        });
+        if (completion.status !== "failed") throw new Error("expected failure");
+        expect(completion.error.publicMessage.length).toBeLessThanOrEqual(200);
+        expect(completion.error.publicMessage).toBe(
+            `母版预算已用尽（次数上限 1、金额上限 5 USD）：已尝试 light×1，最后失败项：text（${ids[0]}：文字内容不同…）`,
+        );
     });
     it("通过后上传失败：已付费改图为 AFTER_COMMIT，轻档为 DEPENDENCY_FAILURE", async () => {
         const source = await paint(400, 400, circle(400, 116, white));

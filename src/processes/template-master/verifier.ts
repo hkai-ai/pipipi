@@ -51,12 +51,50 @@ export interface MasterVerifier {
     verify(request: MasterVerificationRequest): Promise<Verification>;
 }
 
-/** 归一化只做空白与大小写，其余字符（标点、全半角）逐字比较。 */
+/** 统一排版等价字符后逐字比较。重音符号须在 NFKC 将其展开前转成撇号。 */
 export const normalizeText = (text: string) =>
-    text.replace(/\s+/gu, "").toLowerCase();
+    text
+        .replace(/´/gu, "'")
+        .normalize("NFKC")
+        .replace(/[’‘‛`]/gu, "'")
+        .replace(/[“”]/gu, '"')
+        .replace(/[‐‑‒–—]/gu, "-")
+        .replace(/\s+/gu, "")
+        .toLowerCase();
+
+function isSubsequence(shorter: string[], longer: string[]): boolean {
+    let index = 0;
+    for (const character of longer) {
+        if (character === shorter[index]) index++;
+    }
+    return index === shorter.length;
+}
+
+function textDifference(expected: string, read: string): string | undefined {
+    if (read === expected) return undefined;
+    if (!read) return "读取为空";
+    if (expected.replace(/\p{P}/gu, "") === read.replace(/\p{P}/gu, ""))
+        return "仅标点或空白差异";
+
+    const expectedChars = Array.from(expected);
+    const readChars = Array.from(read);
+    if (
+        readChars.length < expectedChars.length &&
+        isSubsequence(readChars, expectedChars)
+    )
+        return "缺字";
+    if (
+        readChars.length > expectedChars.length &&
+        isSubsequence(expectedChars, readChars)
+    )
+        return "多字";
+    if (expectedChars.sort().join("") === readChars.sort().join(""))
+        return "文字顺序不同";
+    return "文字内容不同";
+}
 
 /**
- * 把模型读到的内容与 designSpec 默认值比较。失败说明只含元素 id 与数量，
+ * 把模型读到的内容与 designSpec 默认值比较。失败说明只含元素 id、差异类别与数量，
  * 不回显读到的文字；水印残留计入 text 项（残留的标记文字同样是清单外文字）。
  */
 export function evaluateVerification(
@@ -65,35 +103,32 @@ export function evaluateVerification(
     response: Verification,
 ) {
     const expected = textElements(spec);
-    const reads = expected.map(
-        (element) =>
-            response.texts.find((item) => item.id === element.id)?.read ?? "",
-    );
-    const mismatched = expected
-        .filter(
-            (element, index) =>
-                normalizeText(element.text) !==
-                normalizeText(reads[index] as string),
-        )
-        .map((element) => element.id);
+    const reads: string[] = [];
+    const failures: MasterFailure[] = [];
+    for (const element of expected) {
+        const read =
+            response.texts.find((item) => item.id === element.id)?.read ?? "";
+        reads.push(read);
+        const difference = textDifference(
+            normalizeText(element.text),
+            normalizeText(read),
+        );
+        if (difference)
+            failures.push({
+                check: "text",
+                detail: `${element.id}：${difference}`,
+            });
+    }
     const others = response.otherTexts.filter((text) => text.trim());
     const markRemains = marks.length > 0 && response.watermarkRemaining;
-    const failures: MasterFailure[] = [];
-    if (mismatched.length)
-        failures.push({
-            check: "text",
-            detail: `文字与默认文字不一致的元素：${mismatched.join("、")}`.slice(
-                0,
-                200,
-            ),
-        });
     if (others.length)
         failures.push({
             check: "text",
-            detail: `出现默认文字清单之外的文字 ${others.length} 处`,
+            detail: `出现清单外文字 ${others.length} 处`,
         });
     if (markRemains)
         failures.push({ check: "text", detail: "原图水印、署名或标识仍可见" });
+    const textPassed = failures.length === 0;
     const known = new Set(layoutBoxes(spec).map((box) => box.id));
     const offenders = response.layout.offenders.filter((id) => known.has(id));
     const layoutPassed =
@@ -108,7 +143,7 @@ export function evaluateVerification(
         });
     return {
         text: {
-            passed: !mismatched.length && !others.length && !markRemains,
+            passed: textPassed,
             expected: expected.map((element) => element.text),
             read: [...reads, ...others],
         },
