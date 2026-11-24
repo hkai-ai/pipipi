@@ -14,7 +14,12 @@ export const sourcePhotoSchema = z
     .trim()
     .min(1)
     .max(2_048)
-    .refine(isPublicSourceImageUrl, "参考图必须是公网 HTTPS URL");
+    .refine(isPublicSourceImageUrl, "参考图必须是公网 HTTPS URL")
+    .meta({
+        format: "uri",
+        description:
+            "公网可匿名读取的 HTTPS 原图 URL（最长 2048 字符，禁止内网地址、IP 字面量、显式端口、凭据或 # 片段）。",
+    });
 
 export const photoPosterImageSchema = z.strictObject({
     url: z
@@ -27,11 +32,15 @@ export const photoPosterImageSchema = z.strictObject({
                 !url.username &&
                 !url.password
             );
-        }),
+        })
+        .meta({ format: "uri", description: "可访问的成品 PNG 图片地址。" }),
     contentType: z.literal("image/png"),
     width: z.int().min(64).max(4_096),
     height: z.int().min(64).max(12_288),
-    expiresAt: z.iso.datetime().optional(),
+    expiresAt: z.iso
+        .datetime()
+        .optional()
+        .describe("临时签名 URL 的 ISO 8601 失效时间（如适用）。"),
 });
 
 export const photoPosterRenderSchema = z

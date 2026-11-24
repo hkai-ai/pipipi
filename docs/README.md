@@ -35,7 +35,7 @@
 | [`../README.md`](../README.md) | 说明项目是什么、当前能力、最短体验路径和文档入口 | 产品能力、公开 Interface 或快速开始变化 |
 | [`../CONTEXT.md`](../CONTEXT.md) | 记录项目目的、范围、信任模型和共同语言 | 产品方向、范围、核心约束或术语变化 |
 | [`../llms.txt`](../llms.txt) | 给调用 Agent 提供生产 API 导航和首要安全规则 | 公开文档路径、执行方式或 Agent 必须先知道的调用边界变化 |
-| [`api.md`](api.md) | 汇总全部业务调用路由、Process 入参、响应、重试和 Webhook 契约 | 业务路由、请求、响应、错误、重试、Webhook 或 production catalog 变化 |
+| [`api.md`](api.md) | 汇总认证、执行选型、费用、错误、重试、Webhook 与非 Schema 行为边界；精确字段 Schema 由 `/openapi.json` 及单切片从注册表实时派生 | 认证、调用路由、错误/重试语义、Webhook 或非 Schema 行为边界变化 |
 
 项目说明面向第一次接触仓库的人。它描述当前事实，不承担详细实现、实验记录或发布操作。
 
@@ -93,7 +93,7 @@ Runbook 必须可按顺序执行。每一步都应说明前置条件、成功信
 新增文档前先确定读者要完成的任务：
 
 - 想理解项目：更新根目录 `README.md` 或 `CONTEXT.md`。
-- 想调用业务 HTTP Interface：Agent 从根目录 `llms.txt` 进入，人与 Agent 都以 `docs/api.md` 为完整契约。
+- 想调用业务 HTTP Interface：Agent 从根目录 `llms.txt` 进入；人与 Agent 通过 `docs/api.md` 掌握认证、重试与行为边界，通过 `GET /openapi.json` 或 `GET /openapi/processes/{process}/{version}.json` 获取实时派生的精确字段 Schema。
 - 想理解或修改某个现有 Process：先从 `docs/processes/README.md` 选择场景，再阅读 `docs/processes/<scenario>/<process-id>/README.md`。
 - 想修改代码：更新 `docs/development.md` 或对应 `*-design.md`。
 - 想把自然语言流程封装为产品能力：阅读或更新 `docs/authoring-business-processes.md`。
@@ -111,7 +111,7 @@ Runbook 必须可按顺序执行。每一步都应说明前置条件、成功信
 同一事实只保留一个规范性来源，其他文档用链接和短摘要引导：
 
 - 目的、范围和术语以 [`../CONTEXT.md`](../CONTEXT.md) 为准。
-- 业务 HTTP 路由、请求、响应、错误、重试和 Webhook 以 [`api.md`](api.md) 为统一来源；根目录 [`llms.txt`](../llms.txt) 只负责 Agent 路由和首要安全规则。
+- 认证、执行选型、费用、错误/重试语义与 Webhook 验签以 [`api.md`](api.md) 为统一来源；精确字段 Schema 以 `src/` 中的 Zod Schema 及服务端派生的 `/openapi.json` 为准；根目录 [`llms.txt`](../llms.txt) 负责 Agent 路由与首要安全规则。
 - 精确行为、默认值和错误映射以 `src/` 与 `test/` 为准。
 - 产品场景归属以 `docs/processes/<scenario>/README.md` 为准；Process 专属说明和代码入口以对应的 `<process-id>/README.md` 为准。
 - 环境变量清单以 [`.env.example`](../.env.example) 和配置解析测试为准。

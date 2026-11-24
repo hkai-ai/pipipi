@@ -7,7 +7,10 @@ export const mangaPanelsInputSchema = z.strictObject({
     sourceImageUrl: sourcePhotoSchema,
     preset: z
         .enum(["three-panel-details", "sketchy-mixed-panels"])
-        .default("three-panel-details"),
+        .default("three-panel-details")
+        .describe(
+            "固定黑白无字三格版式预设：three-panel-details（细节三格，默认）或 sketchy-mixed-panels（粗笔拼页）。",
+        ),
     background: imageBackgroundSchema.optional(),
 });
 

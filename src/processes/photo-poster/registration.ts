@@ -41,7 +41,15 @@ import {
 const inputSchema = z.strictObject({
     sourceImageUrl: sourcePhotoSchema,
     background: imageBackgroundSchema.optional(),
-    text: z.string().trim().min(1).max(200).optional(),
+    text: z
+        .string()
+        .trim()
+        .min(1)
+        .max(200)
+        .optional()
+        .describe(
+            "可选海报文案（1–200 字符），仅作画面印刷文字，不参与风格选择。",
+        ),
 });
 const imageOnlyInputSchema = z.strictObject({
     sourceImageUrl: sourcePhotoSchema,
@@ -54,9 +62,18 @@ const travelInputSchema = z.strictObject({
         .string()
         .trim()
         .regex(/^[A-Z]+(?: [A-Z]+){0,2}$/)
-        .max(60),
-    archiveNumber: z.int().min(1).max(999).default(1),
-    capturedOn: z.iso.date().optional(),
+        .max(60)
+        .describe("1–3 个空格分隔的全大写英文单词（最长 60 字符）。"),
+    archiveNumber: z
+        .int()
+        .min(1)
+        .max(999)
+        .default(1)
+        .describe("档案编号（1–999，默认 1，无跨请求计数）。"),
+    capturedOn: z.iso
+        .date()
+        .optional()
+        .describe("拍摄日期 YYYY-MM-DD；省略时采用服务端 UTC 创建日期。"),
 });
 const compiledSchema = z.strictObject({
     prompt: z.string().trim().min(400).max(12_000),

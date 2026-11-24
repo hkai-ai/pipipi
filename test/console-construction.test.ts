@@ -308,7 +308,14 @@ describe("operator console construction", () => {
         });
     });
 
-    it.each(["/execute", "/llms.txt", "/llm.txt", "/docs/api.md"])(
+    it.each([
+        "/execute",
+        "/llms.txt",
+        "/llm.txt",
+        "/docs/api.md",
+        "/openapi.json",
+        "/openapi",
+    ])(
         "refuses base path %s because it shadows a service route",
         async (basePath) => {
             const directory = await mkdtemp(join(tmpdir(), "pipipi-console-"));

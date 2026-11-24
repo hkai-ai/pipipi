@@ -19,8 +19,19 @@ import {
 } from "./capability.js";
 
 const inputSchema = z.strictObject({
-    brief: z.string().trim().min(1).max(12_000),
-    text: z.string().trim().min(1).max(80).optional(),
+    brief: z
+        .string()
+        .trim()
+        .min(1)
+        .max(12_000)
+        .describe("海报主题、内容或氛围描述（1–12000 字符）。"),
+    text: z
+        .string()
+        .trim()
+        .min(1)
+        .max(80)
+        .optional()
+        .describe("可选指定印在画面上的短文案（1–80 字符）。"),
 });
 
 const recipeSchema = z.strictObject({

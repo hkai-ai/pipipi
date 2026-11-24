@@ -19,6 +19,9 @@ const cast = z
     .refine(
         (members) => new Set(members.map(castId)).size === members.length,
         "同一角色的同一版本只能登场一次",
+    )
+    .describe(
+        "v3 登场阵容（1–5 位，按 character:appearance 组合去重，支持同角色双版本登场）。",
     );
 export const versionedBriefSchema = briefSchema.extend({
     cast,
@@ -31,6 +34,9 @@ export const suppliedCast = z
     .refine(
         (members) => new Set(members.map(castId)).size === members.length,
         "同一角色的同一版本只能登场一次",
+    )
+    .describe(
+        "v4 有序自定义阵容（1–5 位，按 character:appearance 组合去重）。",
     );
 export const suppliedBriefSchema = briefSchema.extend({
     mode: z.literal("single"),

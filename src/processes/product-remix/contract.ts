@@ -49,7 +49,12 @@ export const productRemixImageUrlSchema = z
     .refine(
         isProductRemixImageUrl,
         "图片地址必须是无端口、无凭证、无锚点、不含 x-oss-process 的公网 HTTPS 原图 URL",
-    );
+    )
+    .meta({
+        format: "uri",
+        description:
+            "公网原图 HTTPS URL（最长 2048 字符，禁止 IP/localhost、显式端口、凭据、# 片段及 x-oss-process 查询参数）。",
+    });
 
 export function parseImageSize(
     value: string,
@@ -89,21 +94,41 @@ export function selectRemixImageSize(
 }
 
 export const productRemixBudgetSchema = z.strictObject({
-    maxAttempts: z.int().min(1).max(10),
-    maxUsd: z.number().positive().max(20),
+    maxAttempts: z
+        .int()
+        .min(1)
+        .max(10)
+        .describe("最大生成与质检尝试次数（1–10）。"),
+    maxUsd: z
+        .number()
+        .positive()
+        .max(20)
+        .describe("本次运行的 USD 费用上限（> 0 且 <= 20）。"),
 });
 
 export type ProductRemixBudget = z.infer<typeof productRemixBudgetSchema>;
 
 export const productRemixInputSchema = z
     .strictObject({
-        sourceImageUrl: productRemixImageUrlSchema,
-        referenceImageUrl: productRemixImageUrlSchema.optional(),
+        sourceImageUrl: productRemixImageUrlSchema.describe(
+            "图 1：当前商品印制面印花原图，唯一视觉风格与版式基准。",
+        ),
+        referenceImageUrl: productRemixImageUrlSchema
+            .optional()
+            .describe("可选单张用户参考图 URL，与 referenceImageUrls 互斥。"),
         referenceImageUrls: z
             .array(productRemixImageUrlSchema)
             .max(9)
-            .optional(),
-        userText: z.string().trim().min(1).max(2_000),
+            .optional()
+            .describe(
+                "可选 0–9 张按上传顺序排列的用户参考图 URL，与 referenceImageUrl 互斥。",
+            ),
+        userText: z
+            .string()
+            .trim()
+            .min(1)
+            .max(2_000)
+            .describe("已过出站文本审核的用户编辑意图（1–2000 字符）。"),
         imageSize: z
             .string()
             .trim()
@@ -113,24 +138,44 @@ export const productRemixInputSchema = z
                 (value) => parseImageSize(value) !== undefined,
                 "imageSize 必须为合法的 WxH 尺寸格式（如 1024x1024）",
             )
-            .optional(),
+            .optional()
+            .meta({
+                pattern: "^[1-9]\\d{1,3}[xX][1-9]\\d{1,3}$",
+                description:
+                    "可选目标尺寸 WxH（宽高各 64–8192 像素，如 1024x1024、896x1152），将匹配最接近的正典尺寸；省略时按原图宽高比选择。",
+            }),
         budget: productRemixBudgetSchema,
     })
     .refine(
         (input) => !(input.referenceImageUrl && input.referenceImageUrls),
         "参考图字段重复",
-    );
+    )
+    .meta({
+        description:
+            "商品做同款严格输入；referenceImageUrl 与 referenceImageUrls 互斥，不能同时传入。",
+        not: { required: ["referenceImageUrl", "referenceImageUrls"] },
+    });
 
 export type ProductRemixInput = z.infer<typeof productRemixInputSchema>;
 
 export const productRemixOutputSchema = z.strictObject({
     image: z.strictObject({
-        url: productRemixImageUrlSchema,
+        url: productRemixImageUrlSchema.describe(
+            "成图公网原图 HTTPS URL；直取 200 无重定向，且严禁回显任何输入图 URL。",
+        ),
         width: z.int().positive().max(4_096),
         height: z.int().positive().max(4_096),
     }),
-    modelName: z.string().min(1).max(128),
-    resolvedTier: z.enum(remixTiers),
+    modelName: z
+        .string()
+        .min(1)
+        .max(128)
+        .describe("实际采纳成图的图像模型标识。"),
+    resolvedTier: z
+        .enum(remixTiers)
+        .describe(
+            "服务端 Agent 自动判定的最终档位（light / medium / heavy）。",
+        ),
 });
 
 export type ProductRemixOutput = z.infer<typeof productRemixOutputSchema>;

@@ -14,6 +14,7 @@ import {
     type ProcessingHttpOptions,
 } from "../api/http.js";
 import type { CallerIdentityResolver } from "../api/identity.js";
+import { createOpenApiCatalog } from "../api/openapi.js";
 import { describeProcessCatalog } from "../api/process-catalog.js";
 import { describeSkillCatalog } from "../api/skill-catalog.js";
 import { createTemplateDiagnostics } from "../api/template-diagnostics.js";
@@ -145,6 +146,13 @@ export function constructProcessingService(
         agentIdentity,
     );
     const processCatalog = describeProcessCatalog(runtime.registry);
+    const openapi = createOpenApiCatalog(runtime.registry, {
+        defaultProcessTimeoutMs: parsePositiveInteger(
+            environment.PROCESS_TIMEOUT_MS,
+            30_000,
+            "PROCESS_TIMEOUT_MS",
+        ),
+    });
     const consoleOptions = constructConsole(
         environment,
         archive,
@@ -167,6 +175,7 @@ export function constructProcessingService(
                 callerIdentity,
                 templateDiagnostics,
                 processes: processCatalog,
+                openapi,
                 ...(archive ? { runRecords: archive.records } : {}),
                 ...(asyncProcessRuns
                     ? { asyncProcessRuns: asyncProcessRuns.http }
@@ -291,6 +300,7 @@ function parseConsoleBasePath(value: string | undefined): string {
         candidate === "/llms.txt" ||
         candidate === "/llm.txt" ||
         candidate === "/docs/api.md" ||
+        candidate.startsWith("/openapi") ||
         candidate.startsWith("/healthz") ||
         candidate.startsWith("/readyz")
     ) {

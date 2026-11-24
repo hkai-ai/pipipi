@@ -84,7 +84,7 @@ Agent Conversations 框架提供多轮文本、owner-scoped 图片和受控 Proc
 
 成功输出中的 `recipe` 固定包含 `layout`、`anchor`、`typography`、`accent`、`texture` 和 `mood`；`image` 包含 `url`、`contentType`、`width`、`height`，短期 URL 还包含 `expiresAt`。
 
-Agent 可以直接读取生产入口 [`https://pi.ganjiuwanshi.com/llms.txt`](https://pi.ganjiuwanshi.com/llms.txt)，并从中进入完整 Markdown 调用契约 [`https://pi.ganjiuwanshi.com/docs/api.md`](https://pi.ganjiuwanshi.com/docs/api.md)。仓库内的规范性来源仍是 [`llms.txt`](llms.txt) 与 [`docs/api.md`](docs/api.md)。
+Agent 可以直接读取生产入口 [`https://pi.ganjiuwanshi.com/llms.txt`](https://pi.ganjiuwanshi.com/llms.txt)，按需进入精简语义指南 [`https://pi.ganjiuwanshi.com/docs/api.md`](https://pi.ganjiuwanshi.com/docs/api.md)、服务端从注册表实时派生的 OpenAPI 3.1 契约 `GET /openapi.json`，或单个 Process 的轻量化 Schema 切片 `GET /openapi/processes/{process}/{version}.json`。仓库内的规范性来源为 [`llms.txt`](llms.txt)、[`docs/api.md`](docs/api.md) 与 `src/` 中的 Zod Schema。
 
 ## 快速开始
 
@@ -171,7 +171,7 @@ curl http://127.0.0.1:4300/healthz
 | [`CONTEXT.md`](CONTEXT.md) | 产品与开发者 | 项目目的、范围、信任模型和共同语言 |
 | [`docs/README.md`](docs/README.md) | 所有维护者 | 文档索引、分类和维护规范 |
 | [`llms.txt`](llms.txt) | 调用 Agent | 生产 API 的 Agent 导航、执行选择和安全边界 |
-| [`docs/api.md`](docs/api.md) | 产品调用方与 Agent | 全部业务调用路由、Process 入参、响应、重试和 Webhook 契约 |
+| [`docs/api.md`](docs/api.md) | 产品调用方与 Agent | 认证、执行模式、费用、错误、重试、Webhook 验签与流程行为边界（精确字段 Schema 由 `GET /openapi.json` 与 `/openapi/processes/{process}/{version}.json` 实时派生） |
 | [`docs/development.md`](docs/development.md) | 开发者 | 本地开发、代码地图、改动路径和验证要求 |
 | [`docs/authoring-business-processes.md`](docs/authoring-business-processes.md) | 产品与开发者 | 如何把自然语言流程描述封装为版本化 Business Process |
 | [`docs/processes/README.md`](docs/processes/README.md) | 产品与开发者 | 每个 production Business Process 的独立文档入口 |
@@ -221,4 +221,4 @@ CRT 与七个照片海报支持可选背景参数，省略时保持原行为；�
 
 ## 商品做同款
 
-`product-remix/v1` 支持一张原印花和最多九张用户参考图，经 `/process-runs` 异步提交，并在内部分档完成平面印花生成与 VLM 质检闭环。[接口说明](docs/api.md#商品做同款参考图) 与 [商品做同款文档](docs/processes/memebuy/product-remix/README.md)。
+`product-remix/v1` 支持一张原印花和最多九张用户参考图，经 `/process-runs` 异步提交，并在内部分档完成平面印花生成与 VLM 质检闭环。[接口说明](docs/api.md#商品做同款product-remixv1) 与 [商品做同款文档](docs/processes/memebuy/product-remix/README.md)。

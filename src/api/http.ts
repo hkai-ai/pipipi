@@ -52,6 +52,7 @@ export type {
 
 import { createConsoleAssets } from "./console-assets.js";
 import type { CallerIdentity, CallerIdentityResolver } from "./identity.js";
+import type { OpenApiCatalog } from "./openapi.js";
 import { createPublicDocumentation } from "./public-documents.js";
 import type { TemplateDiagnostics } from "./template-diagnostics.js";
 
@@ -83,6 +84,7 @@ export type ProcessingHttpOptions = {
     agentConversations?: AgentConversationsHttpOptions;
     templateDiagnostics?: TemplateDiagnostics;
     processes?: readonly ConsoleProcessDescription[];
+    openapi?: OpenApiCatalog;
     console?: ConsoleHttpOptions;
 };
 
@@ -305,6 +307,7 @@ type RequestHandlingContext = {
     agentConversations?: AgentConversationsHttpOptions;
     templateDiagnostics?: TemplateDiagnostics;
     processes?: readonly ConsoleProcessDescription[];
+    openapi?: OpenApiCatalog;
     console?: ConsoleHttpOptions;
 };
 
@@ -371,6 +374,7 @@ export function createProcessingRequestListener(
             asyncProcessRuns: options.asyncProcessRuns,
             agentConversations: options.agentConversations,
             processes: options.processes,
+            openapi: options.openapi,
             console: options.console,
             templateDiagnostics: options.templateDiagnostics,
         };
@@ -440,6 +444,13 @@ async function handleRequest(
     }
 
     if (await handlePublicDocumentation(request, response)) return;
+
+    if (
+        context.openapi &&
+        handleOpenApiRequest(request, response, context.openapi)
+    ) {
+        return;
+    }
 
     if (
         context.processes &&
@@ -2294,6 +2305,46 @@ function statusFor(result: ProcessRunResult): number {
         SOURCE_RUN_NOT_READY: 400,
     };
     return statuses[result.error.code];
+}
+
+function handleOpenApiRequest(
+    request: IncomingMessage,
+    response: ServerResponse,
+    openapi: OpenApiCatalog,
+): boolean {
+    if (request.method !== "GET") return false;
+    const url = request.url ?? "";
+    const headers = {
+        "content-type": "application/json; charset=utf-8",
+        "cache-control": "public, max-age=300",
+        "x-content-type-options": "nosniff",
+    };
+    if (url === "/openapi.json") {
+        response.writeHead(200, headers);
+        response.end(openapi.document);
+        return true;
+    }
+    const sliceMatch =
+        /^\/openapi\/processes\/([^/?#]+)\/([^/?#]+)\.json$/.exec(url);
+    if (!sliceMatch?.[1] || !sliceMatch[2]) return false;
+    const processId = decodePathSegment(sliceMatch[1]);
+    const version = decodePathSegment(sliceMatch[2]);
+    const slice =
+        processId && version
+            ? openapi.processSlice(processId, version)
+            : undefined;
+    if (!slice) {
+        writeFailureJson(
+            response,
+            404,
+            "PROCESS_NOT_FOUND",
+            "Process version not found",
+        );
+        return true;
+    }
+    response.writeHead(200, headers);
+    response.end(slice);
+    return true;
 }
 
 function writeJson(

@@ -32,8 +32,19 @@ export const templateInputSchema = z.strictObject({
         .string()
         .min(1)
         .max(2_048)
-        .refine(isPublicSourceImageUrl, "图片地址必须是公网 HTTPS URL"),
-    note: z.string().trim().min(1).max(500).optional(),
+        .refine(isPublicSourceImageUrl, "图片地址必须是公网 HTTPS URL")
+        .meta({
+            format: "uri",
+            description:
+                "公网 HTTPS 原图地址（最长 2048 字符，无凭据、私网或重定向；静态 PNG/JPEG/WebP，单边 >= 64px，最大 20 MB / 4000 万像素）。",
+        }),
+    note: z
+        .string()
+        .trim()
+        .min(1)
+        .max(500)
+        .optional()
+        .describe("可选编辑意图说明（1–500 字符），不作为运行配置。"),
 });
 
 const schemaBytes = readFileSync(templateSchemaUrl);

@@ -19,8 +19,18 @@ import {
 } from "./capability.js";
 
 const inputSchema = z.strictObject({
-    title: z.string().trim().min(1).max(300),
-    summary: z.string().trim().min(1).max(12_000),
+    title: z
+        .string()
+        .trim()
+        .min(1)
+        .max(300)
+        .describe("新闻标题（1–300 字符）。"),
+    summary: z
+        .string()
+        .trim()
+        .min(1)
+        .max(12_000)
+        .describe("新闻摘要正文（1–12000 字符）。"),
 });
 
 type NewsImageRegistrationOptions = Readonly<{

@@ -6,9 +6,23 @@ import { sourcePhotoSchema } from "./capability.js";
 export const fashionMangaInputSchema = z.strictObject({
     sourceImageUrl: sourcePhotoSchema,
     background: imageBackgroundSchema.optional(),
-    text: z.string().max(200).default("WIBI\nSTYLE"),
-    kicker: z.string().max(100).default("EVERYDAY, REDRAWN."),
-    caption: z.string().max(100).default("my own way."),
+    text: z
+        .string()
+        .max(200)
+        .default("WIBI\nSTYLE")
+        .describe(
+            "下方主标题（默认 WIBI\\nSTYLE，首行暖红、次行灰蓝）；传空串或纯空白表示省略该元素。",
+        ),
+    kicker: z
+        .string()
+        .max(100)
+        .default("EVERYDAY, REDRAWN.")
+        .describe("上方墨黑小引题（默认 EVERYDAY, REDRAWN.）；空串表示省略。"),
+    caption: z
+        .string()
+        .max(100)
+        .default("my own way.")
+        .describe("头肩旁墨黑小注（默认 my own way.）；空串表示省略。"),
 });
 
 export function fashionMangaLettering(

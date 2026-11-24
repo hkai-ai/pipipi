@@ -13,9 +13,13 @@ export const characterReferenceUrl = z
     .string()
     .max(2048)
     .regex(officialReference);
-export const immutableCharacterReferenceUrl = characterReferenceUrl.regex(
-    /-[0-9a-f]{16,64}\.png$/u,
-);
+export const immutableCharacterReferenceUrl = characterReferenceUrl
+    .regex(/-[0-9a-f]{16,64}\.png$/u)
+    .meta({
+        format: "uri",
+        description:
+            "来自 https://assets.memebuy.cn/maker/characters/ 下 ai-fanworks/ 或 community/scenes/ 的不可变原始 PNG 地址（以连字符 + 16–64 位小写十六进制摘要 + .png 结尾，无端口、查询、片段或重定向）。",
+    });
 
 /** 在创作前逐一检查已通过 schema 的公开对象，跳转不得交给 URL 型绘图渠道。 */
 export async function verifyCharacterReferences(

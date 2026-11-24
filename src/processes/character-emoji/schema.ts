@@ -23,14 +23,19 @@ export const PLAN_TEXT_LIMITS = {
 const characterSchema = z.enum(characters.map((item) => item.id));
 export const castMemberSchema = z
     .object({
-        character: characterSchema,
-        appearance: z.enum(["Chibi", "Girl"]),
+        character: characterSchema.describe("服务端内置角色 ID。"),
+        appearance: z
+            .enum(["Chibi", "Girl"])
+            .describe(
+                "角色形象版本；须与角色支持矩阵匹配（如 Doubao 仅支持 Chibi）。",
+            ),
     })
     .strict()
     .refine(
         (member) => hasAppearance(member.character, member.appearance),
         "该角色暂不支持此形象版本",
-    );
+    )
+    .describe("内置角色与形象组合；不支持的组合返回 INVALID_INPUT。");
 export type CastMember = z.infer<typeof castMemberSchema>;
 export const castIdentifier = z
     .string()
@@ -39,12 +44,26 @@ export const castIdentifier = z
     .refine(
         (value) => value === value.trim() && !value.includes(":"),
         "角色标识必须非空且不能包含冒号",
-    );
+    )
+    .meta({
+        pattern: "^[^:]+$",
+        description: "角色或形象标识（1–64 字符，无首尾空白且不含冒号 :）。",
+    });
 export const suppliedMemberSchema = z.strictObject({
     character: castIdentifier,
     appearance: castIdentifier,
-    displayName: z.string().trim().min(1).max(100),
-    persona: z.string().trim().min(1).max(2000),
+    displayName: z
+        .string()
+        .trim()
+        .min(1)
+        .max(100)
+        .describe("角色显示名称（1–100 字符）。"),
+    persona: z
+        .string()
+        .trim()
+        .min(1)
+        .max(2000)
+        .describe("角色人设与创作背景（1–2000 字符）。"),
     referenceImageUrl: immutableCharacterReferenceUrl,
 });
 export type SuppliedMember = z.infer<typeof suppliedMemberSchema>;
@@ -57,17 +76,22 @@ export const castSchema = z
             new Set(cast.map((member) => member.character)).size ===
             cast.length,
         "同一角色只能登场一次",
+    )
+    .describe("v2 登场阵容（1–5 位，同一 character 不能重复）。");
+export const captionSettingSchema = z
+    .discriminatedUnion("mode", [
+        z.object({ mode: z.literal("auto") }).strict(),
+        z
+            .object({
+                mode: z.literal("custom"),
+                text: z.string().trim().min(1).max(28),
+            })
+            .strict(),
+        z.object({ mode: z.literal("none") }).strict(),
+    ])
+    .describe(
+        "单图主台词策略：auto（自动）、none（关闭主台词，仍允许必要场景文字）或 custom（原样显示 1–28 字台词）。",
     );
-export const captionSettingSchema = z.discriminatedUnion("mode", [
-    z.object({ mode: z.literal("auto") }).strict(),
-    z
-        .object({
-            mode: z.literal("custom"),
-            text: z.string().trim().min(1).max(28),
-        })
-        .strict(),
-    z.object({ mode: z.literal("none") }).strict(),
-]);
 const draftCaptionSettingSchema = z.discriminatedUnion("mode", [
     z.object({ mode: z.literal("auto") }).strict(),
     z.object({ mode: z.literal("custom"), text: z.string().max(28) }).strict(),
@@ -102,7 +126,10 @@ export const legacyComicBriefSchema = z
         layout: z.enum(["vertical-4", "grid-4"]),
         cast: castSchema,
         idea: z.string().trim().min(1).max(COMIC_IDEA_LIMIT),
-        captionSetting: z.never().optional(),
+        captionSetting: z
+            .never()
+            .optional()
+            .describe("漫画模式禁止传入 captionSetting。"),
     })
     .strict();
 export const comicBriefSchema = legacyComicBriefSchema.omit({ layout: true });

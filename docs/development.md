@@ -189,6 +189,7 @@ curl -X POST http://127.0.0.1:4300/execute \
 | `src/release/async-internal-smoke.ts`、`paid-async-image-smoke.ts`、`async-smoke-state.ts` | 异步网关 smoke 与回滚验证、受控付费 CRT 异步 smoke，以及 smoke 之后的数据库状态审计 |
 | `src/release/production-database-audit.ts`、`migration-verification.ts` | 生产数据库身份、TLS 与最小权限审计；migration 应用后的二次空跑验证 |
 | `src/api/process-catalog.ts`、`async-intake.ts` | 从 Registration Schema 推导控制台 Process 目录；文件标记控制的 `POST /process-runs` intake 开关 |
+| `src/api/openapi.ts` | 启动时从 `ProcessRegistry` 派生不可变 OpenAPI 3.1.0 公开契约（`/openapi.json`）与单 Process 切片（`/openapi/processes/{process}/{version}.json`），严格隔离内部 Skill 与活动信息 |
 | `src/api/application.ts` | 组装 HTTP Server 生命周期，把监听/关闭封装成 Processing Application |
 | `src/api/http.ts` | Composition Root：按路由把执行、异步 Process Run、控制台 Run Record 查询分发给各协作者 |
 | `src/api/console-contract.ts` | 控制台共享响应与查询类型；前端不导入 HTTP 路由实现 |

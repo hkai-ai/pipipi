@@ -22,8 +22,12 @@ export const masterChecks = [
 export type MasterCheckName = (typeof masterChecks)[number];
 
 export const masterBudgetSchema = z.strictObject({
-    maxAttempts: z.int().min(1).max(10),
-    maxUsd: z.number().min(0).max(20),
+    maxAttempts: z.int().min(1).max(10).describe("最大尝试次数（1–10）。"),
+    maxUsd: z
+        .number()
+        .min(0)
+        .max(20)
+        .describe("本次运行的已知 USD 费用上限（0–20；未知费用不计入）。"),
 });
 
 /**
@@ -91,30 +95,52 @@ export const masterTemplateSchema = z.object({
 export type MasterTemplate = z.infer<typeof masterTemplateSchema>;
 
 /** 模式 A（推荐）：按同 caller 的上游 template-from-image 运行 ID 直读产物。 */
-export const masterSourceRunInputSchema = z.strictObject({
-    imageUrl: sourcePhotoSchema,
-    sourceRunId: z.string().trim().min(1).max(256),
-    budget: masterBudgetSchema,
-});
+export const masterSourceRunInputSchema = z
+    .strictObject({
+        imageUrl: sourcePhotoSchema,
+        sourceRunId: z
+            .string()
+            .trim()
+            .min(1)
+            .max(256)
+            .describe(
+                "同 callerId 已成功的上游 template-from-image 运行 ID；服务端在受理阶段校验并快照其产物。",
+            ),
+        budget: masterBudgetSchema,
+    })
+    .describe("模式 A（推荐）：通过 sourceRunId 直读同 caller 上游拆解产物。");
 export type MasterSourceRunInput = z.infer<typeof masterSourceRunInputSchema>;
 
 export const sourceTextsSchema =
     printDesignOutputSchema.shape.source.shape.texts;
 
 /** 模式 B（兼容直传）：由调用方直接回传 v4 模板草稿、原图状况及可选逐字原文清单。 */
-export const masterDirectInputSchema = z.strictObject({
-    imageUrl: sourcePhotoSchema,
-    template: masterTemplateSchema,
-    condition: sourceConditionSchema,
-    sourceTexts: sourceTextsSchema.optional(),
-    budget: masterBudgetSchema,
-});
+export const masterDirectInputSchema = z
+    .strictObject({
+        imageUrl: sourcePhotoSchema,
+        template: masterTemplateSchema.describe(
+            "兼容原样透传的 template-from-image/v3 草稿对象（保留核心 v2 inputSchema 与 v4 runtimeSemantics 校验）。",
+        ),
+        condition: sourceConditionSchema.describe(
+            "原图状况对象（同 template-from-image/v3 的 source.condition）。",
+        ),
+        sourceTexts: sourceTextsSchema
+            .optional()
+            .describe(
+                "可选权威原图逐字文字清单（同 template-from-image/v3 的 source.texts），用于判定是否跳过原图处理直接重绘。",
+            ),
+        budget: masterBudgetSchema,
+    })
+    .describe(
+        "模式 B（兼容直传）：直接回传 v4 草稿、原图状况与可选 sourceTexts。",
+    );
 export type MasterDirectInput = z.infer<typeof masterDirectInputSchema>;
 
-export const masterInputSchema = z.union([
-    masterSourceRunInputSchema,
-    masterDirectInputSchema,
-]);
+export const masterInputSchema = z
+    .union([masterSourceRunInputSchema, masterDirectInputSchema])
+    .describe(
+        "母版生成二选一输入：使用 sourceRunId 直读，或兼容直传 template + condition。",
+    );
 export type MasterInput = z.infer<typeof masterInputSchema>;
 
 /** 服务端受理阶段解析完成后的执行输入（可选保留 sourceRunId 供控制台溯源）。 */

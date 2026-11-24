@@ -38,6 +38,12 @@ describe("public Agent documentation", () => {
         expect(canonicalBody).toContain(
             "https://pi.ganjiuwanshi.com/docs/api.md",
         );
+        expect(canonicalBody).toContain(
+            "https://pi.ganjiuwanshi.com/openapi.json",
+        );
+        expect(canonicalBody).toContain(
+            "/openapi/processes/{process}/{version}.json",
+        );
         expect(await compatibility.text()).toBe(canonicalBody);
         expect(execute).not.toHaveBeenCalled();
     });

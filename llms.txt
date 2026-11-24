@@ -1,28 +1,29 @@
 # Pipipi Business Process API
 
-> Versioned Business Process execution API for Memene, Memebuy, and shared product capabilities. Read the complete contract before sending a request.
+> Versioned Business Process execution API for Memene, Memebuy, and shared product capabilities. Read the operational guide and fetch the exact OpenAPI 3.1 contract before sending a request.
 
 Base URL: `https://pi.ganjiuwanshi.com`
 
 ## Agent instructions
 
-1. Read [the complete API contract](https://pi.ganjiuwanshi.com/docs/api.md).
-2. Select an exact `process` and `version` from its Process list.
-3. Use `POST /execute` only when the caller accepts synchronous, non-idempotent execution. Use `POST /process-runs` with a stable `Idempotency-Key` when the async interface is available and the operation may be retried. The production Agent catalog is currently empty, so the four `/agent-conversations` routes are not available; use them only after the deployment confirms a production Agent is registered and enabled.
-4. Send the same server-issued `Authorization: Bearer <ppk_...>` API Key for `/execute`, `/process-runs`, and Agent Conversations. `/execute` defaults to `open` (no identity), supports `audit` (anonymous calls still allowed), and `required` (401 `CALLER_UNAUTHORIZED` for missing or invalid credentials). Never put a Key in input, URLs, logs, or `X-Request-Id`. Rotate keys under the same callerId to preserve run ownership and idempotency. Treat `X-Request-Id` as tracing metadata, never as an idempotency key.
-5. For paid image Processes, do not automatically retry an ambiguous synchronous timeout or dependency failure. Follow the retry table in the API contract.
-6. A call is complete only after the response matches the documented success or stable error shape. Never infer success from HTTP acceptance alone.
-7. For Agent Conversations, create and continue use separate stable `Idempotency-Key` values; follow `Retry-After` on busy or HTTP 429 responses. Never send internal caller or gateway identity headers yourself.
+1. Read [the API guide](https://pi.ganjiuwanshi.com/docs/api.md) first for authentication, sync vs async selection, `Idempotency-Key`, paid side effects, retry rules, and Webhook verification.
+2. Fetch [the OpenAPI 3.1 contract](https://pi.ganjiuwanshi.com/openapi.json) to inspect all registered `(process, version)` pairs (`x-pipipi-processes`), routes, envelopes, and error codes.
+3. To save context tokens when calling a single Process, fetch its self-contained JSON Schema slice directly at `https://pi.ganjiuwanshi.com/openapi/processes/{process}/{version}.json` (for example, `/openapi/processes/product-remix/v1.json`).
+4. Use `POST /execute` only when the caller accepts synchronous, non-idempotent execution. Use `POST /process-runs` with a stable `Idempotency-Key` when the async interface is available and the operation may be retried. The production Agent catalog is currently empty, so `/agent-conversations` routes are unavailable until a production Agent is registered and enabled.
+5. Send the same server-issued `Authorization: Bearer <ppk_...>` API Key for `/execute`, `/process-runs`, and Agent Conversations. `/execute` defaults to `open`, supports `audit`, and `required` (401 `CALLER_UNAUTHORIZED`). Never put a Key in input, URLs, logs, or `X-Request-Id`. Rotate keys under the same `callerId` to preserve ownership and idempotency. Treat `X-Request-Id` as tracing metadata, never as an idempotency key.
+6. For paid image Processes, do not automatically retry an ambiguous synchronous timeout or dependency failure. Follow the retry table in `/docs/api.md`.
+7. A call is complete only after the response matches the documented success or stable error shape. Never infer success from HTTP acceptance alone.
 
 ## Documentation
 
-- [Complete API contract](https://pi.ganjiuwanshi.com/docs/api.md): Routes, Process inputs and outputs, asynchronous polling, retry safety, errors, Webhooks, and examples.
+- [API guide (Markdown)](https://pi.ganjiuwanshi.com/docs/api.md): Authentication, execution mode selection, cost & retry boundaries, Webhooks, diagnostics, and minimal examples.
+- [OpenAPI 3.1 specification (JSON)](https://pi.ganjiuwanshi.com/openapi.json): Live, server-derived schemas for all enabled Processes, routes, errors, and Webhooks.
+- Single-Process Schema slice (JSON): `https://pi.ganjiuwanshi.com/openapi/processes/{process}/{version}.json`
 - [Human-facing repository documentation](https://github.com/hkai-ai/pipipi/tree/main/docs): Design, development, Process, and operations documentation.
 
 ## Boundaries
 
 - Product requests contain business input only. The server selects Skills, models, Tools, providers, storage, retries, and execution configuration.
-- Use only exact Process or Agent versions documented in the production catalogs. There is no `latest` alias, default Agent, or version fallback.
-- `template-from-image/v1` compiles a Gallery v2 draft using a vision model; it does not generate an image or save/publish a Memebuy template. Follow its 300-second execution limit and do not retry ambiguous timeouts automatically.
-- `character-emoji/v2` generates one AI-character emoji or a 2–6 panel comic from fixed reference images. It plans with local material by default; only explicit retrieval or recent-fact requests enable Responses `web_search`. Image editing uses Flare, with one Magikaru fallback on primary failure; do not retry ambiguous image submissions. The source character art is CC BY-NC-SA 4.0 and restricted to non-commercial validation unless separate rights are confirmed.
-- `/internal/eval/execute` is a gated internal evaluation interface, not a general product endpoint.
+- Use only exact `(process, version)` pairs present in `/openapi.json` (`x-pipipi-processes`). There is no `latest` alias, default Agent, or version fallback.
+- `/internal/eval/execute` is a gated internal news-image evaluation endpoint, not a general product interface.
+- Never send internal caller or gateway identity headers (`X-Pipipi-Caller-Id`, `X-Pipipi-Gateway-Token`) yourself.

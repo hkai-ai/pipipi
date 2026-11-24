@@ -40,11 +40,19 @@ const inputSchema = z.strictObject({
         .refine(
             isPublicSourceImageUrl,
             "Source image URL must be a public HTTPS URL",
-        ),
+        )
+        .meta({
+            format: "uri",
+            description:
+                "FAL 可匿名读取的公网 HTTPS 参考图 URL（最长 2048 字符，禁止 IP、端口、凭据或 # 片段）。",
+        }),
     background: imageBackgroundSchema.optional(),
-    palette: z.enum(crtPaletteNames),
-    aspectRatio: z.enum(crtAspectRatios),
-    grain: z.enum(crtGrains).default(defaultCrtGrain),
+    palette: z.enum(crtPaletteNames).describe("CRT 屏幕配色方案。"),
+    aspectRatio: z.enum(crtAspectRatios).describe("输出画幅比例。"),
+    grain: z
+        .enum(crtGrains)
+        .default(defaultCrtGrain)
+        .describe("像素颗粒度（默认 normal）。"),
 });
 
 const recipeSchema = z

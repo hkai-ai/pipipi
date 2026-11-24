@@ -15,7 +15,14 @@ export const plannerActivity = "planner_session";
 const materialKeyPattern = /^[a-z][a-zA-Z0-9]{0,31}$/;
 
 const inputSchema = z.strictObject({
-    goal: z.string().trim().min(1).max(4_000),
+    goal: z
+        .string()
+        .trim()
+        .min(1)
+        .max(4_000)
+        .describe(
+            "希望服务端 Planner 组合已有流程完成的自然语言目标（1–4000 字符）。",
+        ),
     material: z
         .record(
             z.string().regex(materialKeyPattern),
@@ -24,10 +31,22 @@ const inputSchema = z.strictObject({
         .refine((value) => Object.keys(value).length <= 16, {
             message: "At most 16 material entries are allowed",
         })
-        .optional(),
+        .optional()
+        .meta({
+            maxProperties: 16,
+            description:
+                "可选命名业务素材字典（最多 16 项，键匹配 ^[a-z][a-zA-Z0-9]{0,31}$，单值 1–12000 字符）。",
+        }),
     constraints: z
         .strictObject({
-            maxSteps: z.int().min(1).max(8).optional(),
+            maxSteps: z
+                .int()
+                .min(1)
+                .max(8)
+                .optional()
+                .describe(
+                    "可选最大步骤数（1–8），只能收紧服务端上限，不能放宽。",
+                ),
         })
         .optional(),
 });

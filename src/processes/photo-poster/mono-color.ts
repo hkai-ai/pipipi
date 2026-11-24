@@ -95,7 +95,13 @@ const presets = {
 export const monoColorInputSchema = z.strictObject({
     sourceImageUrl: sourcePhotoSchema,
     background: imageBackgroundSchema.optional(),
-    text: z.string().trim().min(1).max(200).optional(),
+    text: z
+        .string()
+        .trim()
+        .min(1)
+        .max(200)
+        .optional()
+        .describe("可选海报文案（1–200 字符）；留空时按参考图提炼短英文。"),
     preset: z
         .preprocess(
             (value) =>
@@ -104,11 +110,18 @@ export const monoColorInputSchema = z.strictObject({
                     : value,
             z.enum(monoColorPresets),
         )
-        .optional(),
+        .optional()
+        .describe(
+            "可选双色海报预设（输入处兼容旧别名 within_reach/half_hidden/your_move/hold_still/look_again，新调用请使用规范枚举值）。",
+        ),
     palette: z
         .enum(["preset", "cobalt_terracotta", "charcoal_red", "green_oxblood"])
-        .optional(),
-    typography: z.enum(["preset", "literary", "condensed"]).optional(),
+        .optional()
+        .describe("油墨配色覆盖；preset 表示跟随当前预设。"),
+    typography: z
+        .enum(["preset", "literary", "condensed"])
+        .optional()
+        .describe("字体风格覆盖；preset 表示跟随当前预设。"),
     composition: z
         .enum([
             "preset",
@@ -118,13 +131,31 @@ export const monoColorInputSchema = z.strictObject({
             "frame",
             "diagonal_type",
         ])
-        .optional(),
-    emphasis: z.enum(["preset", "gentle", "balanced", "bold"]).optional(),
-    texture: z.enum(["preset", "light", "standard", "strong"]).optional(),
-    designNotes: z.string().trim().min(1).max(500).optional(),
+        .optional()
+        .describe("版式覆盖；preset 表示跟随当前预设。"),
+    emphasis: z
+        .enum(["preset", "gentle", "balanced", "bold"])
+        .optional()
+        .describe("标题体量与视觉强度覆盖；preset 表示跟随当前预设。"),
+    texture: z
+        .enum(["preset", "light", "standard", "strong"])
+        .optional()
+        .describe("网点与纸面质感覆盖；preset 表示跟随当前预设。"),
+    designNotes: z
+        .string()
+        .trim()
+        .min(1)
+        .max(500)
+        .optional()
+        .describe(
+            "可选设计偏好说明（1–500 字符），不覆盖结构化参数与主体保持规则。",
+        ),
 });
 
-const ink = z.string().regex(/^#[0-9a-fA-F]{6}$/);
+const ink = z
+    .string()
+    .regex(/^#[0-9a-fA-F]{6}$/)
+    .describe("六位十六进制油墨色值（#RRGGBB）。");
 export const monoColorV2InputSchema = monoColorInputSchema
     .pick({
         sourceImageUrl: true,
@@ -136,21 +167,32 @@ export const monoColorV2InputSchema = monoColorInputSchema
         sourceImageSha256: z
             .string()
             .regex(/^[a-f0-9]{64}$/)
-            .optional(),
-        primaryInk: ink,
-        accentInk: ink,
+            .optional()
+            .describe(
+                "可选实际出站原图字节的 64 位小写十六进制 SHA-256 摘要。",
+            ),
+        primaryInk: ink.describe(
+            "主墨色值（#RRGGBB），忽略大小写后须与 accentInk 不同。",
+        ),
+        accentInk: ink.describe(
+            "点缀墨色值（#RRGGBB），忽略大小写后须与 primaryInk 不同。",
+        ),
         typography: monoColorInputSchema.shape.typography
             .unwrap()
-            .exclude(["preset"]),
+            .exclude(["preset"])
+            .describe("字体风格（不允许传 preset）。"),
         composition: monoColorInputSchema.shape.composition
             .unwrap()
-            .exclude(["preset"]),
+            .exclude(["preset"])
+            .describe("版式选择（不允许传 preset）。"),
         emphasis: monoColorInputSchema.shape.emphasis
             .unwrap()
-            .exclude(["preset"]),
+            .exclude(["preset"])
+            .describe("标题体量与视觉强度（不允许传 preset）。"),
         texture: monoColorInputSchema.shape.texture
             .unwrap()
-            .exclude(["preset"]),
+            .exclude(["preset"])
+            .describe("网点与纸面质感（不允许传 preset）。"),
     })
     .refine(
         (input) =>
@@ -159,6 +201,9 @@ export const monoColorV2InputSchema = monoColorInputSchema
             path: ["accentInk"],
             message: "两种油墨必须不同",
         },
+    )
+    .describe(
+        "双色油墨海报 v2 完整冻结搭配；primaryInk 与 accentInk 忽略大小写后必须不同。",
     );
 
 export function monoColorDesignInstructions(
