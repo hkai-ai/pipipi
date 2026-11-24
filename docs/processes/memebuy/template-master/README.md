@@ -7,7 +7,7 @@
 支持两种互斥输入模式（`z.union`）：
 
 - **`sourceRunId` 模式（推荐）**：仅提交 `{ imageUrl, sourceRunId, budget }`。受理阶段在入队前按当前 `callerId` 校验上游运行归属、流程类型（`template-from-image`）、终态（`succeeded`）、未过期及输出含合法 v4 `template` 与 `source.condition`，解析完成后将模板、原图状况和可用的 `source.texts` 写入不可变 `acceptedInput` 快照并保留 `sourceRunId` 供控制台一键回溯；校验失败返回 HTTP 400（`SOURCE_RUN_*`），零计费且不占用 `Idempotency-Key`。
-- **兼容直传模式**：提交 `{ imageUrl, template, condition, budget }`。`template` 与 `template.metadata` 允许并忽略未知扩展字段，`title`（1–80 字）、`description`（`string | null` / 可选，0–300 字）与 `metadata.tags`（可选、不限条数与单标签长度）对齐上游 `template-from-image/v3` 输出；仍强制校验 `imageUrl`、`condition`、`budget`、`template.key`、`template.inputSchema`（`version: 2`）与 `template.runtimeSemantics`（`version: 4`）。
+- **兼容直传模式**：提交 `{ imageUrl, template, condition, sourceTexts?, budget }`。`template` 与 `template.metadata` 允许并忽略未知扩展字段，`title`（1–80 字）、`description`（`string | null` / 可选，0–300 字）与 `metadata.tags`（可选、不限条数与单标签长度）对齐上游 `template-from-image/v3` 输出；`sourceTexts`（可选，格式同上游 `source.texts`）用于直传权威逐字原文；仍强制校验 `imageUrl`、`condition`、`budget`、`template.key`、`template.inputSchema`（`version: 2`）与 `template.runtimeSemantics`（`version: 4`）。
 
 ## 分档
 
@@ -19,7 +19,7 @@
 | 重 | `carrier` 为实拍类，或 `sharpness=severely_blurry` | 按 designSpec 默认值重绘，原图完整附上 |
 | 中 | 其余 | 以原图为参考修复，只去 `marks` 与修复画质 |
 
-轻档或中档候选若存在默认值与原图记录的差异，直接从重档开始，首条实际尝试的 `reason` 记录跳档原因。文字按元素 ID 优先取上游 `source.texts`，缺失时取文字元素的 `instance`，使用下节的同一套归一化。仅在有单一主体和明确的 `originalObject` 时比较主体描述，接受字面包含关系或与主体 `instance` 字面相同的描述。缺少可比较证据时沿用状况分档。主体比较基于已有描述，别名和不同措辞可能触发跳档。跳过的档位不计尝试次数。
+轻档或中档候选仅在存在权威逐字原文（上游 `source.texts` 或直传 `sourceTexts`）且按元素 ID 归一化后与 `defaults.texts` 不一致时，直接从重档开始，首条实际尝试的 `reason` 记录「默认文字与原图记录不一致，跳过原图处理和 AI 修复」。不回落到文字元素的 `instance`（其语义为视觉外观证据，非逐字原文），也不再基于 `originalObject` 与 `defaults.subject` 的自然语言文本猜测主体冲突。缺少权威逐字原文时沿用状况分档。跳过的档位不计尝试次数。
 
 轻档只加工一次。中档和重档各可带原因重试两次，中档用尽升重档，重档用尽失败。
 

@@ -26,7 +26,7 @@ export function startingTier(condition: SourceCondition): MasterTier {
     return "medium";
 }
 
-/** 只比较已有的逐字文字和明确的原物名称，缺失证据时沿用状况分档。 */
+/** 只比较上游或直传提供的权威逐字原文；缺失证据及主体自然语言措辞差异沿用状况分档。 */
 export function redrawReason(input: ResolvedMasterInput): string | undefined {
     const spec = input.template.runtimeSemantics.designSpec;
     const observed = new Map(
@@ -34,31 +34,14 @@ export function redrawReason(input: ResolvedMasterInput): string | undefined {
     );
     const textMismatch = spec.elements.some((element) => {
         if (element.category !== "text") return false;
-        const source = normalizePrintText(
-            observed.get(element.id) ?? element.instance ?? "",
-        );
+        const source = normalizePrintText(observed.get(element.id) ?? "");
         return Boolean(
             source &&
                 source !==
                     normalizePrintText(spec.defaults.texts[element.id] ?? ""),
         );
     });
-    const subjects = spec.elements.filter(
-        (element) => element.category === "subject",
-    );
-    const subject = subjects.length === 1 ? subjects[0] : undefined;
-    const original = normalizePrintText(subject?.originalObject ?? "");
-    const expectedSubject = normalizePrintText(spec.defaults.subject);
-    const subjectMismatch =
-        original &&
-        expectedSubject &&
-        !expectedSubject.includes(original) &&
-        !original.includes(expectedSubject) &&
-        expectedSubject !== normalizePrintText(subject?.instance ?? "");
-    if (textMismatch && subjectMismatch)
-        return "默认文字和主体与原图记录不一致，跳过轻档和中档";
-    if (textMismatch) return "默认文字与原图记录不一致，跳过轻档和中档";
-    if (subjectMismatch) return "默认主体与原图记录不一致，跳过轻档和中档";
+    if (textMismatch) return "默认文字与原图记录不一致，跳过原图处理和 AI 修复";
     return undefined;
 }
 

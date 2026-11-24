@@ -98,11 +98,15 @@ export const masterSourceRunInputSchema = z.strictObject({
 });
 export type MasterSourceRunInput = z.infer<typeof masterSourceRunInputSchema>;
 
-/** 模式 B（兼容直传）：由调用方直接回传 v4 模板草稿与原图状况。 */
+export const sourceTextsSchema =
+    printDesignOutputSchema.shape.source.shape.texts;
+
+/** 模式 B（兼容直传）：由调用方直接回传 v4 模板草稿、原图状况及可选逐字原文清单。 */
 export const masterDirectInputSchema = z.strictObject({
     imageUrl: sourcePhotoSchema,
     template: masterTemplateSchema,
     condition: sourceConditionSchema,
+    sourceTexts: sourceTextsSchema.optional(),
     budget: masterBudgetSchema,
 });
 export type MasterDirectInput = z.infer<typeof masterDirectInputSchema>;
@@ -113,14 +117,10 @@ export const masterInputSchema = z.union([
 ]);
 export type MasterInput = z.infer<typeof masterInputSchema>;
 
-export const sourceTextsSchema =
-    printDesignOutputSchema.shape.source.shape.texts;
-
 /** 服务端受理阶段解析完成后的执行输入（可选保留 sourceRunId 供控制台溯源）。 */
 export type ResolvedMasterInput = MasterDirectInput &
     Readonly<{
         sourceRunId?: string;
-        sourceTexts?: z.infer<typeof sourceTextsSchema>;
     }>;
 
 export function isSourceRunMasterInput(

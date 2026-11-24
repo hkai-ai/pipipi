@@ -33,6 +33,7 @@ import { createTemplateMasterSkillRefs } from "../src/processes/template-master/
 import type { SourceCondition } from "../src/processes/template-master/tier.js";
 import {
     attemptPlan,
+    redrawReason,
     startingTier,
 } from "../src/processes/template-master/tier.js";
 import {
@@ -256,6 +257,25 @@ describe("合同", () => {
                 "needsReview",
             );
         }
+        const withSourceTexts = masterInputSchema.safeParse({
+            ...input,
+            sourceTexts: [{ elementId: "headline", text: "LOOK GOOD" }],
+        });
+        expect(withSourceTexts.success).toBe(true);
+        expect(
+            masterInputSchema.safeParse({
+                ...input,
+                sourceTexts: [{ elementId: "headline", text: "" }],
+            }).success,
+        ).toBe(false);
+        expect(
+            masterInputSchema.safeParse({
+                imageUrl,
+                sourceRunId: "run-123",
+                sourceTexts: [{ elementId: "headline", text: "LOOK GOOD" }],
+                budget: input.budget,
+            }).success,
+        ).toBe(false);
     });
     it("输出 Schema 严格", () => {
         const ok = {
@@ -312,6 +332,63 @@ describe("分档判据", () => {
         expect(attemptPlan("light")).toEqual(["light"]);
         expect(attemptPlan("medium")).toHaveLength(6);
         expect(attemptPlan("heavy")).toEqual(["heavy", "heavy", "heavy"]);
+    });
+    it("重绘跳档只依据权威 sourceTexts 逐字比对，不猜测主体措辞也不回落文字 instance", () => {
+        const makeInput = (
+            design: typeof spec,
+            sourceTexts?: Array<{ elementId: string; text: string }>,
+        ) => ({
+            imageUrl,
+            template: {
+                ...template,
+                runtimeSemantics: {
+                    ...template.runtimeSemantics,
+                    designSpec: design,
+                },
+            },
+            condition,
+            ...(sourceTexts ? { sourceTexts } : {}),
+            budget: { maxAttempts: 4, maxUsd: 1 },
+        });
+
+        // 复现 UAT 案例：主体修饰语展开（黑白猫 → 黑白花色的猫…），应沿用原图处理
+        const uatDesign = structuredClone(spec);
+        const uatSubject = uatDesign.elements.find(
+            (element) => element.category === "subject",
+        );
+        if (uatSubject?.category !== "subject")
+            throw new Error("夹具缺少主体元素");
+        uatSubject.originalObject = "黑白猫";
+        uatSubject.instance = "五个黑白猫头，部分戴红围巾";
+        uatDesign.defaults.subjectName = "猫";
+        uatDesign.defaults.subject = "黑白花色的猫，黄绿色眼睛，粉色鼻子";
+        expect(redrawReason(makeInput(uatDesign))).toBeUndefined();
+
+        // 主体自然语言措辞不同、文字元素 instance 含视觉描述且未传 sourceTexts，均不触发跳档
+        const proseDesign = structuredClone(spec);
+        proseDesign.defaults.subject = "一只灰色短毛兔";
+        const proseText = proseDesign.elements.find(
+            (element) => element.id === "headline",
+        );
+        if (!proseText) throw new Error("夹具缺少文字元素");
+        proseText.instance = "红底金字横幅，写着 LOOK GOOD";
+        expect(redrawReason(makeInput(proseDesign))).toBeUndefined();
+        proseText.instance = "金色立体艺术字，顶部拱起";
+        expect(redrawReason(makeInput(proseDesign))).toBeUndefined();
+
+        // 传入 sourceTexts：排版等价不跳档，逐字内容不同才跳过原图处理和 AI 修复
+        expect(
+            redrawReason(
+                makeInput(spec, [
+                    { elementId: "headline", text: "Ｌｏｏｋ\ngood" },
+                ]),
+            ),
+        ).toBeUndefined();
+        expect(
+            redrawReason(
+                makeInput(spec, [{ elementId: "headline", text: "CATCTOR." }]),
+            ),
+        ).toBe("默认文字与原图记录不一致，跳过原图处理和 AI 修复");
     });
 });
 
@@ -567,6 +644,7 @@ describe("重试、升档与预算", () => {
         cond?: typeof condition;
         budget?: { maxAttempts: number; maxUsd: number };
         design?: typeof spec;
+        sourceTexts?: Array<{ elementId: string; text: string }>;
         edit?: (call: number, size: string) => Promise<Buffer>;
         verify?: (call: number) => Verification;
         spent?: () => number;
@@ -609,6 +687,9 @@ describe("重试、升档与预算", () => {
                 },
             },
             condition: options.cond ?? condition,
+            ...(options.sourceTexts
+                ? { sourceTexts: options.sourceTexts }
+                : {}),
             budget: options.budget ?? { maxAttempts: 10, maxUsd: 5 },
         });
         if (!accepted.accepted) throw new Error("input rejected");
@@ -788,61 +869,61 @@ describe("重试、升档与预算", () => {
             source,
         ]);
     });
-    it.each(["文字", "主体"])(
-        "直传模板默认%s与原图记录不一致时直接重绘，跳档不消耗预算",
-        async (field) => {
-            const design = structuredClone(spec);
-            if (field === "主体") {
-                design.defaults.subject = "一只灰色短毛兔";
-            } else {
-                const text = design.elements.find(
-                    (element) => element.id === "headline",
-                );
-                if (!text) throw new Error("夹具缺少文字元素");
-                text.instance = "CATCTOR.";
-            }
-            const { completion, edit, verify, source } = await run({
-                design,
-                cond: field === "主体" ? marked : condition,
-                budget: { maxAttempts: 1, maxUsd: 5 },
-            });
-            expect(completion).toMatchObject({
-                status: "succeeded",
-                output: {
-                    master: {
-                        attempts: [
-                            {
-                                tier: "heavy",
-                                passed: true,
-                                failures: [],
-                                reason: `默认${field}与原图记录不一致，跳过轻档和中档`,
-                            },
-                        ],
-                    },
+    it("直传模板提供 sourceTexts 且默认文字与原图记录不一致时直接重绘，跳档不消耗预算", async () => {
+        const { completion, edit, verify, source } = await run({
+            sourceTexts: [{ elementId: "headline", text: "CATCTOR." }],
+            budget: { maxAttempts: 1, maxUsd: 5 },
+        });
+        expect(completion).toMatchObject({
+            status: "succeeded",
+            output: {
+                master: {
+                    attempts: [
+                        {
+                            tier: "heavy",
+                            passed: true,
+                            failures: [],
+                            reason: "默认文字与原图记录不一致，跳过原图处理和 AI 修复",
+                        },
+                    ],
                 },
-            });
-            expect(edit).toHaveBeenCalledOnce();
-            expect(verify).toHaveBeenCalledExactlyOnceWith(
-                expect.objectContaining({ source }),
-            );
-        },
-    );
-    it("直传文字排版等价且主体证据缺失时沿用原档位", async () => {
+            },
+        });
+        expect(edit).toHaveBeenCalledOnce();
+        expect(verify).toHaveBeenCalledExactlyOnceWith(
+            expect.objectContaining({ source }),
+        );
+    });
+    it("直传模板主体措辞展开或文字 instance 含视觉描述时，干净平面图正常走轻档零模型调用", async () => {
         const design = structuredClone(spec);
         for (const element of design.elements) {
             if (element.category === "text")
-                element.instance = "Ｌｏｏｋ\ngood";
+                element.instance = "红底金字横幅，写着 LOOK GOOD";
             if (element.category === "subject") {
-                delete element.originalObject;
-                delete element.instance;
+                element.originalObject = "黑白猫";
+                element.instance = "五个黑白猫头，部分戴红围巾";
             }
         }
-        const { completion, edit } = await run({ design });
+        design.defaults.subjectName = "猫";
+        design.defaults.subject = "黑白花色的猫，黄绿色眼睛，粉色鼻子";
+        const { completion, edit, verify } = await run({ design });
         expect(completion).toMatchObject({
             status: "succeeded",
-            output: { master: { tier: "light" } },
+            output: { master: { tier: "light", redrawn: false } },
         });
         expect(edit).not.toHaveBeenCalled();
+        expect(verify).not.toHaveBeenCalled();
+    });
+    it("直传 sourceTexts 与默认文字排版等价时沿用原档位", async () => {
+        const { completion, edit, verify } = await run({
+            sourceTexts: [{ elementId: "headline", text: "Ｌｏｏｋ\ngood" }],
+        });
+        expect(completion).toMatchObject({
+            status: "succeeded",
+            output: { master: { tier: "light", redrawn: false } },
+        });
+        expect(edit).not.toHaveBeenCalled();
+        expect(verify).not.toHaveBeenCalled();
     });
     it("重档保真失败用 similarity 记录并重试，只上传通过的母版", async () => {
         const { completion, verify, upload } = await run({

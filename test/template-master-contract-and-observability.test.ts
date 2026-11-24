@@ -394,7 +394,9 @@ describe("template-master/v1 契约治理与 400 可观测性", () => {
             );
             if (mismatch) {
                 expect(runView.output.master.attempts).toMatchObject([
-                    { reason: "默认文字与原图记录不一致，跳过轻档和中档" },
+                    {
+                        reason: "默认文字与原图记录不一致，跳过原图处理和 AI 修复",
+                    },
                 ]);
             }
 
@@ -625,7 +627,7 @@ describe("template-master/v1 契约治理与 400 可观测性", () => {
         const budget = { maxAttempts: 5, maxUsd: 1 };
         const full = fullV3Output();
 
-        // AC-4: 原样透传 template-from-image/v3 完整输出 + 业务字段
+        // AC-4: 原样透传 template-from-image/v3 完整输出 + 业务字段（含可选 sourceTexts）
         expect(
             (
                 await post(
@@ -633,6 +635,7 @@ describe("template-master/v1 契约治理与 400 可观测性", () => {
                         imageUrl,
                         template: full.template,
                         condition: full.source.condition,
+                        sourceTexts: full.source.texts,
                         budget,
                     },
                     "ac4",
@@ -967,6 +970,8 @@ describe("template-master/v1 契约治理与 400 可观测性", () => {
                 "budget",
             ]),
         );
+        expect(directBranch?.required).not.toContain("sourceTexts");
+        expect(directBranch?.properties?.sourceTexts).toBeDefined();
         const templateSchema = directBranch?.properties?.template as
             | {
                   additionalProperties?: boolean;
