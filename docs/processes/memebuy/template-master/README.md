@@ -1,6 +1,20 @@
-# template-master/v1
+# template-master（v2 推荐 / v1 兼容）
 
-由原图与第 2 块解析结果自动出母版（印花版）。母版即模板封面、生成参考图与产出该有的样子。接口字段见 [API 文档](../../../api.md#母版生成template-masterv1)。
+母版即模板封面、生成参考图与产出该有的样子。新链路默认由 Memebuy 本地直出原图，仅在显式勾选修图项时调用 `template-master/v2`；`template-master/v1` 保留用于滚发期间在途任务与兼容调用。接口字段见 [API 文档](../../../api.md#模板单次修图template-masterv2)。
+
+## template-master/v2（显式单次修图，推荐）
+
+- **输入**：`{ imageUrl, operation, transparent, watermarkNote?, template? }`。`operation` 取 `transparent_only`、`remove_watermark` 或 `extract_from_photo`（`transparent_only` 时 `transparent` 必须为 `true`）；`watermarkNote` 最多 200 字，仅在 `remove_watermark` 生效；`template` 为可选 v4 草稿子集，省略时也可供 MCP 等独立场景复用。
+- **执行**：零 LLM 校验、零自动重试、不读取 `TEMPLATE_MODEL`。服务端加载原图后，按 `operation` 与可选 `designSpec`（完整包含主体、全部伴生/点缀/装饰/收形元素、逐字文字与配色）组装修图指令，单次调用 `gpt-image-2.6-sunburst`（`quality: "medium"`，`outputFormat: "png"`，`background: transparent | opaque`）。
+- **基础可印校验与上传**：仅做确定性校验——单帧 PNG、边长 `256–4096`；`transparent: true` 时校验具备透明通道且同时含透明区与可见前景像素（不启用色键与光晕启发式拒收）。通过后按内容寻址上传到 `https://assets.memebuy.cn/gallery/template-images/<sha256>.png`，返回 `{ preparedImage, master: { operation, transparent, modelName, checks: { printable: { passed: true } } } }`。
+- **超时与错误**：Registration 预算 360 秒。改图被明确拒绝返回 `DEPENDENCY_FAILURE`；已派发但结果未知或上传失败返回 `DEPENDENCY_FAILURE_AFTER_COMMIT`；基础可印校验未通过返回 `MASTER_NOT_ACCEPTED`。付费派发后禁止自动重试。
+- **代码与测试**：[`src/processes/template-master/v2.ts`](../../../../src/processes/template-master/v2.ts)、[`src/processes/template-master/contract.ts`](../../../../src/processes/template-master/contract.ts)、[`src/processes/template-master/method.ts`](../../../../src/processes/template-master/method.ts)、[`test/template-master-v2.test.ts`](../../../../test/template-master-v2.test.ts)。
+
+---
+
+## template-master/v1（历史分档与对照校验，兼容保留）
+
+由原图与第 2 块解析结果自动出母版（印花版）。接口字段见 [API 文档](../../../api.md#母版生成template-masterv1)。
 
 ## 输入模式与上游产物解析
 

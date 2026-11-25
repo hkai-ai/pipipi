@@ -18,7 +18,7 @@
 | 业务路由 | `POST /execute`、`POST /process-runs`、`GET /process-runs/{runId}`、`GET /memebuy/template-runs/{runId}/diagnostics`；按开关挂载 `/agent-conversations*` 与 `/internal/eval/execute` |
 | 编码与上限 | `Content-Type: application/json`，UTF-8；应用请求体上限 262,144 字节 |
 | `X-Request-Id` | 可选链路追踪头（1–200 字符，`A-Za-z0-9_.:-`），写入所有日志但不回显、**不提供幂等性** |
-| 客户端读取超时 | 常规同步 Process 上限 240 秒（建议客户端 >= 260 秒）；图片转模板上限 480 秒（建议 >= 500 秒）；`product-remix/v1`（660 秒）与 `template-master/v1`（2400 秒）请使用异步 `/process-runs` |
+| 客户端读取超时 | 常规同步 Process 上限 240 秒（建议客户端 >= 260 秒）；`template-master/v2` 上限 360 秒；图片转模板上限 480 秒（建议 >= 500 秒）；`product-remix/v1`（660 秒）与 `template-master/v1`（2400 秒）请使用异步 `/process-runs` |
 
 | 执行方式 | 适用场景 | 幂等与重试边界 |
 | --- | --- | --- |
@@ -189,6 +189,13 @@ CRT 与十一个照片海报 `v1`、以及 `mono-color-photo-poster/v2`、`chara
 ### 印花拆解模板（Process v3）
 
 `template-from-image/v3`（`/openapi/processes/template-from-image/v3.json`）：输出 `inputSchema.version = 2` 与 `runtimeSemantics.version = 4`（含 `designSpec`，无 `visualContract`），并加法附带可选 `source: { texts, condition }` 供下游母版生成核对。默认主体、文字与配色保留原图，`promptTemplate` 由服务端单向投影。单次上限 480 秒。详见[印花拆解候选](processes/memebuy/template-from-image/print-design-v4.md)。
+
+### 模板单次修图（template-master/v2）
+
+`template-master/v2`（`/openapi/processes/template-master/v2.json`）：单次预算 **360 秒**，推荐使用异步 `POST /process-runs`。面向显式单次 AI 修图，不做自动分档、多轮重试或 LLM 二次校验。
+
+- **显式操作与原生透明**：接收 `imageUrl`、`operation`（`transparent_only` / `remove_watermark` / `extract_from_photo`）、`transparent`（`transparent_only` 模式下必须为 `true`）、可选 `watermarkNote`（最多 200 字，仅 `remove_watermark` 生效）与可选 `template`（v4 草稿子集；独立 MCP 场景可省略）。单次调用 `gpt-image-2.6-sunburst`（`quality: "medium"`，`background: transparent | opaque`），仅做确定性 PNG/尺寸与透明/可见像素校验后按内容寻址上传至模板公读存储。
+- **失败与计费**：改图被明确拒绝返回 `502 DEPENDENCY_FAILURE`；已派发但结果未知或上传失败返回 `502 DEPENDENCY_FAILURE_AFTER_COMMIT`；未通过基础 PNG/透明校验返回 `502 MASTER_NOT_ACCEPTED`。付费派发后禁止自动重试。详见[模板母版专题](processes/memebuy/template-master/README.md)。
 
 ### 母版生成（template-master/v1）
 

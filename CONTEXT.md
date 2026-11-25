@@ -22,9 +22,9 @@ Pipipi 提供 Agent 运行环境（harness）和场景 skill。Process Registrat
 
 ## 产品契约
 
-模板图的原始附件始终是视觉依据。`template-from-image/v3` 的默认主体、文字与配色保留原图，输入槽和 `followsSubject` 表达后续替换。`template-master/v1` 重绘时对照原图校验印花设计保真。单一背景上可分离的内容带可附加像素轮廓测量；测量只辅助同次观察，不能代替视觉判断或成为公开模板字段。
+模板图的原始附件始终是视觉依据。`template-from-image/v3` 的默认主体、文字与配色保留原图，输入槽和 `followsSubject` 表达后续替换。`template-master/v2` 按显式修图意图（仅透明底 / 去水印 / 实拍提取平面印花）单次调用 `gpt-image-2.6-sunburst`（`quality=medium`），只做确定性 PNG 与透明/可见像素校验后交付人工核对，不做 LLM 二次校验或多轮重试；`template-master/v1` 保留兼容滚发，重绘时对照原图校验印花设计保真。单一背景上可分离的内容带可附加像素轮廓测量；测量只辅助同次观察，不能代替视觉判断或成为公开模板字段。
 
-模板任务由 Memebuy 决定何时需要人工确认；Pipipi 只执行单次解析（`template-from-image/v3`）或母版生成（`template-master/v1`），不保存候选、审核者或批准状态。旧「方案 → 生图 → 编译」三阶段链路已于 2026-11-17 下线，`template-image-plan`、`template-image-render` 与 `template-from-source` 不再注册，在途候选直接放弃。
+模板任务由 Memebuy 决定何时需要人工确认与是否直出原图；Pipipi 只执行单次解析（`template-from-image/v3`）或显式母版修图（`template-master/v2`，保留 `v1` 兼容），不保存候选、审核者或批准状态。旧「方案 → 生图 → 编译」三阶段链路已于 2026-11-17 下线，`template-image-plan`、`template-image-render` 与 `template-from-source` 不再注册，在途候选直接放弃。
 
 调用方必须知道：
 
@@ -46,11 +46,12 @@ Pipipi 提供 Agent 运行环境（harness）和场景 skill。Process Registrat
 
 ## 当前能力
 
-生产 catalog 当前登记二十六个精确版本，其中 `composed-task/v1` 默认关闭：
+生产 catalog 当前登记二十七个精确版本，其中 `composed-task/v1` 默认关闭：
 
 | 场景 | Business Process | 输入 | 输出 | 实现选择 |
 | --- | --- | --- | --- | --- |
 | `memebuy` | `template-from-image/v1` | `{ imageUrl, note? }` | `{ template }` | 受控下载与真实视觉附件；无 Tool Agent 编译并验证 Gallery v2 草稿，不生图、不入库 |
+| `memebuy` | `template-master/v2` | `{ imageUrl, operation, transparent, watermarkNote?, template? }` | `{ preparedImage, master }` | 显式单次修图（`transparent_only` / `remove_watermark` / `extract_from_photo`）；调用 `gpt-image-2.6-sunburst`（`quality=medium`）与原生 `background`，仅执行确定性 PNG/尺寸/透明像素校验，无 LLM 二次校验、不重试 |
 | `memebuy` | `template-master/v1` | 原图、预算，以及 `sourceRunId`（直读同 caller 上游产物）或兼容直传 v4 草稿、原图状况与可选 `sourceTexts`（二选一） | 母版 PNG 与校验报告 | 受理阶段按 caller 校验并快照上游产物；干净且未触发权威逐字文字冲突的平面稿直接用原图，轻档零模型调用，抠底失败可保留背景。中档修复、重档重绘后执行模型校验；预算耗尽时可返回文字差异类别 |
 | `memebuy` | `product-remix/v1` | 原印花 URL、可选 0–9 张参考图 URL、编辑意图、可选尺寸与预算上限 | `{ image, modelName, resolvedTier }` | 单层视觉基准；无 Tool Agent 加载固定 Runtime Skill 自动分档（`light` / `medium` / `heavy`）、执行多图编辑与 VLM 质检闭环，硬超时 660 秒，严禁回显输入图 URL |
 | `common` | `minimal-zine-poster/v1` | `{ brief: string, text?: string }` | `{ prompt, recipe, interpretation, image }` | 无 Tool Agent 编译固定 Runtime Skill；Poster Rendering Capability 复用内部图片服务生成并持久化图片 |

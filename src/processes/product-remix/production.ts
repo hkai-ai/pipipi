@@ -8,7 +8,7 @@ import { createProductRemixSkillRefs } from "./skills.js";
 
 export const productRemixProduction = defineProductionProcess({
     id: "product-remix",
-    environment: ["CRT_BUSINESS_API_BASE_URL", "TEMPLATE_MODEL"],
+    environment: ["CRT_BUSINESS_API_BASE_URL", "PRODUCT_REMIX_MODEL"],
     installedSkills: () => createProductRemixSkillRefs(),
     build: ({ environment, pi, skills }) =>
         createProductRemixRegistration({
@@ -18,9 +18,7 @@ export const productRemixProduction = defineProductionProcess({
             agent: new PiProductRemixAgent({
                 ...pi,
                 skills,
-                model:
-                    environment.TEMPLATE_MODEL?.trim() ||
-                    (pi.provider === "openai" ? "gpt-5.4" : pi.model),
+                model: environment.PRODUCT_REMIX_MODEL?.trim() || pi.model,
             }),
         }),
 });

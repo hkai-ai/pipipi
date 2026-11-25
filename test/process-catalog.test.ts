@@ -34,7 +34,7 @@ const validInputs: Readonly<Record<string, Record<string, unknown>>> = {
     "template-from-image": {
         imageUrl: "https://assets.example.com/source.png",
     },
-    "template-master": {
+    "template-master/v1": {
         imageUrl: "https://assets.example.com/source.png",
         template: JSON.parse(
             readFileSync("test/fixtures/template-v4-candidate.json", "utf8"),
@@ -47,6 +47,12 @@ const validInputs: Readonly<Record<string, Record<string, unknown>>> = {
             notes: [],
         },
         budget: { maxAttempts: 4, maxUsd: 1 },
+    },
+    "template-master/v2": {
+        imageUrl: "https://assets.example.com/source.png",
+        operation: "remove_watermark",
+        transparent: false,
+        watermarkNote: "去掉右下角白色署名",
     },
     "dopamine-photo-poster": {
         sourceImageUrl: "https://assets.example.com/source.png",
@@ -143,6 +149,7 @@ describe("Process catalog description", () => {
             "template-from-image/v2",
             "template-from-image/v3",
             "template-master/v1",
+            "template-master/v2",
             "travel-abstraction-photo-poster/v1",
             "woodcut-photo-poster/v1",
         ]);

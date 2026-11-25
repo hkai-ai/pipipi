@@ -52,6 +52,31 @@ describe("TemplateMasterService", () => {
             rejected.execute("edit", request, signal),
         ).rejects.toBeInstanceOf(TemplateMasterError);
     });
+    it("v2 显式传 model、quality、background 时原样透传并放宽有效 PNG 尺寸范围", async () => {
+        const edit = vi.fn(async () => png(960));
+        const service = new TemplateMasterService({ editor: { edit } });
+        const request = {
+            image: (await png(512)).toString("base64"),
+            prompt: "remove watermark",
+            size: "896x1152",
+            model: "gpt-image-2.6-sunburst",
+            quality: "medium",
+            background: "transparent",
+            idempotencyKey: "k-v2",
+        };
+        expect(await service.execute("edit", request, signal)).toHaveProperty(
+            "image",
+        );
+        expect(edit).toHaveBeenCalledWith(
+            expect.objectContaining({
+                model: "gpt-image-2.6-sunburst",
+                quality: "medium",
+                background: "transparent",
+                size: "896x1152",
+                idempotencyKey: "k-v2",
+            }),
+        );
+    });
     it("按内容摘要上传到固定公读地址", async () => {
         const upload = vi.fn(async (r: { objectKey: string }) => ({
             url: `https://assets.memebuy.cn/${r.objectKey}`,

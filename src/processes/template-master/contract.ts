@@ -1,4 +1,4 @@
-/** 定义母版生成的双模式输入合同（sourceRunId 直读与兼容直传）、输出合同、档位与校验项词表。 */
+/** 定义母版生成 v1（双模式自动分档）与 v2（显式单次修图）的输入输出合同、档位与校验项词表。 */
 import { z } from "zod";
 import { sourcePhotoSchema } from "../photo-poster/capability.js";
 import {
@@ -213,3 +213,65 @@ export const masterOutputSchema = z.strictObject({
     }),
 });
 export type MasterOutput = z.infer<typeof masterOutputSchema>;
+
+export const masterV2Operations = [
+    "transparent_only",
+    "remove_watermark",
+    "extract_from_photo",
+] as const;
+export type MasterV2Operation = (typeof masterV2Operations)[number];
+
+/** template-master/v2 显式单次修图输入合同：不做自动分档、多轮重试与 LLM 二次校验。 */
+export const masterV2InputSchema = z
+    .strictObject({
+        imageUrl: sourcePhotoSchema,
+        operation: z
+            .enum(masterV2Operations)
+            .describe(
+                "显式单次修图意图：transparent_only（仅生成透明底）、remove_watermark（去水印）、extract_from_photo（实拍提取平面印花）。",
+            ),
+        transparent: z
+            .boolean()
+            .describe(
+                "是否由绘图模型原生直出透明背景（background=transparent）；operation=transparent_only 时必须为 true。",
+            ),
+        watermarkNote: z
+            .string()
+            .trim()
+            .min(1)
+            .max(200)
+            .optional()
+            .describe(
+                "去水印时的可选补充说明（最多 200 字，仅在 remove_watermark 模式生效）。",
+            ),
+        template: masterTemplateSchema
+            .optional()
+            .describe(
+                "可选的 v4 模板草稿（同 template-from-image/v3 产出子集）；省略时仅依据原图与修图意图执行。",
+            ),
+    })
+    .refine(
+        (input) => input.operation !== "transparent_only" || input.transparent,
+        {
+            path: ["transparent"],
+            message: "transparent_only 模式下 transparent 必须为 true",
+        },
+    )
+    .describe(
+        "母版显式单次修图输入（template-master/v2）：执行单次 AI 修图与基础 PNG/透明校验，直接交付人工核对。",
+    );
+export type MasterV2Input = z.infer<typeof masterV2InputSchema>;
+
+/** template-master/v2 显式单次修图输出合同。 */
+export const masterV2OutputSchema = z.strictObject({
+    preparedImage: preparedImageSchema,
+    master: z.strictObject({
+        operation: z.enum(masterV2Operations),
+        transparent: z.boolean(),
+        modelName: z.string().min(1).max(120),
+        checks: z.strictObject({
+            printable: z.strictObject({ passed: z.boolean() }),
+        }),
+    }),
+});
+export type MasterV2Output = z.infer<typeof masterV2OutputSchema>;

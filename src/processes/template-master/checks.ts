@@ -157,6 +157,31 @@ export async function checkPrintable(
         : pass;
 }
 
+/** v2 单次修图基础可印校验：单帧 PNG 与有效尺寸；transparent=true 时额外验证同时具备透明与可见像素。 */
+export async function checkV2Printable(
+    bytes: Buffer,
+    transparent: boolean,
+): Promise<CheckResult> {
+    const image = sharp(bytes, { limitInputPixels: 40_000_000 });
+    const meta = await image.metadata().catch(() => undefined);
+    if (meta?.format !== "png" || (meta.pages ?? 1) !== 1)
+        return fail("成品不是单帧 PNG");
+    const width = meta.width ?? 0;
+    const height = meta.height ?? 0;
+    if (
+        Math.min(width, height) < MIN_SIDE ||
+        Math.max(width, height) > MAX_SIDE
+    )
+        return fail("尺寸超出可印范围");
+    if (!transparent) return pass;
+    if (!meta.hasAlpha) return fail("透明底成品缺少透明通道");
+    const { channels } = await image.stats();
+    const alpha = channels.at(-1);
+    if (!alpha || alpha.min === 255) return fail("透明底成品没有透明区");
+    if (alpha.max === 0) return fail("透明底成品没有可见前景");
+    return pass;
+}
+
 type Lab = readonly [number, number, number];
 
 export function srgbToLab(r: number, g: number, b: number): Lab {

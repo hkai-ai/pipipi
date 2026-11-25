@@ -64,7 +64,7 @@ Process Registration 固定声明五个运行活动：`remix_source_loading` →
   - 改图与受控上传服务：[`src/business-api/product-remix.ts`](../../../../src/business-api/product-remix.ts)、[`src/business-api/crt-server.ts`](../../../../src/business-api/crt-server.ts)
   - 多图表单扩展：[`src/business-api/template-image-editor.ts`](../../../../src/business-api/template-image-editor.ts)、[`src/business-api/openai-image-generation.ts`](../../../../src/business-api/openai-image-generation.ts)、[`src/business-api/fal-image-generation.ts`](../../../../src/business-api/fal-image-generation.ts)
 - **Runtime Skill**：[`product-remix-method@v1`](../../../../.pi/skills/product-remix-method/SKILL.md) 从团队 Skills 仓库发布并按[准确版本](../../../runtime-skill-versioning.md)同步。宿主构造业务请求使用的文案仍在 `method.ts`。
-- **环境变量与迁移**：复用现有 `CRT_BUSINESS_API_BASE_URL` 与 `TEMPLATE_MODEL`，不新增环境变量；数据库复用已有异步运行迁移（`018` 已覆盖全部受控错误码）。
+- **环境变量与迁移**：复用现有 `CRT_BUSINESS_API_BASE_URL`，新增可选 `PRODUCT_REMIX_MODEL`（与 `TEMPLATE_MODEL` 解耦，未设置时沿用 `PI_MODEL`）；数据库复用已有异步运行迁移（`018` 已覆盖全部受控错误码）。
 - **确定性测试**：
   - 契约、分档、质检重试、预算熔断、防回显与 Pi 会话重试：[`test/product-remix.test.ts`](../../../../test/product-remix.test.ts)
   - HTTP `/processes` 发现、`/process-runs` 幂等与背压、`cost` 与超时终态：[`test/product-remix-http.test.ts`](../../../../test/product-remix-http.test.ts)

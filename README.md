@@ -6,13 +6,14 @@
 
 ## 当前能力
 
-Memebuy 新模板任务走 `template-from-image/v3` → `template-master/v1`。解析保留原图主体、文字与配色作为模板默认值，干净且未触发权威逐字文字冲突的平面稿直接用原图，抠底失败可保留背景，轻档零模型调用。中档修复、重档重绘后执行模型校验。旧「方案 → 生图 → 编译」三阶段链路（`template-image-plan`、`template-image-render`、`template-from-source`）已于 2026-11-17 下线，调用按未知 Process 拒绝。
+Memebuy 新模板任务走 `template-from-image/v3`；默认直接使用原图，仅在显式勾选去水印、实拍提取印花或生成透明底时调用 `template-master/v2` 单次 AI 修图（`gpt-image-2.6-sunburst`，`quality=medium`，无 LLM 二次校验）。`template-master/v1` 保留用于滚发兼容。旧「方案 → 生图 → 编译」三阶段链路（`template-image-plan`、`template-image-render`、`template-from-source`）已于 2026-11-17 下线，调用按未知 Process 拒绝。
 
-生产 catalog 登记二十六个 Business Process，其中 `composed-task/v1` 默认关闭。文档先按产品场景分组，运行时仍通过统一的 Process identity 和 HTTP Interface 执行：
+生产 catalog 登记二十七个 Business Process，其中 `composed-task/v1` 默认关闭。文档先按产品场景分组，运行时仍通过统一的 Process identity 和 HTTP Interface 执行：
 
 | 场景 | Process | 输入 | 输出 |
 | --- | --- | --- | --- |
 | `memebuy` | `template-from-image/v1` | `{ imageUrl, note? }` | `{ template }`，Gallery v2 草稿 |
+| `memebuy` | [`template-master/v2`](docs/api.md#模板单次修图template-masterv2) | `{ imageUrl, operation, transparent, watermarkNote?, template? }` | `{ preparedImage, master }`，单次 AI 修图结果与基础可印状态 |
 | `memebuy` | [`template-master/v1`](docs/api.md#母版生成template-masterv1) | 原图、预算，及 `sourceRunId` 或兼容直传 v4 草稿、原图状况与可选 `sourceTexts` | `{ preparedImage, master }`，预算耗尽时提供有界的文字差异说明 |
 | `memebuy` | [`product-remix/v1`](docs/processes/memebuy/product-remix/README.md) | 原印花图、可选 0–9 张参考图、编辑意图、可选尺寸与预算 | `{ image, modelName, resolvedTier }` |
 | `common` | `minimal-zine-poster/v1` | `{ "brief": string, "text"?: string }` | `{ "prompt", "recipe", "interpretation", "image" }` |

@@ -1,6 +1,7 @@
-/** 按本次设计说明组装母版修复、重绘与对照校验的服务端提示词。 */
+/** 按本次设计说明组装母版 v1 修复/重绘/校验与 v2 显式单次修图的服务端提示词。 */
 import { displayPrompt } from "../template-from-image/design-spec/contract.js";
 import type { DesignSpec } from "../template-from-image/design-spec/vendor/design-spec-schema.js";
+import type { MasterV2Operation } from "./contract.js";
 import type { PrintForm } from "./light.js";
 
 export const MEDIUM_METHOD = `# 中档：以原图为底修复
@@ -176,4 +177,145 @@ export function buildVerificationPrompt(
             ...(mark.text ? { text: mark.text } : {}),
         })),
     });
+}
+
+const V2_TRANSPARENT_ONLY_METHOD = `# 仅生成透明底
+附图是唯一参考原图，完整、未经遮挡。只做一件事：干净去除画面外围背景，输出原生透明底 PNG（background=transparent）。
+除此之外一律不改：主体形象、面部表情与姿态、全部伴生角色/点缀/装饰/收形元素、版面位置、比例、构图、配色、画风与笔触完全保持原样。
+文字逐字保留，不增、不减、不改、不翻译、不补字；沿弧线、圆环或波浪排布的文字保持原路径与字形。
+图案内部保持实心不透明，边缘干净锐利，不残留底色光晕、白边或半透明雾边；不裁切图案，不添加边框、阴影、光晕或水印。`;
+
+const V2_REMOVE_WATERMARK_METHOD = `# 去水印修复
+附图是唯一参考原图，完整、未经遮挡。彻底去除图中的平铺/斜向/边角水印、署名、平台标识与遮挡印记，并用周围原本的图案、底色与纹理自然无缝补全，不留残影或涂抹痕迹。
+除此之外一律不改：主体形象、面部表情与姿态、全部伴生角色/点缀/装饰/收形元素、版面位置、比例、构图、配色、画风与笔触完全保持原样；不要误删真实设计中的装饰小元素或道具。
+文字逐字保留，不增、不减、不改、不翻译、不补字；沿弧线、圆环或波浪排布的文字保持原路径与字形。
+不添加原图没有的元素、边框、阴影、光晕或水印。`;
+
+const V2_EXTRACT_FROM_PHOTO_METHOD = `# 实拍提取平面印花
+附图是印在服装、商品、样机或实景照片中的参考图。从中提取完整、平整、正视的平面印花母版。
+彻底移除载体与拍摄环境：不画衣物、布料纹理、褶皱、透视变形、人体、商品外形、光影反光、阴影与场景背景。
+忠实保留原印花设计的全部内容：主体身份/外形/表情/姿态、全部伴生角色/点缀/装饰/收形元素、版面构图、画风与配色，不得遗漏任何伴生元素或装饰细节。
+文字逐字保留，不增、不减、不改、不翻译、不补字；沿弧线、圆环或波浪排布的文字保持原路径、阅读起点与方向；不另加水印或署名。`;
+
+const elementCategoryLabels = {
+    accent: "点缀",
+    decoration: "装饰",
+    edge: "收形",
+} as const;
+
+function nonTextDesignElements(spec: DesignSpec): string[] {
+    return spec.elements.flatMap((element) => {
+        if (element.category === "subject" || element.category === "text")
+            return [];
+        const label = elementCategoryLabels[element.category];
+        const parts = [`${label}（${element.id}）：${element.description}`];
+        if ("position" in element && element.position)
+            parts.push(`位置：${element.position}`);
+        const specified = spec.defaults.specifiedContent[element.id];
+        if (specified) parts.push(`默认内容：${specified}`);
+        const accentSource = spec.defaults.accentSources[element.id];
+        if (accentSource) parts.push(`来源：${accentSource}`);
+        return [`- ${parts.join("；")}`];
+    });
+}
+
+function v2BackgroundRule(
+    operation: MasterV2Operation,
+    transparent: boolean,
+    printForm?: PrintForm,
+): string {
+    if (transparent) {
+        return "输出透明底 PNG（background=transparent）：图案完整落在画布内，边缘清晰锐利、内部实心不透明，四周留出适度空白不贴边截断，不残留背景色边或半透明光晕。";
+    }
+    if (operation === "extract_from_photo") {
+        if (printForm === "rect_patch") {
+            return "输出不透明平面 PNG（background=opaque）：整个矩形设计贴片铺满画布，边框完整可见，不另加背景、阴影或外框。";
+        }
+        if (printForm === "bleed_crop") {
+            return "输出不透明平面 PNG（background=opaque）：保持原印花的出血裁切构图铺满画布，不补全被切掉的部分。";
+        }
+        return "输出不透明平面 PNG（background=opaque）：正视平铺于干净均匀的纯色衬底上，不带衣物褶皱、阴影、渐变或场景背景。";
+    }
+    return "输出不透明 PNG（background=opaque）：保留原图原本的背景并干净修复，不额外增加边框、阴影或杂质。";
+}
+
+/** 组装 template-master/v2 显式单次修图指令（可选融入 v4 designSpec 全量元素与去水印说明）。 */
+export function buildV2EditInstruction(input: {
+    operation: MasterV2Operation;
+    transparent: boolean;
+    watermarkNote?: string;
+    spec?: DesignSpec;
+}): string {
+    const method =
+        input.operation === "transparent_only"
+            ? V2_TRANSPARENT_ONLY_METHOD
+            : input.operation === "remove_watermark"
+              ? V2_REMOVE_WATERMARK_METHOD
+              : V2_EXTRACT_FROM_PHOTO_METHOD;
+
+    const sections: string[] = [method];
+
+    if (input.operation === "remove_watermark" && input.watermarkNote?.trim()) {
+        sections.push(`## 需要去除的水印说明\n${input.watermarkNote.trim()}`);
+    }
+
+    const spec = input.spec;
+    if (spec) {
+        const texts = textElements(spec);
+        const nonTextElements = nonTextDesignElements(spec);
+
+        if (input.operation === "extract_from_photo") {
+            sections.push(
+                [
+                    "## 设计参考（须完整保留主体、全部伴生/点缀/装饰元素与文字）",
+                    `- 画法：${spec.whole.technique}`,
+                    `- 印花形态：${spec.whole.printForm}`,
+                    `- 主体：${spec.defaults.subject}`,
+                ].join("\n"),
+            );
+            if (nonTextElements.length > 0) {
+                sections.push(
+                    `## 必须保留的点缀、装饰与收形元素（不得遗漏）\n${nonTextElements.join("\n")}`,
+                );
+            }
+            if (texts.length > 0) {
+                sections.push(
+                    `## 必须出现的文字（逐字）\n${texts
+                        .map((t) => `- ${t.role}（${t.id}）：「${t.text}」`)
+                        .join("\n")}`,
+                );
+            }
+            if (spec.whole.colorRoles.length > 0) {
+                sections.push(
+                    `## 配色\n${spec.whole.colorRoles
+                        .map(
+                            (role) =>
+                                `- ${role.name}（${role.usage}）：${spec.defaults.colors[role.id] ?? ""}`,
+                        )
+                        .join("\n")}`,
+                );
+            }
+        } else {
+            if (nonTextElements.length > 0) {
+                const heading =
+                    input.operation === "remove_watermark"
+                        ? "## 必须保留的伴生与装饰元素（勿误当水印清除）"
+                        : "## 必须原样保留的伴生与装饰元素";
+                sections.push(`${heading}\n${nonTextElements.join("\n")}`);
+            }
+            if (texts.length > 0) {
+                sections.push(
+                    `## 必须原样保留的文字（逐字）\n${texts
+                        .map((t) => `- ${t.role}（${t.id}）：「${t.text}」`)
+                        .join("\n")}`,
+                );
+            }
+        }
+    }
+
+    sections.push(
+        `## 输出\n${v2BackgroundRule(input.operation, input.transparent, spec?.whole.printForm)}`,
+    );
+
+    return sections.join("\n\n");
 }

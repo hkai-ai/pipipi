@@ -43,7 +43,10 @@ import {
     templateProduction,
     templateV2Production,
 } from "./template-from-image/production.js";
-import { templateMasterProduction } from "./template-master/production.js";
+import {
+    templateMasterProduction,
+    templateMasterV2Production,
+} from "./template-master/production.js";
 import type { TemplateMasterSourceRunLookup } from "./template-master/source-run.js";
 
 /**
@@ -78,6 +81,7 @@ export const productionCatalog: readonly ProductionProcess[] = Object.freeze([
     templateV2Production,
     printDesignProduction,
     templateMasterProduction,
+    templateMasterV2Production,
     composedProduction,
 ]);
 

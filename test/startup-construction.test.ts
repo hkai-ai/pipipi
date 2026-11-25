@@ -338,7 +338,7 @@ describe("Startup Construction", () => {
         const identity = { id: "composed-task", version: "v1" };
 
         expect(off.registry.find(identity)).toBeUndefined();
-        expect(off.registry.list()).toHaveLength(25);
+        expect(off.registry.list()).toHaveLength(26);
         const registration = on.registry.find(identity);
         expect(registration?.identity).toEqual(identity);
         expect(registration?.timeoutMs).toBe(600_000);
@@ -354,7 +354,7 @@ describe("Startup Construction", () => {
                 skills: ["anything"],
             }),
         ).toMatchObject({ accepted: false });
-        expect(on.registry.list()).toHaveLength(26);
+        expect(on.registry.list()).toHaveLength(27);
     });
 
     it("exposes GET /processes including product-remix/v1", async () => {

@@ -1,6 +1,20 @@
 /** 定义母版改图与上传的 Business Capability 接口及受控失败分类。 */
 import { z } from "zod";
+import {
+    type ImageBackground,
+    imageBackgroundSchema,
+} from "../image-background.js";
 import type { preparedImageSchema } from "./contract.js";
+
+export const templateMasterV2ImageModel = "gpt-image-2.6-sunburst";
+export const masterEditModels = [
+    "gpt-image-2.5-flare",
+    templateMasterV2ImageModel,
+] as const;
+export type MasterEditModel = (typeof masterEditModels)[number];
+
+export const masterEditQualities = ["low", "medium", "high", "auto"] as const;
+export type MasterEditQuality = (typeof masterEditQualities)[number];
 
 export const masterEditSizes = [
     "1024x1024",
@@ -17,6 +31,9 @@ export const masterEditRequestSchema = z.strictObject({
         .max(28_000_000),
     prompt: z.string().min(1).max(30_000),
     size: z.enum(masterEditSizes),
+    model: z.enum(masterEditModels).optional(),
+    quality: z.enum(masterEditQualities).optional(),
+    background: imageBackgroundSchema.optional(),
     idempotencyKey: z.string().min(1).max(128),
 });
 export const masterEditResponseSchema = z.strictObject({
@@ -59,6 +76,9 @@ export type MasterEditRequest = Readonly<{
     image: Buffer;
     prompt: string;
     size: (typeof masterEditSizes)[number];
+    model?: MasterEditModel;
+    quality?: MasterEditQuality;
+    background?: ImageBackground;
     idempotencyKey: string;
     signal: AbortSignal;
 }>;

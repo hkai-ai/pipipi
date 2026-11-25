@@ -19,6 +19,11 @@ export class HttpTemplateMasterCapability implements TemplateMasterCapability {
                 image: request.image.toString("base64"),
                 prompt: request.prompt,
                 size: request.size,
+                ...(request.model ? { model: request.model } : {}),
+                ...(request.quality ? { quality: request.quality } : {}),
+                ...(request.background
+                    ? { background: request.background }
+                    : {}),
                 idempotencyKey: request.idempotencyKey,
             },
             request.signal,

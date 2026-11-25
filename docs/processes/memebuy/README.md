@@ -18,7 +18,7 @@ Memebuy 的角色表情任务在创建时确定本站或 Pipipi 执行。v12 新
 
 图片转模板按原 Skill 保留逐区文字分类、布局、位置和路由依据，原始观察与选定稳定规则分开保存；共同语义模型生成正式草稿，由独立复核核对。保留完整来源业务规则，槽位取舍直接复用来源原文并复核未入选候选，重复事实由服务端引用投影，内部执行“生成分析与草稿 → 独立看图复核并返回必要补丁 → 程序投影与完整校验”。正常两次模型调用；首轮 JSON 或候选结构不可读可重新编译一次，v2 最终校验发现可修正问题时，可对上次已修订计划追加一次独立看图修正，并重新执行完整校验；独立复核不重写完整候选，也不默认追加模型复核，部分分析采用紧凑行，特征权限及复核报告采用具名对象；九轴权限只要求身份替换槽位提供，其他槽位为 null。证据按来源要求非空且具体，不额外设置四字符下限。修正上下文直接读取引用计划，程序展开后执行完整校验。公开 Gallery v2 草稿合同保持不变；执行失败区分编译、独立复核和本地校验阶段，仅返回安全归类提示。实现与边界见 [图片转模板](template-from-image/README.md)。
 
-旧「方案 → 生图 → 编译」三阶段链路已于 2026-11-17 随 Memebuy「生成方案」入口下线：`template-image-plan/v1`、`template-image-render/v1` 与 `template-from-source/v1,v2,v3` 不再注册，调用按未知 Process 拒绝；在途候选直接放弃，不恢复、不对账、不迁移。新模板任务使用 `template-from-image/v3` → `template-master/v1`。历史 Run Record 与活动归档在保留期内仍可在控制台查看。
+旧「方案 → 生图 → 编译」三阶段链路已于 2026-11-17 随 Memebuy「生成方案」入口下线：`template-image-plan/v1`、`template-image-render/v1` 与 `template-from-source/v1,v2,v3` 不再注册，调用按未知 Process 拒绝；在途候选直接放弃，不恢复、不对账、不迁移。新模板任务使用 `template-from-image/v3`，并按显式选项调用 `template-master/v2`（保留 `template-master/v1` 兼容滚发）。历史 Run Record 与活动归档在保留期内仍可在控制台查看。
 
 模板编译的原始观察、视觉取舍、像素辅助依据与语义投影边界统一见 [来源合同对齐](template-from-image/source-alignment.md)。
 
@@ -30,7 +30,7 @@ Memebuy C 类采用通用 CRT 与照片海报 Process 的背景合同；背景�
 
 模板制作工作台可随同步回执保存脱敏步骤，也可按原运行查询保留期内的 `template-from-image` 步骤记录；见[模板执行步骤](../../api.md#模板执行步骤)。
 
-[`template-master/v1`](template-master/README.md) 由原图与 `template-from-image/v3` 解析结果分档出母版并逐次对照校验，通过后按内容寻址上传到模板公读存储。
+[`template-master/v2`](template-master/README.md) 按显式修图意图（仅透明底 / 去水印 / 实拍提取平面印花）单次调用 `gpt-image-2.6-sunburst`（`quality=medium`）出图并经基础确定性校验后上传至模板公读存储，无 LLM 二次校验与自动重试；[`template-master/v1`](template-master/README.md) 保留滚发兼容。
 
 `template-from-image/v3` 生成运行语义 V4 的[印花拆解候选](template-from-image/print-design-v4.md)；旧 v1/v2、历史运行和冻结模板不切换。
 

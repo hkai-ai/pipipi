@@ -127,6 +127,12 @@ const validInputs: Readonly<Record<string, Record<string, unknown>>> = {
         },
         budget: { maxAttempts: 4, maxUsd: 1 },
     },
+    "template-master/v2": {
+        imageUrl: "https://assets.example.com/source.png",
+        operation: "remove_watermark",
+        transparent: false,
+        watermarkNote: "去掉右下角白色署名",
+    },
     "travel-abstraction-photo-poster/v1": {
         sourceImageUrl: "https://assets.example.com/source.png",
         phrase: "QUIET PAWS",

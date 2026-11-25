@@ -20,9 +20,7 @@ const createProduction = (runtimeVersion: 2 | 3) =>
                     runtimeVersion,
                     ...pi,
                     skills,
-                    model:
-                        environment.TEMPLATE_MODEL?.trim() ||
-                        (pi.provider === "openai" ? "gpt-5.4" : pi.model),
+                    model: environment.TEMPLATE_MODEL?.trim() || pi.model,
                 }),
             }),
     });

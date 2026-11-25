@@ -46,6 +46,9 @@ export class TemplateMasterService {
                 },
                 prompt: input.prompt,
                 size: input.size,
+                ...(input.model ? { model: input.model } : {}),
+                ...(input.quality ? { quality: input.quality } : {}),
+                ...(input.background ? { background: input.background } : {}),
                 idempotencyKey: input.idempotencyKey,
                 signal,
             });
@@ -61,12 +64,21 @@ export class TemplateMasterService {
             .metadata()
             .catch(() => undefined);
         const [width, height] = input.size.split("x").map(Number);
+        const dimensionsValid = input.model
+            ? Boolean(
+                  meta?.width &&
+                      meta.height &&
+                      meta.width >= 64 &&
+                      meta.height >= 64 &&
+                      meta.width <= 4_096 &&
+                      meta.height <= 4_096,
+              )
+            : meta?.width === width && meta?.height === height;
         if (
             bytes.length > 20_000_000 ||
             meta?.format !== "png" ||
             (meta.pages ?? 1) !== 1 ||
-            meta.width !== width ||
-            meta.height !== height
+            !dimensionsValid
         )
             throw new TemplateMasterError("unknown");
         return { image: bytes.toString("base64") };

@@ -496,8 +496,8 @@ Pi Adapter 保留会话、请求和响应阶段，`runActivity` 的可选诊断�
 
 图片转模板保留完整来源业务规则，内部执行“生成分析与草稿 → 独立看图复核并返回必要补丁 → 程序投影与完整校验”。正常两次模型调用；仅首轮 JSON 或候选结构无法读取时允许一次重新编译，最多三次，不追加模型复核。公开 Gallery v2 草稿合同保持不变。实现与边界见 [图片转模板](processes/memebuy/template-from-image/README.md)。
 
-模板可用服务端启动变量 `TEMPLATE_MODEL` 独立指定模型；未设置时 OpenAI 模板默认使用 `gpt-5.4`，其他供应商沿用 `PI_MODEL`。模板复用共享供应商与凭证，不改变其他 Process 的模型。
-异步部署的 API、Process Worker 环境预检允许该变量，角色环境生成脚本将它从共享配置传入这两个角色。模板解析时限为 480 秒；完整目录当前最长的是 `template-master/v1` 的 2400 秒。未显式配置租约时，Worker 按已启用目录的最长时限加 30 秒计算，显式租约必须严格大于最长时限。
+模板可用服务端启动变量 `TEMPLATE_MODEL` 独立指定模型（印花拆解 v3 在 OpenAI 下默认 `gpt-6.1-terra`，其余模板与历史母版 v1 未设置时沿用 `PI_MODEL`）；商品做同款（`product-remix/v1`）使用独立的 `PRODUCT_REMIX_MODEL`，未设置时沿用 `PI_MODEL`。两者均复用共享供应商与凭证，互不干扰。
+异步部署的 API、Process Worker 环境预检允许这两个变量，角色环境生成脚本将它们从共享配置传入这两个角色。模板解析时限为 480 秒，`template-master/v2` 为 360 秒；完整目录当前最长的是 `template-master/v1` 的 2400 秒。未显式配置租约时，Worker 按已启用目录的最长时限加 30 秒计算，显式租约必须严格大于最长时限。
 
 `manga-panels/v1` 复用照片海报链路；`manga-panels.ts` 拥有严格输入与两个固定预设，解析后的约束同时用于 Agent 编译及最终图片指令。分镜允许三个重绘画格，不沿用其他风格的禁止分屏指令；不改变其他风格默认文字行为。
 

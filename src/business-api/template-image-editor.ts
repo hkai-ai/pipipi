@@ -1,8 +1,9 @@
-/** 复用图片网关配置与文件表单 Adapter，固定模板成图模型并净化提交失败。 */
+/** 复用图片网关配置与文件表单 Adapter，按模板流程提供单次改图并净化提交失败。 */
 
 import { resolveModelGateway } from "../model-gateway.js";
 import type { ImageBackground } from "../processes/image-background.js";
 import {
+    type GptImageQuality,
     OpenAIImageGenerationClient,
     OpenAIImageGenerationError,
 } from "./openai-image-generation.js";
@@ -26,6 +27,8 @@ export type TemplateImageEditor = {
         images?: readonly TemplateImageEditorSource[];
         prompt: string;
         size: string;
+        model?: string;
+        quality?: GptImageQuality;
         background?: ImageBackground;
         idempotencyKey: string;
         onReceipt?: (receipt: GatewayReceipt) => void;
@@ -51,6 +54,8 @@ export function createTemplateImageEditor(
             images,
             prompt,
             size,
+            model,
+            quality,
             background,
             idempotencyKey,
             onReceipt,
@@ -74,8 +79,8 @@ export function createTemplateImageEditor(
                         background,
                         idempotencyKey,
                         signal,
-                        model: templateImageEditorModel,
-                        quality: "low",
+                        model: model?.trim() || templateImageEditorModel,
+                        quality: quality ?? "low",
                         outputFormat: "png",
                     },
                     { singleDispatch: true },
