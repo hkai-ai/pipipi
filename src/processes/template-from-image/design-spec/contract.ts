@@ -436,30 +436,18 @@ export function draftIssues(
             "missing_subject",
         );
     else {
-        const errors = checkDesignSpec(spec, [
+        const checked = checkDesignSpec(spec, [
             { id: "default", ...spec.defaults },
-        ]).errors;
-        if (errors.length) {
-            for (const finding of designFindings(spec, errors)) {
-                // Skill v4 要求默认主体写原图主体，但固定检查器（Memebuy 4838acc）仍把默认主体中的原物词判为违规，由宿主豁免；显式禁用词仍生效。
-                if (
-                    finding.code === "source_word" &&
-                    finding.path[0] === "defaults" &&
-                    [
-                        "subject",
-                        "subjectName",
-                        "subjectShape",
-                        "subjectInherentColor",
-                    ].includes(String(finding.path[1])) &&
-                    !spec.bannedWords.some(
-                        (word) =>
-                            word &&
-                            finding.message.startsWith(
-                                `原物词「${word}」出现在：`,
-                            ),
-                    )
-                )
-                    continue;
+        ]);
+        // 审阅备注/草稿词与「未知」疏密在 Pipipi 侧阻断以触发内部按需修正，不把草稿词放流进生图提示词。
+        const blockingMetaWarnings = checked.warnings.filter(
+            (warning) =>
+                warning.startsWith("审阅备注或草稿词") ||
+                warning.startsWith("疏密描述以「未知」开头"),
+        );
+        const allErrors = [...checked.errors, ...blockingMetaWarnings];
+        if (allErrors.length) {
+            for (const finding of designFindings(spec, allErrors)) {
                 add(
                     false,
                     `${[...root, ...finding.path].join(".")}: ${finding.message}`,
@@ -467,6 +455,16 @@ export function draftIssues(
                     finding.code,
                 );
             }
+        }
+    }
+    for (const [id, value] of Object.entries(spec.defaults.accentSources)) {
+        if (/原图主体|小头像|主体头像|重复主体/u.test(value)) {
+            add(
+                false,
+                `draft.runtimeSemantics.designSpec.defaults.accentSources.${id}: 同一主体的重复小头像不得写入 accentSources，请移入主体元素的 occurrences（count/arrangement/scaleNote/variants）`,
+                [...root, "defaults", "accentSources", "*"],
+                "subject_in_accent_sources",
+            );
         }
     }
     const elements = new Map(

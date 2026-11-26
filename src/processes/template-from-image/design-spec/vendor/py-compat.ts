@@ -1,4 +1,4 @@
-/** 从固定 Memebuy 来源生成的纯拆解检查器；通过 build-template-v4-contract.ts 更新。 */
+/** 从 Memebuy 同步生成的纯拆解检查器；通过 build-template-v4-contract.ts 更新。 */
 // 与 Python 行为对齐的小工具：compile.py 按码点切片、按码点排序，json.dumps 带空格分隔。
 
 /** 按码点取前 n 个字符（Python 的 s[:n]）；JS 的 slice 按 UTF-16 单元，会劈开代理对。 */

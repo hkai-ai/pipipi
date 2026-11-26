@@ -32,6 +32,13 @@ function descriptionFields(spec: DesignSpec) {
         if (el.category === "subject") {
             add([...path, "genericShape"], el.genericShape);
             add([...path, "pose"], el.pose);
+            add(
+                [...path, "occurrences", "scaleNote"],
+                el.occurrences?.scaleNote,
+            );
+            el.occurrences?.variants?.forEach((variant, vIndex) => {
+                add([...path, "occurrences", "variants", vIndex], variant);
+            });
         } else if (el.category === "text")
             add([...path, "letterform"], el.letterform);
         else {
@@ -61,6 +68,22 @@ export function designFindings(spec: DesignSpec, messages: string[]) {
     return messages.flatMap((message) => {
         if (message.startsWith("印花形态为矩形贴片"))
             return [{ message, path: ["elements"], code: "missing_edge" }];
+        if (message.startsWith("疏密描述以「未知」开头"))
+            return [
+                {
+                    message,
+                    path: ["whole", "composition", "density"],
+                    code: "unknown_density",
+                },
+            ];
+        if (message.startsWith("版面引用的 @"))
+            return [
+                {
+                    message,
+                    path: ["whole", "composition", "layout"],
+                    code: "missing_reference",
+                },
+            ];
         if (message.startsWith("主体固有色策略")) {
             const i = spec.whole.colorRoles.findIndex(
                 (r) =>
@@ -83,6 +106,7 @@ export function designFindings(spec: DesignSpec, messages: string[]) {
             ["抽象风格词", "abstract_style"],
             ["会画成半透明的词", "transparency_word"],
             ["颜色占位", "unknown_color_role"],
+            ["审阅备注或草稿词", "draft_meta_word"],
         ] as const;
         const code =
             rules.find(([start]) => message.startsWith(start))?.[1] ??
@@ -98,7 +122,9 @@ export function designFindings(spec: DesignSpec, messages: string[]) {
             const suffix =
                 code === "transparency_word"
                     ? "（改写成能画实的形状或颗粒）"
-                    : "";
+                    : code === "draft_meta_word"
+                      ? "（移至 recommendedMethod 或改写为具体画面事实）"
+                      : "";
             return message.endsWith(`：${excerpt}${suffix}`);
         });
         return matches.length

@@ -1,8 +1,19 @@
-/** 从固定 Memebuy 来源生成的纯拆解检查器；通过 build-template-v4-contract.ts 更新。 */
+/** 从 Memebuy 同步生成的纯拆解检查器；通过 build-template-v4-contract.ts 更新。 */
 // 拆解数据编译器的输入输出类型。字段与 Skill compile.py 的中文键一一对应，见各字段注释。
+import type { DesignSpecBorderId } from "./design-spec-schema.js";
+
+/** 改画法、换边框、换场景：结构化修改里与画法相关的三项，只做数据与编译支持（P4 接翻译层）。 */
+export interface DesignSpecEditOverrides {
+    /** 画法覆盖文字：画法段改用它，参考图降为只取内容与版面 */
+    techniqueOverride?: string;
+    /** 换边框库 id：仅对容器为边框库或背景为承重的模板生效 */
+    borderOverride?: DesignSpecBorderId;
+    /** 承重背景的场景描述：仅对承重背景生效 */
+    sceneOverride?: string;
+}
 
 /** 迁移条目：一次编译用的“用户输入”快照（中文键：迁移）；由默认值或输入映射产出，不入库。 */
-export interface MigrationEntry {
+export interface MigrationEntry extends DesignSpecEditOverrides {
     id: string;
     /** 主体（主体）：身份与外形的完整短语 */
     subject: string;

@@ -544,3 +544,72 @@ it("生产装配在未指定 TEMPLATE_MODEL 时默认选用 gpt-6.1-terra", () =
         version: "v3",
     });
 });
+it("支持正交轴无框满版（load_bearing + container=none）与单主体重复（occurrences）", async () => {
+    const next = structuredClone(fixture());
+    const spec = next.draft.runtimeSemantics.designSpec;
+    Reflect.deleteProperty(spec.whole, "printForm");
+    spec.whole.background = "load_bearing";
+    spec.whole.boundary = { state: "complete" };
+    spec.whole.container = { kind: "none" };
+    spec.whole.edge = "hard";
+    spec.whole.prePress = { paperColor: "#f0f3ec" };
+    spec.elements = spec.elements.filter((el) => el.category !== "edge");
+    const keptIds = new Set(spec.elements.map((el) => el.id));
+    spec.whole.colorRoles = spec.whole.colorRoles.map((role) =>
+        role.appliesTo
+            ? {
+                  ...role,
+                  appliesTo: role.appliesTo.filter((id) => keptIds.has(id)),
+              }
+            : role,
+    );
+    const subject = spec.elements.find((el) => el.category === "subject");
+    if (subject?.category !== "subject")
+        throw new Error("fixture missing subject");
+    subject.occurrences = {
+        count: 8,
+        arrangement: "equal",
+        scaleNote: "8 个较小悬浮头像按上中下交错散布",
+        variants: ["左下角佩戴黑色像素墨镜"],
+    };
+    const parsed = readCandidate(next);
+    expect(candidateIssues(parsed)).toEqual([]);
+    const deps = dependencies();
+    deps.agent.compile.mockResolvedValueOnce(next);
+    const result = await run(deps);
+    expect(result.status).toBe("succeeded");
+    expect(deps.agent.compile).toHaveBeenCalledOnce();
+});
+it("拦截审阅草稿词、未知疏密与把重复头像塞进 accentSources，触发一次自动修正", async () => {
+    const bad = structuredClone(fixture());
+    const spec = bad.draft.runtimeSemantics.designSpec;
+    spec.whole.composition.density = "未知；需核对内容框。";
+    const accent = spec.elements.find((el) => el.category === "accent");
+    if (accent) {
+        spec.defaults.accentSources[accent.id] =
+            "原图主体的四个小头像，左下戴墨镜";
+    }
+    const edge = spec.elements.find((el) => el.category === "edge");
+    if (edge && edge.category === "edge") {
+        edge.description = "候选新增浅蓝色细圆角边框；原图未见此边框。";
+    }
+    const findings: Array<{ path: readonly PropertyKey[]; code: string }> = [];
+    const issues = candidateIssues(readCandidate(bad), findings);
+    expect(issues.some((m) => m.includes("以「未知」开头"))).toBe(true);
+    expect(findings.some((f) => f.code === "unknown_density")).toBe(true);
+    if (edge) {
+        expect(findings.some((f) => f.code === "draft_meta_word")).toBe(true);
+    }
+    if (accent) {
+        expect(
+            findings.some((f) => f.code === "subject_in_accent_sources"),
+        ).toBe(true);
+    }
+    const deps = dependencies();
+    deps.agent.compile
+        .mockResolvedValueOnce(bad)
+        .mockResolvedValueOnce(fixture());
+    const result = await run(deps);
+    expect(result.status).toBe("succeeded");
+    expect(deps.agent.compile).toHaveBeenCalledTimes(2);
+});

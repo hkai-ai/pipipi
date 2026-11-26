@@ -1,7 +1,10 @@
-/** 从固定 Memebuy 来源生成的纯拆解检查器；通过 build-template-v4-contract.ts 更新。 */
+/** 从 Memebuy 同步生成的纯拆解检查器；通过 build-template-v4-contract.ts 更新。 */
 // 拆解数据检查：移植自 compile.py 的“检查”段。错误导入时拒绝，警告交给人复核；报错文案与 Python 一致。
+import { normalizeDesignSpec } from "./design-spec-axes.js";
+import { printFormOf } from "./design-spec-output.js";
 import type { DesignSpec, DesignSpecElement } from "./design-spec-schema.js";
 
+import { resolveLayoutReference } from "./layout-json.js";
 import { sliceCodePoints, sortedUnique } from "./py-compat.js";
 import type {
     AttachmentFacts,
@@ -11,6 +14,7 @@ import type {
 import {
     CROWD_WORDS,
     colorPlaceholderPattern,
+    DRAFT_META_WORDS,
     GLOW_WORDS,
     PRINT_FORM_LABEL,
     STYLE_WORDS,
@@ -26,11 +30,7 @@ export function findSubjectElement(spec: DesignSpec): SubjectElement {
     return subject;
 }
 
-/** 会进提示词、且属于描述性的字段（参与风格词与原物词检查）。 */
-export function collectDescriptiveTexts(
-    spec: DesignSpec,
-    entries: readonly MigrationEntry[],
-): string[] {
+function collectSkeletonDescriptiveTexts(spec: DesignSpec): string[] {
     const { whole } = spec;
     const composition = whole.composition;
     const texts: string[] = [
@@ -48,7 +48,12 @@ export function collectDescriptiveTexts(
         texts.push(relation.join(" "));
     for (const element of spec.elements) {
         if (element.category === "subject") {
-            texts.push(element.genericShape ?? "", element.pose ?? "");
+            texts.push(
+                element.genericShape ?? "",
+                element.pose ?? "",
+                element.occurrences?.scaleNote ?? "",
+                ...(element.occurrences?.variants ?? []),
+            );
         } else if (
             element.category === "accent" ||
             element.category === "decoration"
@@ -64,19 +69,33 @@ export function collectDescriptiveTexts(
             texts.push(element.description);
         }
     }
-    for (const entry of entries) {
-        texts.push(
-            entry.subject,
-            entry.subjectName,
-            entry.subjectShape ?? "",
-            entry.fun ?? "",
-            entry.pose ?? "",
-            entry.subjectInherentColor ?? "",
-            ...Object.values(entry.accentSources),
-            ...Object.values(entry.specifiedContent),
-        );
-    }
     return texts;
+}
+
+function collectEntryDescriptiveTexts(entry: MigrationEntry): string[] {
+    return [
+        entry.subject,
+        entry.subjectName,
+        entry.subjectShape ?? "",
+        entry.fun ?? "",
+        entry.pose ?? "",
+        entry.subjectInherentColor ?? "",
+        entry.techniqueOverride ?? "",
+        entry.sceneOverride ?? "",
+        ...Object.values(entry.accentSources),
+        ...Object.values(entry.specifiedContent),
+    ];
+}
+
+/** 会进提示词、且属于描述性的字段（参与风格词与原物词检查）。 */
+export function collectDescriptiveTexts(
+    spec: DesignSpec,
+    entries: readonly MigrationEntry[],
+): string[] {
+    return [
+        ...collectSkeletonDescriptiveTexts(spec),
+        ...entries.flatMap(collectEntryDescriptiveTexts),
+    ];
 }
 
 function collectUserTexts(entries: readonly MigrationEntry[]): Set<string> {
@@ -86,6 +105,8 @@ function collectUserTexts(entries: readonly MigrationEntry[]): Set<string> {
             values.add(value);
         for (const value of Object.values(entry.texts)) values.add(value);
         values.add(entry.subject);
+        if (entry.techniqueOverride) values.add(entry.techniqueOverride);
+        if (entry.sceneOverride) values.add(entry.sceneOverride);
     }
     return values;
 }
@@ -99,14 +120,29 @@ export function checkDesignSpec(
     const errors: string[] = [];
     const warnings: string[] = [];
     const subject = findSubjectElement(spec);
-    const descriptive = collectDescriptiveTexts(spec, entries);
+    const skeletonTexts = collectSkeletonDescriptiveTexts(spec);
+    const descriptive = [
+        ...skeletonTexts,
+        ...entries.flatMap(collectEntryDescriptiveTexts),
+    ];
     const userTexts = collectUserTexts(entries);
     const roleNames = new Set(spec.whole.colorRoles.map((role) => role.name));
-    const banned = [
-        ...spec.bannedWords,
+    const explicitBanned = spec.bannedWords.filter((word) => word);
+    // default / 未替换主体的 runtime 描述的就是原图默认主体本身，不应用原物的 originalObject / shapeFeatures 误伤
+    const subjectBanned = [
         subject.originalObject ?? "",
         ...(subject.shapeFeatures ?? []),
     ].filter((word) => word);
+    const subjectCheckedTexts = [
+        ...skeletonTexts,
+        ...entries
+            .filter(
+                (entry) =>
+                    (entry.id !== "default" && entry.id !== "runtime") ||
+                    entry.subjectReplaced === true,
+            )
+            .flatMap(collectEntryDescriptiveTexts),
+    ];
 
     for (const value of userTexts) {
         for (const word of GLOW_WORDS) {
@@ -117,8 +153,16 @@ export function checkDesignSpec(
             }
         }
     }
+    for (const text of subjectCheckedTexts) {
+        for (const word of subjectBanned) {
+            if (text.includes(word))
+                errors.push(
+                    `原物词「${word}」出现在：${sliceCodePoints(text, 50)}`,
+                );
+        }
+    }
     for (const text of descriptive) {
-        for (const word of banned) {
+        for (const word of explicitBanned) {
             if (text.includes(word))
                 errors.push(
                     `原物词「${word}」出现在：${sliceCodePoints(text, 50)}`,
@@ -136,6 +180,17 @@ export function checkDesignSpec(
                 errors.push(
                     `会画成半透明的词「${word}」出现在：${sliceCodePoints(text, 50)}（改写成能画实的形状或颗粒）`,
                 );
+            }
+        }
+    }
+    for (const item of spec.whole.composition.layout) {
+        for (const raw of [item.text, item.content]) {
+            if (!raw?.startsWith("@")) continue;
+            const key = raw.slice(1);
+            for (const entry of entries) {
+                if (resolveLayoutReference(key, spec, entry) === undefined) {
+                    errors.push(`版面引用的 @${key} 在迁移条目里没有值`);
+                }
             }
         }
     }
@@ -167,8 +222,10 @@ export function checkDesignSpec(
             }
         }
     }
+    const axes = normalizeDesignSpec(spec);
     if (
-        spec.whole.printForm === "rect_patch" &&
+        axes.background === "load_bearing" &&
+        axes.container.kind === "own" &&
         !spec.elements.some((element) => element.category === "edge")
     ) {
         errors.push(
@@ -183,19 +240,31 @@ export function checkDesignSpec(
             warnings.push("档位为同手法，附原图会让构图和配色跟着原图走");
         }
     }
-    if (
-        spec.whole.printForm !== "rect_patch" &&
-        spec.whole.printForm !== "bleed_crop"
-    ) {
+    const printForm = printFormOf(spec);
+    if (printForm === "standalone") {
         for (const text of descriptive) {
             for (const word of CROWD_WORDS) {
                 if (text.includes(word)) {
                     warnings.push(
-                        `「${word}」容易让图案碰到画布边（印花形态为${PRINT_FORM_LABEL[spec.whole.printForm]}）：${sliceCodePoints(text, 40)}`,
+                        `「${word}」容易让图案碰到画布边（印花形态为${PRINT_FORM_LABEL[printForm]}）：${sliceCodePoints(text, 40)}`,
                     );
                 }
             }
         }
+    }
+    for (const text of skeletonTexts) {
+        for (const word of DRAFT_META_WORDS) {
+            if (text.includes(word)) {
+                warnings.push(
+                    `审阅备注或草稿词「${word}」出现在执行描述里：${sliceCodePoints(text, 50)}（移至 recommendedMethod 或改写为具体画面事实）`,
+                );
+            }
+        }
+    }
+    if (/^未知/u.test(spec.whole.composition.density.trim())) {
+        warnings.push(
+            `疏密描述以「未知」开头：${sliceCodePoints(spec.whole.composition.density, 50)}（改写为具体可见疏密描述）`,
+        );
     }
     return { errors: sortedUnique(errors), warnings: sortedUnique(warnings) };
 }

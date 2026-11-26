@@ -1,5 +1,10 @@
 /** 按本次设计说明组装母版 v1 修复/重绘/校验与 v2 显式单次修图的服务端提示词。 */
 import { displayPrompt } from "../template-from-image/design-spec/contract.js";
+import { normalizeDesignSpec } from "../template-from-image/design-spec/vendor/design-spec-axes.js";
+import {
+    printFormDisplayLabel,
+    printFormOf,
+} from "../template-from-image/design-spec/vendor/design-spec-output.js";
 import type { DesignSpec } from "../template-from-image/design-spec/vendor/design-spec-schema.js";
 import type { MasterV2Operation } from "./contract.js";
 import type { PrintForm } from "./light.js";
@@ -222,17 +227,23 @@ function nonTextDesignElements(spec: DesignSpec): string[] {
 function v2BackgroundRule(
     operation: MasterV2Operation,
     transparent: boolean,
-    printForm?: PrintForm,
+    spec?: DesignSpec,
 ): string {
     if (transparent) {
         return "输出透明底 PNG（background=transparent）：图案完整落在画布内，边缘清晰锐利、内部实心不透明，四周留出适度空白不贴边截断，不残留背景色边或半透明光晕。";
     }
     if (operation === "extract_from_photo") {
-        if (printForm === "rect_patch") {
-            return "输出不透明平面 PNG（background=opaque）：整个矩形设计贴片铺满画布，边框完整可见，不另加背景、阴影或外框。";
-        }
-        if (printForm === "bleed_crop") {
-            return "输出不透明平面 PNG（background=opaque）：保持原印花的出血裁切构图铺满画布，不补全被切掉的部分。";
+        if (spec) {
+            const axes = normalizeDesignSpec(spec);
+            if (axes.background === "load_bearing") {
+                if (axes.container.kind === "none") {
+                    return "输出不透明平面 PNG（background=opaque）：完整保留原印花的满版背景与构图铺满画布，不额外添加边框、阴影或外框。";
+                }
+                return "输出不透明平面 PNG（background=opaque）：整个矩形设计贴片铺满画布，边框完整可见，不另加背景、阴影或外框。";
+            }
+            if (printFormOf(spec) === "bleed_crop") {
+                return "输出不透明平面 PNG（background=opaque）：保持原印花的出血裁切构图铺满画布，不补全被切掉的部分。";
+            }
         }
         return "输出不透明平面 PNG（background=opaque）：正视平铺于干净均匀的纯色衬底上，不带衣物褶皱、阴影、渐变或场景背景。";
     }
@@ -269,7 +280,7 @@ export function buildV2EditInstruction(input: {
                 [
                     "## 设计参考（须完整保留主体、全部伴生/点缀/装饰元素与文字）",
                     `- 画法：${spec.whole.technique}`,
-                    `- 印花形态：${spec.whole.printForm}`,
+                    `- 印花形态：${printFormDisplayLabel(spec)}`,
                     `- 主体：${spec.defaults.subject}`,
                 ].join("\n"),
             );
@@ -314,7 +325,7 @@ export function buildV2EditInstruction(input: {
     }
 
     sections.push(
-        `## 输出\n${v2BackgroundRule(input.operation, input.transparent, spec?.whole.printForm)}`,
+        `## 输出\n${v2BackgroundRule(input.operation, input.transparent, spec)}`,
     );
 
     return sections.join("\n\n");

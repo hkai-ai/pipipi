@@ -8,6 +8,7 @@ import {
     failProcess,
     type ProcessRegistration,
 } from "../../process-runtime/index.js";
+import { printFormOf } from "../template-from-image/design-spec/vendor/design-spec-output.js";
 import { templateImageSize } from "../template-from-image/image.js";
 import {
     MasterCapabilityError,
@@ -114,7 +115,7 @@ export function createTemplateMasterRegistration(options: {
             }
             const input = rawInput as ResolvedMasterInput;
             const spec = input.template.runtimeSemantics.designSpec;
-            const form: PrintForm = spec.whole.printForm;
+            const form: PrintForm = printFormOf(spec);
             const { marks } = input.condition;
             const { signal } = context;
             let source: Buffer;
