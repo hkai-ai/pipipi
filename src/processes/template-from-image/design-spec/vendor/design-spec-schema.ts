@@ -140,6 +140,12 @@ const wholeShape = {
         .object({
             softEdge: optionalText,
             paperColor: z.string().trim().max(100).nullable().optional(),
+            paperColorHex: z
+                .string()
+                .trim()
+                .regex(/^#[0-9a-fA-F]{6}$/u, "纸色色值须为 #RRGGBB")
+                .nullable()
+                .optional(),
         })
         .strict()
         .optional(),

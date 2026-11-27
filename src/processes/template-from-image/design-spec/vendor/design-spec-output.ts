@@ -86,6 +86,42 @@ export function isDesignSpecRuntimeSemantics(raw: unknown): boolean {
     );
 }
 
+const HEX6_COLOR = /^#[0-9a-f]{6}$/i;
+const HEX3_COLOR = /^#[0-9a-f]{3}$/i;
+
+function normalizeHexColor(raw: string | null | undefined): string | null {
+    if (!raw) return null;
+    const trimmed = raw.trim();
+    if (HEX6_COLOR.test(trimmed)) return trimmed.toLowerCase();
+    if (HEX3_COLOR.test(trimmed)) {
+        const [r, g, b] = trimmed.slice(1).split("");
+        return `#${r}${r}${g}${g}${b}${b}`.toLowerCase();
+    }
+    return null;
+}
+
+/** 模板是否为满版不透明原画（承重背景且无容器）：用于下游服饰品类提供程序化收边遮罩。 */
+export function isFullBleedDesignSpec(
+    spec: Pick<DesignSpec, "whole" | "printFit">,
+): boolean {
+    const axes = normalizeDesignSpec(spec);
+    return axes.background === "load_bearing" && axes.container.kind === "none";
+}
+
+/**
+ * 读取模板印前纸色色值（`#rrggbb`）：优先取解析阶段四角采样得到的 `prePress.paperColorHex`，
+ * 兼容直接写在 `prePress.paperColor` 里的 hex。非 hex 中文描述返回 null。
+ */
+export function resolveDesignSpecPaperColorHex(
+    spec: Pick<DesignSpec, "whole"> | null | undefined,
+): string | null {
+    if (!spec?.whole?.prePress) return null;
+    return (
+        normalizeHexColor(spec.whole.prePress.paperColorHex) ??
+        normalizeHexColor(spec.whole.prePress.paperColor)
+    );
+}
+
 /** 从未解析的运行语义里取出合法的 designSpec；非 v4 或结构不合法返回 null，供只读派生（打标、搜索）使用。 */
 export function parseDesignSpec(raw: unknown): DesignSpec | null {
     if (!isDesignSpecRuntimeSemantics(raw)) return null;
