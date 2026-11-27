@@ -1,39 +1,55 @@
 {
   "repository": "hkai-ai/memebuy_monorepo",
-  "revision": "4838accfee73821c038689ba1bfa60eaa2c57324",
+  "revision": "6696111e7951f453a570f34e7f1d7a3a6b571fc9",
   "license": "内部同组织业务合同；不复制第三方素材或执行脚本",
   "files": [
     {
       "path": "docs/gallery/print-design-preparation.md",
-      "sha256": "b426a03e04dd19198a3148841faf6c2572e002af276bcb6aac5f6191ae3d9901"
+      "sha256": "72ae22107761033b5d4df31bcf3a994809ef27929bd935b2592261ee67a1f63e"
     },
     {
       "path": "docs/gallery/agent-template-json-runtime-contract.md",
-      "sha256": "52dcbcc4e3ac370b7f10cb1a3ac718c2944e43e12f3e511b1b4123421fbcd057"
+      "sha256": "08fa1195a79847379ef3a9a2cde8eeb4a474ec6d970ef7241d23b5893cbe6162"
     },
     {
-      "path": "docs/gallery/template-import/schema.json",
-      "sha256": "deab4c855bd2ad7a1fcbbb562025a935db6dbd39fe2127a13869331dba671e4d"
+      "path": "tmp/generated-docs/gallery-template/schema.json",
+      "sha256": "fd4a3939eaa987b6ae1b66926038b3009ac78d9a8a35fe62b24af6ea8c902f38"
     },
     {
       "path": "src/modules/gallery/templates/design-spec-schema.ts",
-      "sha256": "03f0a4e1e9a5d893a24e6606a428dbfa0004121665b90db3c08b48160c8a2c0b"
+      "sha256": "369b9a99077ee6d9a62748fa846f4e0b4eb2935792a232e6989c910ccb6abb33"
+    },
+    {
+      "path": "src/modules/gallery/templates/design-spec-axes.ts",
+      "sha256": "9e1273fe8763e6dd6241ca686528d567e3cd6050936fb49a14f028dcee16e113"
+    },
+    {
+      "path": "src/modules/gallery/templates/design-spec-output.ts",
+      "sha256": "329eef44982f74d1f7018523f674dd0fc7c50b0b1b633e709d5b6083e5761987"
     },
     {
       "path": "src/modules/gallery/generation/compile/design-spec-compiler/checks.ts",
-      "sha256": "38c7023d9b255a3a902c4c9b8f148e361144faa30a867ba2be9abc034c594abe"
+      "sha256": "3534a7fd0213419f96d13b0d3220f52c841d62b5f8f09dde12432a2e11c49b4f"
     },
     {
       "path": "src/modules/gallery/generation/compile/design-spec-compiler/vocabulary.ts",
-      "sha256": "373e3def39057cede47b0f3d141b03a6b68bedabfbac80c007401432875989e6"
+      "sha256": "7de747b4370b9fe534acf4e269076a34c79af983753225531baf5e6868d59732"
     },
     {
       "path": "src/modules/gallery/generation/compile/design-spec-compiler/types.ts",
-      "sha256": "70e6bef923517ab58fe54e2b309bea10a4fe35c4468d7859f49d913468a68b8f"
+      "sha256": "e19e44c096026171e2ffbc8d2ab3027be2306fa8523abf82820d8b4b62e085c6"
     },
     {
       "path": "src/modules/gallery/generation/compile/design-spec-compiler/py-compat.ts",
       "sha256": "9952f3dcfcbef228e2e61890af67eb24e592637ab018ba6af41b01a057909b7a"
+    },
+    {
+      "path": "src/modules/gallery/generation/compile/design-spec-compiler/layout-json.ts",
+      "sha256": "ee16795e3b1cb3ef84e7e733f88fc80dcd0bc86d72606ad841538393d7813301"
+    },
+    {
+      "path": "src/modules/gallery/generation/compile/design-spec-compiler/follow-texts.ts",
+      "sha256": "87e905df3556ed71e7fddd163345053130cbb03fe2c5caebaf9381b2d73369cd"
     }
   ]
 }

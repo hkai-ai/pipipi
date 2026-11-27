@@ -12,6 +12,7 @@ import { normalizePrintText } from "../../print-text.js";
 import { type TemplateImage, templateImageSize } from "../image.js";
 import { designFindings } from "./design-findings.js";
 import { checkDesignSpec } from "./vendor/checks.js";
+import { normalizeDesignSpec } from "./vendor/design-spec-axes.js";
 import {
     type DesignSpec,
     designSpecSchema,
@@ -26,7 +27,7 @@ const bytes = readFileSync(
 );
 if (
     createHash("sha256").update(bytes).digest("hex") !==
-    "6978f08d5c22e069f54cba77655913c3ac069083bc0e2b01021ec384c5a29833"
+    "278b765525e876647f08cc27cf802ab463955ab36403ee8caeca1c3ff31a1e83"
 )
     throw new Error("印花模板合同摘要不匹配");
 const source = JSON.parse(bytes.toString("utf8"));
@@ -680,8 +681,13 @@ export function candidateIssues(
 }
 
 export function displayPrompt(spec: DesignSpec): string {
+    const { background, container } = normalizeDesignSpec(spec);
+    const openingLead =
+        background === "load_bearing" && container.kind === "none"
+            ? "画一张满版完整图案"
+            : "画一张 T 恤印花图案";
     return [
-        `画一张 T 恤印花图案，${spec.whole.tone}。`,
+        `${openingLead}，${spec.whole.tone}。`,
         `主体：${spec.defaults.subject}。`,
         ...spec.elements
             .filter((element) => element.category === "text")

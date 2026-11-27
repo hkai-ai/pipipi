@@ -104,10 +104,10 @@
             "sha256": "56f4b2bc5874905d492f76e2f513bd2666d57af0ee4a833382ff8ea080dc8333"
         },
         "print-design-template-compiler": {
-            "version": "v4",
-            "commit": "8cac81bef7c1a73644611cb1bfe3383a0ee0235e",
-            "tree": "37f01d0f1d928620ed87c3d50a76058ba28201e4",
-            "sha256": "102b9f61ff270a496e7278e1b2fac243f0832fccd5ad318396204de98ed67c1c"
+            "version": "v5",
+            "commit": "ea634a294c525f762430d478e61d36bb30abd9db",
+            "tree": "ade22cd2bd14a98050d84fd31a7829d9dcaaab8e",
+            "sha256": "59dd401fc23f0ed3b64f5728ee9b2e19b364026f430d55a3587646315ff4d9dc"
         },
         "product-remix-method": {
             "version": "v1",

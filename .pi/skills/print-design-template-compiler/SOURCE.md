@@ -13,3 +13,13 @@
 只改作者规则：新拆解的 `designSpec.defaults` 保留原图内容（原图主体、逐字原文、原图配色），不再做作者默认迁移；可替换性仍由输入槽与 `followsSubject` 表达。原因：母版同时是模板封面与生成参考图，默认值改动原图时，母版会只改字不改图或无法通过对照（UAT 实例：DOGTOR 被迁移为橘猫与 CATCTOR）。
 
 来源仍固定在 Memebuy `4838accfee73821c038689ba1bfa60eaa2c57324`，仅在 `print-design-preparation.md` 与 `agent-template-json-runtime-contract.md` 两份文件上叠加与 Memebuy `2fe81071c`（feat/print-design-keep-original）等价的默认值规则；生成器前言同步改写同一句规则。Memebuy 自该修订以来的 schema 与检查器演进未纳入本版，`gallery.schema.json` 与 v3 逐字节相同。`docs/gallery/template-import/schema.json` 在 Memebuy `e59e3e90ef` 后改为按需生成，本版沿用上述修订中的已审查文件。
+
+## v5（2026-11-27）
+
+全面对齐 Memebuy `6696111e7951f453a570f34e7f1d7a3a6b571fc9` 的正交轴与多品类解耦口径：
+
+- 印花处理改以正交轴原生表达：`whole.background`（`none` / `backdrop` / `load_bearing`）、`whole.boundary`（`complete` / `cut`）、`whole.container`（`none` / `own` / `library`）、`whole.edge`（`hard` / `soft_fur` / `fade`）、`printFit.garmentTone`、`printFit.subjectSwap` 及配饰 `wornOnSubject`。
+- 区分满版原画与设计贴片：原图无真实外框的整幅场景/海报/满铺花纹记为 `load_bearing + container.kind = none`（不透明满版原画，严禁虚构 `edge` 收形元素），服饰收边交由下游品类程序处理；纯色/纸色衬底记为 `backdrop + none` 并记录 `prePress.paperColor` / `paperColorHex`；仅原图自带真实外框时记 `container.kind = own` 并写 `edge`。
+- 新增 1 对 N 同主体重复布局 `subject.occurrences`（`count`、`arrangement`、`scaleNote`、`variants`），禁止将重复主体小像写入 `accent` 或 `defaults.accentSources`。
+- 禁止执行描述与 `composition.density` 混入审阅备注/草稿词（如“原图未见”“候选新增”“需人工确认”“待人工叠图核对”）或以“未知”开头。
+- `gallery.schema.json` 改由 Memebuy `pnpm docs:template-schema` 生成的 `tmp/generated-docs/gallery-template/schema.json` 裁剪并锁定 `runtimeSemantics` v4 分支生成，同步纳入全部新字段。
